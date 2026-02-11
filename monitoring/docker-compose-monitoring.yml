@@ -1,0 +1,307 @@
+# =================================================================
+# FILE: docker-compose-monitoring.yml
+# =================================================================
+# SCOPO: Stack completo monitoring con Prometheus + Grafana + Exporters
+#
+# SERVIZI INCLUSI:
+# - prometheus: Raccolta metriche time-series
+# - grafana: Dashboard e visualizzazione
+# - node-exporter: Metriche OS (CPU, RAM, Disk)
+# - cadvisor: Metriche container Docker
+# - postgres-exporter: Metriche database PostgreSQL
+# - redis-exporter: Metriche cache Redis
+#
+# AVVIO:
+#   docker-compose -f docker-compose-monitoring.yml up -d
+#
+# ACCESSO:
+#   Prometheus: http://localhost:9090
+#   Grafana: http://localhost:3000 (admin/admin)
+# =================================================================
+
+version: '3.8'
+
+services:
+  # =================================================================
+  # PROMETHEUS - Time-Series Database e Query Engine
+  # =================================================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: gestionale-prometheus
+    restart: unless-stopped
+
+    # Porta esposta per UI e API
+    ports:
+      - "9090:9090"
+
+    # Mount configurazione e storage
+    volumes:
+      # File configurazione
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+      # Storage persistente metriche
+      - prometheus_data:/prometheus
+
+      # (Opzionale) Regole alerting
+      # - ./alerts:/etc/prometheus/alerts:ro
+
+    # Command-line arguments
+    command:
+      # Path configurazione
+      - '--config.file=/etc/prometheus/prometheus.yml'
+
+      # Path storage
+      - '--storage.tsdb.path=/prometheus'
+
+      # Retention metriche: 15 giorni
+      - '--storage.tsdb.retention.time=15d'
+
+      # Max size storage: 10GB
+      - '--storage.tsdb.retention.size=10GB'
+
+      # Abilita lifecycle API (reload config via HTTP)
+      - '--web.enable-lifecycle'
+
+      # Console libraries
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+
+    networks:
+      - monitoring
+      - default  # Accesso alla rete dell'app principale
+
+    labels:
+      service: "prometheus"
+      monitoring: "true"
+
+  # =================================================================
+  # GRAFANA - Dashboard e Visualization
+  # =================================================================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: gestionale-grafana
+    restart: unless-stopped
+
+    # Porta esposta
+    ports:
+      - "3000:3000"
+
+    # Variabili ambiente
+    environment:
+      # Credenziali default (CAMBIARE IN PRODUZIONE!)
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+
+      # Disabilita registrazione utenti
+      - GF_USERS_ALLOW_SIGN_UP=false
+
+      # Anonymous access (opzionale, per demo)
+      # - GF_AUTH_ANONYMOUS_ENABLED=true
+      # - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+
+      # SMTP per alerting email (opzionale)
+      # - GF_SMTP_ENABLED=true
+      # - GF_SMTP_HOST=smtp.gmail.com:587
+      # - GF_SMTP_USER=your-email@gmail.com
+      # - GF_SMTP_PASSWORD=your-app-password
+
+    # Mount storage e provisioning
+    volumes:
+      # Storage persistente dashboards, users, etc.
+      - grafana_data:/var/lib/grafana
+
+      # Provisioning datasources (Prometheus auto-configurato)
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+
+      # Dashboards preconfigurati
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+
+    # Dipendenze
+    depends_on:
+      - prometheus
+
+    networks:
+      - monitoring
+
+    labels:
+      service: "grafana"
+      monitoring: "true"
+
+  # =================================================================
+  # NODE EXPORTER - Metriche Sistema Operativo
+  # =================================================================
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: gestionale-node-exporter
+    restart: unless-stopped
+
+    # Porta esposta
+    ports:
+      - "9100:9100"
+
+    # Command per esporre metriche addizionali
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/rootfs'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+
+    # Mount filesystem host (read-only)
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+
+    networks:
+      - monitoring
+
+    labels:
+      service: "node-exporter"
+      monitoring: "true"
+
+  # =================================================================
+  # CADVISOR - Metriche Container Docker
+  # =================================================================
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: gestionale-cadvisor
+    restart: unless-stopped
+
+    # Porta esposta
+    ports:
+      - "8080:8080"
+
+    # Mount per accedere a container stats
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:rw
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+
+    networks:
+      - monitoring
+
+    labels:
+      service: "cadvisor"
+      monitoring: "true"
+
+  # =================================================================
+  # POSTGRES EXPORTER - Metriche Database PostgreSQL
+  # =================================================================
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: gestionale-postgres-exporter
+    restart: unless-stopped
+
+    # Porta esposta
+    ports:
+      - "9187:9187"
+
+    # Connection string database
+    environment:
+      # Formato: postgresql://user:password@host:port/database?sslmode=disable
+      - DATA_SOURCE_NAME=postgresql://admin:password123@db:5432/gestionale?sslmode=disable
+
+    # Dipendenze
+    depends_on:
+      - db  # Container database dell'app principale
+
+    networks:
+      - monitoring
+      - default  # Accesso al database
+
+    labels:
+      service: "postgres-exporter"
+      monitoring: "true"
+
+  # =================================================================
+  # REDIS EXPORTER - Metriche Cache Redis
+  # =================================================================
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: gestionale-redis-exporter
+    restart: unless-stopped
+
+    # Porta esposta
+    ports:
+      - "9121:9121"
+
+    # Redis connection
+    environment:
+      # URL Redis (quando lo aggiungeremo)
+      - REDIS_ADDR=redis:6379
+      # - REDIS_PASSWORD=your-redis-password  # Se protetto
+
+    # Dipendenze
+    depends_on:
+      - redis  # Container Redis (da aggiungere)
+
+    networks:
+      - monitoring
+      - default
+
+    labels:
+      service: "redis-exporter"
+      monitoring: "true"
+
+
+# =================================================================
+# NETWORKS
+# =================================================================
+networks:
+  # Network dedicato per stack monitoring
+  monitoring:
+    driver: bridge
+
+  # Network default dell'app principale (esterno)
+  default:
+    external: true
+    name: pythonpro_default
+
+
+# =================================================================
+# VOLUMES
+# =================================================================
+volumes:
+  # Storage persistente metriche Prometheus
+  prometheus_data:
+    driver: local
+
+  # Storage persistente Grafana (dashboards, users, etc.)
+  grafana_data:
+    driver: local
+
+
+# =================================================================
+# ISTRUZIONI USO
+# =================================================================
+#
+# AVVIO STACK MONITORING:
+#   docker-compose -f docker-compose-monitoring.yml up -d
+#
+# VERIFICA STATUS:
+#   docker-compose -f docker-compose-monitoring.yml ps
+#
+# LOGS:
+#   docker-compose -f docker-compose-monitoring.yml logs -f prometheus
+#   docker-compose -f docker-compose-monitoring.yml logs -f grafana
+#
+# STOP STACK:
+#   docker-compose -f docker-compose-monitoring.yml down
+#
+# STOP E RIMUOVI VOLUMI (ATTENZIONE: perde dati!):
+#   docker-compose -f docker-compose-monitoring.yml down -v
+#
+# ACCESSO UI:
+#   Prometheus: http://localhost:9090
+#   Grafana: http://localhost:3000 (admin/admin)
+#   cAdvisor: http://localhost:8080
+#   Node Exporter: http://localhost:9100/metrics
+#
+# CONFIGURARE GRAFANA:
+#   1. Login: admin/admin (cambiare password al primo accesso)
+#   2. Add data source: Prometheus (http://prometheus:9090)
+#   3. Import dashboard: ID 1860 (Node Exporter Full)
+#   4. Import dashboard: ID 893 (Docker and System Monitoring)
+#
+# =================================================================

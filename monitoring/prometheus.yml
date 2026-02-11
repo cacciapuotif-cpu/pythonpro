@@ -1,0 +1,206 @@
+# =================================================================
+# FILE: prometheus.yml
+# =================================================================
+# SCOPO: Configurazione Prometheus per monitoring applicazione
+#
+# Prometheus è un sistema di monitoring time-series che:
+# - Raccoglie metriche da targets configurati
+# - Salva metriche in database time-series
+# - Fornisce query language (PromQL) per analisi
+# - Integra con Grafana per visualizzazione
+#
+# STRUTTURA:
+# - global: Configurazione globale
+# - scrape_configs: Definisce targets da cui raccogliere metriche
+# - alerting: Configurazione alert manager (opzionale)
+# =================================================================
+
+# =================================================================
+# GLOBAL CONFIGURATION
+# =================================================================
+global:
+  # Intervallo di scraping di default
+  # Ogni 15 secondi Prometheus interroga i targets
+  scrape_interval: 15s
+
+  # Timeout per ogni scrape
+  # Se target non risponde entro 10s, scrape fallisce
+  scrape_timeout: 10s
+
+  # Intervallo per valutare regole (alerting, recording)
+  evaluation_interval: 15s
+
+  # Labels aggiuntive attachate a tutte le metriche
+  external_labels:
+    # Identifica questo cluster/environment
+    cluster: 'gestionale-prod'
+    environment: 'production'
+
+
+# =================================================================
+# SCRAPE CONFIGURATIONS
+# =================================================================
+# Definisce "targets" da cui Prometheus raccoglie metriche
+# Ogni job ha:
+# - job_name: Nome identificativo
+# - static_configs: Lista di targets statici
+# - metrics_path: Path endpoint metriche (default /metrics)
+# =================================================================
+
+scrape_configs:
+  # --------------------------------------------------
+  # JOB 1: Prometheus Self-Monitoring
+  # --------------------------------------------------
+  # Prometheus monitora sé stesso
+  # Utile per verificare salute del sistema di monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          service: 'prometheus'
+          component: 'monitoring'
+
+  # --------------------------------------------------
+  # JOB 2: Backend FastAPI
+  # --------------------------------------------------
+  # Raccoglie metriche dall'applicazione backend
+  # Endpoint: http://backend:8000/metrics
+  # Metriche esposte da prometheus-fastapi-instrumentator
+  - job_name: 'backend-api'
+    # Intervallo custom per questo job (override global)
+    scrape_interval: 10s
+    scrape_timeout: 5s
+
+    # Targets da cui raccogliere metriche
+    static_configs:
+      - targets: ['backend:8000']
+        labels:
+          service: 'gestionale-backend'
+          component: 'api'
+          language: 'python'
+
+    # Path custom per endpoint metriche
+    metrics_path: '/metrics'
+
+    # Parametri query string aggiuntivi (opzionale)
+    # params:
+    #   format: ['prometheus']
+
+  # --------------------------------------------------
+  # JOB 3: PostgreSQL Database
+  # --------------------------------------------------
+  # Raccoglie metriche dal database PostgreSQL
+  # Richiede postgres_exporter sidecar
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+        labels:
+          service: 'gestionale-database'
+          component: 'postgres'
+          db_type: 'postgresql'
+
+  # --------------------------------------------------
+  # JOB 4: Node Exporter (Metriche Sistema)
+  # --------------------------------------------------
+  # Raccoglie metriche OS: CPU, RAM, Disk, Network
+  # Utile per correlareperformance app con risorse sistema
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+        labels:
+          service: 'system-metrics'
+          component: 'node-exporter'
+
+  # --------------------------------------------------
+  # JOB 5: cAdvisor (Container Metrics)
+  # --------------------------------------------------
+  # Metriche specifiche Docker containers
+  # CPU, memory, network per ogni container
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']
+        labels:
+          service: 'container-metrics'
+          component: 'cadvisor'
+
+  # --------------------------------------------------
+  # JOB 6: Redis Cache (se configurato)
+  # --------------------------------------------------
+  # Metriche Redis: hit rate, memory usage, connections
+  # Richiede redis_exporter
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+        labels:
+          service: 'gestionale-cache'
+          component: 'redis'
+          cache_type: 'redis'
+
+
+# =================================================================
+# ALERTING (Opzionale)
+# =================================================================
+# Configurazione Alertmanager per notifiche
+# Decommentare se si vuole configurare alerting
+# =================================================================
+
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets:
+#             - 'alertmanager:9093'
+
+# =================================================================
+# RULE FILES (Opzionale)
+# =================================================================
+# File con regole per alerting e recording
+# Esempio: regole per alert su high CPU, memory, error rate
+# =================================================================
+
+# rule_files:
+#   - 'alerts/*.yml'
+#   - 'rules/*.yml'
+
+
+# =================================================================
+# STORAGE (Opzionale)
+# =================================================================
+# Configurazione storage metriche
+# Di default Prometheus usa local storage
+# =================================================================
+
+# storage:
+#   tsdb:
+#     # Retention metriche: 15 giorni
+#     retention.time: 15d
+#     # Retention per size: max 10GB
+#     retention.size: 10GB
+
+
+# =================================================================
+# ESEMPI QUERY PROMQL
+# =================================================================
+# Query utili da eseguire in Prometheus UI (http://localhost:9090)
+# o in Grafana dashboards
+# =================================================================
+
+# QUERY EXAMPLES:
+#
+# 1. Request rate per secondo (ultimi 5min)
+#    rate(http_requests_total[5m])
+#
+# 2. Latenza media API (95th percentile)
+#    histogram_quantile(0.95, http_request_duration_seconds_bucket)
+#
+# 3. Error rate (ultimi 5min)
+#    rate(http_requests_total{status=~"5.."}[5m])
+#
+# 4. CPU usage container backend
+#    container_cpu_usage_seconds_total{name="backend"}
+#
+# 5. Database connections attive
+#    pg_stat_activity_count
+#
+# 6. Redis hit rate
+#    rate(redis_keyspace_hits_total[5m]) /
+#    (rate(redis_keyspace_hits_total[5m]) + rate(redis_keyspace_misses_total[5m]))

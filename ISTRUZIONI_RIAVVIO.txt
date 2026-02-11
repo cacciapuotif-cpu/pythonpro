@@ -1,0 +1,138 @@
+================================================================================
+   ISTRUZIONI PER RIAVVIARE IL GESTIONALE DOPO REBOOT
+================================================================================
+
+📁 POSIZIONE: C:\pythonpro
+
+================================================================================
+OPZIONE 1 - AVVIO AUTOMATICO (CONSIGLIATO)
+================================================================================
+
+1. Vai nella cartella: C:\pythonpro
+
+2. Fai DOPPIO CLICK su: AVVIO_LOCALE.bat
+
+3. Lo script aprirà 3 finestre:
+   ✅ Backend - Gestionale (Python/FastAPI sulla porta 8000)
+   ✅ Frontend - Gestionale (React/npm sulla porta 3001)
+   ✅ Browser su http://localhost:3001
+
+4. IMPORTANTE: NON chiudere le finestre "Backend" e "Frontend"!
+   Il gestionale funziona finché quelle finestre rimangono aperte.
+
+5. Dopo circa 30 secondi tutto sarà pronto e il browser si aprirà automaticamente.
+
+================================================================================
+OPZIONE 2 - AVVIO MANUALE
+================================================================================
+
+Se preferisci avviare manualmente:
+
+A) BACKEND (Terminale 1):
+   cd C:\pythonpro\backend
+   venv\Scripts\activate
+   python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+B) FRONTEND (Terminale 2):
+   cd C:\pythonpro\frontend
+   npm start
+
+C) Apri il browser su: http://localhost:3001
+
+================================================================================
+VERIFICA FUNZIONAMENTO
+================================================================================
+
+✅ Backend OK se:
+   - http://localhost:8000/health risponde con {"status":"healthy"}
+   - http://localhost:8000/docs mostra la documentazione API
+
+✅ Frontend OK se:
+   - http://localhost:3001 mostra l'interfaccia del calendario
+
+✅ Sistema OK se:
+   - Riesci a vedere collaboratori, progetti e presenze
+   - Riesci a inserire nuove presenze
+
+================================================================================
+TROUBLESHOOTING
+================================================================================
+
+Problema: "Porta già in uso"
+Soluzione: Qualcuno sta già usando quella porta
+   - Chiudi tutti i processi node.exe e python.exe dal Task Manager
+   - Riavvia lo script AVVIO_LOCALE.bat
+
+Problema: "venv not found"
+Soluzione: Ambiente virtuale non trovato
+   - Apri terminale in backend/
+   - Esegui: python -m venv venv
+   - Esegui: venv\Scripts\pip install -r requirements.txt
+
+Problema: "npm non trovato"
+Soluzione: Node.js non installato o non nel PATH
+   - Verifica installazione Node.js
+   - Riavvia il terminale
+
+Problema: Frontend carica ma mostra errori 404
+Soluzione: Backend non raggiungibile
+   - Verifica che il backend sia in esecuzione (porta 8000)
+   - Controlla il file frontend/.env.local: REACT_APP_API_URL=http://localhost:8000
+
+================================================================================
+MODIFICHE RECENTI (da ricordare)
+================================================================================
+
+✅ Validazione mansione resa opzionale (puoi salvare presenze senza mansione)
+✅ Rimossa limitazione date passate (puoi inserire presenze retroattive)
+✅ Vista settimana: orari default 9:00-17:00 quando clicchi su un giorno intero
+
+================================================================================
+FILE IMPORTANTI
+================================================================================
+
+Configurazione Backend:
+  - backend/.env (configurazione ambiente)
+  - backend/main.py (vecchio main con tutti gli endpoint - ATTIVO)
+  - backend/app/main.py (nuovo main Fase 1 - solo 3 endpoint)
+  - backend/crud.py (contiene validazione overlap presenze)
+
+Configurazione Frontend:
+  - frontend/.env.local (REACT_APP_API_URL=http://localhost:8000)
+  - frontend/src/components/AttendanceModal.js (form presenze)
+  - frontend/src/components/Calendar.js (calendario)
+
+Database:
+  - backend/gestionale.db (SQLite - contiene tutti i dati)
+
+================================================================================
+COMANDI UTILI
+================================================================================
+
+Vedere i log del backend in tempo reale:
+  - Guarda la finestra "Backend - Gestionale"
+
+Ricostruire il frontend (se ci sono problemi):
+  - cd frontend
+  - npm install
+  - npm start
+
+Backup del database:
+  - Copia: backend/gestionale.db
+
+Pulizia cache npm (se frontend non parte):
+  - cd frontend
+  - del /q /s node_modules
+  - npm install
+
+================================================================================
+SUPPORTO
+================================================================================
+
+Se qualcosa non funziona:
+1. Chiudi tutte le finestre Backend e Frontend
+2. Riavvia con AVVIO_LOCALE.bat
+3. Controlla i messaggi di errore nelle finestre Backend e Frontend
+4. Verifica i file di log in backend/logs/ (se presenti)
+
+================================================================================

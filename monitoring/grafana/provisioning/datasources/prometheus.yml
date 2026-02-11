@@ -1,0 +1,35 @@
+# =================================================================
+# FILE: prometheus.yml (Grafana Datasource)
+# =================================================================
+# SCOPO: Auto-provisioning datasource Prometheus in Grafana
+#
+# Grafana legge automaticamente questo file all'avvio e
+# configura Prometheus come datasource senza intervento manuale.
+# =================================================================
+
+apiVersion: 1
+
+# Lista datasources da configurare
+datasources:
+  # Prometheus datasource principale
+  - name: Prometheus
+    type: prometheus
+    access: proxy  # Grafana fa proxy delle richieste
+
+    # URL Prometheus (interno Docker network)
+    url: http://prometheus:9090
+
+    # Default datasource per nuovi pannelli
+    isDefault: true
+
+    # JSON data per configurazioni avanzate
+    jsonData:
+      # Query timeout
+      httpMethod: POST
+      timeInterval: "15s"
+
+    # Editable dalla UI
+    editable: true
+
+    # Version (opzionale)
+    version: 1

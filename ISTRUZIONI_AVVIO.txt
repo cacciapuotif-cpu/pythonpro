@@ -1,0 +1,70 @@
+==========================================
+  GESTIONALE - GUIDA ALL'AVVIO
+==========================================
+
+IMPORTANTE: Usa gli script BAT per avviare il sistema automaticamente!
+
+=== AVVIO RAPIDO (uso quotidiano) ===
+Doppio click su: AVVIO_RAPIDO.bat
+- Avvia i servizi esistenti
+- Tempo: ~30 secondi
+- Usa questo per l'uso normale
+
+=== AVVIO COMPLETO (dopo modifiche al codice) ===
+Doppio click su: AVVIA_GESTIONALE.bat
+- Ricostruisce tutte le immagini Docker
+- Esegue migrazioni database
+- Tempo: ~5-10 minuti
+- Usa questo dopo modifiche al codice o primo avvio
+
+=== FERMARE IL SISTEMA ===
+Apri terminale nella cartella del progetto ed esegui:
+docker-compose down
+
+=== RIAVVIO DOPO SPEGNIMENTO PC ===
+1. Docker Desktop si avvia automaticamente con Windows
+2. Esegui AVVIO_RAPIDO.bat
+3. Il sistema sara' pronto in 30 secondi
+
+=== ACCESSI ===
+Frontend:        http://localhost:3001
+Backend API:     http://localhost:8000/docs
+Database:        localhost:5433
+Redis:           localhost:6379
+
+=== CREDENZIALI DATABASE ===
+Host:     localhost
+Porta:    5433
+Database: gestionale
+User:     admin
+Password: password123
+
+=== COMANDI UTILI ===
+Vedere i log:              docker-compose logs -f
+Log solo frontend:         docker-compose logs -f frontend
+Log solo backend:          docker-compose logs -f backend
+Stato servizi:             docker-compose ps
+Riavvio singolo servizio:  docker-compose restart frontend
+
+=== RISOLUZIONE PROBLEMI ===
+1. Se il frontend non carica:
+   - Verifica che Docker Desktop sia attivo
+   - Esegui: docker-compose restart frontend
+   - Attendi 30 secondi e ricarica il browser
+
+2. Se il backend da' errori:
+   - Controlla i log: docker-compose logs backend
+   - Riavvia: docker-compose restart backend
+
+3. Se nulla funziona:
+   - Esegui AVVIA_GESTIONALE.bat (rebuild completo)
+
+=== BACKUP DATABASE ===
+docker exec pythonpro-db-1 pg_dump -U admin gestionale > backup.sql
+
+=== RIPRISTINO DATABASE ===
+docker exec -i pythonpro-db-1 psql -U admin gestionale < backup.sql
+
+==========================================
+Per supporto: controlla i log con docker-compose logs -f
+==========================================

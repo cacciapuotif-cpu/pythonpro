@@ -1,0 +1,73 @@
+version: "3.9"
+
+services:
+  # Backend FastAPI service
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    container_name: pythonpro_backend_prod
+    environment:
+      # Application settings
+      - ENVIRONMENT=production
+      - PORT=8000
+      - UVICORN_WORKERS=2
+
+      # Database configuration (adjust as needed)
+      - DATABASE_URL=sqlite:///./gestionale_new.db
+
+      # Security (use secrets in production!)
+      - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+      - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
+
+      # Logging
+      - LOG_LEVEL=info
+
+    volumes:
+      # Persist SQLite database
+      - ./backend/gestionale_new.db:/app/gestionale_new.db
+      # Persist uploads
+      - ./backend/uploads:/app/uploads
+
+    expose:
+      - "8000"
+
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+    restart: unless-stopped
+
+    networks:
+      - pythonpro_network
+
+  # Frontend Nginx service
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    container_name: pythonpro_frontend_prod
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "80:80"
+
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+    restart: unless-stopped
+
+    networks:
+      - pythonpro_network
+
+networks:
+  pythonpro_network:
+    driver: bridge

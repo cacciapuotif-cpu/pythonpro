@@ -1,0 +1,33 @@
+frontend/src/components/AssignmentModal.js:427:              ⚠️ {error}
+frontend/src/components/CalendarSimple.js:156:          ⚠️ {error}
+frontend/src/components/ProgettoMansioneEnteManager.js:318:          {error}
+frontend/src/App.js:136:        <div className="error-screen">
+frontend/src/App.js:137:          <div className="error-icon">⚠️</div>
+frontend/src/App.js:144:          <div className="error-details">
+frontend/src/components/AssignmentModal.js:426:            <div className="error-message">
+frontend/src/components/AttendanceModal.js:439:            <div className="error-message">
+frontend/src/components/AttendanceModal.js:456:                className={errors.collaborator_id ? 'error' : ''}
+frontend/src/components/AttendanceModal.js:467:                <span className="field-error">{errors.collaborator_id}</span>
+frontend/src/components/AttendanceModal.js:481:                className={errors.project_id ? 'error' : ''}
+frontend/src/components/AttendanceModal.js:492:                <span className="field-error">{errors.project_id}</span>
+frontend/src/components/AttendanceModal.js:506:                className={errors.assignment_id ? 'error' : ''}
+frontend/src/components/AttendanceModal.js:523:                <span className="field-error">{errors.assignment_id}</span>
+frontend/src/components/AttendanceModal.js:545:                className={errors.date ? 'error' : ''}
+frontend/src/components/AttendanceModal.js:549:                <span className="field-error">{errors.date}</span>
+frontend/src/components/AttendanceModal.js:564:                className={errors.start_time ? 'error' : ''}
+frontend/src/components/AttendanceModal.js:568:                <span className="field-error">{errors.start_time}</span>
+frontend/src/components/AttendanceModal.js:583:                className={errors.end_time ? 'error' : ''}
+frontend/src/components/AttendanceModal.js:587:                <span className="field-error">{errors.end_time}</span>
+frontend/src/components/AttendanceModal.js:603:                className={errors.hours ? 'error' : ''}
+frontend/src/components/AttendanceModal.js:607:                <span className="field-error">{errors.hours}</span>
+frontend/src/components/Calendar.js:291:        <div className="error-state">
+frontend/src/components/Calendar.js:292:          <div className="error-icon">⚠️</div>
+frontend/src/components/CollaboratorManager.js:338:        <div className="message error-message">
+frontend/src/components/collaborators/CollaboratorForm.js:102:              className={hasFieldError('first_name') ? 'error' : ''}
+frontend/src/components/collaborators/CollaboratorForm.js:106:              <span className="error-text">{errors.first_name}</span>
+frontend/src/components/collaborators/CollaboratorForm.js:121:              className={hasFieldError('last_name') ? 'error' : ''}
+frontend/src/components/collaborators/CollaboratorForm.js:125:              <span className="error-text">{errors.last_name}</span>
+frontend/src/components/collaborators/CollaboratorForm.js:140:              className={hasFieldError('email') ? 'error' : ''}
+frontend/src/components/collaborators/CollaboratorForm.js:144:              <span className="error-text">{errors.email}</span>
+frontend/src/components/collaborators/CollaboratorForm.js:232:              className={hasFieldError('fiscal_code') ? 'error' : ''}
+frontend/src/components/collaborators/CollaboratorForm.js:236:              <span className="error-text">{errors.fiscal_code}</span>

@@ -1,0 +1,1452 @@
+openapi: 3.1.0
+info:
+  title: Gestionale Collaboratori e Progetti
+  description: "\n    Sistema gestionale completo per:\n    - \U0001F465 Collaboratori\
+    \ (anagrafica, ruoli, tariffe)\n    - \U0001F4CB Progetti (budget, ente attuatore,\
+    \ stato)\n    - \U0001F4DD Incarichi (assegnazioni ai progetti con mansioni)\n\
+    \    - ⏰ Presenze (rilevazioni orarie con validazioni)\n    - \U0001F4C4 Contratti\
+    \ (collaborazione, P.IVA, subordinato)\n    - \U0001F4B0 Rendicontazione (FSE+,\
+    \ Fondimpresa, PNRR)\n    "
+  version: 1.0.0
+paths:
+  /:
+    get:
+      tags:
+      - Sistema
+      summary: Root
+      description: "**Endpoint Root** - Benvenuto e informazioni base\n\nQuesto endpoint\
+        \ fornisce informazioni generali sull'API.\nUtile per:\n- Verificare che il\
+        \ server sia attivo\n- Vedere la versione corrente\n- Sapere dove trovare\
+        \ la documentazione\n\nReturns:\n    dict: Informazioni generali sull'applicazione\n\
+        \nExample:\n    ```bash\n    curl http://localhost:8000/\n    ```\n\n    Response:\n\
+        \    ```json\n    {\n      \"app\": \"Gestionale Collaboratori e Progetti\"\
+        ,\n      \"version\": \"1.0.0\",\n      \"status\": \"online\",\n      \"\
+        docs\": \"/docs\"\n    }\n    ```"
+      operationId: root__get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+  /health:
+    get:
+      tags:
+      - Sistema
+      summary: Health Check
+      description: "**Health Check** - Verifica stato del sistema\n\nEndpoint per\
+        \ monitorare lo stato dell'applicazione e delle sue dipendenze.\n\nUTILIZZO:\n\
+        - Load balancer: verificare se instradare traffico a questo server\n- Monitoring:\
+        \ Prometheus, Grafana, Datadog\n- CI/CD: verificare che il deploy sia riuscito\n\
+        - Docker/Kubernetes: health check automatici\n\nCHECKS ESEGUITI:\n- API: sempre\
+        \ \"ok\" se l'endpoint risponde\n- Database: (TODO) verifica connessione\n\
+        - Cache: (TODO) verifica Redis\n- Storage: (TODO) verifica spazio disco\n\n\
+        Returns:\n    JSONResponse: Stato dettagliato del sistema\n\nStatus Codes:\n\
+        \    - 200: Sistema completamente sano\n    - 503: Sistema parzialmente degradato\
+        \ (Service Unavailable)\n\nExample:\n    ```bash\n    curl http://localhost:8000/health\n\
+        \    ```\n\n    Response (tutto ok):\n    ```json\n    {\n      \"status\"\
+        : \"healthy\",\n      \"timestamp\": \"2025-01-05T10:30:00\",\n      \"version\"\
+        : \"1.0.0\",\n      \"checks\": {\n        \"api\": \"ok\",\n        \"database\"\
+        : \"ok\",\n        \"cache\": \"ok\"\n      }\n    }\n    ```"
+      operationId: health_check_health_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+  /version:
+    get:
+      tags:
+      - Sistema
+      summary: Version Info
+      description: "**Informazioni Versione** - Dettagli ambiente e configurazione\n\
+        \nRestituisce informazioni dettagliate su versione, ambiente e configurazione.\n\
+        \nUTILITÀ:\n- Debugging: capire in quale ambiente sta girando l'app\n- Deploy:\
+        \ verificare che la versione deployata sia quella corretta\n- Support: fornire\
+        \ info tecniche per supporto utenti\n\nReturns:\n    dict: Informazioni dettagliate\
+        \ su versione e configurazione\n\nExample:\n    ```bash\n    curl http://localhost:8000/version\n\
+        \    ```\n\n    Response:\n    ```json\n    {\n      \"app_name\": \"Gestionale\
+        \ Collaboratori e Progetti\",\n      \"version\": \"1.0.0\",\n      \"environment\"\
+        : \"development\",\n      \"debug\": true,\n      \"features\": {\n      \
+        \  \"swagger_docs\": true,\n        \"monitoring\": true,\n        \"auto_backup\"\
+        : false\n      }\n    }\n    ```"
+      operationId: version_info_version_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+  /api/v1/collaborators/:
+    post:
+      tags:
+      - Collaborators
+      summary: Create Collaborator
+      description: Crea un nuovo collaboratore
+      operationId: create_collaborator_api_v1_collaborators__post
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CollaboratorCreate'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Collaborator'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - Collaborators
+      summary: Get Collaborators
+      description: Lista tutti i collaboratori con ricerca opzionale
+      operationId: get_collaborators_api_v1_collaborators__get
+      parameters:
+      - name: search
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Search
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Collaborator'
+                title: Response Get Collaborators Api V1 Collaborators  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/collaborators/{collaborator_id}:
+    get:
+      tags:
+      - Collaborators
+      summary: Get Collaborator
+      description: Ottieni un collaboratore specifico
+      operationId: get_collaborator_api_v1_collaborators__collaborator_id__get
+      parameters:
+      - name: collaborator_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Collaborator Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Collaborator'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    put:
+      tags:
+      - Collaborators
+      summary: Update Collaborator
+      description: Aggiorna un collaboratore
+      operationId: update_collaborator_api_v1_collaborators__collaborator_id__put
+      parameters:
+      - name: collaborator_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Collaborator Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CollaboratorUpdate'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Collaborator'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - Collaborators
+      summary: Delete Collaborator
+      description: Elimina un collaboratore
+      operationId: delete_collaborator_api_v1_collaborators__collaborator_id__delete
+      parameters:
+      - name: collaborator_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Collaborator Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/projects/:
+    post:
+      tags:
+      - Projects
+      summary: Create Project
+      description: Crea un nuovo progetto
+      operationId: create_project_api_v1_projects__post
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectCreate'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - Projects
+      summary: Get Projects
+      description: Lista tutti i progetti con filtro status opzionale
+      operationId: get_projects_api_v1_projects__get
+      parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Project'
+                title: Response Get Projects Api V1 Projects  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/projects/{project_id}:
+    get:
+      tags:
+      - Projects
+      summary: Get Project
+      description: Ottieni un progetto specifico
+      operationId: get_project_api_v1_projects__project_id__get
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Project Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    put:
+      tags:
+      - Projects
+      summary: Update Project
+      description: Aggiorna un progetto
+      operationId: update_project_api_v1_projects__project_id__put
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Project Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectUpdate'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - Projects
+      summary: Delete Project
+      description: Elimina un progetto
+      operationId: delete_project_api_v1_projects__project_id__delete
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Project Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/entities/:
+    post:
+      tags:
+      - Entities
+      summary: Create Entity
+      description: Crea un nuovo ente attuatore
+      operationId: create_entity_api_v1_entities__post
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EntityCreate'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Entity'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - Entities
+      summary: Get Entities
+      description: Lista tutti gli enti attuatori con ricerca opzionale
+      operationId: get_entities_api_v1_entities__get
+      parameters:
+      - name: search
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Search
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Entity'
+                title: Response Get Entities Api V1 Entities  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/entities/{entity_id}:
+    get:
+      tags:
+      - Entities
+      summary: Get Entity
+      description: Ottieni un ente attuatore specifico
+      operationId: get_entity_api_v1_entities__entity_id__get
+      parameters:
+      - name: entity_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Entity Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Entity'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    put:
+      tags:
+      - Entities
+      summary: Update Entity
+      description: Aggiorna un ente attuatore
+      operationId: update_entity_api_v1_entities__entity_id__put
+      parameters:
+      - name: entity_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Entity Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EntityUpdate'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Entity'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - Entities
+      summary: Delete Entity
+      description: Elimina un ente attuatore
+      operationId: delete_entity_api_v1_entities__entity_id__delete
+      parameters:
+      - name: entity_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Entity Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/assignments/:
+    post:
+      tags:
+      - Assignments
+      summary: Create Assignment
+      description: Crea una nuova assegnazione progetto-ente-mansione-collaboratore
+      operationId: create_assignment_api_v1_assignments__post
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignmentCreate'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Assignment'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - Assignments
+      summary: Get Assignments
+      description: Lista tutte le assegnazioni con filtri opzionali
+      operationId: get_assignments_api_v1_assignments__get
+      parameters:
+      - name: project_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Project Id
+      - name: entity_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Entity Id
+      - name: role
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Role
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Assignment'
+                title: Response Get Assignments Api V1 Assignments  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/assignments/{assignment_id}:
+    delete:
+      tags:
+      - Assignments
+      summary: Delete Assignment
+      description: Elimina un'assegnazione
+      operationId: delete_assignment_api_v1_assignments__assignment_id__delete
+      parameters:
+      - name: assignment_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Assignment Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/attendances/:
+    post:
+      tags:
+      - Attendances
+      summary: Create Attendance
+      description: Registra una nuova presenza
+      operationId: create_attendance_api_v1_attendances__post
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttendanceCreate'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Attendance'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - Attendances
+      summary: Get Attendances
+      description: Lista presenze con filtro intervallo date
+      operationId: get_attendances_api_v1_attendances__get
+      parameters:
+      - name: from
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: From
+      - name: to
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: To
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Attendance'
+                title: Response Get Attendances Api V1 Attendances  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/attendances/{attendance_id}:
+    get:
+      tags:
+      - Attendances
+      summary: Get Attendance
+      description: Ottieni una presenza specifica
+      operationId: get_attendance_api_v1_attendances__attendance_id__get
+      parameters:
+      - name: attendance_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Attendance Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Attendance'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    put:
+      tags:
+      - Attendances
+      summary: Update Attendance
+      description: Aggiorna una presenza
+      operationId: update_attendance_api_v1_attendances__attendance_id__put
+      parameters:
+      - name: attendance_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Attendance Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttendanceUpdate'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Attendance'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - Attendances
+      summary: Delete Attendance
+      description: Elimina una presenza
+      operationId: delete_attendance_api_v1_attendances__attendance_id__delete
+      parameters:
+      - name: attendance_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Attendance Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/reporting/timesheet:
+    get:
+      tags:
+      - Reporting
+      summary: Get Timesheet
+      description: Report timesheet presenze
+      operationId: get_timesheet_api_v1_reporting_timesheet_get
+      parameters:
+      - name: from
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: From
+      - name: to
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: To
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/reporting/summary:
+    get:
+      tags:
+      - Reporting
+      summary: Get Summary
+      description: Report riepilogativo KPI
+      operationId: get_summary_api_v1_reporting_summary_get
+      parameters:
+      - name: from
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: From
+      - name: to
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: To
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/contracts/templates:
+    get:
+      tags:
+      - Contracts
+      summary: Get Templates
+      description: Lista tutti i template contratti
+      operationId: get_templates_api_v1_contracts_templates_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/ContractTemplate'
+                type: array
+                title: Response Get Templates Api V1 Contracts Templates Get
+    post:
+      tags:
+      - Contracts
+      summary: Create Template
+      description: Crea un nuovo template contratto
+      operationId: create_template_api_v1_contracts_templates_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ContractTemplateCreate'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContractTemplate'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/contracts/templates/{template_id}:
+    delete:
+      tags:
+      - Contracts
+      summary: Delete Template
+      description: Elimina un template
+      operationId: delete_template_api_v1_contracts_templates__template_id__delete
+      parameters:
+      - name: template_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Template Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/contracts/generate:
+    post:
+      tags:
+      - Contracts
+      summary: Generate Contract
+      description: Genera un contratto da template
+      operationId: generate_contract_api_v1_contracts_generate_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ContractGenerateRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+components:
+  schemas:
+    Assignment:
+      properties:
+        collaborator_id:
+          type: integer
+          title: Collaborator Id
+        project_id:
+          type: integer
+          title: Project Id
+        entity_id:
+          type: integer
+          title: Entity Id
+        role:
+          type: string
+          title: Role
+        start_date:
+          type: string
+          format: date
+          title: Start Date
+        end_date:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: End Date
+        id:
+          type: integer
+          title: Id
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - collaborator_id
+      - project_id
+      - entity_id
+      - role
+      - start_date
+      - id
+      - created_at
+      title: Assignment
+    AssignmentCreate:
+      properties:
+        collaborator_id:
+          type: integer
+          title: Collaborator Id
+        project_id:
+          type: integer
+          title: Project Id
+        entity_id:
+          type: integer
+          title: Entity Id
+        role:
+          type: string
+          title: Role
+        start_date:
+          type: string
+          format: date
+          title: Start Date
+        end_date:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: End Date
+      type: object
+      required:
+      - collaborator_id
+      - project_id
+      - entity_id
+      - role
+      - start_date
+      title: AssignmentCreate
+    Attendance:
+      properties:
+        collaborator_id:
+          type: integer
+          title: Collaborator Id
+        project_id:
+          type: integer
+          title: Project Id
+        date:
+          type: string
+          format: date
+          title: Date
+        hours:
+          type: number
+          title: Hours
+        notes:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Notes
+        id:
+          type: integer
+          title: Id
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - collaborator_id
+      - project_id
+      - date
+      - hours
+      - id
+      - created_at
+      title: Attendance
+    AttendanceCreate:
+      properties:
+        collaborator_id:
+          type: integer
+          title: Collaborator Id
+        project_id:
+          type: integer
+          title: Project Id
+        date:
+          type: string
+          format: date
+          title: Date
+        hours:
+          type: number
+          title: Hours
+        notes:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Notes
+      type: object
+      required:
+      - collaborator_id
+      - project_id
+      - date
+      - hours
+      title: AttendanceCreate
+    AttendanceUpdate:
+      properties:
+        hours:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Hours
+        notes:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Notes
+      type: object
+      title: AttendanceUpdate
+    Collaborator:
+      properties:
+        first_name:
+          type: string
+          title: First Name
+        last_name:
+          type: string
+          title: Last Name
+        email:
+          type: string
+          format: email
+          title: Email
+        fiscal_code:
+          type: string
+          title: Fiscal Code
+        birthplace:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Birthplace
+        birth_date:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Birth Date
+        id:
+          type: integer
+          title: Id
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - first_name
+      - last_name
+      - email
+      - fiscal_code
+      - id
+      - created_at
+      title: Collaborator
+    CollaboratorCreate:
+      properties:
+        first_name:
+          type: string
+          title: First Name
+        last_name:
+          type: string
+          title: Last Name
+        email:
+          type: string
+          format: email
+          title: Email
+        fiscal_code:
+          type: string
+          title: Fiscal Code
+        birthplace:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Birthplace
+        birth_date:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Birth Date
+      type: object
+      required:
+      - first_name
+      - last_name
+      - email
+      - fiscal_code
+      title: CollaboratorCreate
+    CollaboratorUpdate:
+      properties:
+        first_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: First Name
+        last_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Last Name
+        email:
+          anyOf:
+          - type: string
+            format: email
+          - type: 'null'
+          title: Email
+        fiscal_code:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Fiscal Code
+        birthplace:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Birthplace
+        birth_date:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Birth Date
+      type: object
+      title: CollaboratorUpdate
+    ContractGenerateRequest:
+      properties:
+        template_id:
+          type: integer
+          title: Template Id
+        collaborator_id:
+          type: integer
+          title: Collaborator Id
+        project_id:
+          type: integer
+          title: Project Id
+        entity_id:
+          type: integer
+          title: Entity Id
+      type: object
+      required:
+      - template_id
+      - collaborator_id
+      - project_id
+      - entity_id
+      title: ContractGenerateRequest
+    ContractTemplate:
+      properties:
+        name:
+          type: string
+          title: Name
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        template_type:
+          type: string
+          title: Template Type
+        content:
+          type: string
+          title: Content
+        id:
+          type: integer
+          title: Id
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - name
+      - template_type
+      - content
+      - id
+      - created_at
+      title: ContractTemplate
+    ContractTemplateCreate:
+      properties:
+        name:
+          type: string
+          title: Name
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        template_type:
+          type: string
+          title: Template Type
+        content:
+          type: string
+          title: Content
+      type: object
+      required:
+      - name
+      - template_type
+      - content
+      title: ContractTemplateCreate
+    Entity:
+      properties:
+        name:
+          type: string
+          title: Name
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        vat_number:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Vat Number
+        address:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Address
+        id:
+          type: integer
+          title: Id
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - name
+      - id
+      - created_at
+      title: Entity
+    EntityCreate:
+      properties:
+        name:
+          type: string
+          title: Name
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        vat_number:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Vat Number
+        address:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Address
+      type: object
+      required:
+      - name
+      title: EntityCreate
+    EntityUpdate:
+      properties:
+        name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Name
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        vat_number:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Vat Number
+        address:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Address
+      type: object
+      title: EntityUpdate
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    Project:
+      properties:
+        name:
+          type: string
+          title: Name
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        start_date:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Start Date
+        end_date:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: End Date
+        status:
+          type: string
+          title: Status
+          default: active
+        id:
+          type: integer
+          title: Id
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - name
+      - id
+      - created_at
+      title: Project
+    ProjectCreate:
+      properties:
+        name:
+          type: string
+          title: Name
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        start_date:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Start Date
+        end_date:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: End Date
+        status:
+          type: string
+          title: Status
+          default: active
+      type: object
+      required:
+      - name
+      title: ProjectCreate
+    ProjectUpdate:
+      properties:
+        name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Name
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        start_date:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Start Date
+        end_date:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: End Date
+        status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+      type: object
+      title: ProjectUpdate
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError

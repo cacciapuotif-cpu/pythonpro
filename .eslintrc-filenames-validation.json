@@ -1,0 +1,31 @@
+{
+  "rules": {
+    "no-restricted-syntax": [
+      "error",
+      {
+        "selector": "CallExpression[callee.property.name='setAttribute'][arguments.0.value='download'][arguments.1.type!='ConditionalExpression']",
+        "message": "Always validate filename before setting download attribute. Use: (filename && filename !== 'null') ? filename : 'default.pdf'"
+      },
+      {
+        "selector": "TemplateLiteral:has(Identifier[name=/filename|name|path/]):not(:has(ConditionalExpression))",
+        "message": "Validate variables that could be null before using in template literals for filenames"
+      }
+    ],
+    "no-restricted-properties": [
+      "error",
+      {
+        "object": "link",
+        "property": "download",
+        "message": "Validate filename before assigning to link.download. Check for null/undefined first."
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": ["**/CollaboratorManager.js", "**/FileUpload.js", "**/*Download*.js"],
+      "rules": {
+        "no-console": ["warn", { "allow": ["warn", "error"] }]
+      }
+    }
+  ]
+}

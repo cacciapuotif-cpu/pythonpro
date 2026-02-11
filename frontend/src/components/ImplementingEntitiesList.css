@@ -1,0 +1,387 @@
+/* GESTIONE ENTI ATTUATORI - STYLES */
+
+.entities-manager {
+  padding: 20px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+/* ==========================================
+   HEADER
+   ========================================== */
+
+.entities-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 30px;
+  padding-bottom: 20px;
+  border-bottom: 2px solid #e0e0e0;
+}
+
+.header-title h2 {
+  margin: 0 0 8px 0;
+  color: #2c3e50;
+  font-size: 28px;
+}
+
+.header-title p {
+  margin: 0;
+  color: #7f8c8d;
+  font-size: 14px;
+}
+
+/* ==========================================
+   ALERT MESSAGES
+   ========================================== */
+
+.alert {
+  padding: 15px 20px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  animation: slideDown 0.3s ease;
+}
+
+.alert-icon {
+  font-size: 20px;
+}
+
+.alert-error {
+  background-color: #fee;
+  color: #c33;
+  border-left: 4px solid #c33;
+}
+
+.alert-success {
+  background-color: #efe;
+  color: #383;
+  border-left: 4px solid #383;
+}
+
+/* ==========================================
+   RICERCA E FILTRI
+   ========================================== */
+
+.entities-filters {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 30px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.search-box {
+  flex: 1;
+  min-width: 300px;
+}
+
+.search-input {
+  width: 100%;
+  padding: 12px 16px;
+  border: 2px solid #ddd;
+  border-radius: 8px;
+  font-size: 14px;
+  transition: border-color 0.3s;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: #3498db;
+}
+
+.filter-buttons {
+  display: flex;
+  gap: 10px;
+}
+
+.filter-btn {
+  padding: 10px 20px;
+  background: #ecf0f1;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.3s;
+  color: #2c3e50;
+}
+
+.filter-btn:hover {
+  background: #d5dbdb;
+}
+
+.filter-btn.active {
+  background: #3498db;
+  color: white;
+  border-color: #2980b9;
+}
+
+/* ==========================================
+   GRIGLIA ENTI
+   ========================================== */
+
+.entities-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+  gap: 20px;
+  margin-top: 20px;
+}
+
+/* ==========================================
+   CARD ENTE
+   ========================================== */
+
+.entity-card {
+  background: white;
+  border: 2px solid #e0e0e0;
+  border-radius: 12px;
+  padding: 20px;
+  transition: all 0.3s;
+}
+
+.entity-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  transform: translateY(-2px);
+}
+
+.entity-card.inactive {
+  opacity: 0.6;
+  background: #f9f9f9;
+}
+
+/* Header della card */
+.entity-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  margin-bottom: 15px;
+  padding-bottom: 15px;
+  border-bottom: 1px solid #eee;
+}
+
+.entity-name h3 {
+  margin: 0 0 5px 0;
+  color: #2c3e50;
+  font-size: 20px;
+}
+
+.entity-type {
+  display: inline-block;
+  padding: 3px 10px;
+  background: #ecf0f1;
+  border-radius: 12px;
+  font-size: 12px;
+  color: #7f8c8d;
+}
+
+/* Badge stato */
+.badge {
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.badge-inactive {
+  background: #ecf0f1;
+  color: #7f8c8d;
+}
+
+/* Informazioni ente */
+.entity-info {
+  margin: 15px 0;
+}
+
+.info-row {
+  display: flex;
+  margin-bottom: 10px;
+  font-size: 14px;
+}
+
+.info-label {
+  min-width: 120px;
+  color: #7f8c8d;
+  font-weight: 500;
+}
+
+.info-value {
+  color: #2c3e50;
+  flex: 1;
+}
+
+/* Azioni */
+.entity-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 15px;
+  padding-top: 15px;
+  border-top: 1px solid #eee;
+}
+
+/* ==========================================
+   BOTTONI
+   ========================================== */
+
+.btn-primary {
+  padding: 12px 24px;
+  background: #3498db;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  transition: all 0.3s;
+}
+
+.btn-primary:hover {
+  background: #2980b9;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(52, 152, 219, 0.3);
+}
+
+.btn-secondary {
+  padding: 8px 16px;
+  background: #ecf0f1;
+  color: #2c3e50;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.3s;
+  flex: 1;
+}
+
+.btn-secondary:hover {
+  background: #d5dbdb;
+  border-color: #bdc3c7;
+}
+
+.btn-danger {
+  padding: 8px 16px;
+  background: #fff;
+  color: #e74c3c;
+  border: 2px solid #e74c3c;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.3s;
+  flex: 1;
+}
+
+.btn-danger:hover {
+  background: #e74c3c;
+  color: white;
+}
+
+/* ==========================================
+   STATO VUOTO
+   ========================================== */
+
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  background: #f8f9fa;
+  border-radius: 12px;
+  margin-top: 20px;
+}
+
+.empty-icon {
+  font-size: 64px;
+  margin-bottom: 20px;
+  opacity: 0.3;
+}
+
+.empty-state h3 {
+  color: #2c3e50;
+  margin: 0 0 10px 0;
+  font-size: 24px;
+}
+
+.empty-state p {
+  color: #7f8c8d;
+  margin: 0 0 20px 0;
+}
+
+/* ==========================================
+   LOADING SPINNER
+   ========================================== */
+
+.loading-spinner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  color: #7f8c8d;
+}
+
+.spinner {
+  width: 50px;
+  height: 50px;
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #3498db;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 20px;
+}
+
+/* ==========================================
+   ANIMAZIONI
+   ========================================== */
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* ==========================================
+   RESPONSIVE
+   ========================================== */
+
+@media (max-width: 768px) {
+  .entities-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 15px;
+  }
+
+  .entities-filters {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .search-box {
+    min-width: 100%;
+  }
+
+  .filter-buttons {
+    flex-wrap: wrap;
+  }
+
+  .entities-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .entity-actions {
+    flex-direction: column;
+  }
+
+  .btn-secondary,
+  .btn-danger {
+    width: 100%;
+  }
+}

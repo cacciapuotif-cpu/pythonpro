@@ -1,0 +1,311 @@
+###
+# Gestionale Collaboratori - API Collection
+# Base URL: http://localhost:8001
+# Formato: HTTP Client (compatibile con VS Code REST Client, IntelliJ HTTP Client)
+###
+
+@baseUrl = http://localhost:8001
+@apiVersion = v1
+
+### ======================================
+### SYSTEM ENDPOINTS
+### ======================================
+
+### Health Check
+GET {{baseUrl}}/health
+
+### Root endpoint
+GET {{baseUrl}}/
+
+### ======================================
+### COLLABORATORS - /api/v1/collaborators
+### ======================================
+
+### Get all collaborators
+GET {{baseUrl}}/api/{{apiVersion}}/collaborators/
+
+### Get collaborator by ID
+GET {{baseUrl}}/api/{{apiVersion}}/collaborators/1
+
+### Create new collaborator
+POST {{baseUrl}}/api/{{apiVersion}}/collaborators/
+Content-Type: application/json
+
+{
+  "first_name": "Mario",
+  "last_name": "Rossi",
+  "email": "mario.rossi@example.com",
+  "fiscal_code": "RSSMRA80A01H501Z",
+  "birthplace": "Roma",
+  "birth_date": "1980-01-01",
+  "address": "Via Roma 1",
+  "city": "Roma"
+}
+
+### Update collaborator
+PUT {{baseUrl}}/api/{{apiVersion}}/collaborators/1
+Content-Type: application/json
+
+{
+  "email": "mario.rossi.updated@example.com",
+  "address": "Via Milano 10"
+}
+
+### Delete collaborator
+DELETE {{baseUrl}}/api/{{apiVersion}}/collaborators/1
+
+### ======================================
+### PROJECTS - /api/v1/projects
+### ======================================
+
+### Get all projects
+GET {{baseUrl}}/api/{{apiVersion}}/projects/
+
+### Get project by ID
+GET {{baseUrl}}/api/{{apiVersion}}/projects/1
+
+### Create new project
+POST {{baseUrl}}/api/{{apiVersion}}/projects/
+Content-Type: application/json
+
+{
+  "name": "Progetto Formazione 2025",
+  "description": "Corso di formazione per giovani professionisti",
+  "cup": "A12345678901234",
+  "start_date": "2025-01-15",
+  "end_date": "2025-12-31",
+  "status": "active"
+}
+
+### Update project
+PUT {{baseUrl}}/api/{{apiVersion}}/projects/1
+Content-Type: application/json
+
+{
+  "status": "completed",
+  "end_date": "2025-10-31"
+}
+
+### Delete project
+DELETE {{baseUrl}}/api/{{apiVersion}}/projects/1
+
+### ======================================
+### ATTENDANCES - /api/v1/attendances
+### ======================================
+
+### Get all attendances
+GET {{baseUrl}}/api/{{apiVersion}}/attendances/
+
+### Get attendances with filters
+GET {{baseUrl}}/api/{{apiVersion}}/attendances/?collaborator_id=1&project_id=1&start_date=2025-01-01&end_date=2025-12-31
+
+### Get attendance by ID
+GET {{baseUrl}}/api/{{apiVersion}}/attendances/1
+
+### Create new attendance
+POST {{baseUrl}}/api/{{apiVersion}}/attendances/
+Content-Type: application/json
+
+{
+  "collaborator_id": 1,
+  "project_id": 1,
+  "date": "2025-10-19",
+  "hours_worked": 8.0,
+  "note": "Formazione teoria"
+}
+
+### Update attendance
+PUT {{baseUrl}}/api/{{apiVersion}}/attendances/1
+Content-Type: application/json
+
+{
+  "hours_worked": 7.5,
+  "note": "Formazione teoria - aggiornato"
+}
+
+### Delete attendance
+DELETE {{baseUrl}}/api/{{apiVersion}}/attendances/1
+
+### ======================================
+### ASSIGNMENTS - /api/v1/assignments
+### ======================================
+
+### Get all assignments
+GET {{baseUrl}}/api/{{apiVersion}}/assignments/
+
+### Get assignment by ID
+GET {{baseUrl}}/api/{{apiVersion}}/assignments/1
+
+### Create new assignment
+POST {{baseUrl}}/api/{{apiVersion}}/assignments/
+Content-Type: application/json
+
+{
+  "collaborator_id": 1,
+  "project_id": 1,
+  "role": "Formatore",
+  "assigned_hours": 100,
+  "hourly_rate": 35.50,
+  "start_date": "2025-01-15",
+  "end_date": "2025-12-31",
+  "contract_type": "professionale"
+}
+
+### Update assignment
+PUT {{baseUrl}}/api/{{apiVersion}}/assignments/1
+Content-Type: application/json
+
+{
+  "assigned_hours": 120,
+  "hourly_rate": 40.00
+}
+
+### Delete assignment
+DELETE {{baseUrl}}/api/{{apiVersion}}/assignments/1
+
+### Generate contract PDF for assignment
+GET {{baseUrl}}/api/{{apiVersion}}/assignments/1/generate-contract
+
+### ======================================
+### ENTITIES - /api/v1/entities
+### ======================================
+
+### Get all implementing entities
+GET {{baseUrl}}/api/{{apiVersion}}/entities/
+
+### Get entities with search
+GET {{baseUrl}}/api/{{apiVersion}}/entities/?search=SRL&is_active=true
+
+### Get entity by ID
+GET {{baseUrl}}/api/{{apiVersion}}/entities/1
+
+### Create new entity
+POST {{baseUrl}}/api/{{apiVersion}}/entities/
+Content-Type: application/json
+
+{
+  "ragione_sociale": "Ente Formazione SRL",
+  "partita_iva": "12345678901",
+  "indirizzo_completo": "Via della Formazione 10, 00100 Roma",
+  "referente_nome_completo": "Giuseppe Verdi",
+  "pec": "ente.formazione@pec.it",
+  "telefono": "+39 06 12345678"
+}
+
+### Update entity
+PUT {{baseUrl}}/api/{{apiVersion}}/entities/1
+Content-Type: application/json
+
+{
+  "telefono": "+39 06 98765432",
+  "pec": "info@enteformazione.pec.it"
+}
+
+### Delete entity (soft delete)
+DELETE {{baseUrl}}/api/{{apiVersion}}/entities/1?soft_delete=true
+
+### ======================================
+### CONTRACTS - /api/v1/contracts
+### ======================================
+
+### Get all contract templates
+GET {{baseUrl}}/api/{{apiVersion}}/contracts/
+
+### Get contract templates by type
+GET {{baseUrl}}/api/{{apiVersion}}/contracts/?tipo_contratto=professionale&is_active=true
+
+### Get contract template by ID
+GET {{baseUrl}}/api/{{apiVersion}}/contracts/1
+
+### Create new contract template
+POST {{baseUrl}}/api/{{apiVersion}}/contracts/
+Content-Type: application/json
+
+{
+  "nome_template": "Contratto Prestazione Professionale Standard",
+  "tipo_contratto": "professionale",
+  "contenuto_html": "<h1>Contratto di Prestazione Professionale</h1><p>Tra {{ente_ragione_sociale}} e {{collaboratore_nome_completo}}...</p>",
+  "is_default": true,
+  "formato_data": "%d/%m/%Y",
+  "formato_importo": "€ {:.2f}"
+}
+
+### Update contract template
+PUT {{baseUrl}}/api/{{apiVersion}}/contracts/1
+Content-Type: application/json
+
+{
+  "is_active": false
+}
+
+### Delete contract template (soft delete)
+DELETE {{baseUrl}}/api/{{apiVersion}}/contracts/1?soft_delete=true
+
+### Generate contract from template
+POST {{baseUrl}}/api/{{apiVersion}}/contracts/generate-contract
+Content-Type: application/json
+
+{
+  "collaboratore_id": 1,
+  "progetto_id": 1,
+  "ente_attuatore_id": 1,
+  "mansione": "Formatore Senior",
+  "ore_previste": 100,
+  "tariffa_oraria": 40.00,
+  "data_inizio": "2025-01-15",
+  "data_fine": "2025-12-31",
+  "template_id": 1
+}
+
+### ======================================
+### REPORTING - /api/v1/reporting
+### ======================================
+
+### Get timesheet report
+GET {{baseUrl}}/api/{{apiVersion}}/reporting/timesheet
+
+### Get timesheet report with filters
+GET {{baseUrl}}/api/{{apiVersion}}/reporting/timesheet?from=2025-01-01&to=2025-12-31&collaborator_id=1
+
+### Get summary report (KPI)
+GET {{baseUrl}}/api/{{apiVersion}}/reporting/summary
+
+### Get summary report with date range
+GET {{baseUrl}}/api/{{apiVersion}}/reporting/summary?from=2025-01-01&to=2025-12-31
+
+### Get collaborator statistics
+GET {{baseUrl}}/api/{{apiVersion}}/reporting/collaborator/1/stats
+
+### Get collaborator statistics with date range
+GET {{baseUrl}}/api/{{apiVersion}}/reporting/collaborator/1/stats?from=2025-01-01&to=2025-12-31
+
+### Get project statistics
+GET {{baseUrl}}/api/{{apiVersion}}/reporting/project/1/stats
+
+### Get project statistics with date range
+GET {{baseUrl}}/api/{{apiVersion}}/reporting/project/1/stats?from=2025-01-01&to=2025-12-31
+
+### ======================================
+### ADMIN - /api/v1/admin (requires auth)
+### ======================================
+
+### Get system metrics
+# GET {{baseUrl}}/api/{{apiVersion}}/admin/metrics
+# Authorization: Bearer YOUR_TOKEN_HERE
+
+### Get security logs
+# GET {{baseUrl}}/api/{{apiVersion}}/admin/security-logs
+# Authorization: Bearer YOUR_TOKEN_HERE
+
+### ======================================
+### OPENAPI SCHEMA
+### ======================================
+
+### Get OpenAPI schema (JSON)
+GET {{baseUrl}}/openapi.json
+
+### Get API documentation (Swagger UI)
+# Open in browser: {{baseUrl}}/docs
+
+### Get API documentation (ReDoc)
+# Open in browser: {{baseUrl}}/redoc

@@ -1,0 +1,13 @@
+frontend/src/services/apiService.js:5:import axios from 'axios';
+frontend/src/services/apiService.js:9:// Crea istanza axios con configurazione base
+frontend/src/services/apiService.js:10:const apiClient = axios.create({
+frontend/src/services/apiService.js:81:  return axios.post(`${API_BASE_URL}/auth/refresh`, formData, {
+frontend/src/components/ContractTemplateModal.js:254:      const response = await fetch('http://localhost:8000/contract-templates/convert-docx-to-html', {
+frontend/src/components/ImplementingEntityModal.js:184:      const response = await fetch(
+frontend/src/components/ImplementingEntityModal.js:219:      const response = await fetch(
+frontend/src/components/ProgettoMansioneEnteManager.js:79:        fetch(`${API_BASE_URL}/progetto-mansione-ente/?${params}`),
+frontend/src/components/ProgettoMansioneEnteManager.js:80:        fetch(`${API_BASE_URL}/projects/?limit=200`),
+frontend/src/components/ProgettoMansioneEnteManager.js:81:        fetch(`${API_BASE_URL}/implementing-entities/?limit=200`)
+frontend/src/components/ProgettoMansioneEnteManager.js:213:        response = await fetch(`${API_BASE_URL}/progetto-mansione-ente/${editingAssociazione.id}`, {
+frontend/src/components/ProgettoMansioneEnteManager.js:220:        response = await fetch(`${API_BASE_URL}/progetto-mansione-ente/`, {
+frontend/src/components/ProgettoMansioneEnteManager.js:249:      const response = await fetch(`${API_BASE_URL}/progetto-mansione-ente/${id}?soft_delete=true`, {

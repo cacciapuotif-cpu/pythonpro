@@ -1,0 +1,742 @@
+{
+  "audit_date": "2025-10-19",
+  "project_root": "C:\\pythonpro",
+  "summary": {
+    "total_files_scanned": 244,
+    "exact_duplicates": 1,
+    "near_duplicates": 0,
+    "orphaned_files": 46,
+    "backup_files": 4,
+    "total_suggestions": 51
+  },
+  "duplicates": {
+    "a2cbcd39be2e4c54cabc7e5acbe19f78": {
+      "files": [
+        "backend\\main_backup_20251013_140255.py",
+        "backend\\main_backup_pre_refactor.py"
+      ],
+      "count": 2
+    }
+  },
+  "near_duplicates": [],
+  "orphaned_files": [
+    {
+      "file": "backend\\add_assignment_to_attendance.py",
+      "module_name": "add_assignment_to_attendance",
+      "is_test_file": false,
+      "confidence": "medium",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\cache.py",
+      "module_name": "cache",
+      "is_test_file": false,
+      "confidence": "medium",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\main_backup_20251013_140255.py",
+      "module_name": "main_backup_20251013_140255",
+      "is_test_file": false,
+      "confidence": "medium",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\main_backup_pre_refactor.py",
+      "module_name": "main_backup_pre_refactor",
+      "is_test_file": false,
+      "confidence": "medium",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\main_temp.py",
+      "module_name": "main_temp",
+      "is_test_file": false,
+      "confidence": "medium",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\migrate_add_documents.py",
+      "module_name": "migrate_add_documents",
+      "is_test_file": false,
+      "confidence": "medium",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\migrate_add_ente_attuatore.py",
+      "module_name": "migrate_add_ente_attuatore",
+      "is_test_file": false,
+      "confidence": "medium",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\migrate_add_progetto_mansione_ente.py",
+      "module_name": "migrate_add_progetto_mansione_ente",
+      "is_test_file": false,
+      "confidence": "medium",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\migrate_make_fiscal_code_required.py",
+      "module_name": "migrate_make_fiscal_code_required",
+      "is_test_file": false,
+      "confidence": "medium",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\monitoring.py",
+      "module_name": "monitoring",
+      "is_test_file": false,
+      "confidence": "medium",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\security_middleware.py",
+      "module_name": "security_middleware",
+      "is_test_file": false,
+      "confidence": "medium",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\seed_implementing_entities.py",
+      "module_name": "seed_implementing_entities",
+      "is_test_file": false,
+      "confidence": "medium",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\test_assignments_features.py",
+      "module_name": "test_assignments_features",
+      "is_test_file": true,
+      "confidence": "low",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\test_assignment_hours.py",
+      "module_name": "test_assignment_hours",
+      "is_test_file": true,
+      "confidence": "low",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\test_attendance_overlap.py",
+      "module_name": "test_attendance_overlap",
+      "is_test_file": true,
+      "confidence": "low",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\test_fiscal_code_validation.py",
+      "module_name": "test_fiscal_code_validation",
+      "is_test_file": true,
+      "confidence": "low",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\test_improvements.py",
+      "module_name": "test_improvements",
+      "is_test_file": true,
+      "confidence": "low",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\test_main.py",
+      "module_name": "test_main",
+      "is_test_file": true,
+      "confidence": "low",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\test_upload.py",
+      "module_name": "test_upload",
+      "is_test_file": true,
+      "confidence": "low",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\test_upload_existing.py",
+      "module_name": "test_upload_existing",
+      "is_test_file": true,
+      "confidence": "low",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\app\\api\\assignments.py",
+      "module_name": "assignments",
+      "is_test_file": false,
+      "confidence": "medium",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\app\\api\\attendances.py",
+      "module_name": "attendances",
+      "is_test_file": false,
+      "confidence": "medium",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\app\\api\\collaborators.py",
+      "module_name": "collaborators",
+      "is_test_file": false,
+      "confidence": "medium",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\app\\api\\contracts.py",
+      "module_name": "contracts",
+      "is_test_file": false,
+      "confidence": "medium",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\app\\api\\entities.py",
+      "module_name": "entities",
+      "is_test_file": false,
+      "confidence": "medium",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\app\\api\\projects.py",
+      "module_name": "projects",
+      "is_test_file": false,
+      "confidence": "medium",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\app\\api\\reporting.py",
+      "module_name": "reporting",
+      "is_test_file": false,
+      "confidence": "medium",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\app\\core\\settings.py",
+      "module_name": "settings",
+      "is_test_file": false,
+      "confidence": "medium",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\app\\schemas\\assignments.py",
+      "module_name": "assignments",
+      "is_test_file": false,
+      "confidence": "medium",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\app\\schemas\\attendances.py",
+      "module_name": "attendances",
+      "is_test_file": false,
+      "confidence": "medium",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\app\\schemas\\collaborators.py",
+      "module_name": "collaborators",
+      "is_test_file": false,
+      "confidence": "medium",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\app\\schemas\\contracts.py",
+      "module_name": "contracts",
+      "is_test_file": false,
+      "confidence": "medium",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\app\\schemas\\entities.py",
+      "module_name": "entities",
+      "is_test_file": false,
+      "confidence": "medium",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\app\\schemas\\projects.py",
+      "module_name": "projects",
+      "is_test_file": false,
+      "confidence": "medium",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\routers\\admin.py",
+      "module_name": "admin",
+      "is_test_file": false,
+      "confidence": "medium",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\routers\\assignments.py",
+      "module_name": "assignments",
+      "is_test_file": false,
+      "confidence": "medium",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\routers\\attendances.py",
+      "module_name": "attendances",
+      "is_test_file": false,
+      "confidence": "medium",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\routers\\collaborators.py",
+      "module_name": "collaborators",
+      "is_test_file": false,
+      "confidence": "medium",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\routers\\contract_templates.py",
+      "module_name": "contract_templates",
+      "is_test_file": false,
+      "confidence": "medium",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\routers\\implementing_entities.py",
+      "module_name": "implementing_entities",
+      "is_test_file": false,
+      "confidence": "medium",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\routers\\progetto_mansione_ente.py",
+      "module_name": "progetto_mansione_ente",
+      "is_test_file": false,
+      "confidence": "medium",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\routers\\projects.py",
+      "module_name": "projects",
+      "is_test_file": false,
+      "confidence": "medium",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\routers\\reporting.py",
+      "module_name": "reporting",
+      "is_test_file": false,
+      "confidence": "medium",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\routers\\system.py",
+      "module_name": "system",
+      "is_test_file": false,
+      "confidence": "medium",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\tests\\test_api_in_memory.py",
+      "module_name": "test_api_in_memory",
+      "is_test_file": true,
+      "confidence": "low",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\tests\\test_routers_api_v1.py",
+      "module_name": "test_routers_api_v1",
+      "is_test_file": true,
+      "confidence": "low",
+      "reason": "Module never imported in codebase"
+    }
+  ],
+  "backup_files": [
+    {
+      "file": "backend\\main_backup_20251013_140255.py",
+      "pattern": "_backup",
+      "confidence": "high",
+      "suggestion": "safe to delete",
+      "reason": "Matches backup pattern: _backup"
+    },
+    {
+      "file": "backend\\main_backup_pre_refactor.py",
+      "pattern": "_backup",
+      "confidence": "high",
+      "suggestion": "safe to delete",
+      "reason": "Matches backup pattern: _backup"
+    },
+    {
+      "file": "backend\\main_temp.py",
+      "pattern": "_temp",
+      "confidence": "high",
+      "suggestion": "safe to delete",
+      "reason": "Matches backup pattern: _temp"
+    },
+    {
+      "file": "backend\\routers\\contract_templates.py",
+      "pattern": "_temp",
+      "confidence": "high",
+      "suggestion": "safe to delete",
+      "reason": "Matches backup pattern: _temp"
+    }
+  ],
+  "removal_suggestions": [
+    {
+      "file": "backend\\main_backup_pre_refactor.py",
+      "type": "exact_duplicate",
+      "confidence": "high",
+      "action": "delete",
+      "reason": "Exact duplicate of backend\\main_backup_20251013_140255.py",
+      "original": "backend\\main_backup_20251013_140255.py"
+    },
+    {
+      "file": "backend\\add_assignment_to_attendance.py",
+      "type": "orphaned",
+      "confidence": "medium",
+      "action": "consider delete",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\cache.py",
+      "type": "orphaned",
+      "confidence": "medium",
+      "action": "consider delete",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\main_backup_20251013_140255.py",
+      "type": "orphaned",
+      "confidence": "medium",
+      "action": "consider delete",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\main_backup_pre_refactor.py",
+      "type": "orphaned",
+      "confidence": "medium",
+      "action": "consider delete",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\main_temp.py",
+      "type": "orphaned",
+      "confidence": "medium",
+      "action": "consider delete",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\migrate_add_documents.py",
+      "type": "orphaned",
+      "confidence": "medium",
+      "action": "consider delete",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\migrate_add_ente_attuatore.py",
+      "type": "orphaned",
+      "confidence": "medium",
+      "action": "consider delete",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\migrate_add_progetto_mansione_ente.py",
+      "type": "orphaned",
+      "confidence": "medium",
+      "action": "consider delete",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\migrate_make_fiscal_code_required.py",
+      "type": "orphaned",
+      "confidence": "medium",
+      "action": "consider delete",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\monitoring.py",
+      "type": "orphaned",
+      "confidence": "medium",
+      "action": "consider delete",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\security_middleware.py",
+      "type": "orphaned",
+      "confidence": "medium",
+      "action": "consider delete",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\seed_implementing_entities.py",
+      "type": "orphaned",
+      "confidence": "medium",
+      "action": "consider delete",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\test_assignments_features.py",
+      "type": "orphaned",
+      "confidence": "low",
+      "action": "review",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\test_assignment_hours.py",
+      "type": "orphaned",
+      "confidence": "low",
+      "action": "review",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\test_attendance_overlap.py",
+      "type": "orphaned",
+      "confidence": "low",
+      "action": "review",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\test_fiscal_code_validation.py",
+      "type": "orphaned",
+      "confidence": "low",
+      "action": "review",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\test_improvements.py",
+      "type": "orphaned",
+      "confidence": "low",
+      "action": "review",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\test_main.py",
+      "type": "orphaned",
+      "confidence": "low",
+      "action": "review",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\test_upload.py",
+      "type": "orphaned",
+      "confidence": "low",
+      "action": "review",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\test_upload_existing.py",
+      "type": "orphaned",
+      "confidence": "low",
+      "action": "review",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\app\\api\\assignments.py",
+      "type": "orphaned",
+      "confidence": "medium",
+      "action": "consider delete",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\app\\api\\attendances.py",
+      "type": "orphaned",
+      "confidence": "medium",
+      "action": "consider delete",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\app\\api\\collaborators.py",
+      "type": "orphaned",
+      "confidence": "medium",
+      "action": "consider delete",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\app\\api\\contracts.py",
+      "type": "orphaned",
+      "confidence": "medium",
+      "action": "consider delete",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\app\\api\\entities.py",
+      "type": "orphaned",
+      "confidence": "medium",
+      "action": "consider delete",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\app\\api\\projects.py",
+      "type": "orphaned",
+      "confidence": "medium",
+      "action": "consider delete",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\app\\api\\reporting.py",
+      "type": "orphaned",
+      "confidence": "medium",
+      "action": "consider delete",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\app\\core\\settings.py",
+      "type": "orphaned",
+      "confidence": "medium",
+      "action": "consider delete",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\app\\schemas\\assignments.py",
+      "type": "orphaned",
+      "confidence": "medium",
+      "action": "consider delete",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\app\\schemas\\attendances.py",
+      "type": "orphaned",
+      "confidence": "medium",
+      "action": "consider delete",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\app\\schemas\\collaborators.py",
+      "type": "orphaned",
+      "confidence": "medium",
+      "action": "consider delete",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\app\\schemas\\contracts.py",
+      "type": "orphaned",
+      "confidence": "medium",
+      "action": "consider delete",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\app\\schemas\\entities.py",
+      "type": "orphaned",
+      "confidence": "medium",
+      "action": "consider delete",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\app\\schemas\\projects.py",
+      "type": "orphaned",
+      "confidence": "medium",
+      "action": "consider delete",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\routers\\admin.py",
+      "type": "orphaned",
+      "confidence": "medium",
+      "action": "consider delete",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\routers\\assignments.py",
+      "type": "orphaned",
+      "confidence": "medium",
+      "action": "consider delete",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\routers\\attendances.py",
+      "type": "orphaned",
+      "confidence": "medium",
+      "action": "consider delete",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\routers\\collaborators.py",
+      "type": "orphaned",
+      "confidence": "medium",
+      "action": "consider delete",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\routers\\contract_templates.py",
+      "type": "orphaned",
+      "confidence": "medium",
+      "action": "consider delete",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\routers\\implementing_entities.py",
+      "type": "orphaned",
+      "confidence": "medium",
+      "action": "consider delete",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\routers\\progetto_mansione_ente.py",
+      "type": "orphaned",
+      "confidence": "medium",
+      "action": "consider delete",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\routers\\projects.py",
+      "type": "orphaned",
+      "confidence": "medium",
+      "action": "consider delete",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\routers\\reporting.py",
+      "type": "orphaned",
+      "confidence": "medium",
+      "action": "consider delete",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\routers\\system.py",
+      "type": "orphaned",
+      "confidence": "medium",
+      "action": "consider delete",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\tests\\test_api_in_memory.py",
+      "type": "orphaned",
+      "confidence": "low",
+      "action": "review",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\tests\\test_routers_api_v1.py",
+      "type": "orphaned",
+      "confidence": "low",
+      "action": "review",
+      "reason": "Module never imported in codebase"
+    },
+    {
+      "file": "backend\\main_backup_20251013_140255.py",
+      "type": "backup",
+      "confidence": "high",
+      "action": "delete",
+      "reason": "Matches backup pattern: _backup"
+    },
+    {
+      "file": "backend\\main_backup_pre_refactor.py",
+      "type": "backup",
+      "confidence": "high",
+      "action": "delete",
+      "reason": "Matches backup pattern: _backup"
+    },
+    {
+      "file": "backend\\main_temp.py",
+      "type": "backup",
+      "confidence": "high",
+      "action": "delete",
+      "reason": "Matches backup pattern: _temp"
+    },
+    {
+      "file": "backend\\routers\\contract_templates.py",
+      "type": "backup",
+      "confidence": "high",
+      "action": "delete",
+      "reason": "Matches backup pattern: _temp"
+    }
+  ],
+  "confidence_levels": {
+    "high": 5,
+    "medium": 36,
+    "low": 10,
+    "review": 0
+  }
+}

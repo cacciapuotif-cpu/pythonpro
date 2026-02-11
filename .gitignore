@@ -1,0 +1,212 @@
+# ============================================================
+# 🔒 GITIGNORE - File da NON committare su Git
+# ============================================================
+# Questo file previene il commit accidentale di:
+# - Dati sensibili (password, token, chiavi)
+# - File generati automaticamente
+# - Cache e file temporanei
+# - Configurazioni locali
+# ============================================================
+
+# === SICUREZZA: File con Secret ===
+# ⚠️ MAI committare questi file su Git!
+.env
+.env.local
+.env.production
+.env.*.local
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+secrets/
+credentials.json
+service-account.json
+
+# === Python ===
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+MANIFEST
+
+# Virtual environment
+venv/
+env/
+ENV/
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+
+# === Database ===
+*.db
+*.sqlite
+*.sqlite3
+gestionale.db
+*.sql
+db_backups/
+
+# === IDEs e Editor ===
+# VS Code
+.vscode/
+*.code-workspace
+
+# PyCharm
+.idea/
+*.iml
+*.iws
+.idea_modules/
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+
+# Emacs
+*~
+\#*\#
+.\#*
+
+# === OS ===
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+.directory
+.Trash-*
+
+# === Testing ===
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+nosetests.xml
+test-results/
+
+# === Type Checking ===
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+
+# === Linting ===
+.ruff_cache/
+.pylint.d/
+
+# === Logs ===
+*.log
+*.log.*
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+
+# === Backup e Temporanei ===
+backups/
+backup_*.db
+*.bak
+*.backup
+*.tmp
+*.temp
+*.old
+tmp/
+temp/
+
+# === Upload e File Utente ===
+uploads/
+media/
+static/uploads/
+
+# === Node.js (Frontend) ===
+node_modules/
+npm-debug.log
+yarn-error.log
+.npm
+.eslintcache
+
+# Build frontend
+frontend/build/
+frontend/dist/
+frontend/.next/
+frontend/out/
+
+# === Docker ===
+.dockerignore.bak
+
+# === Performance e Monitoring ===
+performance_export_*.json
+*.tar.gz
+*.zip
+*.gz
+
+# === Alembic ===
+# Mantieni directory alembic/versions/ ma ignora file specifici se necessario
+# alembic/versions/*_local.py
+
+# === Documentation Build ===
+docs/_build/
+docs/.doctrees/
+site/
+
+# === Jupyter Notebooks ===
+.ipynb_checkpoints
+*.ipynb
+
+# === Environment Specifici ===
+.python-version
+.ruby-version
+.node-version
+
+# === Altri ===
+*.pid
+celerybeat-schedule
+celerybeat.pid
+
+# === Lock Files (opzionale, valuta se committarli) ===
+# Alcuni preferiscono committare lock files per riproducibilità
+# Decommentare per ignorarli:
+# package-lock.json
+# yarn.lock
+# poetry.lock
+# Pipfile.lock
+
+# ============================================================
+# NOTA IMPORTANTE:
+# ------------------------------------------------------------
+# Prima di committare, verifica sempre che NON ci siano:
+# - Password o token
+# - Chiavi API
+# - Dati sensibili utenti
+# - File di configurazione con credenziali
+#
+# Usa: git status
+# Controlla: git diff
+# ============================================================
+nul 

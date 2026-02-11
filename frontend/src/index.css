@@ -1,0 +1,95 @@
+/**
+ * STILI GLOBALI DELL'APPLICAZIONE
+ * Definisce gli stili base che si applicano a tutta l'applicazione
+ */
+
+/* RESET CSS - Normalizziamo gli stili di base del browser */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* STILI BASE HTML E BODY */
+html, body {
+  height: 100%;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background-color: #f5f7fa;
+  color: #333;
+  line-height: 1.6;
+}
+
+/* ROOT DELL'APPLICAZIONE REACT */
+#root {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* TIPOGRAFIA GENERALE */
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 600;
+  margin-bottom: 0.5em;
+  color: #2c3e50;
+}
+
+p {
+  margin-bottom: 1em;
+}
+
+/* LINK */
+a {
+  color: #3174ad;
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+a:hover {
+  color: #2980b9;
+  text-decoration: underline;
+}
+
+/* PULSANTI BASE */
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s ease;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* INPUT E FORM ELEMENTS */
+input, select, textarea {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+input:focus, select:focus, textarea:focus {
+  outline: 2px solid #3174ad;
+  outline-offset: 2px;
+}
+
+/* UTILITÀ */
+.text-center {
+  text-align: center;
+}
+
+.mb-1 { margin-bottom: 0.5rem; }
+.mb-2 { margin-bottom: 1rem; }
+.mb-3 { margin-bottom: 1.5rem; }
+.mb-4 { margin-bottom: 2rem; }
+
+.mt-1 { margin-top: 0.5rem; }
+.mt-2 { margin-top: 1rem; }
+.mt-3 { margin-top: 1.5rem; }
+.mt-4 { margin-top: 2rem; }
+
+/* CLASSI PER STATI */
+.success { color: #28a745; }
+.error { color: #dc3545; }
+.warning { color: #ffc107; }
+.info { color: #17a2b8; }

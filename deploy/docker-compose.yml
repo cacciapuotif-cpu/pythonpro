@@ -1,0 +1,130 @@
+# ============================================================
+# 🐳 DOCKER COMPOSE - Configurazione servizi
+# ------------------------------------------------------------
+# Questo file orchestra tutti i servizi necessari per
+# far funzionare il gestionale:
+# - Backend FastAPI
+# - Database PostgreSQL
+# - (Futuro: Redis, Nginx, etc.)
+#
+# Comandi:
+#   docker-compose up --build    # Avvia tutto
+#   docker-compose down          # Ferma tutto
+#   docker-compose logs -f       # Visualizza log
+# ============================================================
+
+version: '3.8'
+
+services:
+  # ====================================
+  # DATABASE POSTGRESQL
+  # ====================================
+  db:
+    image: postgres:15-alpine
+    container_name: gestionale_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: gestionale
+      POSTGRES_PASSWORD: gestionale123
+      POSTGRES_DB: gestionale
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    ports:
+      - "5432:5432"
+    volumes:
+      # Persiste i dati anche dopo lo shutdown
+      - postgres_data:/var/lib/postgresql/data
+      # Script di inizializzazione (opzionale)
+      # - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gestionale"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - gestionale_network
+
+  # ====================================
+  # BACKEND FASTAPI
+  # ====================================
+  backend:
+    build:
+      context: ../backend
+      dockerfile: ../deploy/backend.Dockerfile
+    container_name: gestionale_backend
+    restart: unless-stopped
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    environment:
+      # Variabili d'ambiente (sovrascrivono .env)
+      DATABASE_URL: postgresql+asyncpg://gestionale:gestionale123@db:5432/gestionale
+      APP_ENV: development
+      DEBUG: "True"
+      LOG_LEVEL: INFO
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount del codice sorgente per hot-reload
+      - ../backend:/app
+      # Persiste upload e log
+      - backend_uploads:/app/uploads
+      - backend_logs:/app/logs
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - gestionale_network
+
+  # ====================================
+  # PGADMIN (opzionale - tool gestione DB)
+  # ====================================
+  # Decommentare per abilitare interfaccia web PostgreSQL
+  # pgadmin:
+  #   image: dpage/pgadmin4:latest
+  #   container_name: gestionale_pgadmin
+  #   restart: unless-stopped
+  #   environment:
+  #     PGADMIN_DEFAULT_EMAIL: admin@gestionale.local
+  #     PGADMIN_DEFAULT_PASSWORD: admin
+  #   ports:
+  #     - "5050:80"
+  #   networks:
+  #     - gestionale_network
+
+  # ====================================
+  # REDIS CACHE (futuro)
+  # ====================================
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: gestionale_redis
+  #   restart: unless-stopped
+  #   ports:
+  #     - "6379:6379"
+  #   volumes:
+  #     - redis_data:/data
+  #   networks:
+  #     - gestionale_network
+
+# ====================================
+# VOLUMI PERSISTENTI
+# ====================================
+volumes:
+  postgres_data:
+    driver: local
+  backend_uploads:
+    driver: local
+  backend_logs:
+    driver: local
+  # redis_data:
+  #   driver: local
+
+# ====================================
+# RETE DOCKER
+# ====================================
+networks:
+  gestionale_network:
+    driver: bridge
