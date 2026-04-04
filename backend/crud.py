@@ -2,13 +2,30 @@ from sqlalchemy.orm import Session, joinedload, selectinload, contains_eager
 from sqlalchemy import and_, or_, desc, asc, func, text, select
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from typing import List, Optional, Dict, Any, Union
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from functools import lru_cache
+from collections import defaultdict
+import json
+import re
 import models
 import schemas
 import logging
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+from piano_finanziario_config import (
+    MACROVOCE_LIMITS,
+    MACROVOCE_TITLES,
+    build_default_voci,
+    get_voice_template_map,
+    is_dynamic_voice,
+)
+from piano_fondimpresa_config import (
+    SEZIONE_LIMITS as FONDIMPRESA_LIMITS,
+    SEZIONE_TITLES as FONDIMPRESA_TITLES,
+    build_default_voci_fondimpresa,
+    get_voice_template_map as get_fondimpresa_voice_template_map,
+)
+from async_events import enqueue_webhook_notification, track_entity_event
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +106,64 @@ def get_collaborator_by_fiscal_code(db: Session, fiscal_code: str):
         models.Collaborator.fiscal_code == fiscal_code.upper()
     ).first()
 
+
+def get_collaborator_by_partita_iva(db: Session, partita_iva: str):
+    """Recupera un collaboratore tramite partita IVA normalizzata."""
+    clean = partita_iva.replace(' ', '').replace('IT', '').replace('it', '')
+    return db.query(models.Collaborator).filter(
+        models.Collaborator.partita_iva == clean
+    ).first()
+
+
+def normalize_partita_iva(partita_iva: Optional[str]) -> Optional[str]:
+    if partita_iva is None:
+        return None
+    return partita_iva.replace(' ', '').replace('IT', '').replace('it', '')
+
+
+def get_azienda_cliente_by_partita_iva(db: Session, partita_iva: str):
+    """Recupera un'azienda cliente tramite partita IVA normalizzata."""
+    clean = normalize_partita_iva(partita_iva)
+    return db.query(models.AziendaCliente).filter(
+        models.AziendaCliente.partita_iva == clean
+    ).first()
+
+
+def find_partita_iva_conflict(
+    db: Session,
+    partita_iva: Optional[str],
+    entity_type: str,
+    entity_id: Optional[int] = None,
+):
+    """
+    Cerca conflitti di partita IVA tra collaboratori e aziende clienti.
+
+    entity_type:
+    - "collaborator"
+    - "azienda_cliente"
+    """
+    clean = normalize_partita_iva(partita_iva)
+    if not clean:
+        return None
+
+    collaborator = get_collaborator_by_partita_iva(db, clean)
+    if collaborator and not (entity_type == "collaborator" and collaborator.id == entity_id):
+        return {
+            "entity_type": "collaborator",
+            "entity_id": collaborator.id,
+            "message": f"Esiste già un collaboratore con partita IVA '{clean}'",
+        }
+
+    azienda = get_azienda_cliente_by_partita_iva(db, clean)
+    if azienda and not (entity_type == "azienda_cliente" and azienda.id == entity_id):
+        return {
+            "entity_type": "azienda_cliente",
+            "entity_id": azienda.id,
+            "message": f"Esiste già un'azienda cliente con partita IVA '{clean}'",
+        }
+
+    return None
+
 def get_collaborators(db: Session, skip: int = 0, limit: int = 100, search: Optional[str] = None, is_active: Optional[bool] = None):
     query = db.query(models.Collaborator)
 
@@ -138,6 +213,8 @@ def create_collaborator(db: Session, collaborator: schemas.CollaboratorCreate):
     # Versione MINIMALISTA - solo add, niente flush/commit
     db_collaborator = models.Collaborator(**collaborator.dict())
     db.add(db_collaborator)
+    db.flush()
+    _sync_agency_from_collaborator(db, db_collaborator)
     return db_collaborator
 
 def update_collaborator(db: Session, collaborator_id: int, collaborator: schemas.CollaboratorUpdate):
@@ -169,6 +246,7 @@ def update_collaborator(db: Session, collaborator_id: int, collaborator: schemas
             setattr(db_collaborator, key, value)
 
         db_collaborator.updated_at = func.now()
+        _sync_agency_from_collaborator(db, db_collaborator)
         db.commit()
         db.refresh(db_collaborator)
 
@@ -197,7 +275,14 @@ def delete_collaborator(db: Session, collaborator_id: int):
 
         if db_collaborator:
             db_collaborator.is_active = False
+            _sync_agency_from_collaborator(db, db_collaborator)
+            _sync_consultant_from_collaborator(db, db_collaborator)
             db_collaborator.updated_at = func.now()
+            # Disattiva anche le assegnazioni attive del collaboratore
+            db.query(models.Assignment).filter(
+                models.Assignment.collaborator_id == collaborator_id,
+                models.Assignment.is_active == True
+            ).update({"is_active": False})
             db.commit()
             db.refresh(db_collaborator)
             logger.info(f"Soft deleted collaborator: {collaborator_id}")
@@ -207,22 +292,232 @@ def delete_collaborator(db: Session, collaborator_id: int):
         logger.error(f"Error deleting collaborator {collaborator_id}: {e}")
         raise
 
+
+def _sync_agency_from_collaborator(db: Session, collaborator: models.Collaborator):
+    linked_agency = (
+        db.query(models.Agenzia)
+        .filter(models.Agenzia.collaborator_id == collaborator.id)
+        .first()
+    )
+
+    if collaborator.is_agency and collaborator.is_active:
+        agency_name = " ".join(
+            part for part in [collaborator.first_name, collaborator.last_name] if part
+        ).strip() or collaborator.email
+
+        if linked_agency is None:
+            linked_agency = models.Agenzia(collaborator_id=collaborator.id)
+            db.add(linked_agency)
+
+        linked_agency.nome = agency_name
+        linked_agency.partita_iva = collaborator.partita_iva
+        linked_agency.email = collaborator.email
+        linked_agency.telefono = collaborator.phone
+        linked_agency.attivo = True
+
+        note_parts = []
+        if linked_agency.note:
+            note_parts.append(linked_agency.note)
+        else:
+            note_parts.append("Auto-generata da collaboratore")
+        if collaborator.position:
+            note_parts.append(f"Ruolo: {collaborator.position}")
+        if collaborator.city:
+            note_parts.append(f"Citta: {collaborator.city}")
+        linked_agency.note = " | ".join(dict.fromkeys(part for part in note_parts if part))
+    elif linked_agency is not None:
+        linked_agency.attivo = False
+
+
+def _sync_consultant_from_collaborator(db: Session, collaborator: models.Collaborator):
+    linked_consultant = (
+        db.query(models.Consulente)
+        .filter(models.Consulente.collaborator_id == collaborator.id)
+        .first()
+    )
+    if linked_consultant is None:
+        return
+    if collaborator.is_consultant and collaborator.is_active:
+        linked_consultant.attivo = True
+    else:
+        linked_consultant.attivo = False
+
 def get_project(db: Session, project_id: int):
-    return db.query(models.Project).filter(models.Project.id == project_id).first()
+    return db.query(models.Project).options(
+        joinedload(models.Project.avviso_rel)
+    ).filter(models.Project.id == project_id).first()
 
-def get_projects(db: Session, skip: int = 0, limit: int = 100):
-    return db.query(models.Project).offset(skip).limit(limit).all()
+def get_projects(db: Session, skip: int = 0, limit: int = 100, is_active: Optional[bool] = True):
+    query = db.query(models.Project).options(joinedload(models.Project.avviso_rel))
+    if is_active is not None:
+        query = query.filter(models.Project.is_active == is_active)
+    return query.offset(skip).limit(limit).all()
 
-def create_project(db: Session, project: schemas.ProjectCreate):
-    # Versione MINIMALISTA - solo add
-    db_project = models.Project(**project.dict())
+
+def get_project_full_context(db: Session, project_id: int) -> Optional[schemas.ProjectFullContext]:
+    project = (
+        db.query(models.Project)
+        .options(
+            joinedload(models.Project.ente_attuatore),
+            selectinload(models.Project.piani_finanziari).selectinload(models.PianoFinanziario.voci),
+        )
+        .filter(models.Project.id == project_id)
+        .first()
+    )
+    if not project:
+        return None
+
+    # Aggregazione ore collaboratori senza N+1:
+    # 1) subquery assegnazioni aggregate
+    # 2) subquery presenze aggregate
+    assignment_hours_subq = (
+        db.query(
+            models.Assignment.collaborator_id.label("collaborator_id"),
+            func.sum(models.Assignment.assigned_hours).label("assigned_hours"),
+            func.sum(models.Assignment.completed_hours).label("completed_hours"),
+        )
+        .filter(
+            models.Assignment.project_id == project_id,
+            models.Assignment.is_active == True,
+        )
+        .group_by(models.Assignment.collaborator_id)
+        .subquery()
+    )
+
+    attendance_hours_subq = (
+        db.query(
+            models.Assignment.collaborator_id.label("collaborator_id"),
+            func.sum(models.Attendance.hours).label("attendance_hours"),
+        )
+        .join(models.Attendance, models.Attendance.assignment_id == models.Assignment.id)
+        .filter(
+            models.Assignment.project_id == project_id,
+            models.Assignment.is_active == True,
+        )
+        .group_by(models.Assignment.collaborator_id)
+        .subquery()
+    )
+
+    collaborator_rows = (
+        db.query(
+            models.Collaborator.id.label("collaborator_id"),
+            models.Collaborator.first_name,
+            models.Collaborator.last_name,
+            func.coalesce(assignment_hours_subq.c.assigned_hours, 0.0).label("assigned_hours"),
+            func.coalesce(assignment_hours_subq.c.completed_hours, 0.0).label("completed_hours"),
+            func.coalesce(attendance_hours_subq.c.attendance_hours, 0.0).label("attendance_hours"),
+        )
+        .join(assignment_hours_subq, assignment_hours_subq.c.collaborator_id == models.Collaborator.id)
+        .outerjoin(attendance_hours_subq, attendance_hours_subq.c.collaborator_id == models.Collaborator.id)
+        .order_by(models.Collaborator.last_name, models.Collaborator.first_name)
+        .all()
+    )
+
+    active_piani_context = []
+    for piano in sorted(project.piani_finanziari, key=lambda x: (x.anno, x.id), reverse=True):
+        riepilogo = build_piano_finanziario_riepilogo(piano, db=db)
+        totale_preventivo = float(riepilogo.get("totale_preventivo") or 0.0)
+        totale_consuntivo = float(riepilogo.get("totale_consuntivo") or 0.0)
+        usage = (totale_consuntivo / totale_preventivo * 100.0) if totale_preventivo > 0 else 0.0
+        active_piani_context.append(
+            schemas.PianoFinanziarioContextItem(
+                id=piano.id,
+                anno=piano.anno,
+                ente_erogatore=piano.ente_erogatore,
+                avviso=(piano.avviso_rel.codice if getattr(piano, "avviso_rel", None) else piano.avviso),
+                totale_consuntivo=round(totale_consuntivo, 2),
+                totale_preventivo=round(totale_preventivo, 2),
+                budget_usage_percentage=round(usage, 2),
+                is_warning_90_budget=usage >= 90.0,
+            )
+        )
+
+    collaborator_hours = [
+        schemas.ProjectCollaboratorHoursContext(
+            collaborator_id=row.collaborator_id,
+            collaborator_name=f"{row.first_name} {row.last_name}".strip(),
+            assigned_hours=float(row.assigned_hours or 0.0),
+            completed_hours=float(row.completed_hours or 0.0),
+            attendance_hours=float(row.attendance_hours or 0.0),
+        )
+        for row in collaborator_rows
+    ]
+
+    return schemas.ProjectFullContext(
+        project=schemas.Project.model_validate(project),
+        implementing_entity=schemas.ImplementingEntity.model_validate(project.ente_attuatore) if project.ente_attuatore else None,
+        active_piani_finanziari=active_piani_context,
+        collaborator_hours=collaborator_hours,
+        generated_at=datetime.utcnow(),
+    )
+
+def _get_project_financial_template_or_raise(db: Session, template_id: int):
+    template = db.query(models.ContractTemplate).filter(
+        models.ContractTemplate.id == template_id
+    ).first()
+    if not template:
+        raise ValueError("Template piano finanziario non trovato")
+    if not template.is_active:
+        raise ValueError("Il template piano finanziario selezionato è disattivato")
+    if template.ambito_template != "piano_finanziario":
+        raise ValueError("Il template selezionato non è un template piano finanziario")
+    if not _normalize_optional_text(template.ente_erogatore):
+        raise ValueError("Il template piano finanziario selezionato non ha ente erogatore valorizzato")
+    return template
+
+
+def _apply_project_financial_template(db: Session, payload: Dict[str, Any], template_id: Optional[int]):
+    if template_id is None:
+        payload["template_piano_finanziario_id"] = None
+        return payload
+
+    template = _get_project_financial_template_or_raise(db, template_id)
+    ente_erogatore = _normalize_optional_text(template.ente_erogatore)
+    selected_avviso = None
+    requested_avviso_id = payload.get("avviso_id")
+    requested_avviso_code = _normalize_optional_text(payload.get("avviso"))
+
+    if requested_avviso_id is not None:
+        selected_avviso = db.query(models.Avviso).filter(
+            models.Avviso.id == requested_avviso_id,
+            models.Avviso.template_id == template.id,
+            models.Avviso.is_active == True,
+        ).first()
+
+    if selected_avviso is None and requested_avviso_code:
+        selected_avviso = db.query(models.Avviso).filter(
+            models.Avviso.codice == requested_avviso_code,
+            models.Avviso.template_id == template.id,
+            models.Avviso.is_active == True,
+        ).order_by(models.Avviso.id.desc()).first()
+
+    linked_avviso = selected_avviso or db.query(models.Avviso).filter(
+        models.Avviso.template_id == template.id,
+        models.Avviso.is_active == True,
+    ).order_by(models.Avviso.id.desc()).first()
+    avviso = _normalize_optional_text(linked_avviso.codice if linked_avviso else template.avviso)
+    payload["template_piano_finanziario_id"] = template.id
+    payload["ente_erogatore"] = ente_erogatore
+    payload["avviso"] = avviso
+    payload["avviso_id"] = linked_avviso.id if linked_avviso else payload.get("avviso_id")
+    return payload
+
+def create_project(db: Session, project: schemas.ProjectCreateExtended):
+    payload = project.dict()
+    template_id = payload.get("template_piano_finanziario_id")
+    payload = _apply_project_financial_template(db, payload, template_id)
+    db_project = models.Project(**payload)
     db.add(db_project)
     return db_project
 
-def update_project(db: Session, project_id: int, project: schemas.ProjectUpdate):
+def update_project(db: Session, project_id: int, project: schemas.ProjectUpdateExtended):
     db_project = db.query(models.Project).filter(models.Project.id == project_id).first()
     if db_project:
         update_data = project.dict(exclude_unset=True)
+        if "template_piano_finanziario_id" in update_data:
+            update_data = _apply_project_financial_template(db, update_data, update_data.get("template_piano_finanziario_id"))
+        elif db_project.template_piano_finanziario_id:
+            update_data = _apply_project_financial_template(db, update_data, db_project.template_piano_finanziario_id)
         for key, value in update_data.items():
             setattr(db_project, key, value)
         db.commit()
@@ -232,9 +527,65 @@ def update_project(db: Session, project_id: int, project: schemas.ProjectUpdate)
 def delete_project(db: Session, project_id: int):
     db_project = db.query(models.Project).filter(models.Project.id == project_id).first()
     if db_project:
-        db.delete(db_project)
+        db_project.is_active = False
+        # Disattiva anche le mansioni ente collegate al progetto
+        db.query(models.ProgettoMansioneEnte).filter(
+            models.ProgettoMansioneEnte.progetto_id == project_id
+        ).update({"is_active": False})
         db.commit()
+        db.refresh(db_project)
     return db_project
+
+
+def get_avviso(db: Session, avviso_id: int):
+    return db.query(models.Avviso).filter(models.Avviso.id == avviso_id).first()
+
+
+def get_avvisi(
+    db: Session,
+    skip: int = 0,
+    limit: int = 100,
+    ente_erogatore: Optional[str] = None,
+    active_only: bool = True,
+):
+    query = db.query(models.Avviso)
+    if ente_erogatore:
+        query = query.filter(models.Avviso.ente_erogatore == ente_erogatore)
+    if active_only:
+        query = query.filter(models.Avviso.is_active.is_(True))
+    return query.order_by(models.Avviso.ente_erogatore.asc(), models.Avviso.codice.asc()).offset(skip).limit(limit).all()
+
+
+def create_avviso(db: Session, avviso: schemas.AvvisoCreate):
+    payload = avviso.model_dump()
+    db_avviso = models.Avviso(**payload)
+    db.add(db_avviso)
+    db.commit()
+    db.refresh(db_avviso)
+    return db_avviso
+
+
+def update_avviso(db: Session, avviso_id: int, avviso: schemas.AvvisoUpdate):
+    db_avviso = get_avviso(db, avviso_id)
+    if not db_avviso:
+        return None
+    update_data = avviso.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(db_avviso, key, value)
+    db.commit()
+    db.refresh(db_avviso)
+    return db_avviso
+
+
+def delete_avviso(db: Session, avviso_id: int):
+    db_avviso = get_avviso(db, avviso_id)
+    if not db_avviso:
+        return None
+    db_avviso.is_active = False
+    db.commit()
+    db.refresh(db_avviso)
+    return db_avviso
+
 
 def assign_collaborator_to_project(db: Session, collaborator_id: int, project_id: int):
     collaborator = get_collaborator(db, collaborator_id)
@@ -329,12 +680,104 @@ def get_monthly_stats(db: Session, year: int, month: int):
         func.extract('day', models.Attendance.date)
     ).order_by('day').all()
 
+
+def _as_day(value: datetime | date) -> date:
+    if isinstance(value, datetime):
+        return value.date()
+    return value
+
+
+def _create_audit_log(
+    db: Session,
+    *,
+    entity: str,
+    action: str,
+    old_value: Optional[dict[str, Any]],
+    new_value: Optional[dict[str, Any]],
+    user_id: Optional[int] = None,
+) -> None:
+    log = models.AuditLog(
+        entity=entity,
+        action=action,
+        old_value=json.dumps(old_value, default=str) if old_value is not None else None,
+        new_value=json.dumps(new_value, default=str) if new_value is not None else None,
+        user_id=user_id,
+    )
+    db.add(log)
+
+
+def _validate_assignment_date_overlap_by_ente(
+    db: Session,
+    *,
+    collaborator_id: int,
+    project_id: int,
+    start_date: datetime,
+    end_date: datetime,
+    exclude_assignment_id: Optional[int] = None,
+) -> None:
+    current_project = db.query(models.Project).filter(models.Project.id == project_id).first()
+    if not current_project:
+        raise ValueError("Progetto non trovato")
+
+    query = (
+        db.query(models.Assignment, models.Project)
+        .join(models.Project, models.Project.id == models.Assignment.project_id)
+        .filter(
+            models.Assignment.collaborator_id == collaborator_id,
+            models.Assignment.is_active == True,
+            models.Assignment.start_date <= end_date,
+            models.Assignment.end_date >= start_date,
+            models.Assignment.project_id != project_id,
+        )
+    )
+    if exclude_assignment_id is not None:
+        query = query.filter(models.Assignment.id != exclude_assignment_id)
+
+    overlaps = query.all()
+    for existing_assignment, existing_project in overlaps:
+        if existing_project.ente_attuatore_id != current_project.ente_attuatore_id:
+            raise ValueError(
+                "Conflitto cross-progetto: il collaboratore ha già una assegnazione attiva "
+                f"sovrapposta su ente diverso (assignment_id={existing_assignment.id}, "
+                f"progetto_id={existing_assignment.project_id})."
+            )
+
+
+def _validate_attendance_assignment_date_range(
+    db: Session,
+    *,
+    collaborator_id: int,
+    project_id: int,
+    assignment_id: Optional[int],
+    attendance_day: date,
+) -> None:
+    if assignment_id is not None:
+        assignment = db.query(models.Assignment).filter(
+            models.Assignment.id == assignment_id,
+            models.Assignment.is_active == True,
+        ).first()
+        if not assignment:
+            raise ValueError("Assegnazione non trovata o non attiva")
+        if assignment.collaborator_id != collaborator_id or assignment.project_id != project_id:
+            raise ValueError("L'assegnazione indicata non appartiene al collaboratore/progetto selezionato")
+
+        assignment_start = _as_day(assignment.start_date)
+        assignment_end = _as_day(assignment.end_date)
+        if attendance_day < assignment_start or attendance_day > assignment_end:
+            raise ValueError(
+                f"La data presenza ({attendance_day.strftime('%d/%m/%Y')}) è fuori dal range assegnazione "
+                f"({assignment_start.strftime('%d/%m/%Y')} - {assignment_end.strftime('%d/%m/%Y')})"
+            )
+
+
 def check_attendance_overlap(
     db: Session,
     collaborator_id: int,
     start_time: datetime,
     end_time: datetime,
-    exclude_attendance_id: Optional[int] = None
+    exclude_attendance_id: Optional[int] = None,
+    project_id: Optional[int] = None,
+    assignment_id: Optional[int] = None,
 ) -> Optional[models.Attendance]:
     """
     Verifica se esiste una sovrapposizione oraria per un collaboratore.
@@ -356,7 +799,7 @@ def check_attendance_overlap(
     Returns:
         La presenza sovrapposta se trovata, altrimenti None
     """
-    # Costruisci query per trovare sovrapposizioni
+    # Costruisci query per trovare sovrapposizioni su attendances
     query = db.query(models.Attendance).filter(
         models.Attendance.collaborator_id == collaborator_id,
         # Sovrapposizione: start_time < existing.end_time AND end_time > existing.start_time
@@ -369,6 +812,58 @@ def check_attendance_overlap(
         query = query.filter(models.Attendance.id != exclude_attendance_id)
 
     overlapping = query.first()
+
+    # Validazione aggiuntiva su ASSIGNMENTS:
+    # intercetta conflitti cross-progetto/cross-ente nella stessa finestra temporale.
+    if project_id is not None:
+        current_project = db.query(models.Project).filter(models.Project.id == project_id).first()
+        if not current_project:
+            raise ValueError("Progetto non trovato")
+
+        assignment_query = db.query(models.Assignment).filter(
+            models.Assignment.collaborator_id == collaborator_id,
+            models.Assignment.is_active == True,
+            models.Assignment.start_date <= end_time,
+            models.Assignment.end_date >= start_time,
+        )
+        overlapping_assignments = assignment_query.all()
+
+        # Se viene dichiarata una assignment specifica, deve essere effettivamente attiva
+        # nella finestra oraria richiesta.
+        if assignment_id is not None:
+            has_target_assignment = any(a.id == assignment_id for a in overlapping_assignments)
+            if not has_target_assignment:
+                raise ValueError(
+                    "L'assegnazione indicata non è attiva nella finestra temporale della presenza"
+                )
+
+        project_ids = {a.project_id for a in overlapping_assignments if a.project_id is not None}
+        if project_ids:
+            projects_by_id = {
+                project.id: project
+                for project in db.query(models.Project).filter(models.Project.id.in_(project_ids)).all()
+            }
+            for existing_assignment in overlapping_assignments:
+                existing_project = projects_by_id.get(existing_assignment.project_id)
+                if not existing_project:
+                    continue
+                if existing_project.id == project_id:
+                    continue
+                if existing_project.ente_attuatore_id != current_project.ente_attuatore_id:
+                    raise ValueError(
+                        "Conflitto cross-progetto: il collaboratore ha già una assegnazione attiva "
+                        f"sovrapposta su ente diverso (assignment_id={existing_assignment.id}, "
+                        f"progetto_id={existing_assignment.project_id})."
+                    )
+
+        _validate_assignment_date_overlap_by_ente(
+            db,
+            collaborator_id=collaborator_id,
+            project_id=project_id,
+            start_date=start_time,
+            end_date=end_time,
+            exclude_assignment_id=assignment_id,
+        )
 
     if overlapping:
         logger.warning(
@@ -387,7 +882,9 @@ def create_attendance(db: Session, attendance: schemas.AttendanceCreate):
             db,
             attendance.collaborator_id,
             attendance.start_time,
-            attendance.end_time
+            attendance.end_time,
+            project_id=attendance.project_id,
+            assignment_id=attendance.assignment_id,
         )
 
         if overlapping:
@@ -432,21 +929,57 @@ def create_attendance(db: Session, attendance: schemas.AttendanceCreate):
             end = attendance_data['end_time']
             attendance_data['hours'] = (end - start).total_seconds() / 3600
 
-        # Validazione ore rimanenti dell'assegnazione
+        # Ottieni e normalizza la data della presenza
+        presenza_date = attendance_data['date']
+        if isinstance(presenza_date, str):
+            from datetime import datetime as dt
+            presenza_date = dt.fromisoformat(presenza_date)
+        presenza_day = presenza_date.date() if hasattr(presenza_date, 'date') else presenza_date
+
+        # Validazione periodo di attività dell'assegnazione collegata
         if attendance_data.get('assignment_id'):
+            _validate_attendance_assignment_date_range(
+                db,
+                collaborator_id=attendance_data['collaborator_id'],
+                project_id=attendance_data['project_id'],
+                assignment_id=attendance_data['assignment_id'],
+                attendance_day=presenza_day,
+            )
             assignment = db.query(models.Assignment).filter(
                 models.Assignment.id == attendance_data['assignment_id']
             ).first()
+            ore_completate = assignment.completed_hours or 0
+            ore_assegnate = assignment.assigned_hours
+            ore_rimanenti = ore_assegnate - ore_completate
+            if attendance_data['hours'] > ore_rimanenti:
+                raise ValueError(
+                    f"Le ore inserite ({attendance_data['hours']}h) superano le ore rimanenti "
+                    f"({ore_rimanenti}h) per questa mansione"
+                )
+        else:
+            # Nessuna assegnazione selezionata: cerca se ne esistono per questo collaboratore/progetto
+            active_assignments = db.query(models.Assignment).filter(
+                models.Assignment.collaborator_id == attendance_data['collaborator_id'],
+                models.Assignment.project_id == attendance_data['project_id'],
+                models.Assignment.is_active == True
+            ).all()
 
-            if assignment:
-                ore_completate = assignment.completed_hours or 0
-                ore_assegnate = assignment.assigned_hours
-                ore_rimanenti = ore_assegnate - ore_completate
-
-                if attendance_data['hours'] > ore_rimanenti:
+            if active_assignments:
+                # La data deve rientrare in almeno una delle assegnazioni attive
+                dentro = any(
+                    (a.start_date.date() if hasattr(a.start_date, 'date') else a.start_date) <= presenza_day <=
+                    (a.end_date.date() if hasattr(a.end_date, 'date') else a.end_date)
+                    for a in active_assignments
+                )
+                if not dentro:
+                    periodi = ', '.join(
+                        f"dal {(a.start_date.date() if hasattr(a.start_date, 'date') else a.start_date).strftime('%d/%m/%Y')} "
+                        f"al {(a.end_date.date() if hasattr(a.end_date, 'date') else a.end_date).strftime('%d/%m/%Y')}"
+                        for a in active_assignments
+                    )
                     raise ValueError(
-                        f"Le ore inserite ({attendance_data['hours']}h) superano le ore rimanenti "
-                        f"({ore_rimanenti}h) per questa mansione"
+                        f"La data della presenza ({presenza_day.strftime('%d/%m/%Y')}) è fuori dal periodo "
+                        f"di attività dell'assegnazione ({periodi})"
                     )
 
         db_attendance = models.Attendance(**attendance_data)
@@ -509,7 +1042,9 @@ def update_attendance(db: Session, attendance_id: int, attendance: schemas.Atten
                 new_collaborator_id,
                 new_start_time,
                 new_end_time,
-                exclude_attendance_id=attendance_id  # Escludi la presenza stessa
+                exclude_attendance_id=attendance_id,  # Escludi la presenza stessa
+                project_id=update_data.get('project_id', db_attendance.project_id),
+                assignment_id=update_data.get('assignment_id', db_attendance.assignment_id),
             )
 
             if overlapping:
@@ -548,29 +1083,67 @@ def update_attendance(db: Session, attendance_id: int, attendance: schemas.Atten
 
                 raise ValueError(error_msg)
 
-        # Validazione ore rimanenti se cambiano le ore o l'assegnazione
+        # Validazione ore rimanenti e periodo di attività se cambiano le ore o l'assegnazione
         new_assignment_id = update_data.get('assignment_id', db_attendance.assignment_id)
         new_hours = update_data.get('hours', db_attendance.hours)
+        new_date = update_data.get('date', db_attendance.date)
+
+        # Normalizza la data
+        if isinstance(new_date, str):
+            from datetime import datetime as dt
+            new_date = dt.fromisoformat(new_date)
+        new_day = new_date.date() if hasattr(new_date, 'date') else new_date
 
         if new_assignment_id:
+            _validate_attendance_assignment_date_range(
+                db,
+                collaborator_id=update_data.get('collaborator_id', db_attendance.collaborator_id),
+                project_id=update_data.get('project_id', db_attendance.project_id),
+                assignment_id=new_assignment_id,
+                attendance_day=new_day,
+            )
             assignment = db.query(models.Assignment).filter(
                 models.Assignment.id == new_assignment_id
             ).first()
+            ore_completate = assignment.completed_hours or 0
+            ore_assegnate = assignment.assigned_hours
 
-            if assignment:
-                ore_completate = assignment.completed_hours or 0
-                ore_assegnate = assignment.assigned_hours
+            # Se stiamo modificando la stessa assegnazione, sottrai le ore vecchie
+            if new_assignment_id == old_assignment_id:
+                ore_disponibili = ore_assegnate - ore_completate + old_hours
+            else:
+                ore_disponibili = ore_assegnate - ore_completate
 
-                # Se stiamo modificando la stessa assegnazione, sottrai le ore vecchie
-                if new_assignment_id == old_assignment_id:
-                    ore_disponibili = ore_assegnate - ore_completate + old_hours
-                else:
-                    ore_disponibili = ore_assegnate - ore_completate
+            if new_hours > ore_disponibili:
+                raise ValueError(
+                    f"Le ore inserite ({new_hours}h) superano le ore disponibili "
+                    f"({ore_disponibili}h) per questa mansione"
+                )
+        else:
+            # Nessuna assegnazione: cerca se ne esistono per questo collaboratore/progetto
+            new_collaborator_id = update_data.get('collaborator_id', db_attendance.collaborator_id)
+            new_project_id = update_data.get('project_id', db_attendance.project_id)
+            active_assignments = db.query(models.Assignment).filter(
+                models.Assignment.collaborator_id == new_collaborator_id,
+                models.Assignment.project_id == new_project_id,
+                models.Assignment.is_active == True
+            ).all()
 
-                if new_hours > ore_disponibili:
+            if active_assignments:
+                dentro = any(
+                    (a.start_date.date() if hasattr(a.start_date, 'date') else a.start_date) <= new_day <=
+                    (a.end_date.date() if hasattr(a.end_date, 'date') else a.end_date)
+                    for a in active_assignments
+                )
+                if not dentro:
+                    periodi = ', '.join(
+                        f"dal {(a.start_date.date() if hasattr(a.start_date, 'date') else a.start_date).strftime('%d/%m/%Y')} "
+                        f"al {(a.end_date.date() if hasattr(a.end_date, 'date') else a.end_date).strftime('%d/%m/%Y')}"
+                        for a in active_assignments
+                    )
                     raise ValueError(
-                        f"Le ore inserite ({new_hours}h) superano le ore disponibili "
-                        f"({ore_disponibili}h) per questa mansione"
+                        f"La data della presenza ({new_day.strftime('%d/%m/%Y')}) è fuori dal periodo "
+                        f"di attività dell'assegnazione ({periodi})"
                     )
 
         for key, value in update_data.items():
@@ -652,8 +1225,11 @@ def get_performance_bottlenecks(db: Session):
 def get_assignment(db: Session, assignment_id: int):
     return db.query(models.Assignment).filter(models.Assignment.id == assignment_id).first()
 
-def get_assignments(db: Session, skip: int = 0, limit: int = 100):
-    return db.query(models.Assignment).offset(skip).limit(limit).all()
+def get_assignments(db: Session, skip: int = 0, limit: int = 100, is_active: Optional[bool] = True):
+    query = db.query(models.Assignment)
+    if is_active is not None:
+        query = query.filter(models.Assignment.is_active == is_active)
+    return query.offset(skip).limit(limit).all()
 
 def get_assignments_by_collaborator(db: Session, collaborator_id: int, include_inactive: bool = False):
     query = db.query(models.Assignment).options(
@@ -717,6 +1293,14 @@ def create_assignment(db: Session, assignment: schemas.AssignmentCreate):
     Crea assegnazione senza commit (gestito dal chiamante)
     """
     try:
+        _validate_assignment_date_overlap_by_ente(
+            db,
+            collaborator_id=assignment.collaborator_id,
+            project_id=assignment.project_id,
+            start_date=assignment.start_date,
+            end_date=assignment.end_date,
+        )
+
         # Crea oggetto con i campi iniziali impostati esplicitamente
         assignment_data = assignment.dict()
         assignment_data['completed_hours'] = 0.0
@@ -745,6 +1329,17 @@ def update_assignment(db: Session, assignment_id: int, assignment: schemas.Assig
     db_assignment = db.query(models.Assignment).filter(models.Assignment.id == assignment_id).first()
     if db_assignment:
         update_data = assignment.dict(exclude_unset=True)
+        new_start_date = update_data.get("start_date", db_assignment.start_date)
+        new_end_date = update_data.get("end_date", db_assignment.end_date)
+        new_project_id = update_data.get("project_id", db_assignment.project_id)
+        _validate_assignment_date_overlap_by_ente(
+            db,
+            collaborator_id=db_assignment.collaborator_id,
+            project_id=new_project_id,
+            start_date=new_start_date,
+            end_date=new_end_date,
+            exclude_assignment_id=assignment_id,
+        )
         for key, value in update_data.items():
             setattr(db_assignment, key, value)
         db.commit()
@@ -754,8 +1349,14 @@ def update_assignment(db: Session, assignment_id: int, assignment: schemas.Assig
 def delete_assignment(db: Session, assignment_id: int):
     db_assignment = db.query(models.Assignment).filter(models.Assignment.id == assignment_id).first()
     if db_assignment:
-        db.delete(db_assignment)
+        attendance_count = db.query(models.Attendance).filter(
+            models.Attendance.assignment_id == assignment_id
+        ).count()
+        if attendance_count > 0:
+            raise ValueError(f"Impossibile eliminare: {attendance_count} presenze collegate a questa assegnazione.")
+        db_assignment.is_active = False
         db.commit()
+        db.refresh(db_assignment)
     return db_assignment
 
 # ========================================
@@ -1231,10 +1832,99 @@ def get_contract_template(db: Session, template_id: int):
     ).first()
 
 
+def resolve_document_template(
+    db: Session,
+    *,
+    ambito_template: str,
+    chiave_documento: Optional[str] = None,
+    progetto_id: Optional[int] = None,
+    ente_attuatore_id: Optional[int] = None,
+    ente_erogatore: Optional[str] = None,
+    avviso: Optional[str] = None,
+) -> Optional[models.ContractTemplate]:
+    ambito = (ambito_template or "").strip().lower()
+    if not ambito:
+        return None
+
+    normalized_key = _normalize_optional_text(chiave_documento)
+    if normalized_key:
+        normalized_key = re.sub(r"[^a-z0-9]+", "_", normalized_key.strip().lower()).strip("_") or None
+    normalized_ente = _normalize_optional_text(ente_erogatore)
+    normalized_avviso = _normalize_optional_text(avviso)
+
+    def _find_candidate(require_key: bool) -> Optional[models.ContractTemplate]:
+        query = db.query(models.ContractTemplate).filter(
+            models.ContractTemplate.is_active == True,
+            models.ContractTemplate.ambito_template == ambito,
+        )
+
+        if require_key and normalized_key:
+            query = query.filter(
+                or_(
+                    models.ContractTemplate.chiave_documento == normalized_key,
+                    models.ContractTemplate.chiave_documento.is_(None),
+                )
+            )
+
+        if progetto_id is not None:
+            query = query.filter(
+                or_(
+                    models.ContractTemplate.progetto_id == progetto_id,
+                    models.ContractTemplate.progetto_id.is_(None),
+                )
+            )
+
+        if ente_attuatore_id is not None:
+            query = query.filter(
+                or_(
+                    models.ContractTemplate.ente_attuatore_id == ente_attuatore_id,
+                    models.ContractTemplate.ente_attuatore_id.is_(None),
+                )
+            )
+
+        if normalized_ente is not None:
+            query = query.filter(
+                or_(
+                    models.ContractTemplate.ente_erogatore == normalized_ente,
+                    models.ContractTemplate.ente_erogatore.is_(None),
+                )
+            )
+
+        if normalized_avviso is not None:
+            query = query.filter(
+                or_(
+                    models.ContractTemplate.avviso == normalized_avviso,
+                    models.ContractTemplate.avviso.is_(None),
+                )
+            )
+
+        return query.order_by(
+            (models.ContractTemplate.chiave_documento == normalized_key).desc() if normalized_key else models.ContractTemplate.chiave_documento.isnot(None).desc(),
+            models.ContractTemplate.progetto_id.isnot(None).desc(),
+            models.ContractTemplate.ente_attuatore_id.isnot(None).desc(),
+            models.ContractTemplate.ente_erogatore.isnot(None).desc(),
+            models.ContractTemplate.avviso.isnot(None).desc(),
+            models.ContractTemplate.created_at.desc(),
+        ).first()
+
+    if normalized_key:
+        candidate = _find_candidate(require_key=True)
+        if candidate:
+            return candidate
+
+    return _find_candidate(require_key=False)
+
+
 def get_contract_templates(
     db: Session,
     skip: int = 0,
     limit: int = 100,
+    ambito_template: Optional[str] = None,
+    chiave_documento: Optional[str] = None,
+    ente_attuatore_id: Optional[int] = None,
+    progetto_id: Optional[int] = None,
+    ente_erogatore: Optional[str] = None,
+    avviso: Optional[str] = None,
     tipo_contratto: Optional[str] = None,
     is_active: Optional[bool] = None,
     search: Optional[str] = None
@@ -1245,6 +1935,12 @@ def get_contract_templates(
     Args:
         skip: Record da saltare (paginazione)
         limit: Numero massimo di record
+        ambito_template: Filtra per famiglia documento
+        chiave_documento: Filtra per chiave/uso specifico
+        ente_attuatore_id: Filtra per ente specifico o template globali
+        progetto_id: Filtra per progetto specifico o template globali
+        ente_erogatore: Filtra per fondo/ente erogatore specifico o template globali
+        avviso: Filtra per avviso specifico o template globali
         tipo_contratto: Filtra per tipo contratto specifico
         is_active: Filtra per stato attivo
         search: Cerca nel nome template o descrizione
@@ -1252,6 +1948,44 @@ def get_contract_templates(
     query = db.query(models.ContractTemplate)
 
     # Filtri
+    if ambito_template:
+        query = query.filter(models.ContractTemplate.ambito_template == ambito_template)
+
+    if chiave_documento:
+        query = query.filter(models.ContractTemplate.chiave_documento == chiave_documento)
+
+    if ente_attuatore_id is not None:
+        query = query.filter(
+            or_(
+                models.ContractTemplate.ente_attuatore_id == ente_attuatore_id,
+                models.ContractTemplate.ente_attuatore_id.is_(None)
+            )
+        )
+
+    if progetto_id is not None:
+        query = query.filter(
+            or_(
+                models.ContractTemplate.progetto_id == progetto_id,
+                models.ContractTemplate.progetto_id.is_(None)
+            )
+        )
+
+    if ente_erogatore is not None:
+        query = query.filter(
+            or_(
+                models.ContractTemplate.ente_erogatore == ente_erogatore,
+                models.ContractTemplate.ente_erogatore.is_(None)
+            )
+        )
+
+    if avviso is not None:
+        query = query.filter(
+            or_(
+                models.ContractTemplate.avviso == avviso,
+                models.ContractTemplate.avviso.is_(None)
+            )
+        )
+
     if tipo_contratto:
         query = query.filter(models.ContractTemplate.tipo_contratto == tipo_contratto)
 
@@ -1262,11 +1996,15 @@ def get_contract_templates(
         search_term = f"%{search}%"
         query = query.filter(
             (models.ContractTemplate.nome_template.ilike(search_term)) |
-            (models.ContractTemplate.descrizione.ilike(search_term))
+            (models.ContractTemplate.descrizione.ilike(search_term)) |
+            (models.ContractTemplate.ente_erogatore.ilike(search_term)) |
+            (models.ContractTemplate.avviso.ilike(search_term))
         )
 
     # Ordinamento: template di default per primi, poi per data creazione
     return query.order_by(
+        models.ContractTemplate.progetto_id.isnot(None).desc(),
+        models.ContractTemplate.ente_attuatore_id.isnot(None).desc(),
         models.ContractTemplate.is_default.desc(),
         models.ContractTemplate.created_at.desc()
     ).offset(skip).limit(limit).all()
@@ -1285,24 +2023,128 @@ def get_contract_template_by_type(
         use_default: Se True, restituisce il template di default per quel tipo
     """
     query = db.query(models.ContractTemplate).filter(
+        models.ContractTemplate.ambito_template == "contratto",
         models.ContractTemplate.tipo_contratto == tipo_contratto,
         models.ContractTemplate.is_active == True
     )
 
     if use_default:
-        query = query.filter(models.ContractTemplate.is_default == True)
+        default_template = query.filter(models.ContractTemplate.is_default == True).first()
+        if default_template:
+            return default_template
 
-    return query.first()
+        # Fallback operativo: se manca il default ma esiste un template attivo,
+        # usa il più recente invece di bloccare la generazione del contratto.
+        return query.order_by(models.ContractTemplate.created_at.desc()).first()
+
+    return query.order_by(
+        models.ContractTemplate.is_default.desc(),
+        models.ContractTemplate.created_at.desc()
+    ).first()
+
+
+def _normalize_contract_template_payload(
+    payload: Dict[str, Any],
+    existing: Optional[models.ContractTemplate] = None
+) -> Dict[str, Any]:
+    normalized = dict(payload)
+    if "ambito_template" in normalized and normalized["ambito_template"] is not None:
+        normalized["ambito_template"] = str(normalized["ambito_template"]).strip().lower()
+    ambito = normalized.get("ambito_template") or (existing.ambito_template if existing else "contratto")
+
+    if "chiave_documento" in normalized:
+        raw_key = _normalize_optional_text(normalized.get("chiave_documento"))
+        if raw_key:
+            normalized_key = re.sub(r"[^a-z0-9]+", "_", raw_key.strip().lower()).strip("_")
+            normalized["chiave_documento"] = normalized_key or None
+        else:
+            normalized["chiave_documento"] = None
+    if "ente_erogatore" in normalized:
+        normalized["ente_erogatore"] = _normalize_optional_text(normalized.get("ente_erogatore"))
+    if "avviso" in normalized:
+        normalized["avviso"] = _normalize_optional_text(normalized.get("avviso"))
+
+    chiave_documento = normalized.get("chiave_documento")
+    ente_erogatore = normalized.get("ente_erogatore")
+    avviso = normalized.get("avviso")
+    tipo_contratto = normalized.get("tipo_contratto")
+
+    if ambito != "contratto":
+        normalized["tipo_contratto"] = "documento_generico"
+        normalized["is_default"] = False
+
+    if ambito == "contratto":
+        effective_tipo = tipo_contratto or (existing.tipo_contratto if existing else None)
+        if not effective_tipo or effective_tipo == "documento_generico":
+            raise ValueError("Per l'ambito contratto è obbligatorio un tipo contratto specifico")
+    else:
+        if not chiave_documento:
+            raise ValueError("Per template non contrattuali è obbligatoria la chiave documento")
+
+    if ambito == "piano_finanziario":
+        if not ente_erogatore:
+            raise ValueError("Per i template piano finanziario è obbligatorio l'ente erogatore")
+        if not avviso:
+            raise ValueError("Per i template piano finanziario è obbligatorio l'avviso")
+
+    if ambito == "timesheet" and not chiave_documento:
+        raise ValueError("Per i template timesheet è obbligatoria la chiave documento")
+
+    return normalized
 
 
 def get_contract_templates_count(
     db: Session,
+    ambito_template: Optional[str] = None,
+    chiave_documento: Optional[str] = None,
+    ente_attuatore_id: Optional[int] = None,
+    progetto_id: Optional[int] = None,
+    ente_erogatore: Optional[str] = None,
+    avviso: Optional[str] = None,
     tipo_contratto: Optional[str] = None,
     is_active: Optional[bool] = None,
     search: Optional[str] = None
 ):
     """Conta i template con gli stessi filtri della lista"""
     query = db.query(models.ContractTemplate)
+
+    if ambito_template:
+        query = query.filter(models.ContractTemplate.ambito_template == ambito_template)
+
+    if chiave_documento:
+        query = query.filter(models.ContractTemplate.chiave_documento == chiave_documento)
+
+    if ente_attuatore_id is not None:
+        query = query.filter(
+            or_(
+                models.ContractTemplate.ente_attuatore_id == ente_attuatore_id,
+                models.ContractTemplate.ente_attuatore_id.is_(None)
+            )
+        )
+
+    if progetto_id is not None:
+        query = query.filter(
+            or_(
+                models.ContractTemplate.progetto_id == progetto_id,
+                models.ContractTemplate.progetto_id.is_(None)
+            )
+        )
+
+    if ente_erogatore is not None:
+        query = query.filter(
+            or_(
+                models.ContractTemplate.ente_erogatore == ente_erogatore,
+                models.ContractTemplate.ente_erogatore.is_(None)
+            )
+        )
+
+    if avviso is not None:
+        query = query.filter(
+            or_(
+                models.ContractTemplate.avviso == avviso,
+                models.ContractTemplate.avviso.is_(None)
+            )
+        )
 
     if tipo_contratto:
         query = query.filter(models.ContractTemplate.tipo_contratto == tipo_contratto)
@@ -1314,12 +2156,15 @@ def get_contract_templates_count(
         search_term = f"%{search}%"
         query = query.filter(
             (models.ContractTemplate.nome_template.ilike(search_term)) |
-            (models.ContractTemplate.descrizione.ilike(search_term))
+            (models.ContractTemplate.descrizione.ilike(search_term)) |
+            (models.ContractTemplate.ente_erogatore.ilike(search_term)) |
+            (models.ContractTemplate.avviso.ilike(search_term))
         )
 
     return query.count()
 
 
+@track_entity_event("contract_template", "created")
 def create_contract_template(
     db: Session,
     template: schemas.ContractTemplateCreate
@@ -1331,11 +2176,12 @@ def create_contract_template(
     - Tipo contratto valido
     - Se is_default=True, rimuove il default dagli altri template dello stesso tipo
     """
-    template_data = template.dict()
+    template_data = _normalize_contract_template_payload(template.dict())
 
     # Se questo è il template di default, rimuovi il flag dagli altri
     if template_data.get('is_default', False):
         db.query(models.ContractTemplate).filter(
+            models.ContractTemplate.ambito_template == "contratto",
             models.ContractTemplate.tipo_contratto == template_data['tipo_contratto'],
             models.ContractTemplate.is_default == True
         ).update({'is_default': False})
@@ -1344,11 +2190,26 @@ def create_contract_template(
     db.add(db_template)
     db.commit()
     db.refresh(db_template)
+    _create_audit_log(
+        db,
+        entity="contract_template",
+        action="create",
+        old_value=None,
+        new_value={
+            "id": db_template.id,
+            "nome_template": db_template.nome_template,
+            "ambito_template": db_template.ambito_template,
+            "tipo_contratto": db_template.tipo_contratto,
+            "is_default": db_template.is_default,
+        },
+    )
+    db.commit()
 
     logger.info(f"Created contract template: {db_template.nome_template} (ID: {db_template.id})")
     return db_template
 
 
+@track_entity_event("contract_template", "updated")
 def update_contract_template(
     db: Session,
     template_id: int,
@@ -1367,13 +2228,24 @@ def update_contract_template(
     if not db_template:
         raise ValueError(f"Template con ID {template_id} non trovato")
 
-    update_data = template.dict(exclude_unset=True)
+    old_snapshot = {
+        "id": db_template.id,
+        "nome_template": db_template.nome_template,
+        "ambito_template": db_template.ambito_template,
+        "tipo_contratto": db_template.tipo_contratto,
+        "is_default": db_template.is_default,
+        "is_active": db_template.is_active,
+        "versione": db_template.versione,
+    }
+    update_data = _normalize_contract_template_payload(template.dict(exclude_unset=True), existing=db_template)
 
     # Se cambia il flag default
     if update_data.get('is_default', False) and not db_template.is_default:
         # Rimuovi default dagli altri template dello stesso tipo
         tipo_contratto = update_data.get('tipo_contratto', db_template.tipo_contratto)
+        ambito_template = update_data.get('ambito_template', db_template.ambito_template)
         db.query(models.ContractTemplate).filter(
+            models.ContractTemplate.ambito_template == ambito_template,
             models.ContractTemplate.tipo_contratto == tipo_contratto,
             models.ContractTemplate.is_default == True,
             models.ContractTemplate.id != template_id
@@ -1385,11 +2257,36 @@ def update_contract_template(
 
     db.commit()
     db.refresh(db_template)
+    _create_audit_log(
+        db,
+        entity="contract_template",
+        action="update",
+        old_value=old_snapshot,
+        new_value={
+            "id": db_template.id,
+            "nome_template": db_template.nome_template,
+            "ambito_template": db_template.ambito_template,
+            "tipo_contratto": db_template.tipo_contratto,
+            "is_default": db_template.is_default,
+            "is_active": db_template.is_active,
+            "versione": db_template.versione,
+        },
+    )
+    db.commit()
 
     logger.info(f"Updated contract template: {db_template.nome_template} (ID: {template_id})")
     return db_template
 
 
+@track_entity_event(
+    "contract_template",
+    "deleted",
+    entity_id_getter=lambda result, args, kwargs: (
+        getattr(result, "id", None)
+        or kwargs.get("template_id")
+        or (args[1] if len(args) > 1 else None)
+    ),
+)
 def delete_contract_template(db: Session, template_id: int, soft_delete: bool = True):
     """
     Elimina o disattiva un template contratto
@@ -1404,14 +2301,60 @@ def delete_contract_template(db: Session, template_id: int, soft_delete: bool = 
     if not db_template:
         raise ValueError(f"Template con ID {template_id} non trovato")
 
+    old_snapshot = {
+        "id": db_template.id,
+        "nome_template": db_template.nome_template,
+        "ambito_template": db_template.ambito_template,
+        "tipo_contratto": db_template.tipo_contratto,
+        "is_default": db_template.is_default,
+        "is_active": db_template.is_active,
+    }
+
     if soft_delete:
         db_template.is_active = False
         db.commit()
         db.refresh(db_template)
+        _create_audit_log(
+            db,
+            entity="contract_template",
+            action="soft_delete",
+            old_value=old_snapshot,
+            new_value={
+                **old_snapshot,
+                "is_active": db_template.is_active,
+            },
+        )
+        db.commit()
+        enqueue_webhook_notification(
+            event_type="contract_template_soft_deleted",
+            payload={
+                "template_id": db_template.id,
+                "nome_template": db_template.nome_template,
+                "ambito_template": db_template.ambito_template,
+                "tipo_contratto": db_template.tipo_contratto,
+            },
+        )
         logger.info(f"Soft-deleted contract template ID {template_id}")
     else:
         db.delete(db_template)
         db.commit()
+        _create_audit_log(
+            db,
+            entity="contract_template",
+            action="delete",
+            old_value=old_snapshot,
+            new_value=None,
+        )
+        db.commit()
+        enqueue_webhook_notification(
+            event_type="contract_template_deleted",
+            payload={
+                "template_id": old_snapshot["id"],
+                "nome_template": old_snapshot["nome_template"],
+                "ambito_template": old_snapshot["ambito_template"],
+                "tipo_contratto": old_snapshot["tipo_contratto"],
+            },
+        )
         logger.info(f"Deleted contract template ID {template_id}")
 
     return db_template
@@ -1447,3 +2390,1705 @@ def get_template_with_variables(db: Session, template_id: int):
         return template_dict
 
     return None
+
+
+# ─────────────────────────────────────────────
+# BLOCCO 1 — ANAGRAFICA ESPANSA
+# ─────────────────────────────────────────────
+
+# ── Agenzie ──────────────────────────────────
+
+def get_agenzie(db: Session, search: str = None, attivo: bool = None,
+                skip: int = 0, limit: int = 50):
+    q = db.query(models.Agenzia)
+    if attivo is not None:
+        q = q.filter(models.Agenzia.attivo == attivo)
+    if search:
+        q = q.filter(models.Agenzia.nome.ilike(f"%{search}%"))
+    total = q.count()
+    items = q.order_by(models.Agenzia.nome).offset(skip).limit(limit).all()
+    return items, total
+
+
+def get_agenzia(db: Session, agenzia_id: int):
+    return db.query(models.Agenzia).filter(models.Agenzia.id == agenzia_id).first()
+
+
+def create_agenzia(db: Session, agenzia: schemas.AgenziaCreate):
+    if agenzia.partita_iva:
+        existing = db.query(models.Agenzia).filter(models.Agenzia.partita_iva == agenzia.partita_iva).first()
+        if existing:
+            raise ValueError("Esiste già un'agenzia con questa partita IVA")
+    db_obj = models.Agenzia(**agenzia.model_dump())
+    db.add(db_obj)
+    db.commit()
+    db.refresh(db_obj)
+    return db_obj
+
+
+def update_agenzia(db: Session, agenzia_id: int, agenzia: schemas.AgenziaUpdate):
+    db_obj = get_agenzia(db, agenzia_id)
+    if not db_obj:
+        return None
+    data = agenzia.model_dump(exclude_unset=True)
+    if data.get("partita_iva"):
+        existing = (
+            db.query(models.Agenzia)
+            .filter(models.Agenzia.partita_iva == data["partita_iva"], models.Agenzia.id != agenzia_id)
+            .first()
+        )
+        if existing:
+            raise ValueError("Esiste già un'agenzia con questa partita IVA")
+    for k, v in data.items():
+        setattr(db_obj, k, v)
+    db.commit()
+    db.refresh(db_obj)
+    return db_obj
+
+
+def delete_agenzia(db: Session, agenzia_id: int):
+    db_obj = get_agenzia(db, agenzia_id)
+    if db_obj:
+        db_obj.attivo = False
+        db.commit()
+    return db_obj
+
+
+# ── Consulenti ───────────────────────────────
+
+def get_consulenti(db: Session, search: str = None, attivo: bool = None,
+                   agenzia_id: int = None, page: int = 1, limit: int = 20):
+    q = db.query(models.Consulente)
+    if attivo is not None:
+        q = q.filter(models.Consulente.attivo == attivo)
+    if agenzia_id:
+        q = q.filter(models.Consulente.agenzia_id == agenzia_id)
+    if search:
+        term = f"%{search}%"
+        q = q.filter(
+            models.Consulente.nome.ilike(term) |
+            models.Consulente.cognome.ilike(term) |
+            models.Consulente.email.ilike(term)
+        )
+    total = q.count()
+    pages = max(1, -(-total // limit))
+    items = (q.order_by(models.Consulente.cognome, models.Consulente.nome)
+              .offset((page - 1) * limit).limit(limit).all())
+    return items, total, pages
+
+
+def get_consulente(db: Session, consulente_id: int):
+    return db.query(models.Consulente).filter(models.Consulente.id == consulente_id).first()
+
+
+def create_consulente(db: Session, consulente: schemas.ConsulenteCreate):
+    db_obj = models.Consulente(**consulente.model_dump())
+    db.add(db_obj)
+    db.commit()
+    db.refresh(db_obj)
+    return db_obj
+
+
+def update_consulente(db: Session, consulente_id: int, consulente: schemas.ConsulenteUpdate):
+    db_obj = get_consulente(db, consulente_id)
+    if not db_obj:
+        return None
+    data = consulente.model_dump(exclude_unset=True)
+    for k, v in data.items():
+        setattr(db_obj, k, v)
+    db.commit()
+    db.refresh(db_obj)
+    return db_obj
+
+
+def delete_consulente(db: Session, consulente_id: int):
+    db_obj = get_consulente(db, consulente_id)
+    if db_obj:
+        db_obj.attivo = False
+        db.commit()
+    return db_obj
+
+
+def get_aziende_by_consulente(db: Session, consulente_id: int):
+    return (db.query(models.AziendaCliente)
+              .filter(models.AziendaCliente.consulente_id == consulente_id)
+              .order_by(models.AziendaCliente.ragione_sociale).all())
+
+
+# ── Aziende Clienti ──────────────────────────
+
+def get_aziende_clienti(db: Session, search: str = None, citta: str = None,
+                        consulente_id: int = None, agenzia_id: int = None, attivo: bool = None,
+                        page: int = 1, limit: int = 20,
+                        sort_by: str = "ragione_sociale", order: str = "asc"):
+    q = db.query(models.AziendaCliente)
+    if attivo is not None:
+        q = q.filter(models.AziendaCliente.attivo == attivo)
+    if agenzia_id:
+        q = q.filter(models.AziendaCliente.agenzia_id == agenzia_id)
+    if consulente_id:
+        q = q.filter(models.AziendaCliente.consulente_id == consulente_id)
+    if citta:
+        q = q.filter(models.AziendaCliente.citta.ilike(f"%{citta}%"))
+    if search:
+        term = f"%{search}%"
+        q = q.filter(
+            models.AziendaCliente.ragione_sociale.ilike(term) |
+            models.AziendaCliente.pec.ilike(term) |
+            models.AziendaCliente.partita_iva.ilike(term)
+        )
+    total = q.count()
+    pages = max(1, -(-total // limit))
+    col = getattr(models.AziendaCliente, sort_by, models.AziendaCliente.ragione_sociale)
+    col = col.desc() if order == "desc" else col.asc()
+    items = q.order_by(col).offset((page - 1) * limit).limit(limit).all()
+    return items, total, pages
+
+
+def get_azienda_cliente(db: Session, azienda_id: int):
+    return db.query(models.AziendaCliente).filter(models.AziendaCliente.id == azienda_id).first()
+
+
+def create_azienda_cliente(db: Session, azienda: schemas.AziendaClienteCreate):
+    db_obj = models.AziendaCliente(**azienda.model_dump())
+    db.add(db_obj)
+    db.commit()
+    db.refresh(db_obj)
+    return db_obj
+
+
+def update_azienda_cliente(db: Session, azienda_id: int, azienda: schemas.AziendaClienteUpdate):
+    db_obj = get_azienda_cliente(db, azienda_id)
+    if not db_obj:
+        return None
+    data = azienda.model_dump(exclude_unset=True)
+    for k, v in data.items():
+        setattr(db_obj, k, v)
+    db.commit()
+    db.refresh(db_obj)
+    return db_obj
+
+
+def delete_azienda_cliente(db: Session, azienda_id: int):
+    db_obj = get_azienda_cliente(db, azienda_id)
+    if db_obj:
+        db_obj.attivo = False
+        db.commit()
+    return db_obj
+
+
+# ─────────────────────────────────────────────
+# BLOCCO 2 — SMART COLLABORATORS LIST
+# ─────────────────────────────────────────────
+
+def search_collaborators_paginated(
+    db: Session,
+    search: str = None,
+    competenza: str = None,
+    disponibile: bool = None,
+    citta: str = None,
+    page: int = 1,
+    limit: int = 20,
+    sort_by: str = "last_name",
+    order: str = "asc"
+):
+    """
+    Ricerca collaboratori con filtri server-side e paginazione.
+
+    - search: full-text su nome, cognome, email, codice fiscale, posizione
+    - competenza: filtro esatto/parziale su position
+    - disponibile: True = ha almeno un progetto attivo, False = nessun progetto attivo
+    - citta: filtro parziale su city
+    - page/limit: paginazione
+    - sort_by/order: ordinamento
+    """
+    from models import collaborator_project
+
+    SORT_FIELDS = {
+        "last_name": models.Collaborator.last_name,
+        "first_name": models.Collaborator.first_name,
+        "email": models.Collaborator.email,
+        "position": models.Collaborator.position,
+        "city": models.Collaborator.city,
+        "created_at": models.Collaborator.created_at,
+    }
+
+    q = db.query(models.Collaborator).options(
+        selectinload(models.Collaborator.projects),
+        selectinload(models.Collaborator.assignments)
+    ).filter(models.Collaborator.is_active == True)
+
+    # Ricerca full-text
+    if search:
+        term = f"%{search.lower()}%"
+        q = q.filter(
+            or_(
+                func.lower(models.Collaborator.first_name).like(term),
+                func.lower(models.Collaborator.last_name).like(term),
+                func.lower(models.Collaborator.email).like(term),
+                func.lower(func.coalesce(models.Collaborator.fiscal_code, '')).like(term),
+                func.lower(func.coalesce(models.Collaborator.position, '')).like(term),
+            )
+        )
+
+    # Filtro competenza (position)
+    if competenza:
+        q = q.filter(func.lower(func.coalesce(models.Collaborator.position, '')).like(f"%{competenza.lower()}%"))
+
+    # Filtro città
+    if citta:
+        q = q.filter(func.lower(func.coalesce(models.Collaborator.city, '')).like(f"%{citta.lower()}%"))
+
+    # Filtro disponibilità (subquery su progetti attivi)
+    if disponibile is not None:
+        active_ids_subq = (
+            db.query(collaborator_project.c.collaborator_id)
+            .join(models.Project, models.Project.id == collaborator_project.c.project_id)
+            .filter(models.Project.status == 'active')
+            .subquery()
+        )
+        if disponibile:
+            q = q.filter(models.Collaborator.id.in_(active_ids_subq))
+        else:
+            q = q.filter(~models.Collaborator.id.in_(active_ids_subq))
+
+    total = q.count()
+    pages = max(1, -(-total // limit))
+
+    col = SORT_FIELDS.get(sort_by, models.Collaborator.last_name)
+    col = col.desc() if order == "desc" else col.asc()
+
+    items = q.order_by(col, models.Collaborator.first_name.asc()).offset((page - 1) * limit).limit(limit).all()
+
+    return items, total, pages
+
+
+# ─────────────────────────────────────────────
+# BLOCCO 3 — CATALOGO + LISTINI
+# ─────────────────────────────────────────────
+
+def calcola_prezzo_finale(prezzo_base: float, prezzo_override, sconto_percentuale: float) -> float:
+    """Funzione riutilizzabile: prezzo_override ?? (prezzo_base * (1 - sconto/100))."""
+    if prezzo_override is not None:
+        return prezzo_override
+    sconto = sconto_percentuale or 0.0
+    return round(prezzo_base * (1 - sconto / 100), 4)
+
+
+# ── Prodotti ──────────────────────────────────
+
+def get_prodotti(db: Session, search: str = None, tipo: str = None, attivo: bool = None,
+                 skip: int = 0, limit: int = 50):
+    q = db.query(models.Prodotto)
+    if attivo is not None:
+        q = q.filter(models.Prodotto.attivo == attivo)
+    if tipo:
+        q = q.filter(models.Prodotto.tipo == tipo)
+    if search:
+        term = f"%{search}%"
+        q = q.filter(
+            models.Prodotto.nome.ilike(term) |
+            func.coalesce(models.Prodotto.codice, '').ilike(term) |
+            func.coalesce(models.Prodotto.descrizione, '').ilike(term)
+        )
+    total = q.count()
+    items = q.order_by(models.Prodotto.nome).offset(skip).limit(limit).all()
+    return items, total
+
+
+def get_prodotto(db: Session, prodotto_id: int):
+    return db.query(models.Prodotto).filter(models.Prodotto.id == prodotto_id).first()
+
+
+def create_prodotto(db: Session, prodotto: schemas.ProdottoCreate):
+    db_obj = models.Prodotto(**prodotto.model_dump())
+    db.add(db_obj)
+    db.commit()
+    db.refresh(db_obj)
+    return db_obj
+
+
+def update_prodotto(db: Session, prodotto_id: int, prodotto: schemas.ProdottoUpdate):
+    db_obj = get_prodotto(db, prodotto_id)
+    if not db_obj:
+        return None
+    for k, v in prodotto.model_dump(exclude_unset=True).items():
+        setattr(db_obj, k, v)
+    db.commit()
+    db.refresh(db_obj)
+    return db_obj
+
+
+def delete_prodotto(db: Session, prodotto_id: int):
+    db_obj = get_prodotto(db, prodotto_id)
+    if db_obj:
+        db_obj.attivo = False
+        db.commit()
+    return db_obj
+
+
+# ── Piani Finanziari ─────────────────────────
+
+def _normalize_optional_text(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None
+
+
+def _resolve_avviso_for_context(
+    db: Session,
+    *,
+    avviso_id: Optional[int],
+    avviso: Optional[str],
+    ente_erogatore: Optional[str],
+) -> Optional[models.Avviso]:
+    if avviso_id is not None:
+        return db.query(models.Avviso).filter(models.Avviso.id == avviso_id).first()
+    normalized_avviso = _normalize_optional_text(avviso)
+    normalized_ente = _normalize_optional_text(ente_erogatore)
+    if not normalized_avviso:
+        return None
+    query = db.query(models.Avviso).filter(models.Avviso.codice == normalized_avviso)
+    if normalized_ente:
+        query = query.filter(models.Avviso.ente_erogatore == normalized_ente)
+    return query.order_by(models.Avviso.id.desc()).first()
+
+
+def _resolve_financial_template(
+    db: Session,
+    *,
+    progetto: models.Project,
+    ente_erogatore: str,
+    avviso: Optional[str],
+    avviso_id: Optional[int] = None,
+    template_id: Optional[int] = None,
+):
+    normalized_fondo = _normalize_optional_text(ente_erogatore)
+    normalized_avviso = _normalize_optional_text(avviso)
+    project_ente_erogatore = _normalize_optional_text(getattr(progetto, "ente_erogatore", None))
+    project_avviso = _normalize_optional_text(
+        getattr(getattr(progetto, "avviso_rel", None), "codice", None) or getattr(progetto, "avviso", None)
+    )
+
+    if template_id is not None:
+        template = db.query(models.ContractTemplate).filter(
+            models.ContractTemplate.id == template_id,
+            models.ContractTemplate.is_active == True,
+        ).first()
+        if not template:
+            raise ValueError("Template piano finanziario non trovato")
+        if template.ambito_template != "piano_finanziario":
+            raise ValueError("Il template selezionato non è un template piano finanziario")
+        if project_ente_erogatore and template.ente_erogatore and template.ente_erogatore != project_ente_erogatore:
+            raise ValueError("Il template piano finanziario selezionato non coincide con l'ente erogatore del progetto")
+        if project_avviso and template.avviso and template.avviso != project_avviso:
+            raise ValueError("Il template piano finanziario selezionato non coincide con l'avviso del progetto")
+        return template
+
+    query = db.query(models.ContractTemplate).filter(
+        models.ContractTemplate.is_active == True,
+        models.ContractTemplate.ambito_template == "piano_finanziario",
+    )
+
+    if normalized_fondo:
+        query = query.filter(
+            or_(
+                models.ContractTemplate.ente_erogatore == normalized_fondo,
+                models.ContractTemplate.ente_erogatore.is_(None),
+            )
+        )
+
+    if normalized_avviso:
+        query = query.filter(
+            or_(
+                models.ContractTemplate.avviso == normalized_avviso,
+                models.ContractTemplate.avviso.is_(None),
+            )
+        )
+    elif avviso_id is not None:
+        linked_avviso = db.query(models.Avviso).filter(models.Avviso.id == avviso_id).first()
+        if linked_avviso:
+            query = query.filter(
+                or_(
+                    models.ContractTemplate.id == linked_avviso.template_id,
+                    models.ContractTemplate.avviso.is_(None),
+                )
+            )
+
+    if progetto.id is not None:
+        query = query.filter(
+            or_(
+                models.ContractTemplate.progetto_id == progetto.id,
+                models.ContractTemplate.progetto_id.is_(None),
+            )
+        )
+
+    if getattr(progetto, "ente_attuatore_id", None) is not None:
+        query = query.filter(
+            or_(
+                models.ContractTemplate.ente_attuatore_id == progetto.ente_attuatore_id,
+                models.ContractTemplate.ente_attuatore_id.is_(None),
+            )
+        )
+
+    candidates = query.order_by(
+        models.ContractTemplate.progetto_id.isnot(None).desc(),
+        models.ContractTemplate.ente_attuatore_id.isnot(None).desc(),
+        models.ContractTemplate.avviso.isnot(None).desc(),
+        models.ContractTemplate.created_at.desc(),
+    ).all()
+
+    if not candidates:
+        return None
+
+    return candidates[0]
+
+def get_piani_finanziari(db: Session, progetto_id: Optional[int] = None, skip: int = 0, limit: int = 100):
+    query = db.query(models.PianoFinanziario).options(
+        joinedload(models.PianoFinanziario.progetto),
+        joinedload(models.PianoFinanziario.template),
+        joinedload(models.PianoFinanziario.avviso_rel),
+    )
+    if progetto_id is not None:
+        query = query.filter(models.PianoFinanziario.progetto_id == progetto_id)
+    return query.order_by(
+        desc(models.PianoFinanziario.anno),
+        desc(models.PianoFinanziario.created_at),
+        desc(models.PianoFinanziario.id),
+    ).offset(skip).limit(limit).all()
+
+
+def get_piano_finanziario(db: Session, piano_id: int):
+    return db.query(models.PianoFinanziario).options(
+        joinedload(models.PianoFinanziario.progetto),
+        joinedload(models.PianoFinanziario.template),
+        joinedload(models.PianoFinanziario.avviso_rel),
+        selectinload(models.PianoFinanziario.voci),
+    ).filter(models.PianoFinanziario.id == piano_id).first()
+
+
+def _emit_piano_budget_threshold_event(db: Session, piano_obj: models.PianoFinanziario) -> None:
+    riepilogo = build_piano_finanziario_riepilogo(piano_obj, db=db)
+    totale_preventivo = float(riepilogo.get("totale_preventivo") or 0.0)
+    totale_consuntivo = float(riepilogo.get("totale_consuntivo") or 0.0)
+    if totale_preventivo <= 0:
+        return
+
+    usage = totale_consuntivo / totale_preventivo
+    if usage < 0.9:
+        return
+
+    enqueue_webhook_notification(
+        event_type="piano_finanziario_budget_threshold",
+        payload={
+            "piano_id": piano_obj.id,
+            "progetto_id": piano_obj.progetto_id,
+            "anno": piano_obj.anno,
+            "ente_erogatore": piano_obj.ente_erogatore,
+            "avviso": (piano_obj.avviso_rel.codice if getattr(piano_obj, "avviso_rel", None) else piano_obj.avviso),
+            "totale_consuntivo": totale_consuntivo,
+            "totale_preventivo": totale_preventivo,
+            "usage_percentage": round(usage * 100, 2),
+            "threshold_percentage": 90.0,
+            "warning_code": "budget_90_reached",
+        },
+    )
+
+
+@track_entity_event("piano_finanziario", "created")
+def create_piano_finanziario(db: Session, piano: schemas.PianoFinanziarioCreate):
+    progetto = get_project(db, piano.progetto_id)
+    if not progetto:
+        raise ValueError("Progetto non trovato")
+    normalized_ente = (piano.ente_erogatore or "Formazienda").strip() or "Formazienda"
+    avviso_record = _resolve_avviso_for_context(
+        db,
+        avviso_id=getattr(piano, "avviso_id", None) or getattr(progetto, "avviso_id", None),
+        avviso=piano.avviso or getattr(progetto, "avviso", None),
+        ente_erogatore=normalized_ente,
+    )
+    normalized_avviso = ((avviso_record.codice if avviso_record else None) or piano.avviso or getattr(progetto, "avviso", None) or "").strip()
+
+    existing = db.query(models.PianoFinanziario).filter(
+        models.PianoFinanziario.progetto_id == piano.progetto_id,
+        models.PianoFinanziario.anno == piano.anno,
+        models.PianoFinanziario.ente_erogatore == normalized_ente,
+        models.PianoFinanziario.avviso_id == (avviso_record.id if avviso_record else None),
+    ).first()
+    if existing:
+        suffix = f" / avviso {normalized_avviso}" if normalized_avviso else ""
+        raise ValueError(f"Esiste già un piano finanziario {normalized_ente}{suffix} per questo progetto e anno")
+
+    payload = piano.model_dump()
+    payload["ente_erogatore"] = normalized_ente
+    payload["avviso"] = normalized_avviso
+    payload["avviso_id"] = avviso_record.id if avviso_record else payload.get("avviso_id")
+    resolved_template = _resolve_financial_template(
+        db,
+        progetto=progetto,
+        ente_erogatore=normalized_ente,
+        avviso=normalized_avviso,
+        avviso_id=payload.get("avviso_id"),
+        template_id=piano.template_id,
+    )
+    payload["template_id"] = resolved_template.id if resolved_template else None
+    db_obj = models.PianoFinanziario(**payload)
+    db.add(db_obj)
+    db.flush()
+
+    for row in build_default_voci():
+        db.add(models.VocePianoFinanziario(piano_id=db_obj.id, **row))
+
+    db.commit()
+    created = get_piano_finanziario(db, db_obj.id)
+    _create_audit_log(
+        db,
+        entity="piano_finanziario",
+        action="create",
+        old_value=None,
+        new_value={
+            "id": created.id,
+            "progetto_id": created.progetto_id,
+            "anno": created.anno,
+            "ente_erogatore": created.ente_erogatore,
+            "avviso": created.avviso,
+            "template_id": created.template_id,
+        },
+    )
+    db.commit()
+    _emit_piano_budget_threshold_event(db, created)
+    return created
+
+
+def _normalize_voci_piano_payload(voci: List[schemas.VocePianoFinanziarioUpsert]) -> List[dict]:
+    voice_map = get_voice_template_map()
+    normalized = []
+    fixed_seen = set()
+    dynamic_seen = set()
+    edition_tracker = defaultdict(set)
+
+    for item in voci:
+        data = item.model_dump()
+        template = voice_map.get(data["voce_codice"])
+        if not template:
+            raise ValueError(f"Voce piano non riconosciuta: {data['voce_codice']}")
+
+        data["macrovoce"] = template["macrovoce"]
+        data["descrizione"] = (data.get("descrizione") or template["descrizione"]).strip()
+        data["progetto_label"] = (data.get("progetto_label") or None)
+        data["edizione_label"] = (data.get("edizione_label") or None)
+
+        if template["is_dynamic"]:
+            if not data["progetto_label"] or not data["edizione_label"]:
+                raise ValueError(f"{data['voce_codice']} richiede progetto_label ed edizione_label")
+            unique_key = (data["voce_codice"], data["progetto_label"], data["edizione_label"])
+            if unique_key in dynamic_seen:
+                raise ValueError(f"Duplicato non ammesso per {data['voce_codice']} / {data['progetto_label']} / {data['edizione_label']}")
+            dynamic_seen.add(unique_key)
+            edition_key = (data["voce_codice"], data["progetto_label"])
+            edition_tracker[edition_key].add(data["edizione_label"])
+            if len(edition_tracker[edition_key]) > 15:
+                raise ValueError(f"{data['voce_codice']} supera il limite di 15 edizioni per progetto")
+        else:
+            data["progetto_label"] = None
+            data["edizione_label"] = None
+            if data["voce_codice"] in fixed_seen:
+                raise ValueError(f"La voce {data['voce_codice']} può comparire una sola volta")
+            fixed_seen.add(data["voce_codice"])
+
+        normalized.append(data)
+
+    for voce_codice, template in voice_map.items():
+        if template["is_dynamic"]:
+            continue
+        if voce_codice not in fixed_seen:
+            normalized.append({
+                "id": None,
+                "macrovoce": template["macrovoce"],
+                "voce_codice": voce_codice,
+                "descrizione": template["descrizione"],
+                "progetto_label": None,
+                "edizione_label": None,
+                "ore": 0.0,
+                "importo_consuntivo": 0.0,
+                "importo_preventivo": 0.0,
+                "importo_presentato": 0.0,
+            })
+
+    return normalized
+
+
+@track_entity_event(
+    "piano_finanziario",
+    "updated",
+    entity_id_getter=lambda result, args, kwargs: (
+        getattr(result, "id", None)
+        or kwargs.get("piano_id")
+        or (args[1] if len(args) > 1 else None)
+    ),
+)
+def bulk_upsert_voci_piano(db: Session, piano_id: int, payload: schemas.PianoFinanziarioBulkUpdate):
+    piano = get_piano_finanziario(db, piano_id)
+    if not piano:
+        return None
+
+    normalized = _normalize_voci_piano_payload(payload.voci)
+    existing_by_id = {voce.id: voce for voce in piano.voci}
+    kept_ids = set()
+
+    for item in normalized:
+        voice_id = item.pop("id", None)
+        if voice_id and voice_id in existing_by_id:
+            db_obj = existing_by_id[voice_id]
+            for key, value in item.items():
+                setattr(db_obj, key, value)
+            kept_ids.add(db_obj.id)
+        else:
+            db_obj = models.VocePianoFinanziario(piano_id=piano_id, **item)
+            db.add(db_obj)
+            db.flush()
+            kept_ids.add(db_obj.id)
+
+    for existing in list(piano.voci):
+        if existing.id not in kept_ids:
+            db.delete(existing)
+
+    db.commit()
+    updated = get_piano_finanziario(db, piano_id)
+    _create_audit_log(
+        db,
+        entity="piano_finanziario",
+        action="update_voci",
+        old_value={"piano_id": piano_id},
+        new_value={"piano_id": piano_id, "updated_voci": len(normalized)},
+    )
+    db.commit()
+    _emit_piano_budget_threshold_event(db, updated)
+    return updated
+
+
+def build_effective_piano_rows(piano: models.PianoFinanziario, db: Session | None = None) -> List[dict]:
+    rows = [
+        {
+            "id": voce.id,
+            "piano_id": voce.piano_id,
+            "macrovoce": voce.macrovoce,
+            "voce_codice": voce.voce_codice,
+            "descrizione": voce.descrizione,
+            "progetto_label": voce.progetto_label,
+            "edizione_label": voce.edizione_label,
+            "ore": float(voce.ore or 0.0),
+            "importo_consuntivo": float(voce.importo_consuntivo or 0.0),
+            "importo_preventivo": float(voce.importo_preventivo or 0.0),
+            "importo_presentato": float(voce.importo_presentato or 0.0),
+            "created_at": voce.created_at,
+            "updated_at": voce.updated_at,
+            "collaborator_id": getattr(voce, 'collaborator_id', None),
+        }
+        for voce in piano.voci
+    ]
+
+    if db is None:
+        return rows
+
+    template_map = get_voice_template_map()
+    available_codes = set(template_map.keys())
+    dynamic_codes = {
+        code for code, template in template_map.items()
+        if template["is_dynamic"]
+    }
+
+    attendance_subquery = (
+        db.query(
+            models.Attendance.assignment_id.label("assignment_id"),
+            func.sum(models.Attendance.hours).label("ore_effettive"),
+        )
+        .group_by(models.Attendance.assignment_id)
+        .subquery()
+    )
+
+    assignments = (
+        db.query(
+            models.Assignment,
+            models.Collaborator.first_name,
+            models.Collaborator.last_name,
+            attendance_subquery.c.ore_effettive,
+        )
+        .join(models.Collaborator, models.Collaborator.id == models.Assignment.collaborator_id)
+        .outerjoin(attendance_subquery, attendance_subquery.c.assignment_id == models.Assignment.id)
+        .filter(
+            models.Assignment.project_id == piano.progetto_id,
+            models.Assignment.is_active == True,
+        )
+        .all()
+    )
+
+    fixed_aggregates: Dict[str, dict] = {}
+    generated_dynamic_rows: List[dict] = []
+
+    for assignment, first_name, last_name, ore_effettive in assignments:
+        voce_codice, _ = _normalize_assignment_role_to_voce(assignment.role, available_codes)
+        if not voce_codice:
+            continue
+
+        template = template_map[voce_codice]
+        assigned_hours = float(assignment.assigned_hours or 0.0)
+        effective_hours = float(ore_effettive or 0.0)
+        hourly_rate = float(assignment.hourly_rate or 0.0)
+        preventivo = round(assigned_hours * hourly_rate, 2)
+        consuntivo = round(effective_hours * hourly_rate, 2)
+        collaborator_name = " ".join(part for part in [first_name, last_name] if part).strip() or f"Collaboratore {assignment.collaborator_id}"
+        edizione_label = (assignment.edizione_label or "").strip() or collaborator_name
+
+        if template["is_dynamic"]:
+            generated_dynamic_rows.append({
+                "id": None,
+                "piano_id": piano.id,
+                "macrovoce": template["macrovoce"],
+                "voce_codice": voce_codice,
+                "descrizione": template["descrizione"],
+                "progetto_label": piano.progetto.name if piano.progetto else None,
+                "edizione_label": edizione_label,
+                "ore": assigned_hours,
+                "importo_consuntivo": consuntivo,
+                "importo_preventivo": preventivo,
+                "importo_presentato": 0.0,
+                "created_at": piano.created_at,
+                "updated_at": piano.updated_at,
+                "collaborator_id": assignment.collaborator_id,
+            })
+            continue
+
+        aggregate = fixed_aggregates.setdefault(voce_codice, {
+            "ore": 0.0,
+            "importo_consuntivo": 0.0,
+            "importo_preventivo": 0.0,
+            "importo_presentato": 0.0,
+        })
+        aggregate["ore"] += assigned_hours
+        aggregate["importo_consuntivo"] += consuntivo
+        aggregate["importo_preventivo"] += preventivo
+
+    for row in rows:
+        aggregate = fixed_aggregates.get(row["voce_codice"])
+        if aggregate:
+            row["ore"] = round(aggregate["ore"], 2)
+            row["importo_consuntivo"] = round(aggregate["importo_consuntivo"], 2)
+            row["importo_preventivo"] = round(aggregate["importo_preventivo"], 2)
+
+    existing_dynamic_rows = [row for row in rows if row["voce_codice"] in dynamic_codes]
+    existing_dynamic_index = {
+        (row["voce_codice"], row["progetto_label"] or "", row["edizione_label"] or ""): row
+        for row in existing_dynamic_rows
+    }
+
+    for generated_row in generated_dynamic_rows:
+        match_key = (
+            generated_row["voce_codice"],
+            generated_row["progetto_label"] or "",
+            generated_row["edizione_label"] or "",
+        )
+        matched_row = existing_dynamic_index.get(match_key)
+        if matched_row:
+            matched_row["ore"] = generated_row["ore"]
+            matched_row["importo_consuntivo"] = generated_row["importo_consuntivo"]
+            matched_row["importo_preventivo"] = generated_row["importo_preventivo"]
+        else:
+            rows.append(generated_row)
+
+    rows = [
+        row for row in rows
+        if row["voce_codice"] not in dynamic_codes
+        or any(float(row[field] or 0.0) for field in ("ore", "importo_consuntivo", "importo_preventivo", "importo_presentato"))
+    ]
+
+    return rows
+
+
+def _normalize_assignment_role_to_voce(role: str | None, available_codes: set[str] | None = None) -> tuple[str | None, str | None]:
+    role_str = (role or "").strip()
+    if not role_str:
+        return (None, None)
+
+    known_codes = available_codes or set(get_voice_template_map().keys())
+    upper_role = role_str.upper()
+    for code in sorted(known_codes, key=len, reverse=True):
+        if upper_role.startswith(code.upper()):
+            return (code, role_str)
+
+    normalized = " ".join(role_str.lower().replace("-", " ").replace("_", " ").split())
+    keyword_map = [
+        ("docente", "B.2"),
+        ("docenza", "B.2"),
+        ("tutor", "B.3"),
+        ("coordin", "B.1"),
+        ("progett", "A.1"),
+        ("fabbisogn", "A.2"),
+        ("promoz", "A.3"),
+        ("monitor", "A.4"),
+        ("valutaz", "A.4"),
+        ("diffusion", "A.5"),
+        ("designer", "C.1"),
+        ("amminist", "C.2"),
+        ("rendicont", "C.3"),
+        ("revis", "C.4"),
+        ("fidejuss", "C.5"),
+        ("assicur", "D.2"),
+    ]
+    for keyword, voce_codice in keyword_map:
+        if keyword in normalized and voce_codice in known_codes:
+            return (voce_codice, role_str)
+
+    return (None, role_str)
+
+
+def build_piano_finanziario_riepilogo(piano: models.PianoFinanziario, db: Session = None) -> dict:
+    totals = {
+        "consuntivo": defaultdict(float),
+        "preventivo": defaultdict(float),
+    }
+    alerts = []
+
+    effective_rows = build_effective_piano_rows(piano, db=db)
+
+    for voce in effective_rows:
+        totals["consuntivo"][voce["macrovoce"]] += float(voce["importo_consuntivo"] or 0.0)
+        totals["preventivo"][voce["macrovoce"]] += float(voce["importo_preventivo"] or 0.0)
+
+    totale_consuntivo = sum(totals["consuntivo"].values())
+    totale_preventivo = sum(totals["preventivo"].values())
+    contributo_richiesto = totals["consuntivo"]["A"] + totals["consuntivo"]["B"] + totals["consuntivo"]["C"]
+    cofinanziamento = totals["consuntivo"]["D"]
+
+    macrovoci = []
+    for macrovoce in ["A", "B", "C", "D"]:
+        importo_consuntivo = round(totals["consuntivo"][macrovoce], 2)
+        importo_preventivo = round(totals["preventivo"][macrovoce], 2)
+        limite = MACROVOCE_LIMITS.get(macrovoce)
+        percentuale_consuntivo = round((importo_consuntivo / totale_consuntivo) * 100, 2) if totale_consuntivo else 0.0
+        percentuale_preventivo = round((importo_preventivo / totale_preventivo) * 100, 2) if totale_preventivo else 0.0
+        alert_level = "ok"
+        sforata = False
+
+        if limite is not None:
+            if percentuale_consuntivo > limite:
+                alert_level = "danger"
+                sforata = True
+                alerts.append({
+                    "level": "danger",
+                    "code": f"macrovoce_{macrovoce.lower()}_over_limit",
+                    "message": f"La Macrovoce {macrovoce} supera il limite del {limite:.0f}% sul consuntivo.",
+                })
+            elif percentuale_consuntivo >= limite * 0.9:
+                alert_level = "warning"
+                alerts.append({
+                    "level": "warning",
+                    "code": f"macrovoce_{macrovoce.lower()}_near_limit",
+                    "message": f"La Macrovoce {macrovoce} è vicina al limite del {limite:.0f}% sul consuntivo.",
+                })
+
+        macrovoci.append({
+            "macrovoce": macrovoce,
+            "titolo": MACROVOCE_TITLES[macrovoce],
+            "limite_percentuale": limite,
+            "importo_consuntivo": importo_consuntivo,
+            "importo_preventivo": importo_preventivo,
+            "percentuale_consuntivo": percentuale_consuntivo,
+            "percentuale_preventivo": percentuale_preventivo,
+            "alert_level": alert_level,
+            "sforata": sforata,
+        })
+
+    voce_c6 = next((voce for voce in effective_rows if voce["voce_codice"] == "C.6"), None)
+    importo_c6 = float(voce_c6["importo_preventivo"] or 0.0) if voce_c6 else 0.0
+    percentuale_c6 = round((importo_c6 / totale_preventivo) * 100, 2) if totale_preventivo else 0.0
+    if totale_preventivo and percentuale_c6 > 10:
+        alerts.append({
+            "level": "danger",
+            "code": "c6_over_limit",
+            "message": "La voce C.6 supera il limite del 10% sul totale preventivo.",
+        })
+    elif totale_preventivo and percentuale_c6 >= 9:
+        alerts.append({
+            "level": "warning",
+            "code": "c6_near_limit",
+            "message": "La voce C.6 è vicina al limite del 10% sul totale preventivo.",
+        })
+
+    if totals["consuntivo"]["D"] > 0:
+        alerts.append({
+            "level": "info",
+            "code": "macrovoce_d_cofinanziamento",
+            "message": "La Macrovoce D viene conteggiata solo come cofinanziamento aziendale.",
+        })
+
+    # Aggrega le ore di presenze effettive per ruolo (solo se db disponibile)
+    ore_per_ruolo = []
+    ore_effettive_totali = 0.0
+
+    if db is not None:
+        voce_map = {v.voce_codice: v for v in piano.voci}
+        template_map = get_voice_template_map()
+        available_codes = set(template_map.keys())
+
+        rows = (
+            db.query(
+                models.Assignment.collaborator_id,
+                models.Collaborator.first_name,
+                models.Collaborator.last_name,
+                models.Assignment.role,
+                models.Assignment.hourly_rate,
+                func.sum(models.Attendance.hours).label("ore_effettive"),
+                func.count(models.Attendance.id).label("n_presenze"),
+            )
+            .join(models.Collaborator, models.Collaborator.id == models.Assignment.collaborator_id)
+            .join(models.Attendance, models.Attendance.assignment_id == models.Assignment.id)
+            .filter(
+                models.Assignment.project_id == piano.progetto_id,
+                models.Assignment.is_active == True,
+                models.Collaborator.is_active == True,
+            )
+            .group_by(
+                models.Assignment.collaborator_id,
+                models.Collaborator.first_name,
+                models.Collaborator.last_name,
+                models.Assignment.role,
+                models.Assignment.hourly_rate,
+            )
+            .all()
+        )
+
+        for row in rows:
+            ore = float(row.ore_effettive or 0)
+            costo = round(ore * float(row.hourly_rate or 0), 2)
+            ore_effettive_totali += ore
+            voce_codice, role_str = _normalize_assignment_role_to_voce(row.role, available_codes)
+            collaborator_name = " ".join(
+                part for part in [row.first_name, row.last_name] if part
+            ).strip() or None
+            voce = voce_map.get(voce_codice) if voce_codice else None
+            template = template_map.get(voce_codice) if voce_codice else None
+
+            ore_per_ruolo.append({
+                "collaborator_id": row.collaborator_id,
+                "collaborator_name": collaborator_name,
+                "role": role_str,
+                "n_presenze": int(row.n_presenze or 0),
+                "ore_effettive": round(ore, 2),
+                "costo_effettivo": costo,
+                "voce_codice": voce_codice,
+                "voce_label": (
+                    f"{voce_codice} - {(voce.descrizione if voce else template['descrizione'])}"
+                    if voce_codice and (voce or template)
+                    else None
+                ),
+            })
+
+        ore_per_ruolo.sort(
+            key=lambda item: (
+                item["voce_codice"] or "ZZZ",
+                item["collaborator_name"] or "",
+                -item["ore_effettive"],
+            )
+        )
+
+    return {
+        "piano_id": piano.id,
+        "totale_consuntivo": round(totale_consuntivo, 2),
+        "totale_preventivo": round(totale_preventivo, 2),
+        "contributo_richiesto": round(contributo_richiesto, 2),
+        "cofinanziamento": round(cofinanziamento, 2),
+        "macrovoci": macrovoci,
+        "alerts": alerts,
+        "ore_per_ruolo": ore_per_ruolo,
+        "ore_effettive_totali": round(ore_effettive_totali, 2),
+    }
+
+
+# ── Piani Fondimpresa ───────────────────────
+
+def get_piani_fondimpresa(db: Session, progetto_id: Optional[int] = None, skip: int = 0, limit: int = 100):
+    query = db.query(models.PianoFinanziarioFondimpresa).options(
+        joinedload(models.PianoFinanziarioFondimpresa.progetto)
+    )
+    if progetto_id is not None:
+        query = query.filter(models.PianoFinanziarioFondimpresa.progetto_id == progetto_id)
+    return query.order_by(desc(models.PianoFinanziarioFondimpresa.anno), desc(models.PianoFinanziarioFondimpresa.created_at)).offset(skip).limit(limit).all()
+
+
+def get_piano_fondimpresa(db: Session, piano_id: int):
+    return db.query(models.PianoFinanziarioFondimpresa).options(
+        joinedload(models.PianoFinanziarioFondimpresa.progetto),
+        selectinload(models.PianoFinanziarioFondimpresa.voci).selectinload(models.VoceFondimpresa.righe_nominativo),
+        selectinload(models.PianoFinanziarioFondimpresa.voci).selectinload(models.VoceFondimpresa.documenti),
+        selectinload(models.PianoFinanziarioFondimpresa.dettaglio_budget).selectinload(models.DettaglioBudgetFondimpresa.consulenti),
+        selectinload(models.PianoFinanziarioFondimpresa.dettaglio_budget).selectinload(models.DettaglioBudgetFondimpresa.costi_fissi),
+        selectinload(models.PianoFinanziarioFondimpresa.dettaglio_budget).selectinload(models.DettaglioBudgetFondimpresa.margini),
+    ).filter(models.PianoFinanziarioFondimpresa.id == piano_id).first()
+
+
+def create_piano_fondimpresa(db: Session, piano: schemas.PianoFondimpresaCreate):
+    existing = db.query(models.PianoFinanziarioFondimpresa).filter(
+        models.PianoFinanziarioFondimpresa.progetto_id == piano.progetto_id,
+        models.PianoFinanziarioFondimpresa.anno == piano.anno,
+    ).first()
+    if existing:
+        raise ValueError("Esiste già un piano Fondimpresa per questo progetto e anno")
+
+    project = get_project(db, piano.progetto_id)
+    if not project:
+        raise ValueError("Progetto non trovato")
+
+    db_obj = models.PianoFinanziarioFondimpresa(**piano.model_dump())
+    db.add(db_obj)
+    db.flush()
+
+    for row in build_default_voci_fondimpresa():
+        db.add(models.VoceFondimpresa(piano_id=db_obj.id, **row))
+
+    db.add(models.DettaglioBudgetFondimpresa(piano_id=db_obj.id))
+    db.commit()
+    return get_piano_fondimpresa(db, db_obj.id)
+
+
+def _recalculate_voce_fondimpresa_totale(voce: models.VoceFondimpresa):
+    totale_righe = sum((float(row.ore or 0.0) * float(row.costo_orario or 0.0)) for row in voce.righe_nominativo)
+    totale_documenti = sum(float(documento.importo_imputato or 0.0) for documento in voce.documenti)
+    voce.totale_voce = round(max(totale_righe, totale_documenti), 2)
+
+
+def bulk_upsert_voci_fondimpresa(db: Session, piano_id: int, payload: schemas.PianoFondimpresaBulkUpdate):
+    piano = get_piano_fondimpresa(db, piano_id)
+    if not piano:
+        return None
+
+    template_map = get_fondimpresa_voice_template_map()
+    existing_by_id = {voce.id: voce for voce in piano.voci}
+    kept_ids = set()
+
+    for item in payload.voci:
+        data = item.model_dump()
+        template = template_map.get(data["voce_codice"])
+        if not template:
+            raise ValueError(f"Voce Fondimpresa non riconosciuta: {data['voce_codice']}")
+
+        voce_id = data.pop("id", None)
+        righe = data.pop("righe_nominativo", [])
+        data.pop("documenti", None)
+        data["sezione"] = template["sezione"]
+        data["descrizione"] = data.get("descrizione") or template["descrizione"]
+        data["note_temporali"] = data.get("note_temporali") or template["note_temporali"]
+
+        if voce_id and voce_id in existing_by_id:
+            voce = existing_by_id[voce_id]
+            for key, value in data.items():
+                setattr(voce, key, value)
+        else:
+            voce = models.VoceFondimpresa(piano_id=piano_id, **data)
+            db.add(voce)
+            db.flush()
+        kept_ids.add(voce.id)
+
+        existing_righe_by_id = {row.id: row for row in voce.righe_nominativo}
+        kept_row_ids = set()
+        for row_data in righe:
+            row_payload = row_data.copy()
+            row_id = row_payload.pop("id", None)
+            totale = round((float(row_payload.get("ore") or 0.0) * float(row_payload.get("costo_orario") or 0.0)), 2)
+            row_payload["totale"] = totale
+            if row_id and row_id in existing_righe_by_id:
+                row = existing_righe_by_id[row_id]
+                for key, value in row_payload.items():
+                    setattr(row, key, value)
+            else:
+                row = models.RigaNominativoFondimpresa(voce_id=voce.id, **row_payload)
+                db.add(row)
+                db.flush()
+            kept_row_ids.add(row.id)
+
+        for existing_row in list(voce.righe_nominativo):
+            if existing_row.id not in kept_row_ids:
+                db.delete(existing_row)
+
+        _recalculate_voce_fondimpresa_totale(voce)
+
+    for existing in list(piano.voci):
+        if existing.id not in kept_ids:
+            db.delete(existing)
+
+    db.commit()
+    return get_piano_fondimpresa(db, piano_id)
+
+
+def bulk_upsert_documenti_fondimpresa(db: Session, piano_id: int, payload: schemas.PianoFondimpresaDocumentiBulkUpdate):
+    piano = get_piano_fondimpresa(db, piano_id)
+    if not piano:
+        return None
+
+    voci_by_codice = {voce.voce_codice: voce for voce in piano.voci}
+    for item in payload.voci:
+        voce = None
+        if item.id:
+            voce = next((entry for entry in piano.voci if entry.id == item.id), None)
+        if voce is None:
+            voce = voci_by_codice.get(item.voce_codice)
+        if voce is None:
+            raise ValueError(f"Voce Fondimpresa non trovata: {item.voce_codice}")
+
+        existing_doc_by_id = {doc.id: doc for doc in voce.documenti}
+        kept_doc_ids = set()
+        for document_data in item.documenti:
+            payload_doc = document_data.model_dump()
+            doc_id = payload_doc.pop("id", None)
+            if payload_doc["importo_imputato"] > payload_doc["importo_totale"]:
+                raise ValueError(f"Il documento {payload_doc.get('numero_documento') or 'senza numero'} supera l'importo totale disponibile")
+            if doc_id and doc_id in existing_doc_by_id:
+                document = existing_doc_by_id[doc_id]
+                for key, value in payload_doc.items():
+                    setattr(document, key, value)
+            else:
+                document = models.DocumentoFondimpresa(voce_id=voce.id, **payload_doc)
+                db.add(document)
+                db.flush()
+            kept_doc_ids.add(document.id)
+
+        for existing_doc in list(voce.documenti):
+            if existing_doc.id not in kept_doc_ids:
+                db.delete(existing_doc)
+
+        _recalculate_voce_fondimpresa_totale(voce)
+
+    db.commit()
+    return get_piano_fondimpresa(db, piano_id)
+
+
+def update_dettaglio_budget_fondimpresa(db: Session, piano_id: int, payload: schemas.DettaglioBudgetFondimpresaUpdate):
+    piano = get_piano_fondimpresa(db, piano_id)
+    if not piano:
+        return None
+
+    if not piano.dettaglio_budget:
+        piano.dettaglio_budget = models.DettaglioBudgetFondimpresa(piano_id=piano_id)
+        db.add(piano.dettaglio_budget)
+        db.flush()
+
+    budget = piano.dettaglio_budget
+
+    existing_consulenti = {row.id: row for row in budget.consulenti}
+    kept_consulenti = set()
+    for item in payload.consulenti:
+        row = item.model_dump()
+        row_id = row.pop("id", None)
+        row["totale"] = round((float(row.get("ore") or 0.0) * float(row.get("costo_orario") or 0.0)), 2)
+        if row_id and row_id in existing_consulenti:
+            db_row = existing_consulenti[row_id]
+            for key, value in row.items():
+                setattr(db_row, key, value)
+        else:
+            db_row = models.BudgetConsulenteFondimpresa(budget_id=budget.id, **row)
+            db.add(db_row)
+            db.flush()
+        kept_consulenti.add(db_row.id)
+    for existing in list(budget.consulenti):
+        if existing.id not in kept_consulenti:
+            db.delete(existing)
+
+    existing_costi = {row.id: row for row in budget.costi_fissi}
+    kept_costi = set()
+    for item in payload.costi_fissi:
+        row = item.model_dump()
+        row_id = row.pop("id", None)
+        if row_id and row_id in existing_costi:
+            db_row = existing_costi[row_id]
+            for key, value in row.items():
+                setattr(db_row, key, value)
+        else:
+            db_row = models.BudgetCostoFissoFondimpresa(budget_id=budget.id, **row)
+            db.add(db_row)
+            db.flush()
+        kept_costi.add(db_row.id)
+    for existing in list(budget.costi_fissi):
+        if existing.id not in kept_costi:
+            db.delete(existing)
+
+    totale_piano = build_piano_fondimpresa_riepilogo(piano)["totale_escluso_cofinanziamento"]
+    existing_margini = {row.id: row for row in budget.margini}
+    kept_margini = set()
+    for item in payload.margini:
+        row = item.model_dump()
+        row_id = row.pop("id", None)
+        row["totale"] = round((totale_piano * float(row.get("percentuale") or 0.0)) / 100, 2)
+        if row_id and row_id in existing_margini:
+            db_row = existing_margini[row_id]
+            for key, value in row.items():
+                setattr(db_row, key, value)
+        else:
+            db_row = models.BudgetMargineFondimpresa(budget_id=budget.id, **row)
+            db.add(db_row)
+            db.flush()
+        kept_margini.add(db_row.id)
+    for existing in list(budget.margini):
+        if existing.id not in kept_margini:
+            db.delete(existing)
+
+    db.commit()
+    return get_piano_fondimpresa(db, piano_id)
+
+
+def build_piano_fondimpresa_riepilogo(piano: models.PianoFinanziarioFondimpresa) -> dict:
+    totals = defaultdict(float)
+    alerts = []
+
+    for voce in piano.voci:
+        totale_righe = sum((float(row.totale or 0.0) for row in voce.righe_nominativo))
+        totale_documenti = sum((float(documento.importo_imputato or 0.0) for documento in voce.documenti))
+        totale_voce = max(float(voce.totale_voce or 0.0), totale_righe, totale_documenti)
+        totals[voce.sezione] += totale_voce
+
+        for documento in voce.documenti:
+            if float(documento.importo_imputato or 0.0) > float(documento.importo_totale or 0.0):
+                alerts.append({
+                    "level": "danger",
+                    "code": f"documento_overrun_{documento.id}",
+                    "message": f"Il documento {documento.numero_documento or documento.id} supera l'importo totale disponibile.",
+                })
+
+    totale_escluso_cofinanziamento = round(totals["A"] + totals["C"] + totals["D"], 2)
+    totale_preventivo = float(piano.totale_preventivo or 0.0)
+    differenza = round(totale_preventivo - totale_escluso_cofinanziamento, 2)
+
+    sezioni = []
+    for sezione in ["A", "B", "C", "D"]:
+        totale = round(totals[sezione], 2)
+        percentuale = round((totale / totale_escluso_cofinanziamento) * 100, 2) if sezione != "B" and totale_escluso_cofinanziamento else 0.0
+        limits = FONDIMPRESA_LIMITS.get(sezione, {})
+        min_limit = limits.get("min")
+        max_limit = limits.get("max")
+        alert_level = "ok"
+
+        if sezione == "A" and min_limit is not None and percentuale < min_limit:
+            alert_level = "danger"
+            alerts.append({
+                "level": "danger",
+                "code": "fondimpresa_a_under_min",
+                "message": f"La Sezione A è sotto la soglia minima del {min_limit:.0f}%.",
+            })
+        if sezione in {"C", "D"} and max_limit is not None and percentuale > max_limit:
+            alert_level = "danger"
+            alerts.append({
+                "level": "danger",
+                "code": f"fondimpresa_{sezione.lower()}_over_max",
+                "message": f"La Sezione {sezione} supera la soglia massima del {max_limit:.0f}%.",
+            })
+
+        sezioni.append({
+            "sezione": sezione,
+            "titolo": FONDIMPRESA_TITLES[sezione],
+            "totale": totale,
+            "percentuale": percentuale,
+            "min_percentuale": min_limit,
+            "max_percentuale": max_limit,
+            "alert_level": alert_level,
+        })
+
+    if totale_escluso_cofinanziamento:
+        perc_sum = round(sum(item["percentuale"] for item in sezioni if item["sezione"] != "B"), 2)
+        if abs(perc_sum - 100.0) > 0.1:
+            alerts.append({
+                "level": "warning",
+                "code": "fondimpresa_percentage_incoherent",
+                "message": "La somma percentuale di A, C e D non restituisce 100%.",
+            })
+
+    if differenza < 0:
+        alerts.append({
+            "level": "warning",
+            "code": "fondimpresa_budget_overrun",
+            "message": "Il consuntivo supera il totale preventivo approvato.",
+        })
+
+    return {
+        "piano_id": piano.id,
+        "totale_a": round(totals["A"], 2),
+        "totale_b": round(totals["B"], 2),
+        "totale_c": round(totals["C"], 2),
+        "totale_d": round(totals["D"], 2),
+        "totale_escluso_cofinanziamento": totale_escluso_cofinanziamento,
+        "totale_preventivo": totale_preventivo,
+        "differenza_preventivo_consuntivo": differenza,
+        "sezioni": sezioni,
+        "alerts": alerts,
+    }
+
+
+# ── Listini ──────────────────────────────────
+
+def get_listini(db: Session, search: str = None, tipo_cliente: str = None, attivo: bool = None,
+                skip: int = 0, limit: int = 50):
+    q = db.query(models.Listino)
+    if attivo is not None:
+        q = q.filter(models.Listino.attivo == attivo)
+    if tipo_cliente:
+        q = q.filter(models.Listino.tipo_cliente == tipo_cliente)
+    if search:
+        q = q.filter(models.Listino.nome.ilike(f"%{search}%"))
+    total = q.count()
+    items = q.order_by(models.Listino.nome).offset(skip).limit(limit).all()
+    return items, total
+
+
+def get_listino(db: Session, listino_id: int):
+    return (db.query(models.Listino)
+              .options(selectinload(models.Listino.voci).selectinload(models.ListinoVoce.prodotto))
+              .filter(models.Listino.id == listino_id).first())
+
+
+def create_listino(db: Session, listino: schemas.ListinoCreate):
+    db_obj = models.Listino(**listino.model_dump())
+    db.add(db_obj)
+    db.commit()
+    db.refresh(db_obj)
+    return db_obj
+
+
+def update_listino(db: Session, listino_id: int, listino: schemas.ListinoUpdate):
+    db_obj = db.query(models.Listino).filter(models.Listino.id == listino_id).first()
+    if not db_obj:
+        return None
+    for k, v in listino.model_dump(exclude_unset=True).items():
+        setattr(db_obj, k, v)
+    db.commit()
+    db.refresh(db_obj)
+    return db_obj
+
+
+def delete_listino(db: Session, listino_id: int):
+    db_obj = db.query(models.Listino).filter(models.Listino.id == listino_id).first()
+    if db_obj:
+        db_obj.attivo = False
+        db.commit()
+    return db_obj
+
+
+# ── Listino Voci ─────────────────────────────
+
+def get_voci_listino(db: Session, listino_id: int):
+    return (db.query(models.ListinoVoce)
+              .options(selectinload(models.ListinoVoce.prodotto))
+              .filter(models.ListinoVoce.listino_id == listino_id)
+              .order_by(models.ListinoVoce.id).all())
+
+
+def get_voce(db: Session, voce_id: int):
+    return (db.query(models.ListinoVoce)
+              .options(selectinload(models.ListinoVoce.prodotto))
+              .filter(models.ListinoVoce.id == voce_id).first())
+
+
+def create_voce(db: Session, voce: schemas.ListinoVoceCreate):
+    db_obj = models.ListinoVoce(**voce.model_dump())
+    db.add(db_obj)
+    db.commit()
+    db.refresh(db_obj)
+    # Reload with prodotto
+    return get_voce(db, db_obj.id)
+
+
+def update_voce(db: Session, voce_id: int, voce: schemas.ListinoVoceUpdate):
+    db_obj = db.query(models.ListinoVoce).filter(models.ListinoVoce.id == voce_id).first()
+    if not db_obj:
+        return None
+    for k, v in voce.model_dump(exclude_unset=True).items():
+        setattr(db_obj, k, v)
+    db.commit()
+    return get_voce(db, voce_id)
+
+
+def delete_voce(db: Session, voce_id: int):
+    db_obj = db.query(models.ListinoVoce).filter(models.ListinoVoce.id == voce_id).first()
+    if db_obj:
+        db.delete(db_obj)
+        db.commit()
+    return db_obj
+
+
+def get_prezzo_prodotto_in_listino(db: Session, prodotto_id: int, listino_id: int):
+    """Recupera il prezzo finale di un prodotto in un listino specifico."""
+    voce = (db.query(models.ListinoVoce)
+              .options(selectinload(models.ListinoVoce.prodotto))
+              .filter(
+                  models.ListinoVoce.listino_id == listino_id,
+                  models.ListinoVoce.prodotto_id == prodotto_id
+              ).first())
+    if not voce or not voce.prodotto:
+        return None
+    return {
+        "prodotto_id": prodotto_id,
+        "listino_id": listino_id,
+        "prezzo_base": voce.prodotto.prezzo_base,
+        "prezzo_override": voce.prezzo_override,
+        "sconto_percentuale": voce.sconto_percentuale or 0.0,
+        "prezzo_finale": calcola_prezzo_finale(voce.prodotto.prezzo_base, voce.prezzo_override, voce.sconto_percentuale),
+        "unita_misura": voce.prodotto.unita_misura or 'ora',
+    }
+
+
+# ═══════════════════════════════════════════════
+# BLOCCO 4 — Preventivi + Ordini
+# ═══════════════════════════════════════════════
+
+def _next_preventivo_number(db: Session, anno: int):
+    """Calcola il prossimo numero progressivo per un preventivo nell'anno dato."""
+    result = db.query(func.max(models.Preventivo.numero_progressivo)).filter(
+        models.Preventivo.anno == anno
+    ).scalar()
+    prog = (result or 0) + 1
+    numero = f"PRV-{anno}-{prog:03d}"
+    return anno, prog, numero
+
+
+def _next_ordine_number(db: Session, anno: int):
+    """Calcola il prossimo numero progressivo per un ordine nell'anno dato."""
+    result = db.query(func.max(models.Ordine.numero_progressivo)).filter(
+        models.Ordine.anno == anno
+    ).scalar()
+    prog = (result or 0) + 1
+    numero = f"ORD-{anno}-{prog:03d}"
+    return anno, prog, numero
+
+
+def _calcola_importo_riga(quantita: float, prezzo_unitario: float, sconto: float) -> float:
+    return round(quantita * prezzo_unitario * (1 - (sconto or 0) / 100), 4)
+
+
+# ── Preventivo CRUD ───────────────────────────
+
+def get_preventivo(db: Session, preventivo_id: int):
+    return (db.query(models.Preventivo)
+              .options(
+                  selectinload(models.Preventivo.righe).selectinload(models.PreventivoRiga.prodotto),
+                  selectinload(models.Preventivo.azienda_cliente),
+                  selectinload(models.Preventivo.consulente),
+                  selectinload(models.Preventivo.ordine),
+              )
+              .filter(models.Preventivo.id == preventivo_id)
+              .first())
+
+
+def get_preventivi(db: Session, skip: int = 0, limit: int = 100,
+                   stato: Optional[str] = None, azienda_id: Optional[int] = None,
+                   search: Optional[str] = None, attivo: Optional[bool] = None):
+    q = db.query(models.Preventivo).options(
+        selectinload(models.Preventivo.azienda_cliente),
+        selectinload(models.Preventivo.consulente),
+    )
+    if stato:
+        q = q.filter(models.Preventivo.stato == stato)
+    if azienda_id:
+        q = q.filter(models.Preventivo.azienda_cliente_id == azienda_id)
+    if attivo is not None:
+        q = q.filter(models.Preventivo.attivo == attivo)
+    if search:
+        term = f"%{search.lower()}%"
+        q = q.filter(
+            or_(
+                func.lower(models.Preventivo.numero).like(term),
+                func.lower(models.Preventivo.oggetto).like(term),
+            )
+        )
+    total = q.count()
+    items = q.order_by(desc(models.Preventivo.created_at)).offset(skip).limit(limit).all()
+    return items, total
+
+
+def create_preventivo(db: Session, data: schemas.PreventivoCreate):
+    anno = datetime.now().year
+    anno_val, prog, numero = _next_preventivo_number(db, anno)
+    db_prev = models.Preventivo(
+        numero=numero,
+        anno=anno_val,
+        numero_progressivo=prog,
+        azienda_cliente_id=data.azienda_cliente_id,
+        listino_id=data.listino_id,
+        consulente_id=data.consulente_id,
+        oggetto=data.oggetto,
+        data_scadenza=data.data_scadenza,
+        note=data.note,
+        stato='bozza',
+    )
+    db.add(db_prev)
+    db.flush()  # get id without commit
+
+    for i, riga_data in enumerate(data.righe or []):
+        importo = _calcola_importo_riga(riga_data.quantita, riga_data.prezzo_unitario, riga_data.sconto_percentuale)
+        riga = models.PreventivoRiga(
+            preventivo_id=db_prev.id,
+            prodotto_id=riga_data.prodotto_id,
+            descrizione_custom=riga_data.descrizione_custom,
+            quantita=riga_data.quantita,
+            prezzo_unitario=riga_data.prezzo_unitario,
+            sconto_percentuale=riga_data.sconto_percentuale,
+            importo=importo,
+            ordine=riga_data.ordine if riga_data.ordine else i,
+        )
+        db.add(riga)
+
+    db.commit()
+    db.refresh(db_prev)
+    return get_preventivo(db, db_prev.id)
+
+
+def update_preventivo(db: Session, preventivo_id: int, data: schemas.PreventivoUpdate):
+    db_obj = db.query(models.Preventivo).filter(models.Preventivo.id == preventivo_id).first()
+    if not db_obj:
+        return None
+    for field, val in data.model_dump(exclude_unset=True).items():
+        setattr(db_obj, field, val)
+    db.commit()
+    return get_preventivo(db, preventivo_id)
+
+
+def delete_preventivo(db: Session, preventivo_id: int):
+    db_obj = db.query(models.Preventivo).filter(models.Preventivo.id == preventivo_id).first()
+    if db_obj:
+        db.delete(db_obj)
+        db.commit()
+    return db_obj
+
+
+# ── Stato machine transitions ─────────────────
+
+TRANSIZIONI_VALIDE = {
+    'bozza': ['inviato'],
+    'inviato': ['accettato', 'rifiutato'],
+    'accettato': [],
+    'rifiutato': [],
+}
+
+
+def transizione_stato(db: Session, preventivo_id: int, nuovo_stato: str):
+    """Applica una transizione di stato al preventivo. Restituisce (obj, error_msg)."""
+    db_obj = db.query(models.Preventivo).filter(models.Preventivo.id == preventivo_id).first()
+    if not db_obj:
+        return None, "Preventivo non trovato"
+    stati_consentiti = TRANSIZIONI_VALIDE.get(db_obj.stato, [])
+    if nuovo_stato not in stati_consentiti:
+        return None, f"Transizione {db_obj.stato}→{nuovo_stato} non consentita"
+    db_obj.stato = nuovo_stato
+    db.commit()
+    return get_preventivo(db, preventivo_id), None
+
+
+def converti_in_ordine(db: Session, preventivo_id: int):
+    """Converte un preventivo accettato in ordine. Restituisce (ordine, error_msg)."""
+    prev = get_preventivo(db, preventivo_id)
+    if not prev:
+        return None, "Preventivo non trovato"
+    if prev.stato != 'accettato':
+        return None, f"Solo i preventivi 'accettato' possono essere convertiti (stato attuale: {prev.stato})"
+    if prev.ordine:
+        return None, "Esiste già un ordine per questo preventivo"
+
+    anno = datetime.now().year
+    anno_val, prog, numero = _next_ordine_number(db, anno)
+    ordine = models.Ordine(
+        numero=numero,
+        anno=anno_val,
+        numero_progressivo=prog,
+        preventivo_id=preventivo_id,
+        azienda_cliente_id=prev.azienda_cliente_id,
+        stato='in_lavorazione',
+    )
+    db.add(ordine)
+    db.commit()
+    db.refresh(ordine)
+    return get_ordine(db, ordine.id), None
+
+
+# ── PreventivoRiga CRUD ───────────────────────
+
+def get_riga(db: Session, riga_id: int):
+    return (db.query(models.PreventivoRiga)
+              .options(selectinload(models.PreventivoRiga.prodotto))
+              .filter(models.PreventivoRiga.id == riga_id)
+              .first())
+
+
+def create_riga(db: Session, preventivo_id: int, data: schemas.PreventivoRigaCreate):
+    importo = _calcola_importo_riga(data.quantita, data.prezzo_unitario, data.sconto_percentuale)
+    riga = models.PreventivoRiga(
+        preventivo_id=preventivo_id,
+        prodotto_id=data.prodotto_id,
+        descrizione_custom=data.descrizione_custom,
+        quantita=data.quantita,
+        prezzo_unitario=data.prezzo_unitario,
+        sconto_percentuale=data.sconto_percentuale,
+        importo=importo,
+        ordine=data.ordine,
+    )
+    db.add(riga)
+    db.commit()
+    db.refresh(riga)
+    return get_riga(db, riga.id)
+
+
+def update_riga(db: Session, riga_id: int, data: schemas.PreventivoRigaUpdate):
+    riga = db.query(models.PreventivoRiga).filter(models.PreventivoRiga.id == riga_id).first()
+    if not riga:
+        return None
+    for field, val in data.model_dump(exclude_unset=True).items():
+        setattr(riga, field, val)
+    # ricalcola importo
+    riga.importo = _calcola_importo_riga(riga.quantita, riga.prezzo_unitario, riga.sconto_percentuale)
+    db.commit()
+    return get_riga(db, riga_id)
+
+
+def delete_riga(db: Session, riga_id: int):
+    riga = db.query(models.PreventivoRiga).filter(models.PreventivoRiga.id == riga_id).first()
+    if riga:
+        db.delete(riga)
+        db.commit()
+    return riga
+
+
+# ── Ordini CRUD ───────────────────────────────
+
+def get_ordine(db: Session, ordine_id: int):
+    return (db.query(models.Ordine)
+              .options(
+                  selectinload(models.Ordine.azienda_cliente),
+                  selectinload(models.Ordine.preventivo),
+              )
+              .filter(models.Ordine.id == ordine_id)
+              .first())
+
+
+def get_ordini(db: Session, skip: int = 0, limit: int = 100,
+               stato: Optional[str] = None, azienda_id: Optional[int] = None,
+               search: Optional[str] = None):
+    q = db.query(models.Ordine).options(
+        selectinload(models.Ordine.azienda_cliente),
+        selectinload(models.Ordine.preventivo),
+    )
+    if stato:
+        q = q.filter(models.Ordine.stato == stato)
+    if azienda_id:
+        q = q.filter(models.Ordine.azienda_cliente_id == azienda_id)
+    if search:
+        term = f"%{search.lower()}%"
+        q = q.filter(func.lower(models.Ordine.numero).like(term))
+    total = q.count()
+    items = q.order_by(desc(models.Ordine.created_at)).offset(skip).limit(limit).all()
+    return items, total
+
+
+def update_ordine(db: Session, ordine_id: int, data: schemas.OrdineUpdate):
+    db_obj = db.query(models.Ordine).filter(models.Ordine.id == ordine_id).first()
+    if not db_obj:
+        return None
+    for field, val in data.model_dump(exclude_unset=True).items():
+        setattr(db_obj, field, val)
+    db.commit()
+    return get_ordine(db, ordine_id)

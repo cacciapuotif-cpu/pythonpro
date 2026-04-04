@@ -10,6 +10,11 @@ setlocal enabledelayedexpansion
 set TIMESTAMP=%date:~-4%-%date:~3,2%-%date:~0,2%_%time:~0,2%-%time:~3,2%-%time:~6,2%
 set TIMESTAMP=%TIMESTAMP: =0%
 set REPORT_FILE=..\_fix_results\reports\verification_%TIMESTAMP%.txt
+set BACKEND_URL=http://localhost:8001
+
+if not exist ..\_fix_results mkdir ..\_fix_results
+if not exist ..\_fix_results\logs mkdir ..\_fix_results\logs
+if not exist ..\_fix_results\reports mkdir ..\_fix_results\reports
 
 echo ================================================================ > %REPORT_FILE%
 echo REPORT DI VERIFICA FIX - %TIMESTAMP% >> %REPORT_FILE%
@@ -26,7 +31,7 @@ REM ==========================================
 REM TEST 1: Verifica Health Endpoints
 REM ==========================================
 echo [TEST 1] Verificando health endpoints...
-curl -f http://localhost:8000/health > nul 2>&1
+curl -f %BACKEND_URL%/health > nul 2>&1
 if %errorlevel% equ 0 (
     echo    ✓ Backend health: PASS >> %REPORT_FILE%
     echo    ✓ Backend health: PASS
@@ -48,7 +53,7 @@ REM ==========================================
 REM TEST 2: Verifica Database Connection
 REM ==========================================
 echo [TEST 2] Verificando connessione database...
-docker-compose exec -T db pg_isready -U admin -d gestionale > nul 2>&1
+docker compose exec -T db pg_isready -U admin -d gestionale > nul 2>&1
 if %errorlevel% equ 0 (
     echo    ✓ Database connection: PASS >> %REPORT_FILE%
     echo    ✓ Database connection: PASS
@@ -63,7 +68,7 @@ REM ==========================================
 echo [TEST 3] Testando CRUD Collaboratori...
 
 REM CREATE
-curl -s -X POST http://localhost:8000/collaborators/ ^
+curl -s -X POST %BACKEND_URL%/collaborators/ ^
   -H "Content-Type: application/json" ^
   -d "{\"first_name\":\"Verify\",\"last_name\":\"Test\",\"email\":\"verify.test@test.com\",\"phone\":\"9876543210\",\"position\":\"Tester\"}" ^
   > ..\_fix_results\logs\test_create_collaborator.json
@@ -78,7 +83,7 @@ if %errorlevel% equ 0 (
 )
 
 REM READ
-curl -s http://localhost:8000/collaborators/ > ..\_fix_results\logs\test_read_collaborators.json
+curl -s %BACKEND_URL%/collaborators/ > ..\_fix_results\logs\test_read_collaborators.json
 findstr "first_name" ..\_fix_results\logs\test_read_collaborators.json > nul 2>&1
 if %errorlevel% equ 0 (
     echo    ✓ READ Collaboratori: PASS >> %REPORT_FILE%
@@ -93,7 +98,7 @@ REM TEST 4: Test CRUD Progetti
 REM ==========================================
 echo [TEST 4] Testando CRUD Progetti...
 
-curl -s -X POST http://localhost:8000/projects/ ^
+curl -s -X POST %BACKEND_URL%/projects/ ^
   -H "Content-Type: application/json" ^
   -d "{\"name\":\"Test Project\",\"description\":\"Test verification project\",\"start_date\":\"2025-01-01\",\"end_date\":\"2025-12-31\",\"status\":\"active\"}" ^
   > ..\_fix_results\logs\test_create_project.json
@@ -111,7 +116,7 @@ REM ==========================================
 REM TEST 5: Verifica Container Status
 REM ==========================================
 echo [TEST 5] Verificando status container...
-docker-compose ps > ..\_fix_results\logs\container_status.txt
+docker compose ps > ..\_fix_results\logs\container_status.txt
 
 findstr "running" ..\_fix_results\logs\container_status.txt | findstr "backend" > nul 2>&1
 if %errorlevel% equ 0 (
@@ -140,11 +145,20 @@ if %errorlevel% equ 0 (
     echo    ✗ Database container: NOT RUNNING
 )
 
+findstr "running" ..\_fix_results\logs\container_status.txt | findstr "backup_scheduler" > nul 2>&1
+if %errorlevel% equ 0 (
+    echo    ✓ Backup scheduler: RUNNING >> %REPORT_FILE%
+    echo    ✓ Backup scheduler: RUNNING
+) else (
+    echo    ✗ Backup scheduler: NOT RUNNING >> %REPORT_FILE%
+    echo    ✗ Backup scheduler: NOT RUNNING
+)
+
 REM ==========================================
 REM TEST 6: Verifica Logs Errori
 REM ==========================================
 echo [TEST 6] Verificando assenza errori critici nei logs...
-docker-compose logs --tail=100 backend > ..\_fix_results\logs\backend_test_logs.txt
+docker compose logs --tail=100 backend > ..\_fix_results\logs\backend_test_logs.txt
 
 findstr /I "ERROR CRITICAL" ..\_fix_results\logs\backend_test_logs.txt > nul 2>&1
 if %errorlevel% neq 0 (

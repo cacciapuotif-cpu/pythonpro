@@ -82,26 +82,27 @@ try {
 }
 Write-Host ""
 
-# === TEST 2-5: Containers ===
-Write-Host "[2/8] Container Status" -ForegroundColor Cyan
-if (Test-Container "gestionale_db") { $tests_passed++ } else { $tests_failed++ }
-if (Test-Container "gestionale_redis") { $tests_passed++ } else { $tests_failed++ }
-if (Test-Container "gestionale_backend") { $tests_passed++ } else { $tests_failed++ }
-if (Test-Container "gestionale_frontend") { $tests_passed++ } else { $tests_failed++ }
+# === TEST 2-6: Containers ===
+Write-Host "[2/9] Container Status" -ForegroundColor Cyan
+if (Test-Container "pythonpro_db") { $tests_passed++ } else { $tests_failed++ }
+if (Test-Container "pythonpro_redis") { $tests_passed++ } else { $tests_failed++ }
+if (Test-Container "pythonpro_backend") { $tests_passed++ } else { $tests_failed++ }
+if (Test-Container "pythonpro_frontend") { $tests_passed++ } else { $tests_failed++ }
+if (Test-Container "pythonpro_backup_scheduler") { $tests_passed++ } else { $tests_failed++ }
 Write-Host ""
 
-# === TEST 6: Backend Health ===
-Write-Host "[3/8] Backend Endpoints" -ForegroundColor Cyan
-if (Test-Endpoint "Backend /health" "http://localhost:8000/health") { $tests_passed++ } else { $tests_failed++ }
+# === TEST 7: Backend Health ===
+Write-Host "[3/9] Backend Endpoints" -ForegroundColor Cyan
+if (Test-Endpoint "Backend /health" "http://localhost:8001/health") { $tests_passed++ } else { $tests_failed++ }
 Write-Host ""
 
-# === TEST 7: Frontend ===
-Write-Host "[4/8] Frontend" -ForegroundColor Cyan
+# === TEST 8: Frontend ===
+Write-Host "[4/9] Frontend" -ForegroundColor Cyan
 if (Test-Endpoint "Frontend Homepage" "http://localhost:3001/") { $tests_passed++ } else { $tests_failed++ }
 Write-Host ""
 
-# === TEST 8: Proxy API ===
-Write-Host "[5/8] Frontend → Backend Proxy" -ForegroundColor Cyan
+# === TEST 9: Proxy API ===
+Write-Host "[5/9] Frontend → Backend Proxy" -ForegroundColor Cyan
 if (Test-Endpoint "Proxy /api/health" "http://localhost:3001/api/health") { $tests_passed++ } else { $tests_failed++ }
 Write-Host ""
 

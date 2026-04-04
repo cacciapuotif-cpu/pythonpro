@@ -17,12 +17,28 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/reporting", tags=["Reporting"])
 
 
+def _serialize_template_documento(template):
+    if not template:
+        return None
+    return {
+        "id": template.id,
+        "nome_template": template.nome_template,
+        "ambito_template": template.ambito_template,
+        "chiave_documento": template.chiave_documento,
+        "ente_erogatore": template.ente_erogatore,
+        "avviso": template.avviso,
+        "progetto_id": template.progetto_id,
+        "ente_attuatore_id": template.ente_attuatore_id,
+    }
+
+
 @router.get("/timesheet")
 def get_timesheet_report(
     from_date: Optional[date] = Query(None, alias="from", description="Data inizio periodo (YYYY-MM-DD)"),
     to_date: Optional[date] = Query(None, alias="to", description="Data fine periodo (YYYY-MM-DD)"),
     collaborator_id: Optional[int] = Query(None, description="ID collaboratore specifico"),
     project_id: Optional[int] = Query(None, description="ID progetto specifico"),
+    chiave_documento: Optional[str] = Query(None, description="Chiave template timesheet da usare (es. timesheet_mensile)"),
     db: Session = Depends(get_db)
 ):
     """
@@ -54,12 +70,24 @@ def get_timesheet_report(
             end_date=datetime.combine(to_date, datetime.max.time()) if to_date else None
         )
 
+        progetto = crud.get_project(db, project_id) if project_id else None
+        template_timesheet = crud.resolve_document_template(
+            db,
+            ambito_template="timesheet",
+            chiave_documento=chiave_documento or "timesheet_standard",
+            progetto_id=project_id,
+            ente_attuatore_id=getattr(progetto, "ente_attuatore_id", None) if progetto else None,
+            ente_erogatore=getattr(progetto, "ente_erogatore", None) if progetto else None,
+            avviso=getattr(progetto, "avviso", None) if progetto else None,
+        )
+
         # Prepara struttura dati per il report
         report_data = {
             "periodo": {
                 "from": from_date.isoformat() if from_date else None,
                 "to": to_date.isoformat() if to_date else None
             },
+            "template_documento": _serialize_template_documento(template_timesheet),
             "presenze": [],
             "totali": {
                 "ore_totali": 0,
@@ -77,7 +105,7 @@ def get_timesheet_report(
             presenza_data = {
                 "id": attendance.id,
                 "data": attendance.date.isoformat() if attendance.date else None,
-                "ore_lavorate": float(attendance.hours_worked) if attendance.hours_worked else 0,
+                "ore_lavorate": float(attendance.hours) if attendance.hours else 0,
                 "collaboratore": {
                     "id": collaboratore.id if collaboratore else None,
                     "nome_completo": f"{collaboratore.first_name} {collaboratore.last_name}" if collaboratore else "N/A"
@@ -86,13 +114,13 @@ def get_timesheet_report(
                     "id": progetto.id if progetto else None,
                     "nome": progetto.name if progetto else "N/A"
                 },
-                "note": attendance.note
+                "note": attendance.notes
             }
 
             report_data["presenze"].append(presenza_data)
 
             # Aggiorna totali
-            ore = float(attendance.hours_worked) if attendance.hours_worked else 0
+            ore = float(attendance.hours) if attendance.hours else 0
             report_data["totali"]["ore_totali"] += ore
 
             # Totali per collaboratore
@@ -173,7 +201,7 @@ def get_summary_report(
         )
 
         total_hours = sum(
-            float(att.hours_worked) if att.hours_worked else 0
+            float(att.hours) if att.hours else 0
             for att in attendances
         )
 
@@ -185,7 +213,7 @@ def get_summary_report(
         project_hours = {}
         for att in attendances:
             project_id = att.project_id
-            ore = float(att.hours_worked) if att.hours_worked else 0
+            ore = float(att.hours) if att.hours else 0
             if project_id not in project_hours:
                 project_hours[project_id] = ore
             else:
@@ -211,7 +239,7 @@ def get_summary_report(
         collaborator_hours = {}
         for att in attendances:
             collab_id = att.collaborator_id
-            ore = float(att.hours_worked) if att.hours_worked else 0
+            ore = float(att.hours) if att.hours else 0
             if collab_id not in collaborator_hours:
                 collaborator_hours[collab_id] = ore
             else:

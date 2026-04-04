@@ -1,0 +1,405 @@
+.piani-finanziari-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.page-header,
+.toolbar-card,
+.table-shell,
+.server-note,
+.empty-state,
+.summary-card,
+.alerts-strip {
+  background: #ffffff;
+  border: 1px solid #dbe4f0;
+  border-radius: 20px;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.06);
+}
+
+.page-header,
+.toolbar-card,
+.server-note,
+.empty-state {
+  padding: 1.5rem;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.page-eyebrow {
+  display: inline-block;
+  margin-bottom: 0.5rem;
+  color: #92400e;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.page-header h2 {
+  margin: 0;
+  font-size: 2rem;
+  color: #0f172a;
+}
+
+.page-header p {
+  margin: 0.45rem 0 0;
+  max-width: 820px;
+  color: #475569;
+}
+
+.header-actions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.btn-primary,
+.btn-secondary,
+.btn-inline,
+.btn-remove {
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #0f766e, #0f766e 40%, #1d4ed8);
+  color: #fff;
+  padding: 0.82rem 1.2rem;
+}
+
+.btn-secondary {
+  background: #e2e8f0;
+  color: #0f172a;
+  padding: 0.82rem 1.2rem;
+}
+
+.btn-inline {
+  background: #dbeafe;
+  color: #1d4ed8;
+  padding: 0.55rem 0.9rem;
+}
+
+.btn-remove {
+  background: #fee2e2;
+  color: #b91c1c;
+  width: 2rem;
+  height: 2rem;
+}
+
+.btn-primary:disabled,
+.btn-secondary:disabled,
+.btn-inline:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.banner {
+  padding: 0.95rem 1.15rem;
+  border-radius: 14px;
+  font-weight: 600;
+}
+
+.banner.success {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.banner.error {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.toolbar-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.toolbar-grid label,
+.toolbar-create {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.toolbar-grid span {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #334155;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.toolbar-grid input,
+.toolbar-grid select,
+.piano-table input {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  padding: 0.72rem 0.82rem;
+  font: inherit;
+  background: #fff;
+}
+
+.toolbar-create small {
+  color: #64748b;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.summary-card {
+  padding: 1rem 1.1rem;
+}
+
+.summary-card-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.summary-card-top span {
+  color: #475569;
+  font-weight: 600;
+}
+
+.summary-card-top strong {
+  color: #0f172a;
+  font-size: 1.05rem;
+}
+
+.summary-card .summary-meta {
+  margin-top: 0.75rem;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+  color: #64748b;
+}
+
+.summary-card.ok {
+  border-left: 5px solid #16a34a;
+}
+
+.summary-card.warning {
+  border-left: 5px solid #d97706;
+}
+
+.summary-card.danger {
+  border-left: 5px solid #dc2626;
+}
+
+.summary-card.highlight {
+  background: linear-gradient(135deg, #eff6ff, #f8fafc);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.38rem 0.72rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.badge.ok {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.badge.warning {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.badge.danger {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.alerts-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  padding: 1rem;
+}
+
+.alert-pill {
+  background: #fff7ed;
+  color: #9a3412;
+  border: 1px solid #fdba74;
+  border-radius: 999px;
+  padding: 0.45rem 0.8rem;
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.table-shell {
+  overflow: auto;
+}
+
+.piano-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 1100px;
+}
+
+.piano-table th,
+.piano-table td {
+  border-bottom: 1px solid #e2e8f0;
+  padding: 0.9rem 0.8rem;
+  vertical-align: middle;
+}
+
+.piano-table thead th {
+  position: sticky;
+  top: 0;
+  background: #0f172a;
+  color: #fff;
+  z-index: 1;
+}
+
+.macro-row td,
+.macro-total-row td,
+.piano-table tfoot td {
+  background: #f8fafc;
+}
+
+.macro-header,
+.dynamic-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+}
+
+.macro-header span,
+.server-note span {
+  color: #64748b;
+}
+
+.voice-subheader td {
+  background: #eef2ff;
+}
+
+.dynamic-empty td {
+  color: #64748b;
+  font-style: italic;
+}
+
+.macro-total-row td,
+.piano-table tfoot td {
+  font-weight: 700;
+}
+
+.muted {
+  color: #94a3b8;
+  text-align: center;
+}
+
+.empty-state {
+  text-align: center;
+  color: #475569;
+}
+
+.empty-state div {
+  font-size: 2rem;
+}
+
+.server-note {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+}
+
+@media (max-width: 1100px) {
+  .toolbar-grid,
+  .summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .page-header,
+  .server-note {
+    flex-direction: column;
+  }
+
+  .header-actions {
+    width: 100%;
+  }
+
+  .header-actions button {
+    flex: 1;
+  }
+}
+
+/* ── Sezione ore presenze effettive ── */
+.pf-ore-presenze {
+  background: var(--color-panel);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 1.25rem 1.5rem;
+  box-shadow: var(--shadow-card);
+}
+
+.pf-ore-presenze h4 {
+  margin: 0 0 1rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--color-ink-strong);
+}
+
+.pf-ore-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.pf-ore-table th {
+  text-align: left;
+  padding: 6px 10px;
+  border-bottom: 2px solid var(--color-border);
+  color: var(--color-ink-soft);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.pf-ore-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-ink);
+}
+
+.pf-ore-table tbody tr:hover td {
+  background: var(--color-panel-muted);
+}
+
+.pf-ore-table tfoot td {
+  border-top: 2px solid var(--color-border);
+  border-bottom: none;
+  padding-top: 10px;
+}
+
+.pf-voce-badge {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  background: rgba(15, 108, 141, 0.1);
+  color: var(--color-primary-strong);
+  border-radius: 4px;
+  padding: 1px 5px;
+  margin-right: 6px;
+}

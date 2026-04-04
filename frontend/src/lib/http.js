@@ -5,12 +5,54 @@
 
 import axios from 'axios';
 
-// Get API base URL and strip trailing slashes
-const base = (process.env.REACT_APP_API_URL || 'http://localhost:8001').replace(/\/+$/, '');
+const isPrivateIpv4Host = (hostname) => (
+  /^192\.168\.\d{1,3}\.\d{1,3}$/.test(hostname)
+  || /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname)
+  || /^172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}$/.test(hostname)
+);
+
+const normalizeApiBase = (rawBase) => {
+  const trimmedBase = (rawBase || '').trim().replace(/\/+$/, '');
+
+  const isBrowserRuntime = typeof window !== 'undefined';
+  const isLocalDevServer = isBrowserRuntime
+    && ['localhost', '127.0.0.1'].includes(window.location.hostname)
+    && window.location.port !== '8001';
+  const isLanDevServer = isBrowserRuntime
+    && isPrivateIpv4Host(window.location.hostname)
+    && window.location.port === '3001';
+
+  const inferredBase = isLocalDevServer
+    ? 'http://localhost:8001'
+    : isLanDevServer
+      ? `http://${window.location.hostname}:8001`
+      : '';
+
+  const base = trimmedBase || inferredBase;
+
+  if (!base) {
+    return '/api/v1';
+  }
+
+  if (base.endsWith('/api/v1')) {
+    return base;
+  }
+
+  if (base.endsWith('/api')) {
+    return `${base}/v1`;
+  }
+
+  return `${base}/api/v1`;
+};
+
+const apiBaseUrl = normalizeApiBase(process.env.REACT_APP_API_URL);
+export const apiRootUrl = apiBaseUrl.endsWith('/api/v1')
+  ? apiBaseUrl.slice(0, -'/api/v1'.length) || ''
+  : apiBaseUrl;
 
 // Create axios instance with normalized baseURL including /api/v1 prefix
 export const http = axios.create({
-  baseURL: `${base}/api/v1`,
+  baseURL: apiBaseUrl,
   timeout: 30000,
   headers: {
     'Content-Type': 'application/json',
@@ -49,7 +91,7 @@ http.interceptors.response.use(
           const formData = new FormData();
           formData.append('refresh_token', refreshToken);
 
-          const response = await axios.post(`${base}/api/v1/auth/refresh`, formData, {
+          const response = await axios.post(`${apiBaseUrl}/auth/refresh`, formData, {
             headers: { 'Content-Type': 'multipart/form-data' },
           });
 
@@ -60,7 +102,7 @@ http.interceptors.response.use(
       } catch (refreshError) {
         localStorage.removeItem('access_token');
         localStorage.removeItem('refresh_token');
-        window.location.href = '/login';
+        window.location.href = '/';
         return Promise.reject(refreshError);
       }
     }

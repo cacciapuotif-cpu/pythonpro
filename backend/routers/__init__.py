@@ -4,6 +4,7 @@ Organizza endpoints in moduli separati per tipo
 """
 
 from . import (
+    auth,
     collaborators,
     projects,
     attendances,
@@ -12,10 +13,23 @@ from . import (
     progetto_mansione_ente,
     contract_templates,
     admin,
-    system
+    system,
+    reporting,
+    agenzie,
+    consulenti,
+    aziende_clienti,
+    catalogo,
+    listini,
+    preventivi,
+    ordini,
+    piani_finanziari,
+    piani_fondimpresa,
+    avvisi,
+    agents,
 )
 
 __all__ = [
+    "auth",
     "collaborators",
     "projects",
     "attendances",
@@ -24,5 +38,17 @@ __all__ = [
     "progetto_mansione_ente",
     "contract_templates",
     "admin",
-    "system"
+    "system",
+    "reporting",
+    "agenzie",
+    "consulenti",
+    "aziende_clienti",
+    "catalogo",
+    "listini",
+    "preventivi",
+    "ordini",
+    "piani_finanziari",
+    "piani_fondimpresa",
+    "avvisi",
+    "agents",
 ]

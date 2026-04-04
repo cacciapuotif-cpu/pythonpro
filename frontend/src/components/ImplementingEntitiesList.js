@@ -14,7 +14,15 @@ import { useImplementingEntities, useNotifications } from '../hooks/useEntity';
 import ImplementingEntityModal from './ImplementingEntityModal';
 import './ImplementingEntitiesList.css';
 
-const ImplementingEntitiesList = () => {
+const ROLE_EXPERIENCE = {
+  admin: {
+    eyebrow: 'Presidio anagrafico',
+    label: 'Amministratore',
+    summary: 'Gestisci gli enti attuatori che alimentano progetti, contratti e riferimenti amministrativi del sistema.',
+  },
+};
+
+const ImplementingEntitiesList = ({ currentUser }) => {
   // ==========================================
   // CONTEXT E HOOKS
   // ==========================================
@@ -30,6 +38,7 @@ const ImplementingEntitiesList = () => {
   // Stati locali per UI
   const [searchTerm, setSearchTerm] = useState('');
   const [activeFilter, setActiveFilter] = useState('all'); // 'all', 'active', 'inactive'
+  const roleExperience = ROLE_EXPERIENCE[currentUser?.role] || ROLE_EXPERIENCE.admin;
 
   // ==========================================
   // GESTIONE ENTI
@@ -56,25 +65,28 @@ const ImplementingEntitiesList = () => {
    */
   const handleSave = async (entityData) => {
     try {
+      let savedEntity;
       if (editingEntity) {
         // Aggiorna ente esistente
-        await update(editingEntity.id, entityData);
+        savedEntity = await update(editingEntity.id, entityData);
         showSuccess(`Ente "${entityData.ragione_sociale}" aggiornato con successo!`);
+        await refresh();
+        setEditingEntity(savedEntity);
       } else {
-        // Crea nuovo ente
-        await create(entityData);
-        showSuccess(`Ente "${entityData.ragione_sociale}" creato con successo!`);
+        // Crea nuovo ente e lascia il modal aperto per il caricamento del logo
+        savedEntity = await create(entityData);
+        showSuccess(`Ente "${entityData.ragione_sociale}" creato con successo! Ora puoi caricare il logo.`);
+        await refresh();
+        setEditingEntity(savedEntity);
       }
 
-      // Ricarica la lista e chiudi il modal
-      await refresh();
-      setShowModal(false);
-      setEditingEntity(null);
+      return savedEntity;
 
     } catch (err) {
       console.error('Errore salvataggio ente:', err);
       const errorMsg = err.response?.data?.detail || 'Errore nel salvataggio dell\'ente';
       showError(errorMsg);
+      throw err;
     }
   };
 
@@ -122,6 +134,19 @@ const ImplementingEntitiesList = () => {
     return true;
   });
 
+  const entitySummary = entities.reduce((summary, entity) => {
+    summary.total += 1;
+    if (entity.is_active) {
+      summary.active += 1;
+    } else {
+      summary.inactive += 1;
+    }
+    if (!entity.pec || !entity.legale_rappresentante_nome_completo) {
+      summary.attention += 1;
+    }
+    return summary;
+  }, { total: 0, active: 0, inactive: 0, attention: 0 });
+
   // ==========================================
   // RENDER COMPONENTE
   // ==========================================
@@ -144,6 +169,14 @@ const ImplementingEntitiesList = () => {
         <div className="header-title">
           <h2>🏢 Gestione Enti Attuatori</h2>
           <p>Gestisci gli enti che attuano i progetti formativi</p>
+
+          <div className="role-operations-banner entity-role-banner">
+            <div>
+              <span className="role-operations-eyebrow">{roleExperience.eyebrow}</span>
+              <strong>{roleExperience.label}</strong>
+            </div>
+            <p>{roleExperience.summary}</p>
+          </div>
         </div>
         <button className="btn-primary" onClick={handleCreateNew}>
           ➕ Nuovo Ente Attuatore
@@ -157,6 +190,24 @@ const ImplementingEntitiesList = () => {
           {contextError.message || 'Errore nel caricamento degli enti'}
         </div>
       )}
+
+      <div className="entities-ops-summary">
+        <div className="ops-summary-card info">
+          <span>Enti attivi</span>
+          <strong>{entitySummary.active}</strong>
+          <small>Perimetro attualmente operativo</small>
+        </div>
+        <div className="ops-summary-card neutral">
+          <span>Enti censiti</span>
+          <strong>{entitySummary.total}</strong>
+          <small>Anagrafiche complessive disponibili</small>
+        </div>
+        <div className="ops-summary-card warning">
+          <span>In attenzione</span>
+          <strong>{entitySummary.attention}</strong>
+          <small>PEC o legale rappresentante da completare</small>
+        </div>
+      </div>
 
       {/* BARRA RICERCA E FILTRI */}
       <div className="entities-filters">
@@ -247,12 +298,21 @@ const ImplementingEntitiesList = () => {
                   </div>
                 )}
 
-                {entity.referente_nome_completo && (
+                {entity.legale_rappresentante_nome_completo && (
                   <div className="info-row">
-                    <span className="info-label">👤 Referente:</span>
-                    <span className="info-value">{entity.referente_nome_completo}</span>
+                    <span className="info-label">👤 Legale Rappresentante:</span>
+                    <span className="info-value">{entity.legale_rappresentante_nome_completo}</span>
                   </div>
                 )}
+
+                {!entity.pec || !entity.legale_rappresentante_nome_completo ? (
+                  <div className="entity-attention-note">
+                    Completare {[
+                      !entity.pec ? 'PEC' : null,
+                      !entity.legale_rappresentante_nome_completo ? 'legale rappresentante' : null,
+                    ].filter(Boolean).join(' e ')} per una gestione contrattuale piu solida.
+                  </div>
+                ) : null}
               </div>
 
               {/* Azioni */}

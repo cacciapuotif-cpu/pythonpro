@@ -19,7 +19,7 @@ Doppio click su: AVVIA_GESTIONALE.bat
 
 === FERMARE IL SISTEMA ===
 Apri terminale nella cartella del progetto ed esegui:
-docker-compose down
+docker compose down
 
 === RIAVVIO DOPO SPEGNIMENTO PC ===
 1. Docker Desktop si avvia automaticamente con Windows
@@ -28,43 +28,43 @@ docker-compose down
 
 === ACCESSI ===
 Frontend:        http://localhost:3001
-Backend API:     http://localhost:8000/docs
-Database:        localhost:5433
-Redis:           localhost:6379
+Backend API:     http://localhost:8001/docs
+Database:        localhost:5434
+Redis:           localhost:6381
 
 === CREDENZIALI DATABASE ===
 Host:     localhost
-Porta:    5433
+Porta:    5434
 Database: gestionale
 User:     admin
 Password: password123
 
 === COMANDI UTILI ===
-Vedere i log:              docker-compose logs -f
-Log solo frontend:         docker-compose logs -f frontend
-Log solo backend:          docker-compose logs -f backend
-Stato servizi:             docker-compose ps
-Riavvio singolo servizio:  docker-compose restart frontend
+Vedere i log:              docker compose logs -f
+Log solo frontend:         docker compose logs -f frontend
+Log solo backend:          docker compose logs -f backend
+Stato servizi:             docker compose ps
+Riavvio singolo servizio:  docker compose restart frontend
 
 === RISOLUZIONE PROBLEMI ===
 1. Se il frontend non carica:
    - Verifica che Docker Desktop sia attivo
-   - Esegui: docker-compose restart frontend
+   - Esegui: docker compose restart frontend
    - Attendi 30 secondi e ricarica il browser
 
 2. Se il backend da' errori:
-   - Controlla i log: docker-compose logs backend
-   - Riavvia: docker-compose restart backend
+   - Controlla i log: docker compose logs backend
+   - Riavvia: docker compose restart backend
 
 3. Se nulla funziona:
    - Esegui AVVIA_GESTIONALE.bat (rebuild completo)
 
 === BACKUP DATABASE ===
-docker exec pythonpro-db-1 pg_dump -U admin gestionale > backup.sql
+docker compose exec -T backup_scheduler python run_backup.py create --type manual
 
 === RIPRISTINO DATABASE ===
-docker exec -i pythonpro-db-1 psql -U admin gestionale < backup.sql
+docker compose exec -T backup_scheduler python run_backup.py list
 
 ==========================================
-Per supporto: controlla i log con docker-compose logs -f
+Per supporto: controlla i log con docker compose logs -f
 ==========================================

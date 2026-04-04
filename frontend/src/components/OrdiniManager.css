@@ -1,0 +1,104 @@
+.ordini-manager {
+  padding: 1.5rem;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.ordini-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.ordini-header h2 { margin: 0 0 0.2rem; font-size: 1.4rem; color: var(--text-primary, #1a1a2e); }
+
+.ordini-filters {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.ordini-table-wrap {
+  overflow-x: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+}
+
+.ordini-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.ordini-table th {
+  padding: 0.6rem 0.85rem;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  text-align: left;
+  border-bottom: 1px solid #e2e8f0;
+  white-space: nowrap;
+}
+
+.ordini-table td {
+  padding: 0.65rem 0.85rem;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: middle;
+}
+
+.ordini-table tr:last-child td { border-bottom: none; }
+.ordini-table tr:hover td { background: #fafbff; }
+
+.ordine-numero {
+  font-family: monospace;
+  font-weight: 700;
+  color: #1e293b;
+  font-size: 0.88rem;
+}
+
+.prev-link {
+  font-size: 0.82rem;
+  color: #4361ee;
+  font-family: monospace;
+}
+
+.muted { color: #94a3b8; }
+
+.note-cell {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stato-badge {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+
+.row-actions { display: flex; gap: 0.3rem; flex-wrap: wrap; }
+
+.pagination {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  justify-content: center;
+  margin-top: 1rem;
+  font-size: 0.875rem;
+}
+.pagination button { padding: 0.35rem 0.75rem; }
+.pagination button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.btn-success { background: #dcfce7; color: #16a34a; border-color: #bbf7d0; }
+.btn-success:hover { background: #bbf7d0; }

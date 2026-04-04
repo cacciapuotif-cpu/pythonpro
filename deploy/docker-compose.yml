@@ -21,7 +21,7 @@ services:
   # ====================================
   db:
     image: postgres:15-alpine
-    container_name: gestionale_db
+    container_name: pythonpro_db
     restart: unless-stopped
     environment:
       POSTGRES_USER: gestionale
@@ -50,9 +50,9 @@ services:
     build:
       context: ../backend
       dockerfile: ../deploy/backend.Dockerfile
-    container_name: gestionale_backend
+    container_name: pythonpro_backend
     restart: unless-stopped
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     environment:
       # Variabili d'ambiente (sovrascrivono .env)
       DATABASE_URL: postgresql+asyncpg://gestionale:gestionale123@db:5432/gestionale
@@ -85,7 +85,7 @@ services:
   # Decommentare per abilitare interfaccia web PostgreSQL
   # pgadmin:
   #   image: dpage/pgadmin4:latest
-  #   container_name: gestionale_pgadmin
+  #   container_name: pythonpro_pgadmin
   #   restart: unless-stopped
   #   environment:
   #     PGADMIN_DEFAULT_EMAIL: admin@gestionale.local
@@ -100,7 +100,7 @@ services:
   # ====================================
   # redis:
   #   image: redis:7-alpine
-  #   container_name: gestionale_redis
+  #   container_name: pythonpro_redis
   #   restart: unless-stopped
   #   ports:
   #     - "6379:6379"

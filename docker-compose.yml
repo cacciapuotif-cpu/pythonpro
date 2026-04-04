@@ -93,6 +93,8 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:-changeme_redis_pwd}
+      REDIS_DB: 0
+      PYTHONPRO_OUTBOUND_WEBHOOK_URL: ${PYTHONPRO_OUTBOUND_WEBHOOK_URL:-http://webhook_sink:8080}
 
       # Server
       PORT: 8000
@@ -112,10 +114,19 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
 
       # CORS
-      BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-http://localhost:3001}
+      BACKEND_CORS_ORIGINS: '["http://localhost:3001","http://192.168.2.161:3001","http://100.100.49.54:3001"]'
 
       # Alembic
       ALEMBIC_CONFIG: /app/alembic.ini
+      AUTO_BACKUP_ENABLED: "false"
+      BACKUP_DIR: /app/backups
+      AI_AGENT_LLM_PROVIDER: ${AI_AGENT_LLM_PROVIDER:-none}
+      AI_AGENT_LLM_MODEL: ${AI_AGENT_LLM_MODEL:-}
+      AI_AGENT_LLM_TIMEOUT_SECONDS: ${AI_AGENT_LLM_TIMEOUT_SECONDS:-25}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OPENCLAW_BASE_URL: ${OPENCLAW_BASE_URL:-http://host.docker.internal:18789}
+      OPENCLAW_API_KEY: ${OPENCLAW_API_KEY:-}
+      OPENCLAW_CHAT_PATH: ${OPENCLAW_CHAT_PATH:-/v1/chat/completions}
     container_name: pythonpro_backend
     depends_on:
       db:
@@ -135,6 +146,8 @@ services:
       - backend_logs:/app/logs
       - backend_backups:/app/backups
       - ./backend:/app
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
     networks:
       - pythonpro_net
@@ -150,16 +163,113 @@ services:
           cpus: '1.0'
           memory: 1G
 
+  # === ARQ WORKER ===
+  arq_worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    working_dir: /app
+    entrypoint: ["arq"]
+    command: ["arq_worker.WorkerSettings"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://${DB_USER:-admin}:${DB_PASSWORD:-changeme_in_production}@db:5432/${DB_NAME:-gestionale}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-changeme_redis_pwd}
+      REDIS_DB: 0
+      PYTHONPRO_OUTBOUND_WEBHOOK_URL: ${PYTHONPRO_OUTBOUND_WEBHOOK_URL:-http://webhook_sink:8080}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      AI_AGENT_LLM_PROVIDER: ${AI_AGENT_LLM_PROVIDER:-none}
+      AI_AGENT_LLM_MODEL: ${AI_AGENT_LLM_MODEL:-}
+      AI_AGENT_LLM_TIMEOUT_SECONDS: ${AI_AGENT_LLM_TIMEOUT_SECONDS:-25}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OPENCLAW_BASE_URL: ${OPENCLAW_BASE_URL:-http://host.docker.internal:18789}
+      OPENCLAW_API_KEY: ${OPENCLAW_API_KEY:-}
+      OPENCLAW_CHAT_PATH: ${OPENCLAW_CHAT_PATH:-/v1/chat/completions}
+    container_name: pythonpro_arq_worker
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    networks:
+      - pythonpro_net
+    labels:
+      - "com.project=pythonpro"
+      - "com.role=worker"
+    healthcheck:
+      disable: true
+
+  # === WEBHOOK SINK (test endpoint locale) ===
+  webhook_sink:
+    image: mendhak/http-https-echo:31
+    container_name: pythonpro_webhook_sink
+    ports:
+      - "8099:8080"
+    restart: unless-stopped
+    networks:
+      - pythonpro_net
+    labels:
+      - "com.project=pythonpro"
+      - "com.role=webhook-sink"
+
+  # === BACKUP SCHEDULER ===
+  backup_scheduler:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    working_dir: /app
+    entrypoint: ["python", "run_backup.py", "schedule"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://${DB_USER:-admin}:${DB_PASSWORD:-changeme_in_production}@db:5432/${DB_NAME:-gestionale}
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-admin}
+      DB_PASSWORD: ${DB_PASSWORD:-changeme_in_production}
+      DB_NAME: ${DB_NAME:-gestionale}
+      BACKUP_DIR: /app/backups
+      BACKUP_RETENTION_COUNT: ${BACKUP_RETENTION_COUNT:-30}
+      BACKUP_DAILY_TIME: ${BACKUP_DAILY_TIME:-02:00}
+      BACKUP_WEEKLY_TIME: ${BACKUP_WEEKLY_TIME:-03:00}
+      BACKUP_MONTHLY_INTERVAL_DAYS: ${BACKUP_MONTHLY_INTERVAL_DAYS:-30}
+      AUTO_BACKUP_ENABLED: "true"
+    container_name: pythonpro_backup_scheduler
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    volumes:
+      - backend_backups:/app/backups
+      - ./backend:/app
+    restart: unless-stopped
+    networks:
+      - pythonpro_net
+    labels:
+      - "com.project=pythonpro"
+      - "com.role=backup"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+        reservations:
+          cpus: '0.10'
+          memory: 128M
+
   # === FRONTEND (React) ===
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        REACT_APP_API_URL: http://localhost:${BACKEND_PORT:-8001}
+        REACT_APP_API_URL: ${REACT_APP_API_URL:-}
     container_name: pythonpro_frontend
-    environment:
-      REACT_APP_API_URL: ${REACT_APP_API_URL:-http://localhost:8001}
     depends_on:
       backend:
         condition: service_healthy

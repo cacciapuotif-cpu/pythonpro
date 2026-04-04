@@ -6,11 +6,12 @@
  * - Sede legale (indirizzo, CAP, città, etc.)
  * - Contatti (PEC, email, telefono, SDI)
  * - Dati pagamento (IBAN, intestatario)
- * - Referente (nome, cognome, ruolo, etc.)
+ * - Legale rappresentante (nome, cognome, nascita, residenza, CF)
  * - Note
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import http from '../lib/http';
 import './ImplementingEntityModal.css';
 
 const ImplementingEntityModal = ({ entity, onClose, onSave }) => {
@@ -45,12 +46,14 @@ const ImplementingEntityModal = ({ entity, onClose, onSave }) => {
     iban: '',
     intestatario_conto: '',
 
-    // Referente
-    referente_nome: '',
-    referente_cognome: '',
-    referente_email: '',
-    referente_telefono: '',
-    referente_ruolo: '',
+    // Legale rappresentante
+    legale_rappresentante_nome: '',
+    legale_rappresentante_cognome: '',
+    legale_rappresentante_luogo_nascita: '',
+    legale_rappresentante_data_nascita: '',
+    legale_rappresentante_comune_residenza: '',
+    legale_rappresentante_via_residenza: '',
+    legale_rappresentante_codice_fiscale: '',
 
     // Altro
     note: '',
@@ -63,13 +66,26 @@ const ImplementingEntityModal = ({ entity, onClose, onSave }) => {
   const [logoPreview, setLogoPreview] = useState(null);
   const [uploadingLogo, setUploadingLogo] = useState(false);
 
+  const revokeObjectUrl = useCallback((url) => {
+    if (url && url.startsWith('blob:')) {
+      URL.revokeObjectURL(url);
+    }
+  }, []);
+
+  const updateLogoPreview = useCallback((nextPreview) => {
+    setLogoPreview((previousPreview) => {
+      revokeObjectUrl(previousPreview);
+      return nextPreview;
+    });
+  }, [revokeObjectUrl]);
+
   // Sezioni del form
   const sections = [
     { id: 'legal', title: 'Dati Legali', icon: '📋' },
     { id: 'address', title: 'Sede Legale', icon: '📍' },
     { id: 'contacts', title: 'Contatti', icon: '📧' },
     { id: 'payment', title: 'Pagamento', icon: '💳' },
-    { id: 'referent', title: 'Referente', icon: '👤' },
+    { id: 'legalRepresentative', title: 'Legale Rappresentante', icon: '👤' },
     { id: 'notes', title: 'Note & Logo', icon: '📝' }
   ];
 
@@ -78,6 +94,27 @@ const ImplementingEntityModal = ({ entity, onClose, onSave }) => {
   // ==========================================
 
   useEffect(() => {
+    let cancelled = false;
+
+    const loadExistingLogoPreview = async (entityId) => {
+      try {
+        const response = await http.get(`/entities/${entityId}/download-logo`, {
+          responseType: 'blob'
+        });
+
+        if (cancelled) {
+          return;
+        }
+
+        const previewUrl = URL.createObjectURL(response.data);
+        updateLogoPreview(previewUrl);
+      } catch (error) {
+        if (!cancelled) {
+          updateLogoPreview(null);
+        }
+      }
+    };
+
     if (entity) {
       // Popola il form con i dati dell'ente esistente
       setFormData({
@@ -99,21 +136,39 @@ const ImplementingEntityModal = ({ entity, onClose, onSave }) => {
         sdi: entity.sdi || '',
         iban: entity.iban || '',
         intestatario_conto: entity.intestatario_conto || '',
-        referente_nome: entity.referente_nome || '',
-        referente_cognome: entity.referente_cognome || '',
-        referente_email: entity.referente_email || '',
-        referente_telefono: entity.referente_telefono || '',
-        referente_ruolo: entity.referente_ruolo || '',
+        legale_rappresentante_nome: entity.legale_rappresentante_nome || '',
+        legale_rappresentante_cognome: entity.legale_rappresentante_cognome || '',
+        legale_rappresentante_luogo_nascita: entity.legale_rappresentante_luogo_nascita || '',
+        legale_rappresentante_data_nascita: entity.legale_rappresentante_data_nascita
+          ? entity.legale_rappresentante_data_nascita.split('T')[0]
+          : '',
+        legale_rappresentante_comune_residenza: entity.legale_rappresentante_comune_residenza || '',
+        legale_rappresentante_via_residenza: entity.legale_rappresentante_via_residenza || '',
+        legale_rappresentante_codice_fiscale: entity.legale_rappresentante_codice_fiscale || '',
         note: entity.note || '',
         is_active: entity.is_active ?? true
       });
 
-      // Se l'ente ha già un logo, imposta il preview
-      if (entity.logo_filename) {
-        setLogoPreview(`${process.env.REACT_APP_API_URL || 'http://localhost:8001'}/api/v1/entities/${entity.id}/download-logo`);
+      // Se l'ente ha già un'immagine intestazione/logo, imposta il preview
+      if (entity.id && entity.logo_filename) {
+        loadExistingLogoPreview(entity.id);
+      } else {
+        updateLogoPreview(null);
       }
+    } else {
+      updateLogoPreview(null);
     }
-  }, [entity]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [entity, updateLogoPreview]);
+
+  useEffect(() => {
+    return () => {
+      revokeObjectUrl(logoPreview);
+    };
+  }, [logoPreview, revokeObjectUrl]);
 
   // ==========================================
   // GESTIONE FORM
@@ -161,49 +216,56 @@ const ImplementingEntityModal = ({ entity, onClose, onSave }) => {
     // Crea preview
     const reader = new FileReader();
     reader.onloadend = () => {
-      setLogoPreview(reader.result);
+      updateLogoPreview(reader.result);
     };
     reader.readAsDataURL(file);
   };
 
-  /**
-   * UPLOAD DEL LOGO AL BACKEND
-   */
-  const handleLogoUpload = async () => {
-    if (!entity || !entity.id || !logoFile) {
-      alert('Salva prima l\'ente, poi potrai caricare il logo');
-      return;
+  const uploadLogoForEntity = async (entityId) => {
+    if (!entityId || !logoFile) {
+      return false;
     }
 
     setUploadingLogo(true);
 
     try {
-      const formData = new FormData();
-      formData.append('file', logoFile);
+      const uploadData = new FormData();
+      uploadData.append('file', logoFile);
 
-      const response = await fetch(
-        `${process.env.REACT_APP_API_URL || 'http://localhost:8001'}/api/v1/entities/${entity.id}/upload-logo`,
-        {
-          method: 'POST',
-          body: formData
+      await http.post(`/entities/${entityId}/upload-logo`, uploadData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
         }
-      );
-
-      if (!response.ok) {
-        throw new Error('Errore upload logo');
-      }
-
-      const data = await response.json();
-      alert('Logo caricato con successo!');
+      });
       setLogoFile(null);
 
-      // Ricarica il logo preview
-      setLogoPreview(`${process.env.REACT_APP_API_URL || 'http://localhost:8001'}/api/v1/entities/${entity.id}/download-logo?t=${Date.now()}`);
+      // Ricarica la preview dal backend passando dal client autenticato
+      const previewResponse = await http.get(`/entities/${entityId}/download-logo`, {
+        responseType: 'blob'
+      });
+      updateLogoPreview(URL.createObjectURL(previewResponse.data));
+      return true;
     } catch (error) {
       console.error('Errore upload logo:', error);
-      alert('Errore durante l\'upload del logo');
+      alert('Errore durante il caricamento dell\'immagine ente');
+      return false;
     } finally {
       setUploadingLogo(false);
+    }
+  };
+
+  /**
+   * UPLOAD MANUALE DEL LOGO/INTESTAZIONE AL BACKEND
+   */
+  const handleLogoUpload = async () => {
+    if (!entity || !entity.id || !logoFile) {
+      alert('Seleziona prima un file immagine da caricare');
+      return;
+    }
+
+    const uploaded = await uploadLogoForEntity(entity.id);
+    if (uploaded) {
+      alert('Immagine ente caricata con successo!');
     }
   };
 
@@ -216,23 +278,14 @@ const ImplementingEntityModal = ({ entity, onClose, onSave }) => {
     if (!window.confirm('Vuoi eliminare il logo?')) return;
 
     try {
-      const response = await fetch(
-        `${process.env.REACT_APP_API_URL || 'http://localhost:8001'}/api/v1/entities/${entity.id}/delete-logo`,
-        {
-          method: 'DELETE'
-        }
-      );
+      await http.delete(`/entities/${entity.id}/delete-logo`);
 
-      if (!response.ok) {
-        throw new Error('Errore eliminazione logo');
-      }
-
-      alert('Logo eliminato con successo!');
-      setLogoPreview(null);
+      alert('Immagine ente eliminata con successo!');
+      updateLogoPreview(null);
       setLogoFile(null);
     } catch (error) {
       console.error('Errore eliminazione logo:', error);
-      alert('Errore durante l\'eliminazione del logo');
+      alert('Errore durante l\'eliminazione dell\'immagine ente');
     }
   };
 
@@ -251,6 +304,34 @@ const ImplementingEntityModal = ({ entity, onClose, onSave }) => {
       newErrors.partita_iva = 'Partita IVA obbligatoria';
     } else if (!/^\d{11}$/.test(formData.partita_iva.replace(/\s/g, ''))) {
       newErrors.partita_iva = 'Partita IVA deve essere di 11 cifre';
+    }
+
+    if (!formData.legale_rappresentante_nome.trim()) {
+      newErrors.legale_rappresentante_nome = 'Il nome del legale rappresentante è obbligatorio';
+    }
+
+    if (!formData.legale_rappresentante_cognome.trim()) {
+      newErrors.legale_rappresentante_cognome = 'Il cognome del legale rappresentante è obbligatorio';
+    }
+
+    if (!formData.legale_rappresentante_luogo_nascita.trim()) {
+      newErrors.legale_rappresentante_luogo_nascita = 'Il luogo di nascita del legale rappresentante è obbligatorio';
+    }
+
+    if (!formData.legale_rappresentante_data_nascita) {
+      newErrors.legale_rappresentante_data_nascita = 'La data di nascita del legale rappresentante è obbligatoria';
+    }
+
+    if (!formData.legale_rappresentante_comune_residenza.trim()) {
+      newErrors.legale_rappresentante_comune_residenza = 'Il comune di residenza del legale rappresentante è obbligatorio';
+    }
+
+    if (!formData.legale_rappresentante_via_residenza.trim()) {
+      newErrors.legale_rappresentante_via_residenza = 'La via di residenza del legale rappresentante è obbligatoria';
+    }
+
+    if (!formData.legale_rappresentante_codice_fiscale.trim()) {
+      newErrors.legale_rappresentante_codice_fiscale = 'Il codice fiscale del legale rappresentante è obbligatorio';
     }
 
     // Validazioni opzionali ma con formato
@@ -284,23 +365,36 @@ const ImplementingEntityModal = ({ entity, onClose, onSave }) => {
       newErrors.email = 'Formato email non valido';
     }
 
-    if (formData.referente_email && formData.referente_email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.referente_email)) {
-      newErrors.referente_email = 'Formato email referente non valido';
+    if (
+      formData.legale_rappresentante_codice_fiscale &&
+      formData.legale_rappresentante_codice_fiscale.trim() &&
+      !/^[A-Z0-9]{11,16}$/.test(formData.legale_rappresentante_codice_fiscale.replace(/\s/g, '').toUpperCase())
+    ) {
+      newErrors.legale_rappresentante_codice_fiscale = 'Codice fiscale legale rappresentante non valido';
     }
 
     setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    return newErrors;
   };
 
   /**
    * GESTISCE L'INVIO DEL FORM
    */
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
+    e.stopPropagation();
 
-    if (!validateForm()) {
+    if (currentSection < sections.length - 1) {
+      nextSection();
+      return;
+    }
+
+    const validationErrors = validateForm();
+    if (Object.keys(validationErrors).length > 0) {
+      alert(Object.values(validationErrors)[0]);
+
       // Vai alla sezione con il primo errore
-      const errorFields = Object.keys(errors);
+      const errorFields = Object.keys(validationErrors);
       if (errorFields.length > 0) {
         const firstError = errorFields[0];
         if (['ragione_sociale', 'forma_giuridica', 'partita_iva', 'codice_fiscale', 'codice_ateco', 'rea_numero', 'registro_imprese'].includes(firstError)) {
@@ -311,7 +405,7 @@ const ImplementingEntityModal = ({ entity, onClose, onSave }) => {
           setCurrentSection(2);
         } else if (['iban', 'intestatario_conto'].includes(firstError)) {
           setCurrentSection(3);
-        } else if (firstError.startsWith('referente_')) {
+        } else if (firstError.startsWith('legale_rappresentante_')) {
           setCurrentSection(4);
         }
       }
@@ -325,8 +419,42 @@ const ImplementingEntityModal = ({ entity, onClose, onSave }) => {
         cleanData[key] = null;
       }
     });
+    if (cleanData.legale_rappresentante_data_nascita) {
+      cleanData.legale_rappresentante_data_nascita = `${cleanData.legale_rappresentante_data_nascita}T00:00:00Z`;
+    }
 
-    onSave(cleanData);
+    try {
+      const savedEntity = await onSave(cleanData);
+      const targetEntityId = entity?.id || savedEntity?.id;
+      const isCreatingNewEntity = !entity;
+      let logoUploaded = false;
+
+      if (targetEntityId && logoFile) {
+        logoUploaded = await uploadLogoForEntity(targetEntityId);
+      }
+
+      if (logoUploaded) {
+        alert('Ente salvato e immagine caricata con successo!');
+      }
+
+      if (isCreatingNewEntity && savedEntity?.id && !logoUploaded) {
+        setCurrentSection(sections.length - 1);
+      }
+
+      // In modifica chiudi solo dopo che eventuale upload logo è terminato.
+      // In creazione chiudi solo se anche il logo selezionato è stato caricato.
+      if (!isCreatingNewEntity || (logoFile && logoUploaded)) {
+        onClose();
+      }
+    } catch (error) {
+      // Error handling is managed by the parent component notifications.
+    }
+  };
+
+  const handleFormKeyDown = (e) => {
+    if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') {
+      e.preventDefault();
+    }
   };
 
   // ==========================================
@@ -343,6 +471,30 @@ const ImplementingEntityModal = ({ entity, onClose, onSave }) => {
     if (currentSection > 0) {
       setCurrentSection(currentSection - 1);
     }
+  };
+
+  const handleOverlayClick = (e) => {
+    if (e.target === e.currentTarget) {
+      onClose();
+    }
+  };
+
+  const handleSectionStepClick = (index) => (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setCurrentSection(index);
+  };
+
+  const handleNextSectionClick = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    nextSection();
+  };
+
+  const handlePrevSectionClick = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    prevSection();
   };
 
   // ==========================================
@@ -633,76 +785,115 @@ const ImplementingEntityModal = ({ entity, onClose, onSave }) => {
           </div>
         );
 
-      case 4: // Referente
+      case 4: // Legale rappresentante
         return (
           <div className="form-section">
             <div className="form-row">
               <div className="form-group">
-                <label htmlFor="referente_nome">Nome Referente</label>
+                <label htmlFor="legale_rappresentante_nome">Nome *</label>
                 <input
                   type="text"
-                  id="referente_nome"
-                  name="referente_nome"
-                  value={formData.referente_nome}
+                  id="legale_rappresentante_nome"
+                  name="legale_rappresentante_nome"
+                  value={formData.legale_rappresentante_nome}
                   onChange={handleChange}
                   placeholder="Nome"
+                  required
+                  className={errors.legale_rappresentante_nome ? 'error' : ''}
                 />
+                {errors.legale_rappresentante_nome && <span className="error-text">{errors.legale_rappresentante_nome}</span>}
               </div>
 
               <div className="form-group">
-                <label htmlFor="referente_cognome">Cognome Referente</label>
+                <label htmlFor="legale_rappresentante_cognome">Cognome *</label>
                 <input
                   type="text"
-                  id="referente_cognome"
-                  name="referente_cognome"
-                  value={formData.referente_cognome}
+                  id="legale_rappresentante_cognome"
+                  name="legale_rappresentante_cognome"
+                  value={formData.legale_rappresentante_cognome}
                   onChange={handleChange}
                   placeholder="Cognome"
+                  required
+                  className={errors.legale_rappresentante_cognome ? 'error' : ''}
                 />
+                {errors.legale_rappresentante_cognome && <span className="error-text">{errors.legale_rappresentante_cognome}</span>}
+              </div>
+            </div>
+
+            <div className="form-row">
+              <div className="form-group">
+                <label htmlFor="legale_rappresentante_luogo_nascita">Luogo di Nascita *</label>
+                <input
+                  type="text"
+                  id="legale_rappresentante_luogo_nascita"
+                  name="legale_rappresentante_luogo_nascita"
+                  value={formData.legale_rappresentante_luogo_nascita}
+                  onChange={handleChange}
+                  placeholder="Es: Napoli"
+                  required
+                  className={errors.legale_rappresentante_luogo_nascita ? 'error' : ''}
+                />
+                {errors.legale_rappresentante_luogo_nascita && <span className="error-text">{errors.legale_rappresentante_luogo_nascita}</span>}
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="legale_rappresentante_data_nascita">Data di Nascita *</label>
+                <input
+                  type="date"
+                  id="legale_rappresentante_data_nascita"
+                  name="legale_rappresentante_data_nascita"
+                  value={formData.legale_rappresentante_data_nascita}
+                  onChange={handleChange}
+                  required
+                  className={errors.legale_rappresentante_data_nascita ? 'error' : ''}
+                />
+                {errors.legale_rappresentante_data_nascita && <span className="error-text">{errors.legale_rappresentante_data_nascita}</span>}
               </div>
             </div>
 
             <div className="form-group">
-              <label htmlFor="referente_ruolo">Ruolo Referente</label>
-              <select
-                id="referente_ruolo"
-                name="referente_ruolo"
-                value={formData.referente_ruolo}
+              <label htmlFor="legale_rappresentante_comune_residenza">Comune di Residenza *</label>
+              <input
+                type="text"
+                id="legale_rappresentante_comune_residenza"
+                name="legale_rappresentante_comune_residenza"
+                value={formData.legale_rappresentante_comune_residenza}
                 onChange={handleChange}
-              >
-                <option value="">Seleziona ruolo...</option>
-                <option value="Amministratore">Amministratore</option>
-                <option value="Responsabile Amministrativo">Responsabile Amministrativo</option>
-                <option value="Direttore">Direttore</option>
-                <option value="Segreteria">Segreteria</option>
-                <option value="Responsabile Commerciale">Responsabile Commerciale</option>
-              </select>
+                placeholder="Es: Roma"
+                required
+                className={errors.legale_rappresentante_comune_residenza ? 'error' : ''}
+              />
+              {errors.legale_rappresentante_comune_residenza && <span className="error-text">{errors.legale_rappresentante_comune_residenza}</span>}
             </div>
 
             <div className="form-group">
-              <label htmlFor="referente_email">Email Referente</label>
+              <label htmlFor="legale_rappresentante_via_residenza">Via di Residenza *</label>
               <input
-                type="email"
-                id="referente_email"
-                name="referente_email"
-                value={formData.referente_email}
+                type="text"
+                id="legale_rappresentante_via_residenza"
+                name="legale_rappresentante_via_residenza"
+                value={formData.legale_rappresentante_via_residenza}
                 onChange={handleChange}
-                placeholder="email@esempio.it"
-                className={errors.referente_email ? 'error' : ''}
+                placeholder="Es: Via Garibaldi 12"
+                required
+                className={errors.legale_rappresentante_via_residenza ? 'error' : ''}
               />
-              {errors.referente_email && <span className="error-text">{errors.referente_email}</span>}
+              {errors.legale_rappresentante_via_residenza && <span className="error-text">{errors.legale_rappresentante_via_residenza}</span>}
             </div>
 
             <div className="form-group">
-              <label htmlFor="referente_telefono">Telefono Referente</label>
+              <label htmlFor="legale_rappresentante_codice_fiscale">Codice Fiscale *</label>
               <input
-                type="tel"
-                id="referente_telefono"
-                name="referente_telefono"
-                value={formData.referente_telefono}
+                type="text"
+                id="legale_rappresentante_codice_fiscale"
+                name="legale_rappresentante_codice_fiscale"
+                value={formData.legale_rappresentante_codice_fiscale}
                 onChange={handleChange}
-                placeholder="+39 333 1234567"
+                placeholder="11 o 16 caratteri"
+                maxLength="16"
+                className={errors.legale_rappresentante_codice_fiscale ? 'error' : ''}
               />
+              {errors.legale_rappresentante_codice_fiscale && <span className="error-text">{errors.legale_rappresentante_codice_fiscale}</span>}
             </div>
           </div>
         );
@@ -724,12 +915,12 @@ const ImplementingEntityModal = ({ entity, onClose, onSave }) => {
 
             {/* Upload Logo */}
             <div className="form-group">
-              <label>Logo Ente</label>
+              <label>Logo o Carta Intestata Ente</label>
               <div className="logo-upload-container">
                 {logoPreview && (
                   <div className="logo-preview">
-                    <img src={logoPreview} alt="Logo ente" />
-                    {entity && entity.id && entity.logo_filename && (
+                    <img src={logoPreview} alt="Immagine ente" />
+                    {entity && entity.id && !logoFile && (
                       <button
                         type="button"
                         className="btn-danger btn-small"
@@ -751,7 +942,7 @@ const ImplementingEntityModal = ({ entity, onClose, onSave }) => {
                       style={{ display: 'none' }}
                     />
                     <label htmlFor="logo-input" className="btn-secondary">
-                      📁 Seleziona Logo
+                      📁 Seleziona Immagine
                     </label>
 
                     {logoFile && (
@@ -761,19 +952,19 @@ const ImplementingEntityModal = ({ entity, onClose, onSave }) => {
                         onClick={handleLogoUpload}
                         disabled={uploadingLogo}
                       >
-                        {uploadingLogo ? '⏳ Caricamento...' : '⬆️ Carica Logo'}
+                        {uploadingLogo ? '⏳ Caricamento...' : '⬆️ Carica Immagine'}
                       </button>
                     )}
 
                     <small className="help-text">
                       Formati: PNG, JPG, SVG, GIF • Max 5MB
                       <br />
-                      Il logo verrà usato nei contratti generati per questo ente
+                      Puoi usare un logo oppure un'immagine di carta intestata dell'ente
                     </small>
                   </div>
                 ) : (
                   <small className="help-text info-message">
-                    💡 Salva prima l'ente per poter caricare il logo
+                    💡 Se selezioni l'immagine ora, verrà caricata automaticamente quando crei l'ente
                   </small>
                 )}
               </div>
@@ -803,7 +994,7 @@ const ImplementingEntityModal = ({ entity, onClose, onSave }) => {
   // ==========================================
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onClick={handleOverlayClick}>
       <div className="modal-content entity-modal" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="modal-header">
@@ -819,7 +1010,7 @@ const ImplementingEntityModal = ({ entity, onClose, onSave }) => {
             <div
               key={section.id}
               className={`section-step ${currentSection === index ? 'active' : ''} ${currentSection > index ? 'completed' : ''}`}
-              onClick={() => setCurrentSection(index)}
+              onClick={handleSectionStepClick(index)}
             >
               <div className="step-icon">{section.icon}</div>
               <div className="step-title">{section.title}</div>
@@ -828,7 +1019,7 @@ const ImplementingEntityModal = ({ entity, onClose, onSave }) => {
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} onKeyDown={handleFormKeyDown}>
           <div className="modal-body">
             <h3 className="section-title">
               {sections[currentSection].icon} {sections[currentSection].title}
@@ -840,13 +1031,13 @@ const ImplementingEntityModal = ({ entity, onClose, onSave }) => {
           <div className="modal-footer">
             <div className="navigation-buttons">
               {currentSection > 0 && (
-                <button type="button" className="btn-secondary" onClick={prevSection}>
+                <button type="button" className="btn-secondary" onClick={handlePrevSectionClick}>
                   ← Indietro
                 </button>
               )}
 
               {currentSection < sections.length - 1 ? (
-                <button type="button" className="btn-primary" onClick={nextSection}>
+                <button type="button" className="btn-primary" onClick={handleNextSectionClick}>
                   Avanti →
                 </button>
               ) : (

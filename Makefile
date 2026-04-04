@@ -119,17 +119,17 @@ install-dev: install
 ## dev: Avvia server sviluppo con hot-reload
 dev:
 	@echo "$(BLUE)🚀 Avvio server sviluppo (hot-reload)...$(NC)"
-	cd $(BACKEND_DIR) && $(PYTHON) -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+	cd $(BACKEND_DIR) && $(PYTHON) -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
 ## run: Avvia server produzione locale
 run:
 	@echo "$(BLUE)🚀 Avvio server produzione locale...$(NC)"
-	cd $(BACKEND_DIR) && $(PYTHON) -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+	cd $(BACKEND_DIR) && $(PYTHON) -m uvicorn main:app --host 0.0.0.0 --port 8000 --workers 2
 
 ## prod: Avvia con Gunicorn (simula produzione)
 prod:
 	@echo "$(BLUE)🚀 Avvio server con Gunicorn (produzione)...$(NC)"
-	cd $(BACKEND_DIR) && gunicorn app.main:app \
+	cd $(BACKEND_DIR) && gunicorn main:app \
 		--worker-class uvicorn.workers.UvicornWorker \
 		--bind 0.0.0.0:8000 \
 		--workers 2 \
@@ -242,10 +242,18 @@ migrate-history:
 ## backup: Crea backup database manuale
 backup:
 	@echo "$(BLUE)💾 Creazione backup database...$(NC)"
-	@TIMESTAMP=$$(date +%Y%m%d_%H%M%S); \
-	mkdir -p $(BACKEND_DIR)/backups; \
-	echo "Backup: backups/gestionale_$$TIMESTAMP.sql"
+	cd $(BACKEND_DIR) && $(PYTHON) run_backup.py create --type manual
 	@echo "$(GREEN)✅ Backup creato$(NC)"
+
+## backup-list: Mostra backup disponibili
+backup-list:
+	@echo "$(BLUE)📚 Elenco backup disponibili...$(NC)"
+	cd $(BACKEND_DIR) && $(PYTHON) run_backup.py list
+
+## backup-schedule: Avvia scheduler backup locale
+backup-schedule:
+	@echo "$(BLUE)⏱️  Avvio scheduler backup locale...$(NC)"
+	cd $(BACKEND_DIR) && $(PYTHON) run_backup.py schedule
 
 # ============================================================
 # DOCKER
@@ -325,7 +333,7 @@ clean:
 ## health: Verifica salute servizi
 health:
 	@echo "$(BLUE)❤️  Verifica salute servizi...$(NC)"
-	@curl -sf http://localhost:8000/health >/dev/null && echo "$(GREEN)✅ Backend: OK$(NC)" || echo "$(RED)❌ Backend: OFFLINE$(NC)"
+	@curl -sf http://localhost:8001/health >/dev/null && echo "$(GREEN)✅ Backend: OK$(NC)" || echo "$(RED)❌ Backend: OFFLINE$(NC)"
 	@curl -sf http://localhost:3001 >/dev/null && echo "$(GREEN)✅ Frontend: OK$(NC)" || echo "$(RED)❌ Frontend: OFFLINE$(NC)"
 
 ## all-checks: Esegue tutti i controlli qualità

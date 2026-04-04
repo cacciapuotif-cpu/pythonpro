@@ -18,11 +18,16 @@ email-validator>=2.2.0
 
 # Cache e sessioni
 redis>=5.0.0
+arq>=0.26.3
 
 # Utilities
 python-dotenv>=1.0.0
 python-multipart>=0.0.9
 mammoth>=1.6.0
+Jinja2>=3.1.0
+reportlab>=4.2.0
+openpyxl>=3.1.0
+schedule>=1.2.0
 
 # Security
 python-jose[cryptography]>=3.3.0

@@ -9,11 +9,37 @@
  * - Il tipo di contratto
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import ErrorBanner from './ErrorBanner';
+import { apiRootUrl } from '../lib/http';
 import './ProgettoMansioneEnteManager.css';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8001';
+const API_BASE_URL = apiRootUrl;
+const CONTRACT_TYPE_LABELS = {
+  professionale: 'Professionale',
+  occasionale: 'Occasionale',
+  ordine_servizio: 'Ordine di servizio',
+  contratto_progetto: 'Contratto a progetto',
+  documento_generico: 'Documento generico'
+};
+
+const normalizeContractType = (value) => {
+  if (!value) return '';
+
+  const normalized = String(value).trim().toLowerCase();
+  const aliases = {
+    'ordine di servizio': 'ordine_servizio',
+    'contratto a progetto': 'contratto_progetto',
+    'documento generico': 'documento_generico'
+  };
+
+  return aliases[normalized] || normalized.replace(/\s+/g, '_');
+};
+
+const formatContractTypeLabel = (value) => {
+  const normalized = normalizeContractType(value);
+  return CONTRACT_TYPE_LABELS[normalized] || value || 'n/d';
+};
 
 const ProgettoMansioneEnteManager = () => {
   // ==========================================
@@ -24,6 +50,7 @@ const ProgettoMansioneEnteManager = () => {
   const [associazioni, setAssociazioni] = useState([]);
   const [progetti, setProgetti] = useState([]);
   const [entiAttuatori, setEntiAttuatori] = useState([]);
+  const [assignments, setAssignments] = useState([]);
 
   // Stati UI
   const [loading, setLoading] = useState(true);
@@ -60,11 +87,7 @@ const ProgettoMansioneEnteManager = () => {
   // CARICAMENTO DATI
   // ==========================================
 
-  useEffect(() => {
-    loadAllData();
-  }, [filters]);
-
-  const loadAllData = async () => {
+  const loadAllData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -76,25 +99,28 @@ const ProgettoMansioneEnteManager = () => {
       if (filters.mansione) params.append('mansione', filters.mansione);
       if (filters.is_active !== '') params.append('is_active', filters.is_active);
 
-      const [associazioniRes, progettiRes, entiRes] = await Promise.all([
+      const [associazioniRes, progettiRes, entiRes, assignmentsRes] = await Promise.all([
         fetch(`${API_BASE_URL}/api/v1/project-assignments/?${params}`),
         fetch(`${API_BASE_URL}/api/v1/projects/?limit=200`),
-        fetch(`${API_BASE_URL}/api/v1/entities/?limit=200`)
+        fetch(`${API_BASE_URL}/api/v1/entities/?limit=200`),
+        fetch(`${API_BASE_URL}/api/v1/assignments/?limit=1000`)
       ]);
 
-      if (!associazioniRes.ok || !progettiRes.ok || !entiRes.ok) {
+      if (!associazioniRes.ok || !progettiRes.ok || !entiRes.ok || !assignmentsRes.ok) {
         throw new Error('Errore nel caricamento dei dati');
       }
 
-      const [associazioniData, progettiData, entiData] = await Promise.all([
+      const [associazioniData, progettiData, entiData, assignmentsData] = await Promise.all([
         associazioniRes.json(),
         progettiRes.json(),
-        entiRes.json()
+        entiRes.json(),
+        assignmentsRes.json()
       ]);
 
       setAssociazioni(associazioniData);
       setProgetti(progettiData);
       setEntiAttuatori(entiData);
+      setAssignments(assignmentsData);
 
     } catch (err) {
       console.error('Errore caricamento dati:', err);
@@ -102,13 +128,27 @@ const ProgettoMansioneEnteManager = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [filters]);
+
+  useEffect(() => {
+    loadAllData();
+  }, [loadAllData]);
 
   // ==========================================
   // GESTIONE FORM
   // ==========================================
 
   const handleInputChange = (field, value) => {
+    if (field === 'progetto_id') {
+      const progettoSelezionato = progetti.find((progetto) => String(progetto.id) === String(value));
+      setFormData(prev => ({
+        ...prev,
+        progetto_id: value,
+        ente_attuatore_id: progettoSelezionato?.ente_attuatore_id ? String(progettoSelezionato.ente_attuatore_id) : prev.ente_attuatore_id
+      }));
+      return;
+    }
+
     setFormData(prev => ({
       ...prev,
       [field]: value
@@ -124,7 +164,7 @@ const ProgettoMansioneEnteManager = () => {
 
   const resetForm = () => {
     setFormData({
-      progetto_id: '',
+      progetto_id: filters.progetto_id || '',
       ente_attuatore_id: '',
       mansione: '',
       descrizione_mansione: '',
@@ -142,7 +182,19 @@ const ProgettoMansioneEnteManager = () => {
   };
 
   const openCreateModal = () => {
+    if (!filters.progetto_id) {
+      alert('Seleziona prima un progetto per aprire il piano finanziario.');
+      return;
+    }
     resetForm();
+    const progettoSelezionato = progetti.find((progetto) => String(progetto.id) === String(filters.progetto_id));
+    if (progettoSelezionato?.ente_attuatore_id) {
+      setFormData((prev) => ({
+        ...prev,
+        progetto_id: String(progettoSelezionato.id),
+        ente_attuatore_id: String(progettoSelezionato.ente_attuatore_id),
+      }));
+    }
     setShowModal(true);
   };
 
@@ -158,7 +210,7 @@ const ProgettoMansioneEnteManager = () => {
       ore_effettive: associazione.ore_effettive || 0,
       tariffa_oraria: associazione.tariffa_oraria || 0,
       budget_totale: associazione.budget_totale || 0,
-      tipo_contratto: associazione.tipo_contratto || '',
+      tipo_contratto: normalizeContractType(associazione.tipo_contratto),
       is_active: associazione.is_active !== false,
       note: associazione.note || ''
     });
@@ -204,6 +256,7 @@ const ProgettoMansioneEnteManager = () => {
         ore_effettive: parseFloat(formData.ore_effettive),
         tariffa_oraria: formData.tariffa_oraria ? parseFloat(formData.tariffa_oraria) : null,
         budget_totale: formData.budget_totale ? parseFloat(formData.budget_totale) : null,
+        tipo_contratto: normalizeContractType(formData.tipo_contratto) || null,
         data_inizio: `${formData.data_inizio}T00:00:00`,
         data_fine: `${formData.data_fine}T23:59:59`
       };
@@ -233,7 +286,7 @@ const ProgettoMansioneEnteManager = () => {
       // Ricarica i dati e chiudi il modal
       await loadAllData();
       closeModal();
-      alert(editingAssociazione ? 'Associazione aggiornata!' : 'Associazione creata!');
+      alert(editingAssociazione ? 'Riga piano aggiornata!' : 'Riga piano creata!');
 
     } catch (err) {
       console.error('Errore salvataggio:', err);
@@ -268,11 +321,6 @@ const ProgettoMansioneEnteManager = () => {
   // HELPER FUNCTIONS
   // ==========================================
 
-  const getProgettoName = (id) => {
-    const progetto = progetti.find(p => p.id === id);
-    return progetto ? progetto.name : 'N/D';
-  };
-
   const getEnteName = (id) => {
     const ente = entiAttuatori.find(e => e.id === id);
     return ente ? ente.ragione_sociale : 'N/D';
@@ -283,6 +331,94 @@ const ProgettoMansioneEnteManager = () => {
     const date = new Date(dateString);
     return date.toLocaleDateString('it-IT');
   };
+
+  const selectedProjectId = filters.progetto_id ? parseInt(filters.progetto_id, 10) : null;
+  const selectedProject = selectedProjectId
+    ? progetti.find((progetto) => progetto.id === selectedProjectId)
+    : null;
+
+  const projectFinancialSummary = selectedProjectId ? (() => {
+    const projectAssignments = assignments.filter((assignment) => assignment.project_id === selectedProjectId);
+    const projectPlanRows = associazioni.filter((associazione) => associazione.progetto_id === selectedProjectId);
+
+    const oreAssegnate = projectAssignments.reduce((sum, assignment) => sum + (Number(assignment.assigned_hours) || 0), 0);
+    const costoAssegnato = projectAssignments.reduce(
+      (sum, assignment) => sum + ((Number(assignment.assigned_hours) || 0) * (Number(assignment.hourly_rate) || 0)),
+      0
+    );
+    const orePianificate = projectPlanRows.reduce((sum, row) => sum + (Number(row.ore_previste) || 0), 0);
+    const budgetPianificato = projectPlanRows.reduce(
+      (sum, row) => sum + (Number(row.budget_totale) || ((Number(row.ore_previste) || 0) * (Number(row.tariffa_oraria) || 0))),
+      0
+    );
+    const oreEffettive = projectPlanRows.reduce((sum, row) => sum + (Number(row.ore_effettive) || 0), 0);
+
+    return {
+      projectAssignments,
+      projectPlanRows,
+      oreAssegnate,
+      costoAssegnato,
+      orePianificate,
+      budgetPianificato,
+      oreEffettive,
+    };
+  })() : null;
+
+  const projectBudgetRows = useMemo(() => {
+    if (!selectedProjectId) {
+      return [];
+    }
+
+    const assignmentsByRole = assignments
+      .filter((assignment) => assignment.project_id === selectedProjectId)
+      .reduce((accumulator, assignment) => {
+        const key = `${assignment.role || 'senza_mansione'}::${normalizeContractType(assignment.contract_type) || 'senza_contratto'}`;
+        if (!accumulator[key]) {
+          accumulator[key] = {
+            key,
+            mansione: assignment.role || 'Senza mansione',
+            tipoContratto: formatContractTypeLabel(assignment.contract_type),
+            oreContrattualizzate: 0,
+            costoContrattualizzato: 0,
+            collaboratori: new Set(),
+          };
+        }
+
+        accumulator[key].oreContrattualizzate += Number(assignment.assigned_hours) || 0;
+        accumulator[key].costoContrattualizzato += (Number(assignment.assigned_hours) || 0) * (Number(assignment.hourly_rate) || 0);
+        accumulator[key].collaboratori.add(assignment.collaborator_id);
+        return accumulator;
+      }, {});
+
+    return associazioni
+      .filter((associazione) => associazione.progetto_id === selectedProjectId)
+      .map((row) => {
+        const key = `${row.mansione || 'senza_mansione'}::${normalizeContractType(row.tipo_contratto) || 'senza_contratto'}`;
+        const matchedAssignments = assignmentsByRole[key] || {
+          mansione: row.mansione,
+          tipoContratto: formatContractTypeLabel(row.tipo_contratto),
+          oreContrattualizzate: 0,
+          costoContrattualizzato: 0,
+          collaboratori: new Set(),
+        };
+        const budgetPianificato = Number(row.budget_totale) || ((Number(row.ore_previste) || 0) * (Number(row.tariffa_oraria) || 0));
+
+        return {
+          id: row.id,
+          mansione: row.mansione,
+          tipoContratto: formatContractTypeLabel(row.tipo_contratto),
+          orePianificate: Number(row.ore_previste) || 0,
+          oreEffettive: Number(row.ore_effettive) || 0,
+          tariffa: Number(row.tariffa_oraria) || 0,
+          budgetPianificato,
+          oreContrattualizzate: matchedAssignments.oreContrattualizzate,
+          costoContrattualizzato: matchedAssignments.costoContrattualizzato,
+          collaboratoriCoinvolti: matchedAssignments.collaboratori.size,
+          scostamentoBudget: matchedAssignments.costoContrattualizzato - budgetPianificato,
+          scostamentoOre: matchedAssignments.oreContrattualizzate - (Number(row.ore_previste) || 0),
+        };
+      });
+  }, [associazioni, assignments, selectedProjectId]);
 
   // ==========================================
   // RENDER
@@ -304,11 +440,11 @@ const ProgettoMansioneEnteManager = () => {
       {/* HEADER */}
       <div className="manager-header">
         <div className="header-title">
-          <h2>Gestione Associazioni Progetto-Mansione-Ente</h2>
-          <p>Collega progetti con enti attuatori specificando mansioni, ore e costi</p>
+          <h2>Piano Finanziario Progetto</h2>
+          <p>Apri un progetto, leggi il riepilogo autoalimentato e gestisci le righe economiche del suo piano.</p>
         </div>
-        <button className="btn-primary" onClick={openCreateModal}>
-          + Nuova Associazione
+        <button className="btn-primary" onClick={openCreateModal} disabled={!selectedProject}>
+          + Nuova Riga Piano
         </button>
       </div>
 
@@ -320,147 +456,225 @@ const ProgettoMansioneEnteManager = () => {
         </div>
       )}
 
-      {/* FILTRI */}
-      <div className="filters-section">
-        <div className="filters-grid">
+      <div className="project-focus-panel">
+        <div className="project-focus-main">
           <div className="filter-group">
             <label>Progetto</label>
             <select
               value={filters.progetto_id}
               onChange={(e) => handleFilterChange('progetto_id', e.target.value)}
             >
-              <option value="">Tutti i progetti</option>
+              <option value="">Seleziona un progetto</option>
               {progetti.map(p => (
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </select>
           </div>
-
-          <div className="filter-group">
-            <label>Ente Attuatore</label>
-            <select
-              value={filters.ente_attuatore_id}
-              onChange={(e) => handleFilterChange('ente_attuatore_id', e.target.value)}
-            >
-              <option value="">Tutti gli enti</option>
-              {entiAttuatori.map(e => (
-                <option key={e.id} value={e.id}>{e.ragione_sociale}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="filter-group">
-            <label>Mansione</label>
-            <input
-              type="text"
-              placeholder="Cerca mansione..."
-              value={filters.mansione}
-              onChange={(e) => handleFilterChange('mansione', e.target.value)}
-            />
-          </div>
-
-          <div className="filter-group">
-            <label>Stato</label>
-            <select
-              value={filters.is_active}
-              onChange={(e) => handleFilterChange('is_active', e.target.value)}
-            >
-              <option value="">Tutti</option>
-              <option value="true">Attive</option>
-              <option value="false">Disattivate</option>
-            </select>
+          <div className="project-focus-meta">
+            <div className="filter-group">
+              <label>Mansione</label>
+              <input
+                type="text"
+                placeholder="Cerca mansione..."
+                value={filters.mansione}
+                onChange={(e) => handleFilterChange('mansione', e.target.value)}
+                disabled={!selectedProject}
+              />
+            </div>
+            <div className="filter-group">
+              <label>Stato</label>
+              <select
+                value={filters.is_active}
+                onChange={(e) => handleFilterChange('is_active', e.target.value)}
+                disabled={!selectedProject}
+              >
+                <option value="">Tutti</option>
+                <option value="true">Attive</option>
+                <option value="false">Disattivate</option>
+              </select>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* TABELLA ASSOCIAZIONI */}
-      <div className="associations-table-container">
-        {associazioni.length === 0 ? (
-          <div className="empty-state">
-            <div className="empty-icon">📋</div>
-            <h4>Nessuna associazione trovata</h4>
-            <p>Crea una nuova associazione per collegare un progetto con un ente attuatore</p>
+      {selectedProject && projectFinancialSummary && (
+        <div className="financial-summary-strip">
+          <div className="financial-summary-header">
+            <div>
+              <span className="financial-summary-eyebrow">Piano autoalimentato</span>
+              <h3>{selectedProject.name}</h3>
+              <p>
+                Valori riepilogati da righe piano + assegnazioni reali del progetto
+                {selectedProject.ente_attuatore_id ? ` · Ente ${getEnteName(selectedProject.ente_attuatore_id)}` : ''}.
+              </p>
+            </div>
           </div>
-        ) : (
+          <div className="financial-kpi-grid">
+            <div className="financial-kpi-card">
+              <span>Ore pianificate</span>
+              <strong>{projectFinancialSummary.orePianificate.toFixed(1)}h</strong>
+            </div>
+            <div className="financial-kpi-card">
+              <span>Ore assegnate</span>
+              <strong>{projectFinancialSummary.oreAssegnate.toFixed(1)}h</strong>
+            </div>
+            <div className="financial-kpi-card">
+              <span>Ore effettive</span>
+              <strong>{projectFinancialSummary.oreEffettive.toFixed(1)}h</strong>
+            </div>
+            <div className="financial-kpi-card">
+              <span>Budget pianificato</span>
+              <strong>€ {projectFinancialSummary.budgetPianificato.toFixed(2)}</strong>
+            </div>
+            <div className="financial-kpi-card">
+              <span>Costo assegnato</span>
+              <strong>€ {projectFinancialSummary.costoAssegnato.toFixed(2)}</strong>
+            </div>
+            <div className="financial-kpi-card">
+              <span>Righe piano</span>
+              <strong>{projectFinancialSummary.projectPlanRows.length}</strong>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {selectedProject && projectBudgetRows.length > 0 && (
+        <div className="associations-table-container">
+          <div className="financial-summary-header">
+            <div>
+              <span className="financial-summary-eyebrow">Imputazione automatica per mansione</span>
+              <h3>Contratti agganciati al piano</h3>
+              <p>Ogni assegnazione collaboratore viene letta per progetto, mansione e tipo contratto per alimentare il piano.</p>
+            </div>
+          </div>
           <table className="associations-table">
             <thead>
               <tr>
-                <th>Progetto</th>
-                <th>Ente Attuatore</th>
                 <th>Mansione</th>
-                <th>Periodo</th>
-                <th>Ore Prev.</th>
-                <th>Ore Eff.</th>
-                <th>Progress</th>
-                <th>Tariffa</th>
-                <th>Stato</th>
-                <th>Azioni</th>
+                <th>Tipo contratto</th>
+                <th>Ore piano</th>
+                <th>Ore contrattualizzate</th>
+                <th>Budget piano</th>
+                <th>Costo contrattualizzato</th>
+                <th>Scostamento</th>
+                <th>Collab.</th>
               </tr>
             </thead>
             <tbody>
-              {associazioni.map(ass => (
-                <tr key={ass.id} className={!ass.is_active ? 'row-inactive' : ''}>
-                  <td>{getProgettoName(ass.progetto_id)}</td>
-                  <td>{getEnteName(ass.ente_attuatore_id)}</td>
-                  <td>
-                    <strong>{ass.mansione}</strong>
-                    {ass.tipo_contratto && (
-                      <span className="contract-badge">{ass.tipo_contratto}</span>
-                    )}
-                  </td>
-                  <td className="date-range">
-                    {formatDate(ass.data_inizio)} → {formatDate(ass.data_fine)}
-                  </td>
-                  <td className="hours-cell">{ass.ore_previste}h</td>
-                  <td className="hours-cell">{ass.ore_effettive}h</td>
-                  <td>
-                    <div className="progress-bar">
-                      <div
-                        className="progress-fill"
-                        style={{ width: `${Math.min(100, ass.percentuale_completamento || 0)}%` }}
-                      ></div>
-                      <span className="progress-text">
-                        {(ass.percentuale_completamento || 0).toFixed(0)}%
-                      </span>
-                    </div>
-                  </td>
+              {projectBudgetRows.map((row) => (
+                <tr key={`budget-${row.id}`}>
+                  <td><strong>{row.mansione}</strong></td>
+                  <td>{row.tipoContratto}</td>
+                  <td className="hours-cell">{row.orePianificate.toFixed(1)}h</td>
+                  <td className="hours-cell">{row.oreContrattualizzate.toFixed(1)}h</td>
+                  <td className="price-cell">€ {row.budgetPianificato.toFixed(2)}</td>
+                  <td className="price-cell">€ {row.costoContrattualizzato.toFixed(2)}</td>
                   <td className="price-cell">
-                    {ass.tariffa_oraria ? `€${ass.tariffa_oraria}/h` : '-'}
-                  </td>
-                  <td>
-                    <span className={`status-badge ${ass.is_active ? 'active' : 'inactive'}`}>
-                      {ass.is_active ? 'Attiva' : 'Disattivata'}
+                    <span className={`status-badge ${row.scostamentoBudget > 0 ? 'inactive' : 'active'}`}>
+                      {row.scostamentoBudget > 0 ? '+' : ''}€ {row.scostamentoBudget.toFixed(2)}
                     </span>
                   </td>
-                  <td className="actions-cell">
-                    <button
-                      className="btn-icon btn-edit"
-                      onClick={() => openEditModal(ass)}
-                      title="Modifica"
-                    >
-                      ✏️
-                    </button>
-                    <button
-                      className="btn-icon btn-delete"
-                      onClick={() => handleDelete(ass.id)}
-                      title="Elimina"
-                    >
-                      🗑️
-                    </button>
-                  </td>
+                  <td>{row.collaboratoriCoinvolti}</td>
                 </tr>
               ))}
             </tbody>
           </table>
-        )}
-      </div>
+        </div>
+      )}
+
+      {!selectedProject ? (
+        <div className="project-selection-empty">
+          <div className="empty-icon">📁</div>
+          <h4>Seleziona un progetto</h4>
+          <p>Il piano finanziario si apre solo sul progetto scelto, con riepilogo e righe dedicate.</p>
+        </div>
+      ) : (
+        <div className="associations-table-container">
+          {associazioni.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-icon">💼</div>
+              <h4>Nessuna riga piano trovata</h4>
+              <p>Crea una nuova riga per costruire il piano finanziario del progetto</p>
+            </div>
+          ) : (
+            <table className="associations-table">
+              <thead>
+                <tr>
+                  <th>Ente Attuatore</th>
+                  <th>Mansione</th>
+                  <th>Periodo</th>
+                  <th>Ore Prev.</th>
+                  <th>Ore Eff.</th>
+                  <th>Progress</th>
+                  <th>Tariffa</th>
+                  <th>Stato</th>
+                  <th>Azioni</th>
+                </tr>
+              </thead>
+              <tbody>
+                {associazioni.map(ass => (
+                  <tr key={ass.id} className={!ass.is_active ? 'row-inactive' : ''}>
+                    <td>{getEnteName(ass.ente_attuatore_id)}</td>
+                    <td>
+                      <strong>{ass.mansione}</strong>
+                      {ass.tipo_contratto && (
+                        <span className="contract-badge">{ass.tipo_contratto}</span>
+                      )}
+                    </td>
+                    <td className="date-range">
+                      {formatDate(ass.data_inizio)} → {formatDate(ass.data_fine)}
+                    </td>
+                    <td className="hours-cell">{ass.ore_previste}h</td>
+                    <td className="hours-cell">{ass.ore_effettive}h</td>
+                    <td>
+                      <div className="progress-bar">
+                        <div
+                          className="progress-fill"
+                          style={{ width: `${Math.min(100, ass.percentuale_completamento || 0)}%` }}
+                        ></div>
+                        <span className="progress-text">
+                          {(ass.percentuale_completamento || 0).toFixed(0)}%
+                        </span>
+                      </div>
+                    </td>
+                    <td className="price-cell">
+                      {ass.tariffa_oraria ? `€${ass.tariffa_oraria}/h` : '-'}
+                    </td>
+                    <td>
+                      <span className={`status-badge ${ass.is_active ? 'active' : 'inactive'}`}>
+                        {ass.is_active ? 'Attiva' : 'Disattivata'}
+                      </span>
+                    </td>
+                    <td className="actions-cell">
+                      <button
+                        className="btn-icon btn-edit"
+                        onClick={() => openEditModal(ass)}
+                        title="Modifica"
+                      >
+                        ✏️
+                      </button>
+                      <button
+                        className="btn-icon btn-delete"
+                        onClick={() => handleDelete(ass.id)}
+                        title="Elimina"
+                      >
+                        🗑️
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
 
       {/* MODAL CREA/MODIFICA */}
       {showModal && (
         <div className="modal-overlay" onClick={closeModal}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>{editingAssociazione ? 'Modifica Associazione' : 'Nuova Associazione'}</h3>
+              <h3>{editingAssociazione ? 'Modifica Riga Piano' : 'Nuova Riga Piano'}</h3>
               <button className="modal-close" onClick={closeModal}>×</button>
             </div>
 
@@ -473,12 +687,18 @@ const ProgettoMansioneEnteManager = () => {
                     value={formData.progetto_id}
                     onChange={(e) => handleInputChange('progetto_id', e.target.value)}
                     required
+                    disabled={!editingAssociazione && Boolean(filters.progetto_id)}
                   >
                     <option value="">Seleziona un progetto</option>
                     {progetti.map(p => (
                       <option key={p.id} value={p.id}>{p.name}</option>
                     ))}
                   </select>
+                  {!editingAssociazione && filters.progetto_id ? (
+                    <small className="field-hint">
+                      Nuova riga ancorata al progetto attualmente selezionato.
+                    </small>
+                  ) : null}
                 </div>
 
                 {/* ENTE ATTUATORE */}
@@ -494,6 +714,11 @@ const ProgettoMansioneEnteManager = () => {
                       <option key={e.id} value={e.id}>{e.ragione_sociale}</option>
                     ))}
                   </select>
+                  {formData.progetto_id && progetti.find((progetto) => String(progetto.id) === String(formData.progetto_id))?.ente_attuatore_id ? (
+                    <small className="field-hint">
+                      Ente precompilato dal progetto. Puoi comunque modificarlo se il piano richiede una diversa copertura.
+                    </small>
+                  ) : null}
                 </div>
 
                 {/* MANSIONE */}
@@ -595,10 +820,10 @@ const ProgettoMansioneEnteManager = () => {
                     onChange={(e) => handleInputChange('tipo_contratto', e.target.value)}
                   >
                     <option value="">Seleziona tipo</option>
-                    <option value="Professionale">Professionale</option>
-                    <option value="Occasionale">Occasionale</option>
-                    <option value="Ordine di servizio">Ordine di servizio</option>
-                    <option value="Contratto a progetto">Contratto a progetto</option>
+                    <option value="professionale">Professionale</option>
+                    <option value="occasionale">Occasionale</option>
+                    <option value="ordine_servizio">Ordine di servizio</option>
+                    <option value="contratto_progetto">Contratto a progetto</option>
                   </select>
                 </div>
 
@@ -621,7 +846,7 @@ const ProgettoMansioneEnteManager = () => {
                       checked={formData.is_active}
                       onChange={(e) => handleInputChange('is_active', e.target.checked)}
                     />
-                    <span>Associazione attiva</span>
+                    <span>Riga piano attiva</span>
                   </label>
                 </div>
               </div>
@@ -631,7 +856,7 @@ const ProgettoMansioneEnteManager = () => {
                   Annulla
                 </button>
                 <button type="submit" className="btn-primary">
-                  {editingAssociazione ? 'Salva Modifiche' : 'Crea Associazione'}
+                  {editingAssociazione ? 'Salva Riga Piano' : 'Crea Riga Piano'}
                 </button>
               </div>
             </form>

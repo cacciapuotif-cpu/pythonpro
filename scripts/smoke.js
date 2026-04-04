@@ -19,9 +19,10 @@ const path = require('path');
 
 // Configurazione
 const BACKEND_HOST = process.env.BACKEND_HOST || 'localhost';
-const BACKEND_PORT = process.env.BACKEND_PORT || '8000';
+const BACKEND_PORT = process.env.BACKEND_PORT || '8001';
 const BASE_URL = `http://${BACKEND_HOST}:${BACKEND_PORT}`;
 const LOG_FILE = path.join(__dirname, '..', 'artifacts', 'smoke.log');
+const { execFileSync } = require('child_process');
 
 // Colori console
 const colors = {
@@ -116,6 +117,35 @@ function httpRequest(url, method = 'GET') {
   });
 }
 
+function checkBackupScheduler() {
+  try {
+    const output = execFileSync(
+      'docker',
+      ['compose', '-f', path.join(__dirname, '..', 'docker-compose.yml'), 'ps', '--format', 'json', 'backup_scheduler'],
+      { encoding: 'utf8' }
+    ).trim();
+
+    if (!output) {
+      return {
+        ok: false,
+        details: 'Servizio backup_scheduler non trovato',
+      };
+    }
+
+    const service = JSON.parse(output);
+    const running = service.State === 'running';
+    return {
+      ok: running,
+      details: `state=${service.State}, health=${service.Health || 'n/a'}`,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      details: error.message,
+    };
+  }
+}
+
 // Test definitions
 const tests = [
   {
@@ -157,7 +187,7 @@ async function runTests() {
   logger.log('='.repeat(60) + '\n', 'blue');
 
   logger.info(`Target: ${BASE_URL}`);
-  logger.info(`Tests da eseguire: ${tests.length}\n`);
+  logger.info(`Tests HTTP da eseguire: ${tests.length}\n`);
 
   let passedTests = 0;
   let failedTests = 0;
@@ -201,6 +231,19 @@ async function runTests() {
       }
       failedTests++;
     }
+  }
+
+  logger.log(`\n📋 Test: Backup Scheduler`, 'cyan');
+  logger.info('   Verifica che il servizio backup_scheduler sia in esecuzione');
+  const backupCheck = checkBackupScheduler();
+  if (backupCheck.ok) {
+    logger.success(`   Test PASSED`);
+    logger.info(`   ${backupCheck.details}`);
+    passedTests++;
+  } else {
+    logger.error(`   Test FAILED`);
+    logger.warning(`   ${backupCheck.details}`);
+    failedTests++;
   }
 
   // Summary

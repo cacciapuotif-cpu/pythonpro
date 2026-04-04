@@ -1,0 +1,196 @@
+.preventivi-manager {
+  padding: 1.5rem;
+  max-width: 1300px;
+  margin: 0 auto;
+}
+
+.preventivi-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.preventivi-header h2 { margin: 0 0 0.2rem; font-size: 1.4rem; color: var(--text-primary, #1a1a2e); }
+
+.preventivi-filters {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+}
+
+/* ── Table ── */
+.preventivi-table-wrap {
+  overflow-x: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+}
+
+.preventivi-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.preventivi-table th {
+  padding: 0.6rem 0.85rem;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  text-align: left;
+  border-bottom: 1px solid #e2e8f0;
+  white-space: nowrap;
+}
+
+.preventivi-table td {
+  padding: 0.65rem 0.85rem;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: middle;
+}
+
+.preventivi-table tr:last-child td { border-bottom: none; }
+.preventivi-table tr:hover td { background: #fafbff; }
+
+.right { text-align: right !important; }
+.bold { font-weight: 700; }
+.muted { color: #94a3b8; }
+
+/* ── Stato badge ── */
+.stato-badge {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+
+/* ── Row actions ── */
+.row-actions { display: flex; gap: 0.3rem; flex-wrap: wrap; }
+
+/* ── Link button ── */
+.link-btn {
+  background: none;
+  border: none;
+  color: #4361ee;
+  font-weight: 700;
+  cursor: pointer;
+  font-size: 0.875rem;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.link-btn:hover { color: #3a0ca3; }
+
+/* ── Pagination ── */
+.pagination {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  justify-content: center;
+  margin-top: 1rem;
+  font-size: 0.875rem;
+}
+.pagination button { padding: 0.35rem 0.75rem; }
+.pagination button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ── Modal dettaglio ── */
+.modal-xl { max-width: 860px; width: 95vw; }
+
+.dettaglio-meta {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 0.3rem;
+  flex-wrap: wrap;
+}
+
+/* ── Riga form ── */
+.riga-form-section {
+  background: #fafbff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.riga-form-section h4 {
+  margin: 0 0 0.75rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #4361ee;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.riga-form-grid {
+  display: grid;
+  grid-template-columns: 2fr 2fr 1fr 1.5fr 1fr 1.5fr;
+  gap: 0.6rem;
+  align-items: end;
+}
+
+@media (max-width: 700px) {
+  .riga-form-grid { grid-template-columns: 1fr 1fr; }
+}
+
+.riga-form-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.importo-preview {
+  font-weight: 700;
+  color: #16a34a;
+  font-size: 0.95rem;
+  padding: 0.45rem 0;
+}
+
+/* ── Righe table ── */
+.righe-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  margin-top: 0.5rem;
+}
+
+.righe-table th {
+  padding: 0.5rem 0.65rem;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 0.77rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.righe-table td {
+  padding: 0.55rem 0.65rem;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: middle;
+}
+
+.righe-table tfoot td {
+  border-top: 2px solid #4361ee;
+  border-bottom: none;
+  padding-top: 0.75rem;
+}
+
+.totale-cell {
+  font-size: 1rem;
+  color: #1e293b;
+}
+
+/* ── Button variants ── */
+.btn-info { background: #dbeafe; color: #1d4ed8; border-color: #bfdbfe; }
+.btn-info:hover { background: #bfdbfe; }
+.btn-success { background: #dcfce7; color: #16a34a; border-color: #bbf7d0; }
+.btn-success:hover { background: #bbf7d0; }

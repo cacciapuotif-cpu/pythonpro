@@ -4,6 +4,30 @@
  */
 
 /* RESET CSS - Normalizziamo gli stili di base del browser */
+:root {
+  --font-sans: "Segoe UI", "Inter", "Helvetica Neue", Arial, sans-serif;
+  --color-ink-strong: #16324f;
+  --color-ink: #23415f;
+  --color-ink-soft: #5d7288;
+  --color-surface: #f4f1ea;
+  --color-surface-elevated: rgba(255, 255, 255, 0.92);
+  --color-panel: #ffffff;
+  --color-panel-muted: #f7f9fc;
+  --color-border: rgba(24, 52, 79, 0.12);
+  --color-primary: #0f6c8d;
+  --color-primary-strong: #0d5874;
+  --color-accent: #d97925;
+  --color-success: #2f7d4a;
+  --color-warning: #b9770e;
+  --color-danger: #b94a48;
+  --color-info: #1e6ea7;
+  --shadow-soft: 0 18px 50px rgba(17, 43, 68, 0.08);
+  --shadow-card: 0 10px 24px rgba(15, 51, 80, 0.08);
+  --radius-lg: 28px;
+  --radius-md: 18px;
+  --radius-sm: 12px;
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -13,9 +37,11 @@
 /* STILI BASE HTML E BODY */
 html, body {
   height: 100%;
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  background-color: #f5f7fa;
-  color: #333;
+  font-family: var(--font-sans);
+  background:
+    radial-gradient(circle at top left, rgba(217, 121, 37, 0.12), transparent 30%),
+    linear-gradient(180deg, #f7f4ee 0%, #eef3f7 54%, #e7eef4 100%);
+  color: var(--color-ink);
   line-height: 1.6;
 }
 
@@ -30,7 +56,7 @@ html, body {
 h1, h2, h3, h4, h5, h6 {
   font-weight: 600;
   margin-bottom: 0.5em;
-  color: #2c3e50;
+  color: var(--color-ink-strong);
 }
 
 p {
@@ -39,13 +65,13 @@ p {
 
 /* LINK */
 a {
-  color: #3174ad;
+  color: var(--color-primary);
   text-decoration: none;
   transition: color 0.2s ease;
 }
 
 a:hover {
-  color: #2980b9;
+  color: var(--color-primary-strong);
   text-decoration: underline;
 }
 
@@ -69,7 +95,7 @@ input, select, textarea {
 }
 
 input:focus, select:focus, textarea:focus {
-  outline: 2px solid #3174ad;
+  outline: 2px solid var(--color-primary);
   outline-offset: 2px;
 }
 
@@ -89,7 +115,7 @@ input:focus, select:focus, textarea:focus {
 .mt-4 { margin-top: 2rem; }
 
 /* CLASSI PER STATI */
-.success { color: #28a745; }
-.error { color: #dc3545; }
-.warning { color: #ffc107; }
-.info { color: #17a2b8; }
+.success { color: var(--color-success); }
+.error { color: var(--color-danger); }
+.warning { color: var(--color-warning); }
+.info { color: var(--color-info); }

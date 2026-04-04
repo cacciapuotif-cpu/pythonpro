@@ -35,9 +35,9 @@ if %errorlevel% equ 0 (
     echo ========================================
     echo.
     echo Frontend:  http://localhost:3001
-    echo Backend:   http://localhost:8000
-    echo Database:  localhost:5433
-    echo Redis:     localhost:6379
+    echo Backend:   http://localhost:8001
+    echo Database:  localhost:5434
+    echo Redis:     localhost:6381
     echo.
     echo [*] Attendi 60 secondi per l'avvio completo
     echo.

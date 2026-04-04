@@ -48,6 +48,11 @@ def create_attendance(
             logger.info(f"Presenza registrata con successo: ID {result.id}")
             return result
 
+    except BusinessLogicError:
+        raise
+    except ValueError as e:
+        logger.warning(f"Validazione presenza fallita: {e}")
+        raise BusinessLogicError(str(e))
     except Exception as e:
         logger.error(f"Errore registrazione presenza: {e}")
         raise
@@ -93,10 +98,16 @@ def update_attendance(
     db: Session = Depends(get_db)
 ):
     """AGGIORNA UNA PRESENZA ESISTENTE"""
-    db_attendance = crud.update_attendance(db, attendance_id, attendance)
-    if db_attendance is None:
-        raise HTTPException(status_code=404, detail="Presenza non trovata")
-    return db_attendance
+    try:
+        db_attendance = crud.update_attendance(db, attendance_id, attendance)
+        if db_attendance is None:
+            raise HTTPException(status_code=404, detail="Presenza non trovata")
+        return db_attendance
+    except HTTPException:
+        raise
+    except ValueError as e:
+        logger.warning(f"Validazione aggiornamento presenza fallita: {e}")
+        raise BusinessLogicError(str(e))
 
 
 @router.delete("/{attendance_id}")

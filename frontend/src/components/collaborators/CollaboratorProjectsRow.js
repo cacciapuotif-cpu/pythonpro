@@ -9,12 +9,15 @@ const CollaboratorProjectsRow = ({
   projects,
   assignments,
   availableProjects,
+  currentUser,
   onAssignProject,
   onRemoveProject,
   onOpenAssignmentModal,
   onEditAssignment,
   onDownloadContract
 }) => {
+  const canManageProjectLinks = currentUser?.role === 'admin';
+
   // Ottieni assegnazioni per un collaboratore e progetto specifici
   const getAssignmentsForCollaboratorProject = (collaboratorId, projectId) => {
     return assignments.filter(
@@ -74,6 +77,7 @@ const CollaboratorProjectsRow = ({
                         className="small-action-btn remove-btn"
                         onClick={() => onRemoveProject(collaborator.id, project.id)}
                         title="Rimuovi progetto"
+                        disabled={!canManageProjectLinks}
                       >
                         ❌ Rimuovi
                       </button>
@@ -148,6 +152,13 @@ const CollaboratorProjectsRow = ({
                               {new Date(assignment.start_date).toLocaleDateString('it-IT')} → {new Date(assignment.end_date).toLocaleDateString('it-IT')}
                             </span>
                           </div>
+
+                          {assignment.contract_signed_date && (
+                            <div className="detail-item">
+                              <span className="detail-label">✍️ Firma Contratto:</span>
+                              <span>{new Date(assignment.contract_signed_date).toLocaleDateString('it-IT')}</span>
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -193,6 +204,7 @@ const CollaboratorProjectsRow = ({
                   }
                 }}
                 className="assign-project-select"
+                disabled={!canManageProjectLinks}
               >
                 <option value="">➕ Assegna nuovo progetto...</option>
                 {unassignedProjects.map(project => (

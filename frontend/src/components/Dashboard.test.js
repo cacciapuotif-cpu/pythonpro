@@ -1,331 +1,167 @@
-// =================================================================
-// FILE: Dashboard.test.js
-// =================================================================
-// SCOPO: Unit tests per componente Dashboard React
-//
-// Framework utilizzati:
-// - Jest: Test runner e assertion library
-// - React Testing Library: Utilità per testare componenti React
-// - @testing-library/user-event: Simulare interazioni utente
-//
-// ESECUZIONE:
-//   npm test Dashboard.test.js         # Esegui questi test
-//   npm test -- --coverage             # Con coverage
-//   npm test -- --watch                # Watch mode
-// =================================================================
-
 import React from 'react';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import Dashboard from './Dashboard';
+import apiService from '../services/apiService';
 
-// =================================================================
-// MOCK API SERVICE
-// =================================================================
-// Mock di apiService per evitare chiamate HTTP reali durante test
-// =================================================================
-
-// Mock del modulo intero
 jest.mock('../services/apiService', () => ({
-  getCollaborators: jest.fn(),
-  getProjects: jest.fn(),
-  getAttendances: jest.fn(),
-  getAssignments: jest.fn()
+  __esModule: true,
+  default: {
+    getSummaryReport: jest.fn(),
+    getTimesheetReport: jest.fn(),
+    getCollaborators: jest.fn(),
+    getProjects: jest.fn(),
+    getAssignments: jest.fn(),
+    getContractTemplates: jest.fn(),
+    getSystemMetrics: jest.fn(),
+  },
 }));
 
-// Import dopo il mock
-import * as apiService from '../services/apiService';
+const baseSummary = {
+  periodo: { from: null, to: null },
+  kpi_generali: {
+    totale_collaboratori: 2,
+    totale_progetti: 2,
+    totale_enti_attuatori: 1,
+    totale_ore_lavorate: 64,
+    totale_presenze: 8,
+  },
+  top_5_progetti: [{ id: 1, nome: 'Progetto Alpha', ore_totali: 40 }],
+  top_5_collaboratori: [{ id: 1, nome: 'Mario Rossi', ore_totali: 32 }],
+  distribuzione_contratti: [{ tipo: 'professionale', numero: 1 }],
+};
 
-// =================================================================
-// TEST SETUP E TEARDOWN
-// =================================================================
+const baseCollaborators = [
+  {
+    id: 1,
+    first_name: 'Mario',
+    last_name: 'Rossi',
+    documento_identita_filename: null,
+    documento_identita_scadenza: null,
+  },
+  {
+    id: 2,
+    first_name: 'Luigi',
+    last_name: 'Verdi',
+    documento_identita_filename: 'carta.pdf',
+    documento_identita_scadenza: '2099-12-31T00:00:00Z',
+  },
+];
+
+const baseProjects = [
+  { id: 1, name: 'Progetto Alpha', status: 'active', end_date: '2099-12-31T00:00:00Z' },
+  { id: 2, name: 'Progetto Beta', status: 'draft', end_date: null },
+];
+
+const baseAssignments = [
+  {
+    id: 11,
+    collaborator_id: 1,
+    project_id: 1,
+    contract_type: null,
+    assigned_hours: 24,
+    hourly_rate: 25,
+    start_date: '2026-03-01T00:00:00Z',
+    end_date: '2026-03-20T00:00:00Z',
+    is_active: true,
+  },
+];
 
 beforeEach(() => {
-  // Reset mocks prima di ogni test per isolamento
   jest.clearAllMocks();
-});
-
-afterEach(() => {
-  // Cleanup dopo ogni test
-  jest.restoreAllMocks();
-});
-
-// =================================================================
-// MOCK DATA
-// =================================================================
-// Dati di test che simulano risposte API
-// =================================================================
-
-const mockCollaborators = [
-  { id: 1, first_name: 'Mario', last_name: 'Rossi', email: 'mario@test.com', position: 'Developer' },
-  { id: 2, first_name: 'Luigi', last_name: 'Verdi', email: 'luigi@test.com', position: 'Designer' }
-];
-
-const mockProjects = [
-  { id: 1, name: 'Project Alpha', status: 'active', start_date: '2025-01-01', end_date: '2025-12-31' },
-  { id: 2, name: 'Project Beta', status: 'completed', start_date: '2024-01-01', end_date: '2024-12-31' }
-];
-
-const mockAttendances = [
-  { id: 1, collaborator_id: 1, project_id: 1, date: '2025-09-30', hours: 8, notes: 'Test attendance' }
-];
-
-// =================================================================
-// TEST SUITE: DASHBOARD RENDERING
-// =================================================================
-
-describe('Dashboard Component', () => {
-  describe('Initial Rendering', () => {
-    test('should render dashboard title', () => {
-      // Arrange: configura mocks per risposte vuote
-      apiService.getCollaborators.mockResolvedValue([]);
-      apiService.getProjects.mockResolvedValue([]);
-      apiService.getAttendances.mockResolvedValue([]);
-
-      // Act: renderizza componente
-      render(<Dashboard />);
-
-      // Assert: verifica titolo presente
-      const titleElement = screen.getByText(/dashboard/i);
-      expect(titleElement).toBeInTheDocument();
-    });
-
-    test('should show loading state initially', () => {
-      // Mock con delay per simulare caricamento
-      apiService.getCollaborators.mockImplementation(() =>
-        new Promise(resolve => setTimeout(() => resolve([]), 100))
-      );
-      apiService.getProjects.mockResolvedValue([]);
-      apiService.getAttendances.mockResolvedValue([]);
-
-      render(<Dashboard />);
-
-      // Durante caricamento, dovrebbe mostrare indicator
-      // (assumendo che Dashboard abbia un loading indicator)
-      // Modifica in base alla tua implementazione
-      expect(screen.queryByText(/caricamento/i) || screen.queryByRole('progressbar')).toBeTruthy();
-    });
+  apiService.getSummaryReport.mockResolvedValue(baseSummary);
+  apiService.getTimesheetReport.mockResolvedValue({
+    totali: {
+      ore_totali: 64,
+      numero_presenze: 8,
+    },
   });
-
-  // =================================================================
-  // TEST SUITE: DATA FETCHING
-  // =================================================================
-
-  describe('Data Fetching', () => {
-    test('should fetch and display collaborators', async () => {
-      // Arrange: mock con dati
-      apiService.getCollaborators.mockResolvedValue(mockCollaborators);
-      apiService.getProjects.mockResolvedValue([]);
-      apiService.getAttendances.mockResolvedValue([]);
-
-      // Act: renderizza
-      render(<Dashboard />);
-
-      // Assert: verifica chiamata API
-      expect(apiService.getCollaborators).toHaveBeenCalledTimes(1);
-
-      // Assert: attendi che dati compaiano nel DOM
-      await waitFor(() => {
-        expect(screen.getByText(/mario/i)).toBeInTheDocument();
-        expect(screen.getByText(/luigi/i)).toBeInTheDocument();
-      });
-    });
-
-    test('should fetch and display projects', async () => {
-      apiService.getCollaborators.mockResolvedValue([]);
-      apiService.getProjects.mockResolvedValue(mockProjects);
-      apiService.getAttendances.mockResolvedValue([]);
-
-      render(<Dashboard />);
-
-      expect(apiService.getProjects).toHaveBeenCalledTimes(1);
-
-      await waitFor(() => {
-        expect(screen.getByText(/project alpha/i)).toBeInTheDocument();
-        expect(screen.getByText(/project beta/i)).toBeInTheDocument();
-      });
-    });
-
-    test('should handle API errors gracefully', async () => {
-      // Arrange: mock con errore
-      const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
-      apiService.getCollaborators.mockRejectedValue(new Error('API Error'));
-      apiService.getProjects.mockResolvedValue([]);
-      apiService.getAttendances.mockResolvedValue([]);
-
-      // Act: renderizza
-      render(<Dashboard />);
-
-      // Assert: verifica gestione errore
-      await waitFor(() => {
-        // Assumendo che Dashboard mostri messaggio errore
-        // Modifica in base alla tua implementazione
-        expect(screen.queryByText(/errore/i) || screen.queryByRole('alert')).toBeTruthy();
-      });
-
-      consoleError.mockRestore();
-    });
-  });
-
-  // =================================================================
-  // TEST SUITE: STATISTICS CALCULATION
-  // =================================================================
-
-  describe('Statistics Display', () => {
-    test('should display correct count of collaborators', async () => {
-      apiService.getCollaborators.mockResolvedValue(mockCollaborators);
-      apiService.getProjects.mockResolvedValue([]);
-      apiService.getAttendances.mockResolvedValue([]);
-
-      render(<Dashboard />);
-
-      await waitFor(() => {
-        // Cerca contatore collaboratori (adatta al tuo markup)
-        const countElement = screen.getByText(/2.*collaboratori/i) ||
-                            screen.getByText(/collaboratori.*2/i);
-        expect(countElement).toBeInTheDocument();
-      });
-    });
-
-    test('should display correct count of active projects', async () => {
-      apiService.getCollaborators.mockResolvedValue([]);
-      apiService.getProjects.mockResolvedValue(mockProjects);
-      apiService.getAttendances.mockResolvedValue([]);
-
-      render(<Dashboard />);
-
-      await waitFor(() => {
-        // Solo 1 progetto attivo (Project Alpha)
-        const activeCount = screen.getByText(/1.*attiv/i) ||
-                           screen.getByText(/attiv.*1/i);
-        expect(activeCount).toBeInTheDocument();
-      });
-    });
-  });
-
-  // =================================================================
-  // TEST SUITE: USER INTERACTIONS
-  // =================================================================
-
-  describe('User Interactions', () => {
-    test('should refresh data when refresh button clicked', async () => {
-      apiService.getCollaborators.mockResolvedValue(mockCollaborators);
-      apiService.getProjects.mockResolvedValue([]);
-      apiService.getAttendances.mockResolvedValue([]);
-
-      render(<Dashboard />);
-
-      // Attendi render iniziale
-      await waitFor(() => {
-        expect(apiService.getCollaborators).toHaveBeenCalledTimes(1);
-      });
-
-      // Simula click su bottone refresh (se presente)
-      const refreshButton = screen.queryByRole('button', { name: /refresh|aggiorna/i });
-      if (refreshButton) {
-        fireEvent.click(refreshButton);
-
-        // Verifica che API sia chiamata di nuovo
-        await waitFor(() => {
-          expect(apiService.getCollaborators).toHaveBeenCalledTimes(2);
-        });
-      }
-    });
-  });
-
-  // =================================================================
-  // TEST SUITE: CONDITIONAL RENDERING
-  // =================================================================
-
-  describe('Conditional Rendering', () => {
-    test('should show empty state when no data', async () => {
-      apiService.getCollaborators.mockResolvedValue([]);
-      apiService.getProjects.mockResolvedValue([]);
-      apiService.getAttendances.mockResolvedValue([]);
-
-      render(<Dashboard />);
-
-      await waitFor(() => {
-        // Verifica messaggio "nessun dato" o simile
-        const emptyState = screen.queryByText(/nessun.*collaboratore/i) ||
-                          screen.queryByText(/nessun.*progetto/i);
-        expect(emptyState).toBeTruthy();
-      });
-    });
-
-    test('should show data when available', async () => {
-      apiService.getCollaborators.mockResolvedValue(mockCollaborators);
-      apiService.getProjects.mockResolvedValue(mockProjects);
-      apiService.getAttendances.mockResolvedValue(mockAttendances);
-
-      render(<Dashboard />);
-
-      await waitFor(() => {
-        expect(screen.getByText(/mario/i)).toBeInTheDocument();
-        expect(screen.getByText(/project alpha/i)).toBeInTheDocument();
-      });
-    });
+  apiService.getCollaborators.mockResolvedValue(baseCollaborators);
+  apiService.getProjects.mockResolvedValue(baseProjects);
+  apiService.getAssignments.mockResolvedValue(baseAssignments);
+  apiService.getContractTemplates.mockResolvedValue([
+    { id: 8, tipo_contratto: 'professionale', is_default: true, is_active: true },
+  ]);
+  apiService.getSystemMetrics.mockResolvedValue({
+    dashboard_metrics: {
+      total_requests: 10,
+    },
   });
 });
 
-// =================================================================
-// TEST SUITE: SNAPSHOT TESTING
-// =================================================================
-
-describe('Dashboard Snapshots', () => {
-  test('should match snapshot with data', async () => {
-    apiService.getCollaborators.mockResolvedValue(mockCollaborators);
-    apiService.getProjects.mockResolvedValue(mockProjects);
-    apiService.getAttendances.mockResolvedValue([]);
-
-    const { container } = render(<Dashboard />);
+describe('Dashboard', () => {
+  test('renderizza il cockpit operativo con KPI e ranking', async () => {
+    render(<Dashboard currentUser={{ role: 'admin' }} />);
 
     await waitFor(() => {
-      expect(screen.getByText(/mario/i)).toBeInTheDocument();
+      expect(screen.getByText(/dashboard e compliance center/i)).toBeInTheDocument();
+      expect(screen.getByText('Collaboratori')).toBeInTheDocument();
+      expect(screen.getByText('Progetto Alpha')).toBeInTheDocument();
+      expect(screen.getByText('Mario Rossi')).toBeInTheDocument();
     });
 
-    // Snapshot test: cattura HTML renderizzato
-    // Se cambi volontariamente UI, aggiorna con: npm test -- -u
-    expect(container).toMatchSnapshot();
+    expect(apiService.getSystemMetrics).toHaveBeenCalledTimes(1);
+  });
+
+  test('mostra alert documentali e di assegnazione', async () => {
+    render(<Dashboard currentUser={{ role: 'operator' }} />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/documento identita assente/i)).toBeInTheDocument();
+      expect(screen.getByText(/assegnazione senza tipo contratto/i)).toBeInTheDocument();
+      expect(screen.getByText(/vista operativa del team/i)).toBeInTheDocument();
+    });
+
+    expect(apiService.getSystemMetrics).not.toHaveBeenCalled();
+  });
+
+  test('segnala template contrattuali mancanti per i tipi usati', async () => {
+    apiService.getAssignments.mockResolvedValue([
+      {
+        id: 12,
+        collaborator_id: 1,
+        project_id: 1,
+        contract_type: 'contratto_progetto',
+        assigned_hours: 24,
+        hourly_rate: 25,
+        start_date: '2026-03-01T00:00:00Z',
+        end_date: '2026-03-20T00:00:00Z',
+        is_active: true,
+      },
+    ]);
+    apiService.getContractTemplates.mockResolvedValue([
+      { id: 8, tipo_contratto: 'professionale', is_default: true, is_active: true },
+    ]);
+
+    render(<Dashboard currentUser={{ role: 'admin' }} />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/template default mancante/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/contratto_progetto/i).length).toBeGreaterThan(0);
+    });
+  });
+
+  test('mostra il focus di governo per admin', async () => {
+    render(<Dashboard currentUser={{ role: 'admin' }} />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/vista di governo del sistema/i)).toBeInTheDocument();
+      expect(screen.getByText(/metriche backend/i)).toBeInTheDocument();
+    });
+  });
+
+  test('consente refresh manuale del cockpit', async () => {
+    render(<Dashboard currentUser={{ role: 'admin' }} />);
+
+    await waitFor(() => {
+      expect(apiService.getSummaryReport).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole('button', { name: /aggiorna cockpit/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /aggiorna cockpit/i }));
+
+    await waitFor(() => {
+      expect(apiService.getSummaryReport).toHaveBeenCalledTimes(2);
+    });
   });
 });
-
-// =================================================================
-// NOTE PER ESECUZIONE
-// =================================================================
-/*
-COMANDI UTILI:
-
-# Esegui test Dashboard
-npm test Dashboard.test.js
-
-# Esegui con coverage
-npm test -- --coverage --coveragePathIgnorePatterns=node_modules
-
-# Watch mode (ri-esegue al salvataggio)
-npm test -- --watch
-
-# Update snapshots
-npm test -- -u
-
-# Verbose output
-npm test -- --verbose
-
-# Run solo test che matchano pattern
-npm test -- -t "should fetch"
-
-OUTPUT ATTESO:
- PASS  src/components/Dashboard.test.js
-  Dashboard Component
-    Initial Rendering
-      ✓ should render dashboard title (XX ms)
-      ✓ should show loading state initially (XX ms)
-    Data Fetching
-      ✓ should fetch and display collaborators (XX ms)
-      ✓ should fetch and display projects (XX ms)
-      ✓ should handle API errors gracefully (XX ms)
-    ...
-
-Test Suites: 1 passed, 1 total
-Tests:       X passed, X total
-*/

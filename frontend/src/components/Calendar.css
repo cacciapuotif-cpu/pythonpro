@@ -31,6 +31,79 @@
   margin: 0;
 }
 
+.calendar-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.stat-item {
+  padding: 14px 18px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(24, 52, 79, 0.08);
+  box-shadow: var(--shadow-card);
+}
+
+.stat-number {
+  display: block;
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: var(--color-ink-strong);
+}
+
+.stat-label {
+  display: block;
+  margin-top: 6px;
+  color: var(--color-ink-soft);
+}
+
+.calendar-ops-board {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.calendar-ops-card {
+  padding: 16px 18px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(24, 52, 79, 0.08);
+  box-shadow: var(--shadow-card);
+}
+
+.calendar-ops-card.highlight {
+  background: linear-gradient(135deg, #16324f 0%, #0f6c8d 100%);
+  color: white;
+}
+
+.calendar-ops-card span,
+.calendar-ops-card small {
+  display: block;
+}
+
+.calendar-ops-card strong {
+  display: block;
+  margin: 8px 0 6px;
+  font-size: 1.7rem;
+}
+
+.calendar-agenda-list,
+.calendar-load-list {
+  list-style: none;
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.calendar-agenda-list li,
+.calendar-load-list li {
+  display: grid;
+  gap: 2px;
+}
+
 /* LEGENDA DEI PROGETTI */
 .projects-legend {
   margin-bottom: 20px;
@@ -262,6 +335,11 @@
 
 /* RESPONSIVE DESIGN */
 @media (max-width: 768px) {
+  .calendar-stats,
+  .calendar-ops-board {
+    grid-template-columns: 1fr;
+  }
+
   .calendar-container {
     padding: 10px;
   }

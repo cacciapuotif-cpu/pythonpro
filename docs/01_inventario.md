@@ -24,7 +24,7 @@
 - **Node**: 18
 
 ### Orchestrazione
-- **Docker Compose**: Stack completo con 4 servizi
+- **Docker Compose**: Stack completo con 5 servizi
 - **Containerizzazione**: Docker Desktop per Windows
 
 ---
@@ -90,30 +90,34 @@ C:\pythonpro/
 ### Servizi Attivi (docker-compose.yml)
 
 1. **db** (PostgreSQL 15)
-   - Container: `gestionale_db`
-   - Porta: `5433:5432`
+   - Container: `pythonpro_db`
+   - Porta: `5434:5432`
    - Status: **HEALTHY** ✅
-   - Volume: `gestionale_db_data`
+   - Volume: `pythonpro_db_data`
 
 2. **redis** (Redis 7)
-   - Container: `gestionale_redis`
-   - Porta: `6379:6379`
+   - Container: `pythonpro_redis`
+   - Porta: `6381:6379`
    - Status: **HEALTHY** ✅
-   - Volume: `gestionale_redis_data`
+   - Volume: `pythonpro_redis_data`
 
 3. **backend** (FastAPI)
-   - Container: `gestionale_backend`
-   - Porta: `8000:8000`
-   - Status: **RESTARTING (crash loop)** ❌
-   - Causa: `ModuleNotFoundError: No module named 'pydantic_settings'`
+   - Container: `pythonpro_backend`
+   - Porta: `8001:8000`
+   - Status: **HEALTHY** ✅
    - Volume bind: `./backend:/app`
 
 4. **frontend** (React + Nginx)
-   - Container: `gestionale_frontend`
+   - Container: `pythonpro_frontend`
    - Porta: `3001:80`
-   - Status: **UNHEALTHY** ⚠️
+   - Status: **HEALTHY** ✅
    - Build: Multi-stage (node build + nginx serve)
    - Proxy: `/api/` → `backend:8000`
+
+5. **backup_scheduler** (CLI scheduler)
+   - Container: `pythonpro_backup_scheduler`
+   - Status: **RUNNING** ✅
+   - Directory backup: `/app/backups`
 
 ---
 
@@ -128,7 +132,7 @@ C:\pythonpro/
 - `backend/Dockerfile` - Multi-stage build
 - `backend/entrypoint.sh` - Init script (wait-for-db, migrate, start)
 - `backend/main.py` - Entry point principale
-- `backend/app/main.py` - Entry point alternativo (in uso dal Dockerfile!)
+- `backend/app/main.py` - Entry point alternativo (non primario)
 - `backend/requirements.txt` - **INCOMPLETO** (manca pydantic-settings)
 - `backend/alembic.ini` - Configurazione migrazioni
 - `backend/.env` - Config locale (usa SQLite, non PostgreSQL!)
@@ -137,7 +141,7 @@ C:\pythonpro/
 - `frontend/Dockerfile` - Multi-stage (build + nginx)
 - `frontend/nginx.conf` - Reverse proxy config
 - `frontend/src/services/api.js` - API client
-- `frontend/.env.local` - Config dev (REACT_APP_API_URL=http://localhost:8000)
+- `frontend/.env.local` - Config dev (REACT_APP_API_URL=http://localhost:8001)
 - `frontend/package.json` - Dipendenze npm
 
 ### Migrations
@@ -150,16 +154,15 @@ C:\pythonpro/
 
 ### 🔴 CRITICI (bloccanti)
 
-1. **Backend in crash loop**
-   - Errore: `ModuleNotFoundError: No module named 'pydantic_settings'`
-   - File: `backend/app/core/settings.py`
-   - Causa: requirements.txt incompleto
-   - Impatto: Backend non parte, API non disponibile
+1. **Nota storica su backend/app**
+   - La struttura `backend/app` esiste ancora ma non e` il target operativo principale
+   - Il backend reale attivo e` `backend/main.py`
+   - L'automazione e la documentazione operativa sono state riallineate a `main:app`
 
 2. **Confusione entry point backend**
    - Esistono DUE main.py: `backend/main.py` e `backend/app/main.py`
-   - L'entrypoint.sh usa `app.main:app` (directory app/)
-   - Il Dockerfile monta `./backend:/app` creando conflitti
+   - L'entrypoint operativo usa `main:app`
+   - `backend/app/main.py` e` da considerare struttura alternativa
 
 3. **Migrations Alembic mancanti**
    - Directory `backend/migrations/` quasi vuota
@@ -174,12 +177,10 @@ C:\pythonpro/
 ### 🟡 IMPORTANTI (da risolvere)
 
 5. **Frontend unhealthy**
-   - Healthcheck cerca `/healthz` ma riceve 200 ok
-   - Probabilmente falso positivo, frontend risponde correttamente
-   - Da verificare nginx.conf healthcheck
+   - Problema storico: attualmente il frontend risulta operativo nello stack principale
 
 6. **API base URL inconsistente**
-   - Frontend .env.local: `http://localhost:8000` (sviluppo diretto)
+   - Frontend .env.local: `http://localhost:8001` (sviluppo diretto)
    - api.js: usa `/api` come fallback (corretto per produzione Docker)
    - nginx.conf proxy: `/api/` → `backend:8000`
    - Funziona in produzione Docker, ma confuso per dev locale
@@ -223,11 +224,12 @@ C:\pythonpro/
 ## 📊 Stato Corrente Container
 
 ```bash
-CONTAINER          STATUS                    PORTS
-gestionale_db      Up 3 minutes (healthy)    5433:5432
-gestionale_redis   Up 3 minutes (healthy)    6379:6379
-gestionale_backend Restarting (crash loop)   8000:8000
-gestionale_frontend Up 3 minutes (unhealthy) 3001:80
+CONTAINER                   STATUS              PORTS
+pythonpro_db               Up (healthy)        5434:5432
+pythonpro_redis            Up (healthy)        6381:6379
+pythonpro_backend          Up (healthy)        8001:8000
+pythonpro_frontend         Up (healthy)        3001:80
+pythonpro_backup_scheduler Up                  -
 ```
 
 ---
@@ -235,7 +237,7 @@ gestionale_frontend Up 3 minutes (unhealthy) 3001:80
 ## 🎯 Endpoint Previsti
 
 ### Backend API
-- Base URL: `http://localhost:8000`
+- Base URL: `http://localhost:8001`
 - Health: `GET /health` (presente in main.py:1373)
 - Docs: `GET /docs` (Swagger UI)
 - API endpoints: `/collaborators/`, `/projects/`, `/attendances/`, `/assignments/`, ecc.

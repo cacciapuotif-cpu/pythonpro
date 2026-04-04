@@ -1,0 +1,88 @@
+.agenzie-manager {
+  padding: 1.5rem;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.agenzie-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.agenzie-header h2 {
+  margin: 0 0 0.25rem;
+  font-size: 1.4rem;
+  color: var(--text-primary, #1a1a2e);
+}
+
+.agenzie-count {
+  font-size: 0.85rem;
+  color: var(--text-secondary, #666);
+}
+
+.agenzie-toolbar {
+  margin-bottom: 1.25rem;
+}
+
+.agenzie-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1rem;
+}
+
+.agenzia-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 1rem 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  transition: box-shadow 0.2s;
+}
+
+.agenzia-card:hover {
+  box-shadow: 0 4px 16px rgba(0,0,0,0.07);
+}
+
+.agenzia-card.inactive {
+  opacity: 0.55;
+  background: #f9f9f9;
+}
+
+.agenzia-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 1rem;
+}
+
+.agenzia-field {
+  font-size: 0.85rem;
+  color: #555;
+}
+
+.agenzia-note {
+  font-size: 0.8rem;
+  color: #888;
+  font-style: italic;
+  margin-top: 0.25rem;
+}
+
+.agenzia-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.empty-state {
+  grid-column: 1/-1;
+  text-align: center;
+  padding: 3rem;
+  color: #999;
+}

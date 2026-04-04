@@ -16,11 +16,11 @@ echo.
 :: Vai nella directory dello script
 cd /d "%~dp0"
 
-echo [1/2] Avvio Backend FastAPI (porta 8000)...
+echo [1/2] Avvio Backend FastAPI (porta 8001)...
 echo.
 
 :: Avvia il backend in una nuova finestra
-start "Backend - Gestionale" cmd /k "cd /d %~dp0backend && venv\Scripts\python.exe -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
+start "Backend - Gestionale" cmd /k "cd /d %~dp0backend && venv\Scripts\python.exe -m uvicorn main:app --host 0.0.0.0 --port 8001 --reload"
 
 :: Aspetta 8 secondi per far partire il backend
 echo Attendo 8 secondi per l'avvio del backend...
@@ -42,9 +42,9 @@ echo ========================================
 echo   GESTIONALE AVVIATO CON SUCCESSO!
 echo ========================================
 echo.
-echo Backend:  http://localhost:8000
+echo Backend:  http://localhost:8001
 echo Frontend: http://localhost:3001
-echo API Docs: http://localhost:8000/docs
+echo API Docs: http://localhost:8001/docs
 echo.
 echo Verifica che entrambe le finestre siano aperte:
 echo - "Backend - Gestionale"  (Python/FastAPI)

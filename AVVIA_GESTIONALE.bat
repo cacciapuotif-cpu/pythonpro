@@ -19,17 +19,17 @@ echo.
 
 REM Ferma eventuali container in esecuzione
 echo Arresto container esistenti...
-docker-compose down 2>nul
+docker compose down 2>nul
 
 REM Ricostruisce le immagini con le nuove configurazioni
 echo.
 echo Ricostruzione immagini Docker...
-docker-compose build --no-cache
+docker compose build --no-cache
 
 REM Avvia tutti i servizi
 echo.
 echo Avvio servizi...
-docker-compose up -d
+docker compose up -d
 
 REM Attendi che i servizi siano pronti
 echo.
@@ -42,7 +42,7 @@ echo.
 echo ========================================
 echo   STATO SERVIZI
 echo ========================================
-docker-compose ps
+docker compose ps
 
 echo.
 echo ========================================
@@ -50,11 +50,11 @@ echo   IL GESTIONALE E' PRONTO!
 echo ========================================
 echo.
 echo Frontend: http://localhost:3001
-echo Backend API: http://localhost:8000/docs
-echo Database: localhost:5433
+echo Backend API: http://localhost:8001/docs
+echo Database: localhost:5434
 echo.
-echo Per vedere i log: docker-compose logs -f
-echo Per fermare: docker-compose down
+echo Per vedere i log: docker compose logs -f
+echo Per fermare: docker compose down
 echo.
 
 REM Apri il browser

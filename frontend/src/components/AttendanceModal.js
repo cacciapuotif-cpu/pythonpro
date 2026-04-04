@@ -301,6 +301,37 @@ const AttendanceModal = ({
       }
     }
 
+    // Validazione periodo di attività dell'assegnazione
+    if (formData.date) {
+      // Usa timestamp numerici per confronto sicuro (no dipendenze da metodi moment avanzati)
+      const presenzaTs = new Date(formData.date + 'T00:00:00').getTime();
+
+      const assignmentDaControllare = formData.assignment_id
+        ? filteredAssignments.filter(a => a.id === parseInt(formData.assignment_id))
+        : filteredAssignments;
+
+      if (assignmentDaControllare.length > 0) {
+        const dentroAlmenoUna = assignmentDaControllare.some(a => {
+          if (!a.start_date || !a.end_date) return true;
+          const s = new Date(a.start_date.split('T')[0] + 'T00:00:00').getTime();
+          const e = new Date(a.end_date.split('T')[0] + 'T23:59:59').getTime();
+          return presenzaTs >= s && presenzaTs <= e;
+        });
+
+        if (!dentroAlmenoUna) {
+          const periodi = assignmentDaControllare
+            .filter(a => a.start_date && a.end_date)
+            .map(a => {
+              const s = moment(a.start_date).format('DD/MM/YYYY');
+              const e = moment(a.end_date).format('DD/MM/YYYY');
+              return `${s} - ${e}`;
+            })
+            .join(', ');
+          newErrors.date = `Data fuori dal periodo di attività${periodi ? ` (${periodi})` : ''}`;
+        }
+      }
+    }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;  // true se non ci sono errori
   };
@@ -457,9 +488,9 @@ const AttendanceModal = ({
                 disabled={loading}
               >
                 <option value="">Seleziona collaboratore...</option>
-                {collaborators.map(collaborator => (
+                {[...collaborators].sort((a, b) => (a.last_name || '').localeCompare(b.last_name || '', 'it')).map(collaborator => (
                   <option key={collaborator.id} value={collaborator.id}>
-                    {collaborator.first_name} {collaborator.last_name}
+                    {collaborator.last_name} {collaborator.first_name}
                   </option>
                 ))}
               </select>

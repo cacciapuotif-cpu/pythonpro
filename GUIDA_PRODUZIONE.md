@@ -66,12 +66,12 @@ Doppio clic su AVVIA_GESTIONALE.bat
 
 ### URL Servizi
 - **Frontend**: http://localhost:3001
-- **Backend API**: http://localhost:8000/docs
-- **Database**: localhost:5433
+- **Backend API**: http://localhost:8001/docs
+- **Database**: localhost:5434
 
 ### Credenziali Database
 - **Host**: localhost
-- **Porta**: 5433
+- **Porta**: 5434
 - **Database**: gestionale
 - **User**: admin
 - **Password**: password123
@@ -155,7 +155,7 @@ Il sistema si auto-monitora ogni 5 minuti:
 
 ### Frontend non carica
 1. Attendi 2 minuti (React compila)
-2. Verifica backend: http://localhost:8000/health
+2. Verifica backend: http://localhost:8001/health
 3. Riavvia frontend: `docker-compose restart frontend`
 4. Controlla log: `docker-compose logs frontend`
 
@@ -167,7 +167,7 @@ Il sistema si auto-monitora ogni 5 minuti:
 
 ### Database non connesso
 1. Controlla container: `docker ps | findstr db`
-2. Verifica porta: `netstat -ano | findstr :5433`
+2. Verifica porta: `netstat -ano | findstr :5434`
 3. Test connessione: `docker exec pythonpro-db-1 psql -U admin -d gestionale -c "SELECT 1;"`
 
 ### Errore "migrazioni mancanti"

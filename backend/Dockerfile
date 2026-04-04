@@ -78,7 +78,7 @@ USER appuser
 # Health check per Docker
 # Verifica che l'applicazione risponda su /health ogni 30s
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:8000/api/health || exit 1
+    CMD curl -f http://localhost:8000/health || exit 1
 
 # Esponi porta applicazione
 EXPOSE 8000
@@ -87,7 +87,7 @@ EXPOSE 8000
 ENTRYPOINT ["./entrypoint.sh"]
 
 # Comando di default (può essere sovrascritto)
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 # ============================================================
 # BUILD INSTRUCTIONS:

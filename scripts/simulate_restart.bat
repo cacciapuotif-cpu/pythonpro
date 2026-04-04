@@ -10,16 +10,20 @@ echo ========================================
 echo SIMULAZIONE RIAVVIO PC - TEST PERSISTENZA
 echo ========================================
 echo.
+set BACKEND_URL=http://localhost:8001
+
+if not exist ..\_fix_results mkdir ..\_fix_results
+if not exist ..\_fix_results\logs mkdir ..\_fix_results\logs
 
 REM Step 1: Salva stato corrente
 echo [1/6] Salvando stato attuale del sistema...
-curl -s http://localhost:8000/health > ..\_fix_results\logs\health_before_restart.json
-docker-compose ps > ..\_fix_results\logs\containers_before_restart.txt
+curl -s %BACKEND_URL%/health > ..\_fix_results\logs\health_before_restart.json
+docker compose ps > ..\_fix_results\logs\containers_before_restart.txt
 echo    ✓ Stato salvato
 
 REM Step 2: Crea dati di test
 echo [2/6] Creando dati di test per verifica persistenza...
-curl -s -X POST http://localhost:8000/collaborators/ ^
+curl -s -X POST %BACKEND_URL%/collaborators/ ^
   -H "Content-Type: application/json" ^
   -d "{\"first_name\":\"Test\",\"last_name\":\"Restart\",\"email\":\"test.restart@test.com\",\"phone\":\"1234567890\",\"position\":\"Test\"}" ^
   > ..\_fix_results\logs\test_data_created.json
@@ -27,7 +31,7 @@ echo    ✓ Dati di test creati
 
 REM Step 3: Stop completo (simula shutdown PC)
 echo [3/6] Fermando tutti i container (simula shutdown PC)...
-docker-compose stop
+docker compose stop
 echo    ✓ Tutti i container fermati
 
 REM Pausa per simulare PC spento
@@ -37,7 +41,7 @@ echo    ✓ Pausa completata
 
 REM Step 4: Riavvio (simula boot PC)
 echo [5/6] Riavviando container (simula boot PC)...
-docker-compose start
+docker compose start
 echo    ✓ Container riavviati
 
 REM Attendi che i servizi siano pronti
@@ -49,12 +53,12 @@ echo.
 echo ========================================
 echo VERIFICA STATO POST-RIAVVIO
 echo ========================================
-curl -s http://localhost:8000/health > ..\_fix_results\logs\health_after_restart.json
-docker-compose ps > ..\_fix_results\logs\containers_after_restart.txt
+curl -s %BACKEND_URL%/health > ..\_fix_results\logs\health_after_restart.json
+docker compose ps > ..\_fix_results\logs\containers_after_restart.txt
 
 echo.
 echo Testando persistenza dati...
-curl -s http://localhost:8000/collaborators/ > ..\_fix_results\logs\data_after_restart.json
+curl -s %BACKEND_URL%/collaborators/ > ..\_fix_results\logs\data_after_restart.json
 
 echo.
 echo ========================================

@@ -196,6 +196,59 @@ const Calendar = memo(() => {
     }));
   }, [projects.data, attendances.data, getProjectColor]);
 
+  const operationsBoard = useMemo(() => {
+    const now = new Date();
+    const startOfToday = new Date(now);
+    startOfToday.setHours(0, 0, 0, 0);
+    const endOfToday = new Date(now);
+    endOfToday.setHours(23, 59, 59, 999);
+
+    const startOfWeek = moment(now).startOf('week').toDate();
+    const endOfWeek = moment(now).endOf('week').toDate();
+
+    const todayAttendances = attendances.data.filter((attendance) => {
+      const start = new Date(attendance.start_time);
+      return start >= startOfToday && start <= endOfToday;
+    });
+
+    const weekAttendances = attendances.data.filter((attendance) => {
+      const start = new Date(attendance.start_time);
+      return start >= startOfWeek && start <= endOfWeek;
+    });
+
+    const todayHours = todayAttendances.reduce((sum, attendance) => sum + Number(attendance.hours || 0), 0);
+    const weekHours = weekAttendances.reduce((sum, attendance) => sum + Number(attendance.hours || 0), 0);
+
+    const todayAgenda = todayAttendances
+      .slice()
+      .sort((left, right) => new Date(left.start_time) - new Date(right.start_time))
+      .slice(0, 5);
+
+    const collaboratorLoad = weekAttendances.reduce((accumulator, attendance) => {
+      const key = attendance.collaborator_id;
+      accumulator[key] = (accumulator[key] || 0) + Number(attendance.hours || 0);
+      return accumulator;
+    }, {});
+
+    const heavyLoad = Object.entries(collaboratorLoad)
+      .sort((left, right) => right[1] - left[1])
+      .slice(0, 3)
+      .map(([collaboratorId, hours]) => ({
+        collaboratorId: Number(collaboratorId),
+        name: getCollaboratorName(Number(collaboratorId)),
+        hours,
+      }));
+
+    return {
+      todayAttendances,
+      weekAttendances,
+      todayHours,
+      weekHours,
+      todayAgenda,
+      heavyLoad,
+    };
+  }, [attendances.data, getCollaboratorName]);
+
   // Gestori eventi ottimizzati con useCallback
   const handleSelectSlot = useCallback((slotInfo) => {
     // Permettiamo l'inserimento di presenze anche nel passato
@@ -222,7 +275,7 @@ const Calendar = memo(() => {
     });
 
     openModal('attendance', null);
-  }, [openModal, addNotification]);
+  }, [openModal]);
 
   const handleSelectEvent = useCallback((event) => {
     setSelectedSlot(null);
@@ -349,13 +402,58 @@ const Calendar = memo(() => {
               <span className="stat-label">Presenze totali</span>
             </div>
             <div className="stat-item">
-              <span className="stat-number">{collaborators.data.filter(c => c.is_active).length}</span>
-              <span className="stat-label">Collaboratori attivi</span>
+              <span className="stat-number">{operationsBoard.todayAttendances.length}</span>
+              <span className="stat-label">Presenze oggi</span>
             </div>
             <div className="stat-item">
-              <span className="stat-number">{projects.data.filter(p => p.is_active).length}</span>
+              <span className="stat-number">{projects.data.filter(p => p.status === 'active').length}</span>
               <span className="stat-label">Progetti attivi</span>
             </div>
+          </div>
+        </div>
+
+        <div className="calendar-ops-board">
+          <div className="calendar-ops-card highlight">
+            <span>Ore oggi</span>
+            <strong>{operationsBoard.todayHours.toFixed(1)} h</strong>
+            <small>{operationsBoard.todayAttendances.length} presenze registrate</small>
+          </div>
+          <div className="calendar-ops-card">
+            <span>Ore settimana</span>
+            <strong>{operationsBoard.weekHours.toFixed(1)} h</strong>
+            <small>{operationsBoard.weekAttendances.length} presenze nel periodo</small>
+          </div>
+          <div className="calendar-ops-card agenda">
+            <span>Agenda di oggi</span>
+            {operationsBoard.todayAgenda.length > 0 ? (
+              <ul className="calendar-agenda-list">
+                {operationsBoard.todayAgenda.map((attendance) => (
+                  <li key={attendance.id}>
+                    <strong>{getCollaboratorName(attendance.collaborator_id)}</strong>
+                    <small>
+                      {moment(attendance.start_time).format('HH:mm')} - {getProjectName(attendance.project_id)}
+                    </small>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <small>Nessuna presenza programmata oggi.</small>
+            )}
+          </div>
+          <div className="calendar-ops-card">
+            <span>Carico piu alto</span>
+            {operationsBoard.heavyLoad.length > 0 ? (
+              <ul className="calendar-load-list">
+                {operationsBoard.heavyLoad.map((item) => (
+                  <li key={item.collaboratorId}>
+                    <strong>{item.name}</strong>
+                    <small>{item.hours.toFixed(1)} h settimana</small>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <small>Nessun carico rilevato.</small>
+            )}
           </div>
         </div>
 

@@ -91,7 +91,7 @@ Start-Sleep -Seconds 60
 docker compose ps
 
 # Test endpoint
-curl http://localhost:8000/health
+curl http://localhost:8001/health
 curl http://localhost:3001/
 
 # Smoke test
@@ -101,10 +101,10 @@ curl http://localhost:3001/
 **Output atteso:**
 ```
 ✅ TUTTI I TEST PASSATI!
-gestionale_db        healthy
-gestionale_redis     healthy
-gestionale_backend   healthy
-gestionale_frontend  healthy
+pythonpro_db               healthy
+pythonpro_redis            healthy
+pythonpro_backend          healthy
+pythonpro_frontend         healthy
 ```
 
 ---
@@ -115,7 +115,7 @@ gestionale_frontend  healthy
 
 ```powershell
 # 1. Backup database
-docker compose exec db pg_dump -U admin gestionale_prod > backup_pre_update.sql
+docker compose exec -T backup_scheduler python run_backup.py create --type pre_update
 
 # 2. Pull nuova versione
 git pull origin main
@@ -153,12 +153,24 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
 ```powershell
 # Backup manuale
-$timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-docker compose exec db pg_dump -U admin gestionale_prod > "backups/db_backup_$timestamp.sql"
+docker compose exec -T backup_scheduler python run_backup.py create --type manual
 
-# Backup automatico (Task Scheduler)
-# Script: scripts/backup_daily.ps1
-# Schedule: Ogni giorno alle 02:00
+# Elenco backup
+docker compose exec -T backup_scheduler python run_backup.py list
+```
+
+**Scheduler automatico**
+- Servizio: `backup_scheduler`
+- Directory: `/app/backups`
+- Formato file: `gestionale_backup_<tipo>_<timestamp>.sql.zip`
+- Metadata: file `.json` associato
+
+**Variabili configurabili**
+```ini
+BACKUP_RETENTION_COUNT=30
+BACKUP_DAILY_TIME=02:00
+BACKUP_WEEKLY_TIME=03:00
+BACKUP_MONTHLY_INTERVAL_DAYS=30
 ```
 
 ### Restore Database
@@ -167,8 +179,9 @@ docker compose exec db pg_dump -U admin gestionale_prod > "backups/db_backup_$ti
 # 1. Stop backend
 docker compose stop backend
 
-# 2. Restore
-Get-Content backups/db_backup_YYYYMMDD_HHMMSS.sql | docker compose exec -T db psql -U admin gestionale_prod
+# 2. Estrai il dump SQL dal file ZIP in una cartella temporanea
+# 3. Restore via psql
+Get-Content .\restore\gestionale_backup_manual_YYYYMMDD_HHMMSS.sql | docker compose exec -T db psql -U admin gestionale
 
 # 3. Restart backend
 docker compose start backend
@@ -176,6 +189,8 @@ docker compose start backend
 # 4. Verifica
 .\scripts\smoke_test.ps1
 ```
+
+Se preferisci il percorso applicativo, il repository include anche l'endpoint admin di restore `/api/v1/admin/restore/{backup_filename}`.
 
 ### Backup Volumi
 
@@ -198,7 +213,7 @@ docker run --rm -v gestionale_backend_uploads_prod:/data -v C:\backups:/backup a
 docker compose ps
 
 # Health endpoint
-curl http://localhost:8000/health | ConvertFrom-Json
+curl http://localhost:8001/health | ConvertFrom-Json
 
 # Metriche sistema
 docker stats --no-stream
@@ -242,7 +257,7 @@ docker compose ps backend
 docker compose logs backend --tail=100
 
 # 2. Verifica health container
-docker inspect gestionale_backend --format='{{.State.Health.Status}}'
+docker inspect pythonpro_backend --format='{{.State.Health.Status}}'
 
 # 3. Restart
 docker compose restart backend
@@ -339,7 +354,7 @@ server {
     }
 
     location /api {
-        proxy_pass http://localhost:8000;
+        proxy_pass http://localhost:8001;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
     }

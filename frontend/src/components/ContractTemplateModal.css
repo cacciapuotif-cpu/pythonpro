@@ -178,6 +178,89 @@
   gap: 16px;
 }
 
+.avvisi-linked-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  border-radius: 999px;
+  background: #eef6ff;
+  color: #1f4f82;
+  font-size: 13px;
+}
+
+.avvisi-table-shell {
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  background: #fff;
+  overflow: hidden;
+  overflow-x: auto;
+}
+
+.avvisi-linked-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 620px;
+}
+
+.avvisi-linked-table th,
+.avvisi-linked-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid #e5e7eb;
+  text-align: left;
+  vertical-align: middle;
+  font-size: 14px;
+}
+
+.avvisi-linked-table th {
+  background: #f8fafc;
+  color: #334155;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.avvisi-linked-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.avvisi-linked-table tbody tr.is-linked {
+  background: #f3fbf6;
+}
+
+.avviso-checkbox-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.avviso-checkbox-cell input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+}
+
+.avviso-link-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.avviso-link-badge.linked {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.avviso-link-badge.not-linked {
+  background: #e5e7eb;
+  color: #374151;
+}
+
 /* ==========================================
    CODE EDITOR
    ========================================== */
@@ -481,4 +564,199 @@
   font-size: 13px;
   width: 100%;
   text-align: center;
+}
+
+/* ==========================================
+   PIANO FINANZIARIO – MACROVOCI TABLE
+   ========================================== */
+
+.piano-macrovoci-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 20px;
+  font-size: 14px;
+}
+
+.piano-macrovoci-table th {
+  background: #ecf0f1;
+  padding: 10px 12px;
+  text-align: left;
+  font-weight: 600;
+  color: #2c3e50;
+  border-bottom: 2px solid #ddd;
+}
+
+.piano-macrovoci-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #eee;
+  vertical-align: middle;
+}
+
+.piano-macrovoci-table tr:last-child td {
+  border-bottom: none;
+}
+
+.piano-mv-codice {
+  font-size: 16px;
+  color: #2980b9;
+}
+
+.piano-titolo-input {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.piano-titolo-input:focus {
+  outline: none;
+  border-color: #3498db;
+}
+
+.piano-pct-input-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.piano-pct-input {
+  width: 72px;
+  padding: 6px 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+  text-align: right;
+}
+
+.piano-pct-input:focus {
+  outline: none;
+  border-color: #3498db;
+}
+
+.piano-c6-row {
+  background: #fffbf0;
+  border: 1px solid #f0e0a0;
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-top: 4px;
+}
+
+.badge-cofinanziamento {
+  display: inline-block;
+  background: #e8f4f8;
+  color: #2980b9;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-weight: 600;
+  border: 1px solid #b8d9eb;
+}
+
+/* ==========================================
+   PIANO FINANZIARIO – VOCI LISTA
+   ========================================== */
+
+.piano-voci-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 768px) {
+  .piano-voci-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.piano-voci-gruppo {
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.piano-voci-gruppo-header {
+  background: #f0f4f8;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid #ddd;
+}
+
+.piano-mv-select-all {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  margin: 0;
+  font-size: 14px;
+}
+
+.piano-mv-titolo {
+  font-size: 12px;
+  color: #555;
+  flex: 1;
+}
+
+.piano-mv-badge-pct {
+  display: inline-block;
+  background: #d5f0d5;
+  color: #27ae60;
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  font-weight: 600;
+  border: 1px solid #a8dba8;
+}
+
+.piano-voci-lista {
+  padding: 8px 4px;
+}
+
+.piano-voce-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+
+.piano-voce-check:hover {
+  background: #f5f8ff;
+}
+
+.piano-voce-check input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+  cursor: pointer;
+}
+
+.voce-codice {
+  font-weight: 600;
+  color: #2980b9;
+  min-width: 36px;
+  font-size: 12px;
+}
+
+.voce-descr {
+  color: #2c3e50;
+  flex: 1;
+}
+
+.badge-dynamic {
+  display: inline-block;
+  background: #fef3cd;
+  color: #856404;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 8px;
+  border: 1px solid #ffd75e;
+  font-weight: 600;
 }

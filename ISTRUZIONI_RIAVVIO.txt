@@ -13,7 +13,7 @@ OPZIONE 1 - AVVIO AUTOMATICO (CONSIGLIATO)
 2. Fai DOPPIO CLICK su: AVVIO_LOCALE.bat
 
 3. Lo script aprirà 3 finestre:
-   ✅ Backend - Gestionale (Python/FastAPI sulla porta 8000)
+   ✅ Backend - Gestionale (Python/FastAPI sulla porta 8001 esposta da Docker)
    ✅ Frontend - Gestionale (React/npm sulla porta 3001)
    ✅ Browser su http://localhost:3001
 
@@ -31,7 +31,7 @@ Se preferisci avviare manualmente:
 A) BACKEND (Terminale 1):
    cd C:\pythonpro\backend
    venv\Scripts\activate
-   python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+   python -m uvicorn main:app --host 0.0.0.0 --port 8001 --reload
 
 B) FRONTEND (Terminale 2):
    cd C:\pythonpro\frontend
@@ -44,8 +44,8 @@ VERIFICA FUNZIONAMENTO
 ================================================================================
 
 ✅ Backend OK se:
-   - http://localhost:8000/health risponde con {"status":"healthy"}
-   - http://localhost:8000/docs mostra la documentazione API
+   - http://localhost:8001/health risponde correttamente
+   - http://localhost:8001/docs mostra la documentazione API
 
 ✅ Frontend OK se:
    - http://localhost:3001 mostra l'interfaccia del calendario
@@ -76,8 +76,8 @@ Soluzione: Node.js non installato o non nel PATH
 
 Problema: Frontend carica ma mostra errori 404
 Soluzione: Backend non raggiungibile
-   - Verifica che il backend sia in esecuzione (porta 8000)
-   - Controlla il file frontend/.env.local: REACT_APP_API_URL=http://localhost:8000
+   - Verifica che il backend sia in esecuzione
+   - Controlla il file frontend/.env.local: REACT_APP_API_URL=http://localhost:8001
 
 ================================================================================
 MODIFICHE RECENTI (da ricordare)
@@ -93,17 +93,17 @@ FILE IMPORTANTI
 
 Configurazione Backend:
   - backend/.env (configurazione ambiente)
-  - backend/main.py (vecchio main con tutti gli endpoint - ATTIVO)
-  - backend/app/main.py (nuovo main Fase 1 - solo 3 endpoint)
+  - backend/main.py (entrypoint backend attivo)
+  - backend/app/main.py (struttura alternativa non primaria)
   - backend/crud.py (contiene validazione overlap presenze)
 
 Configurazione Frontend:
-  - frontend/.env.local (REACT_APP_API_URL=http://localhost:8000)
+  - frontend/.env.local (REACT_APP_API_URL=http://localhost:8001)
   - frontend/src/components/AttendanceModal.js (form presenze)
   - frontend/src/components/Calendar.js (calendario)
 
 Database:
-  - backend/gestionale.db (SQLite - contiene tutti i dati)
+  - PostgreSQL Docker (database principale)
 
 ================================================================================
 COMANDI UTILI
@@ -118,7 +118,8 @@ Ricostruire il frontend (se ci sono problemi):
   - npm start
 
 Backup del database:
-  - Copia: backend/gestionale.db
+  - docker compose exec -T backup_scheduler python run_backup.py create --type manual
+  - docker compose exec -T backup_scheduler python run_backup.py list
 
 Pulizia cache npm (se frontend non parte):
   - cd frontend

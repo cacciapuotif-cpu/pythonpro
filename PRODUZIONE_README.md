@@ -92,13 +92,14 @@ Esegue build completo senza cache.
 Output esempio:
 ```
 NAME                  STATUS
-gestionale_db         Up 2 minutes (healthy)
-gestionale_redis      Up 2 minutes (healthy)
-gestionale_backend    Up 90 seconds (healthy)
-gestionale_frontend   Up 90 seconds (healthy)
+pythonpro_db          Up 2 minutes (healthy)
+pythonpro_redis       Up 2 minutes (healthy)
+pythonpro_backend     Up 90 seconds (healthy)
+pythonpro_frontend    Up 90 seconds (healthy)
+pythonpro_backup_scheduler Up (running)
 
 Frontend (3001): HTTP 200
-Backend (8000):  HTTP 200
+Backend (8001):  HTTP 200
 ```
 
 ---
@@ -108,15 +109,15 @@ Backend (8000):  HTTP 200
 | Servizio | URL | Note |
 |----------|-----|------|
 | **Frontend** | http://localhost:3001 | Build React statico via NGINX |
-| **Backend API** | http://localhost:8000 | Gunicorn + Uvicorn |
-| **API Docs** | http://localhost:8000/docs | Swagger UI interattivo |
-| **Database** | localhost:5433 | PostgreSQL 15 |
-| **Redis** | localhost:6379 | Cache e sessioni |
+| **Backend API** | http://localhost:8001 | Gunicorn + Uvicorn |
+| **API Docs** | http://localhost:8001/docs | Swagger UI interattivo |
+| **Database** | localhost:5434 | PostgreSQL 15 |
+| **Redis** | localhost:6381 | Cache e sessioni |
 
 ### Credenziali Database
 ```
 Host:     localhost
-Port:     5433
+Port:     5434
 Database: gestionale
 User:     admin
 Password: password123
@@ -161,10 +162,10 @@ docker compose up -d frontend
 docker compose logs backend --tail 50
 
 # Verifica migrazioni database
-docker exec gestionale_backend alembic current
+docker exec pythonpro_backend alembic current
 
 # Se necessario, riapplica migrazioni
-docker exec gestionale_backend alembic upgrade head
+docker exec pythonpro_backend alembic upgrade head
 ```
 
 ### POST /assignments/ timeout
@@ -262,19 +263,19 @@ docker stats
 ### Backup completo database
 
 ```batch
-docker exec gestionale_db pg_dump -U admin gestionale > backup_%date:~-4,4%%date:~-7,2%%date:~-10,2%.sql
+docker compose exec -T backup_scheduler python run_backup.py create --type manual
 ```
 
 ### Ripristino database
 
 ```batch
-docker exec -i gestionale_db psql -U admin gestionale < backup_20251001.sql
+docker compose exec -T backup_scheduler python run_backup.py list
 ```
 
 ### Backup volumi Docker
 
 ```batch
-docker run --rm -v gestionale_db_data:/data -v %cd%:/backup alpine tar czf /backup/db_backup.tar.gz /data
+docker run --rm -v pythonpro_db_data:/data -v %cd%:/backup alpine tar czf /backup/db_backup.tar.gz /data
 ```
 
 ---

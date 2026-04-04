@@ -217,7 +217,7 @@ Write-Host ""
 # === STEP 9: TEST ENDPOINT ===
 Write-Step "Test endpoint API..."
 try {
-    $response = Invoke-WebRequest -Uri "http://localhost:8000/health" -UseBasicParsing -TimeoutSec 5
+    $response = Invoke-WebRequest -Uri "http://localhost:8001/health" -UseBasicParsing -TimeoutSec 5
     if ($response.StatusCode -eq 200) {
         Write-Host "  ✅ Backend API: OK" -ForegroundColor Green
         Write-Host "  Response: $($response.Content)" -ForegroundColor Gray
@@ -233,11 +233,11 @@ Write-Host "============================================================" -Foreg
 Write-Host "📌 URL UTILI:" -ForegroundColor Cyan
 Write-Host "============================================================" -ForegroundColor Cyan
 Write-Host "  Frontend:       http://localhost:3001" -ForegroundColor White
-Write-Host "  Backend API:    http://localhost:8000" -ForegroundColor White
-Write-Host "  API Docs:       http://localhost:8000/docs" -ForegroundColor White
-Write-Host "  Health Check:   http://localhost:8000/health" -ForegroundColor White
-Write-Host "  Database:       localhost:5433 (user: admin)" -ForegroundColor White
-Write-Host "  Redis:          localhost:6379" -ForegroundColor White
+Write-Host "  Backend API:    http://localhost:8001" -ForegroundColor White
+Write-Host "  API Docs:       http://localhost:8001/docs" -ForegroundColor White
+Write-Host "  Health Check:   http://localhost:8001/health" -ForegroundColor White
+Write-Host "  Database:       localhost:5434 (user: admin)" -ForegroundColor White
+Write-Host "  Redis:          localhost:6381" -ForegroundColor White
 Write-Host "============================================================" -ForegroundColor Cyan
 Write-Host ""
 

@@ -21,27 +21,12 @@
 # - DEPLOY_KEY: SSH key per deploy
 # =================================================================
 
-name: CI/CD Pipeline
+name: Legacy CI/CD Pipeline
 
 # =================================================================
 # TRIGGER EVENTS
 # =================================================================
 on:
-  # Trigger su push a branch specifici
-  push:
-    branches:
-      - main
-      - develop
-    # Trigger su tag releases
-    tags:
-      - 'v*.*.*'
-
-  # Trigger su pull request verso main
-  pull_request:
-    branches:
-      - main
-
-  # Permetti esecuzione manuale
   workflow_dispatch:
 
 # =================================================================

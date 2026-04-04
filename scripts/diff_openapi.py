@@ -19,7 +19,7 @@ from datetime import datetime
 # Configurazione
 PROJECT_ROOT = Path(__file__).parent.parent
 DOCS_DIR = PROJECT_ROOT / 'docs'
-API_URL = 'http://localhost:8000'  # URL del backend in esecuzione
+API_URL = 'http://localhost:8001'  # URL del backend in esecuzione
 OPENAPI_ENDPOINT = f'{API_URL}/openapi.json'
 SKELETON_FILE = DOCS_DIR / 'openapi_skeleton.yaml'
 DIFF_OUTPUT = DOCS_DIR / 'OPENAPI_DIFF.md'

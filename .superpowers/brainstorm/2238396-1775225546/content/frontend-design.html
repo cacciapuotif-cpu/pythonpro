@@ -1,0 +1,112 @@
+<h2>Sezione 3 — Frontend: dove compaiono gli avvisi</h2>
+<p class="subtitle">3 punti di accesso al modulo Avvisi. Seleziona quelli che ti sembrano corretti.</p>
+
+<div class="options" data-multiselect>
+
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Hub Piani Finanziari — cascata aggiornata</h3>
+      <div class="mockup" style="margin-top:10px">
+        <div class="mockup-header">Piani Finanziari — Selezione guidata</div>
+        <div class="mockup-body" style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+          <div style="flex:1;min-width:160px">
+            <div class="label">1. Ente Erogatore</div>
+            <div class="mock-input" style="background:#f0f4ff;border-color:#4f6ef7">FORMAZIENDA ▾</div>
+          </div>
+          <div style="flex:1;min-width:160px">
+            <div class="label">2. Avviso</div>
+            <div class="mock-input" style="background:#f0f4ff;border-color:#4f6ef7">9/2026 ▾</div>
+            <div style="font-size:11px;color:#666;margin-top:3px">Filtrato per ente · <span style="color:#4f6ef7;cursor:pointer">+ Nuovo avviso</span></div>
+          </div>
+          <div style="flex:1;min-width:160px">
+            <div class="label">3. Progetto</div>
+            <div class="mock-input">Progetto Alpha ▾</div>
+          </div>
+        </div>
+      </div>
+      <p style="margin-top:8px;font-size:13px">Il dropdown avvisi mostra solo gli avvisi del DB filtrati per ente selezionato. Pulsante "+ Nuovo avviso" apre un mini-modal inline.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Wizard Progetto — Step Governance</h3>
+      <div class="mockup" style="margin-top:10px">
+        <div class="mockup-header">Nuovo Progetto — Step 2: Governance</div>
+        <div class="mockup-body">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <div>
+              <div class="label">Ente Erogatore</div>
+              <div class="mock-input">FORMAZIENDA</div>
+            </div>
+            <div>
+              <div class="label">Avviso</div>
+              <div style="display:flex;gap:6px">
+                <div class="mock-input" style="flex:1">9/2026 ▾</div>
+                <div class="mock-button" style="padding:4px 8px;font-size:12px">+</div>
+              </div>
+              <div style="font-size:11px;color:#666;margin-top:3px">Seleziona da DB o crea nuovo</div>
+            </div>
+            <div>
+              <div class="label">Template Piano (auto dal avviso)</div>
+              <div class="mock-input" style="background:#f7f7f7;color:#888">Piano Formazienda 9/2026 🔒</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p style="margin-top:8px;font-size:13px">Selezionando un avviso, il template piano si autocompila dal collegamento avviso→template. Campi bloccati se avviso ha template associato.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Template Documenti — sezione Piano Finanziario</h3>
+      <div class="mockup" style="margin-top:10px">
+        <div class="mockup-header">Template Documenti — ambito: Piano Finanziario</div>
+        <div class="mockup-body">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+            <span style="background:#e8f4e8;color:#2d7a2d;padding:3px 8px;border-radius:12px;font-size:12px">📋 Piano Finanziario</span>
+            <span>Piano Formazienda Standard</span>
+            <span style="margin-left:auto;font-size:12px;color:#666">Collegato a avviso:</span>
+            <div class="mock-input" style="width:120px;font-size:12px">9/2026 ▾</div>
+          </div>
+          <div style="font-size:12px;color:#888">Collegando un avviso al template, tutti i progetti con quell'avviso usano automaticamente questo template.</div>
+        </div>
+      </div>
+      <p style="margin-top:8px;font-size:13px">Nel modal template (ambito piano_finanziario) si aggiunge il campo "Collega ad avviso". Questo crea il legame template→avviso dal lato template.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="d" onclick="toggleSelect(this)">
+    <div class="letter">D</div>
+    <div class="content">
+      <h3>Config — Sezione "Avvisi" dedicata</h3>
+      <div class="mockup" style="margin-top:10px">
+        <div class="mockup-header">Config › Avvisi</div>
+        <div class="mockup-body">
+          <div style="display:flex;justify-content:space-between;margin-bottom:8px">
+            <div style="font-size:13px;font-weight:600">3 avvisi</div>
+            <div class="mock-button" style="font-size:12px">+ Nuovo Avviso</div>
+          </div>
+          <table style="width:100%;font-size:12px;border-collapse:collapse">
+            <tr style="background:#f5f5f5">
+              <th style="padding:4px;text-align:left">Codice</th>
+              <th style="padding:4px;text-align:left">Ente</th>
+              <th style="padding:4px;text-align:left">Descrizione</th>
+              <th style="padding:4px;text-align:left">Template</th>
+            </tr>
+            <tr><td style="padding:4px">9/2026</td><td style="padding:4px">FORMAZIENDA</td><td style="padding:4px">Avviso formazione 2026</td><td style="padding:4px" style="color:#2d7a2d">✓ Piano Formazienda</td></tr>
+            <tr style="background:#fafafa"><td style="padding:4px">2/2025</td><td style="padding:4px">FAPI</td><td style="padding:4px">FAPI standard 2025</td><td style="padding:4px;color:#888">— nessuno</td></tr>
+          </table>
+        </div>
+      </div>
+      <p style="margin-top:8px;font-size:13px">Sezione dedicata nel menu Config per creare/modificare/disattivare avvisi e gestire il collegamento al template.</p>
+    </div>
+  </div>
+
+</div>
+
+<p style="margin-top:16px;font-size:13px;color:#666">Puoi selezionare più opzioni. Tutte e 4 insieme formano l'implementazione completa — ma dimmi quali vuoi.</p>

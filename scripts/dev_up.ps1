@@ -15,4 +15,4 @@ docker compose up -d --build
 Write-Host ""
 Write-Host "✅ Stack avviato. Controlla status con: docker compose ps" -ForegroundColor Green
 Write-Host "   Frontend: http://localhost:3001" -ForegroundColor White
-Write-Host "   Backend:  http://localhost:8000/docs" -ForegroundColor White
+Write-Host "   Backend:  http://localhost:8001/docs" -ForegroundColor White

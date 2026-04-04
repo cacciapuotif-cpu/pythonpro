@@ -1,12 +1,54 @@
-from pydantic import BaseModel, EmailStr, Field, ConfigDict
-from typing import List, Optional
+from pydantic import BaseModel, EmailStr, Field, ConfigDict, field_validator, computed_field
+from typing import Any, Dict, Generic, List, Optional, TypeVar
 from datetime import datetime
+
+T = TypeVar("T")
+
+
+def _validate_piva_light(v: Optional[str]) -> Optional[str]:
+    if v is None or v == "":
+        return None
+    clean = str(v).replace(" ", "").replace("IT", "").replace("it", "")
+    if not clean.isdigit() or len(clean) != 11:
+        raise ValueError("Partita IVA deve essere di 11 cifre numeriche")
+    return clean
+
+
+def _normalize_contract_type(v: Optional[str]) -> Optional[str]:
+    if v is None:
+        return None
+
+    normalized = str(v).strip()
+    if not normalized:
+        return None
+
+    contract_type_map = {
+        "professionale": "professionale",
+        "occasionale": "occasionale",
+        "ordine_servizio": "ordine_servizio",
+        "ordine di servizio": "ordine_servizio",
+        "contratto_progetto": "contratto_progetto",
+        "contratto a progetto": "contratto_progetto",
+        "documento_generico": "documento_generico",
+        "documento generico": "documento_generico",
+    }
+
+    return contract_type_map.get(normalized.lower(), normalized.lower().replace(" ", "_"))
+
+
+class PaginatedResponse(BaseModel, Generic[T]):
+    items: List[T]
+    total: int
+    page: int
+    pages: int
+    has_next: bool
 
 class CollaboratorBase(BaseModel):
     first_name: str = Field(...)
     last_name: str = Field(...)
     email: EmailStr
     fiscal_code: Optional[str] = Field(None)  # Codice fiscale opzionale - se fornito deve essere 16 caratteri, unico, normalizzato uppercase
+    partita_iva: Optional[str] = Field(None)
     phone: Optional[str] = Field(None)
     position: Optional[str] = Field(None)
     birthplace: Optional[str] = Field(None)
@@ -15,6 +57,23 @@ class CollaboratorBase(BaseModel):
     city: Optional[str] = Field(None)
     address: Optional[str] = Field(None)
     education: Optional[str] = Field(None)
+    profilo_professionale: Optional[str] = Field(None)
+    competenze_principali: Optional[str] = Field(None)
+    certificazioni: Optional[str] = Field(None)
+    sito_web: Optional[str] = Field(None)
+    portfolio_url: Optional[str] = Field(None)
+    linkedin_url: Optional[str] = Field(None)
+    facebook_url: Optional[str] = Field(None)
+    instagram_url: Optional[str] = Field(None)
+    tiktok_url: Optional[str] = Field(None)
+    is_agency: bool = False
+    is_consultant: bool = False
+    documento_identita_scadenza: Optional[datetime] = Field(None)
+
+    @field_validator("partita_iva", mode="before")
+    @classmethod
+    def check_partita_iva(cls, v):
+        return _validate_piva_light(v)
 
 class CollaboratorCreate(CollaboratorBase):
     pass
@@ -23,6 +82,7 @@ class CollaboratorUpdate(BaseModel):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     email: Optional[EmailStr] = None
+    partita_iva: Optional[str] = None
     phone: Optional[str] = None
     position: Optional[str] = None
     birthplace: Optional[str] = None
@@ -32,6 +92,23 @@ class CollaboratorUpdate(BaseModel):
     city: Optional[str] = None
     address: Optional[str] = None
     education: Optional[str] = None
+    profilo_professionale: Optional[str] = None
+    competenze_principali: Optional[str] = None
+    certificazioni: Optional[str] = None
+    sito_web: Optional[str] = None
+    portfolio_url: Optional[str] = None
+    linkedin_url: Optional[str] = None
+    facebook_url: Optional[str] = None
+    instagram_url: Optional[str] = None
+    tiktok_url: Optional[str] = None
+    is_agency: Optional[bool] = None
+    is_consultant: Optional[bool] = None
+    documento_identita_scadenza: Optional[datetime] = None
+
+    @field_validator("partita_iva", mode="before")
+    @classmethod
+    def check_partita_iva(cls, v):
+        return _validate_piva_light(v)
 
 class Collaborator(CollaboratorBase):
     id: int
@@ -39,6 +116,7 @@ class Collaborator(CollaboratorBase):
     updated_at: Optional[datetime] = None
     documento_identita_filename: Optional[str] = Field(None)
     documento_identita_uploaded_at: Optional[datetime] = None
+    documento_identita_scadenza: Optional[datetime] = None
     curriculum_filename: Optional[str] = Field(None)
     curriculum_uploaded_at: Optional[datetime] = None
 
@@ -50,8 +128,15 @@ class ProjectBase(BaseModel):
     start_date: Optional[datetime] = Field(None)
     end_date: Optional[datetime] = Field(None)
     status: str = Field("active")
-    cup: Optional[str] = None
     ente_erogatore: Optional[str] = None
+    cup: Optional[str] = None
+    atto_approvazione: Optional[str] = None
+    sede_aziendale_comune: Optional[str] = None
+    sede_aziendale_via: Optional[str] = None
+    sede_aziendale_numero_civico: Optional[str] = None
+    avviso: Optional[str] = None
+    avviso_id: Optional[int] = None
+    template_piano_finanziario_id: Optional[int] = None
 
 class ProjectCreate(ProjectBase):
     pass
@@ -62,15 +147,222 @@ class ProjectUpdate(BaseModel):
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
     status: Optional[str] = None
-    cup: Optional[str] = None
     ente_erogatore: Optional[str] = None
+    cup: Optional[str] = None
+    atto_approvazione: Optional[str] = None
+    sede_aziendale_comune: Optional[str] = None
+    sede_aziendale_via: Optional[str] = None
+    sede_aziendale_numero_civico: Optional[str] = None
+    avviso: Optional[str] = None
+    avviso_id: Optional[int] = None
+    template_piano_finanziario_id: Optional[int] = None
 
 class Project(ProjectBase):
     id: int
+    ente_attuatore_id: Optional[int] = None
+    avviso_rel: Optional["Avviso"] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True, use_enum_values=True)
+
+
+class AvvisoBase(BaseModel):
+    codice: str
+    ente_erogatore: str
+    descrizione: Optional[str] = None
+    template_id: Optional[int] = None
+    is_active: bool = True
+
+
+class AvvisoCreate(AvvisoBase):
+    pass
+
+
+class AvvisoUpdate(BaseModel):
+    codice: Optional[str] = None
+    ente_erogatore: Optional[str] = None
+    descrizione: Optional[str] = None
+    template_id: Optional[int] = None
+    is_active: Optional[bool] = None
+
+
+class Avviso(AvvisoBase):
+    id: int
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class AuditLogBase(BaseModel):
+    entity: str
+    action: str
+    old_value: Optional[str] = None
+    new_value: Optional[str] = None
+    user_id: Optional[int] = None
+
+
+class AuditLogCreate(AuditLogBase):
+    pass
+
+
+class AuditLog(AuditLogBase):
+    id: int
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class PianoFinanziarioContextItem(BaseModel):
+    id: int
+    anno: int
+    ente_erogatore: str
+    avviso: str
+    totale_consuntivo: float
+    totale_preventivo: float
+    budget_usage_percentage: float
+    is_warning_90_budget: bool
+
+
+class ProjectCollaboratorHoursContext(BaseModel):
+    collaborator_id: int
+    collaborator_name: str
+    assigned_hours: float
+    completed_hours: float
+    attendance_hours: float
+
+
+class ProjectFullContext(BaseModel):
+    project: Project
+    implementing_entity: Optional["ImplementingEntity"] = None
+    active_piani_finanziari: List[PianoFinanziarioContextItem] = []
+    collaborator_hours: List[ProjectCollaboratorHoursContext] = []
+    generated_at: datetime
+
+
+class AgentCatalogItem(BaseModel):
+    name: str
+    label: str
+    description: str
+    supported_entity_types: List[str] = Field(default_factory=list)
+
+
+class AgentLlmHealth(BaseModel):
+    provider: str
+    enabled: bool
+    model: Optional[str] = None
+    base_url: Optional[str] = None
+    reachable: bool
+    status_code: Optional[int] = None
+    detail: str
+
+
+class AgentRunRequest(BaseModel):
+    agent_name: str
+    entity_type: Optional[str] = None
+    entity_id: Optional[int] = None
+    requested_by_user_id: Optional[int] = None
+    input_payload: Dict[str, Any] = Field(default_factory=dict)
+
+
+class AgentRunBase(BaseModel):
+    agent_name: str
+    status: str
+    entity_type: Optional[str] = None
+    entity_id: Optional[int] = None
+    requested_by_user_id: Optional[int] = None
+    input_payload: Optional[str] = None
+    result_summary: Optional[str] = None
+    error_message: Optional[str] = None
+    suggestions_count: int = 0
+
+
+class AgentSuggestionBase(BaseModel):
+    agent_name: str
+    entity_type: str
+    entity_id: Optional[int] = None
+    suggestion_type: str
+    severity: str
+    status: str
+    title: str
+    description: str
+    payload: Optional[str] = None
+    confidence: Optional[float] = None
+    reviewed_by_user_id: Optional[int] = None
+
+
+class AgentReviewActionBase(BaseModel):
+    action: str
+    notes: Optional[str] = None
+    reviewed_by_user_id: Optional[int] = None
+
+
+class AgentReviewActionCreate(AgentReviewActionBase):
+    pass
+
+
+class AgentWorkflowActionRequest(BaseModel):
+    action: str
+    notes: Optional[str] = None
+    reviewed_by_user_id: Optional[int] = None
+
+
+class AgentReviewAction(AgentReviewActionBase):
+    id: int
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class AgentSuggestion(AgentSuggestionBase):
+    id: int
+    run_id: int
+    reviewed_at: Optional[datetime] = None
+    created_at: datetime
+    review_actions: List[AgentReviewAction] = Field(default_factory=list)
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class AgentRun(AgentRunBase):
+    id: int
+    started_at: datetime
+    completed_at: Optional[datetime] = None
+    suggestions: List[AgentSuggestion] = Field(default_factory=list)
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class AgentCommunicationDraftBase(BaseModel):
+    agent_name: str
+    channel: str
+    recipient_type: str
+    recipient_id: Optional[int] = None
+    recipient_email: str
+    recipient_name: Optional[str] = None
+    subject: str
+    body: str
+    status: str
+    meta_payload: Optional[str] = None
+    created_by_user_id: Optional[int] = None
+    reviewed_by_user_id: Optional[int] = None
+
+
+class AgentCommunicationDraftStatusUpdate(BaseModel):
+    status: str
+    reviewed_by_user_id: Optional[int] = None
+
+
+class AgentCommunicationDraft(AgentCommunicationDraftBase):
+    id: int
+    run_id: Optional[int] = None
+    suggestion_id: Optional[int] = None
+    sent_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 class AttendanceBase(BaseModel):
     collaborator_id: int
@@ -115,22 +407,34 @@ class AssignmentBase(BaseModel):
     collaborator_id: int
     project_id: int
     role: str  # Mansione
+    edizione_label: Optional[str] = None
     assigned_hours: float  # Ore assegnate
     start_date: datetime  # Inizio attività
     end_date: datetime  # Fine attività
+    contract_signed_date: Optional[datetime] = None  # Data firma contratto
     hourly_rate: float  # Importo orario
     contract_type: Optional[str] = None  # Tipo contratto: Professionale, Occasionale, Ordine di servizio, Contratto a progetto
 
 class AssignmentCreate(AssignmentBase):
-    pass
+    @field_validator("contract_type", mode="before")
+    @classmethod
+    def normalize_contract_type(cls, v):
+        return _normalize_contract_type(v)
 
 class AssignmentUpdate(BaseModel):
     role: Optional[str] = None
+    edizione_label: Optional[str] = None
     assigned_hours: Optional[float] = None
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
+    contract_signed_date: Optional[datetime] = None
     hourly_rate: Optional[float] = None
     contract_type: Optional[str] = None
+
+    @field_validator("contract_type", mode="before")
+    @classmethod
+    def normalize_contract_type(cls, v):
+        return _normalize_contract_type(v)
 
 class Assignment(AssignmentBase):
     id: int
@@ -186,6 +490,15 @@ class ImplementingEntityBase(BaseModel):
     referente_telefono: Optional[str] = None
     referente_ruolo: Optional[str] = None
 
+    # Legale rappresentante
+    legale_rappresentante_nome: Optional[str] = None
+    legale_rappresentante_cognome: Optional[str] = None
+    legale_rappresentante_luogo_nascita: Optional[str] = None
+    legale_rappresentante_data_nascita: Optional[datetime] = None
+    legale_rappresentante_comune_residenza: Optional[str] = None
+    legale_rappresentante_via_residenza: Optional[str] = None
+    legale_rappresentante_codice_fiscale: Optional[str] = None
+
     # Altro
     note: Optional[str] = None
     is_active: bool = True
@@ -224,6 +537,14 @@ class ImplementingEntityUpdate(BaseModel):
     referente_telefono: Optional[str] = None
     referente_ruolo: Optional[str] = None
 
+    legale_rappresentante_nome: Optional[str] = None
+    legale_rappresentante_cognome: Optional[str] = None
+    legale_rappresentante_luogo_nascita: Optional[str] = None
+    legale_rappresentante_data_nascita: Optional[datetime] = None
+    legale_rappresentante_comune_residenza: Optional[str] = None
+    legale_rappresentante_via_residenza: Optional[str] = None
+    legale_rappresentante_codice_fiscale: Optional[str] = None
+
     note: Optional[str] = None
     is_active: Optional[bool] = None
 
@@ -240,6 +561,7 @@ class ImplementingEntity(ImplementingEntityBase):
     # Proprietà calcolate
     indirizzo_completo: Optional[str] = None
     referente_nome_completo: Optional[str] = None
+    legale_rappresentante_nome_completo: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -291,7 +613,10 @@ class ProgettoMansioneEnteBase(BaseModel):
 
 class ProgettoMansioneEnteCreate(ProgettoMansioneEnteBase):
     """Schema per creazione associazione"""
-    pass
+    @field_validator("tipo_contratto", mode="before")
+    @classmethod
+    def normalize_contract_type(cls, v):
+        return _normalize_contract_type(v)
 
 class ProgettoMansioneEnteUpdate(BaseModel):
     """Schema per aggiornamento associazione - tutti i campi opzionali"""
@@ -308,6 +633,11 @@ class ProgettoMansioneEnteUpdate(BaseModel):
     tipo_contratto: Optional[str] = None
     is_active: Optional[bool] = None
     note: Optional[str] = None
+
+    @field_validator("tipo_contratto", mode="before")
+    @classmethod
+    def normalize_contract_type(cls, v):
+        return _normalize_contract_type(v)
 
 class ProgettoMansioneEnte(ProgettoMansioneEnteBase):
     """Schema completo associazione con ID, timestamps e proprietà calcolate"""
@@ -333,6 +663,321 @@ class ProgettoMansioneEnteWithDetails(ProgettoMansioneEnte):
 
 
 # ========================================
+# SCHEMI PER PIANI FINANZIARI
+# ========================================
+
+class PianoFinanziarioBase(BaseModel):
+    progetto_id: int
+    template_id: Optional[int] = None
+    avviso_id: Optional[int] = None
+    anno: int = Field(..., ge=2020, le=2100)
+    ente_erogatore: str = "Formazienda"
+    avviso: str = ""
+
+
+class PianoFinanziarioCreate(PianoFinanziarioBase):
+    pass
+
+
+class PianoFinanziario(PianoFinanziarioBase):
+    id: int
+    avviso_rel: Optional["Avviso"] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class VocePianoFinanziarioBase(BaseModel):
+    macrovoce: str
+    voce_codice: str
+    descrizione: str
+    progetto_label: Optional[str] = None
+    edizione_label: Optional[str] = None
+    ore: float = Field(0.0, ge=0)
+    importo_consuntivo: float = Field(0.0, ge=0)
+    importo_preventivo: float = Field(0.0, ge=0)
+    importo_presentato: float = Field(0.0, ge=0)
+    collaborator_id: Optional[int] = None
+
+
+class VocePianoFinanziarioCreate(VocePianoFinanziarioBase):
+    piano_id: int
+
+
+class VocePianoFinanziarioUpsert(VocePianoFinanziarioBase):
+    id: Optional[int] = None
+
+
+class PianoFinanziarioBulkUpdate(BaseModel):
+    voci: List[VocePianoFinanziarioUpsert]
+
+
+class VocePianoFinanziario(VocePianoFinanziarioBase):
+    id: int
+    piano_id: int
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    created_by_user: Optional[str] = None
+    totale_consuntivo_riferimento: float = 0.0
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    @computed_field(return_type=float)
+    @property
+    def perc_consuntivo(self) -> float:
+        if not self.totale_consuntivo_riferimento:
+            return 0.0
+        return round((self.importo_consuntivo / self.totale_consuntivo_riferimento) * 100, 2)
+
+
+class PianoFinanziarioDettaglio(PianoFinanziario):
+    progetto: Project
+    voci: List[VocePianoFinanziario]
+    template_documento: Optional["TemplateDocumentoSelezionato"] = None
+
+
+class PianoFinanziarioAlert(BaseModel):
+    level: str
+    code: str
+    message: str
+
+
+class PianoFinanziarioMacrovoceSummary(BaseModel):
+    macrovoce: str
+    titolo: str
+    limite_percentuale: Optional[float] = None
+    importo_consuntivo: float = 0.0
+    importo_preventivo: float = 0.0
+    percentuale_consuntivo: float = 0.0
+    percentuale_preventivo: float = 0.0
+    alert_level: str = "ok"
+    sforata: bool = False
+
+
+class OreRuoloPianoFinanziario(BaseModel):
+    collaborator_id: Optional[int] = None
+    collaborator_name: Optional[str] = None
+    role: str
+    n_presenze: int
+    ore_effettive: float
+    costo_effettivo: float
+    voce_codice: Optional[str] = None
+    voce_label: Optional[str] = None
+
+
+class PianoFinanziarioRiepilogo(BaseModel):
+    piano_id: int
+    totale_consuntivo: float
+    totale_preventivo: float
+    contributo_richiesto: float
+    cofinanziamento: float
+    macrovoci: List[PianoFinanziarioMacrovoceSummary]
+    alerts: List[PianoFinanziarioAlert]
+    ore_per_ruolo: List[OreRuoloPianoFinanziario] = []
+    ore_effettive_totali: float = 0.0
+
+
+class RigaNominativoFondimpresaBase(BaseModel):
+    nominativo: str = ""
+    ore: float = Field(0.0, ge=0)
+    costo_orario: float = Field(0.0, ge=0)
+
+
+class RigaNominativoFondimpresaUpsert(RigaNominativoFondimpresaBase):
+    id: Optional[int] = None
+
+
+class RigaNominativoFondimpresa(RigaNominativoFondimpresaBase):
+    id: int
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    @computed_field(return_type=float)
+    @property
+    def totale(self) -> float:
+        return round((self.ore or 0.0) * (self.costo_orario or 0.0), 2)
+
+
+class DocumentoFondimpresaBase(BaseModel):
+    tipo_documento: Optional[str] = None
+    numero_documento: Optional[str] = None
+    data_documento: Optional[datetime] = None
+    importo_totale: float = Field(0.0, ge=0)
+    importo_imputato: float = Field(0.0, ge=0)
+    data_pagamento: Optional[datetime] = None
+
+    @field_validator("importo_imputato")
+    @classmethod
+    def validate_importo_imputato(cls, value, info):
+        importo_totale = info.data.get("importo_totale", 0.0) if info.data else 0.0
+        if value is not None and importo_totale is not None and value > importo_totale:
+            raise ValueError("Importo imputato non può superare l'importo totale del documento")
+        return value
+
+
+class DocumentoFondimpresaUpsert(DocumentoFondimpresaBase):
+    id: Optional[int] = None
+
+
+class DocumentoFondimpresa(DocumentoFondimpresaBase):
+    id: int
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class VoceFondimpresaBase(BaseModel):
+    sezione: str
+    voce_codice: str
+    descrizione: str
+    note_temporali: Optional[str] = None
+
+
+class VoceFondimpresaUpsert(VoceFondimpresaBase):
+    id: Optional[int] = None
+    righe_nominativo: List[RigaNominativoFondimpresaUpsert] = Field(default_factory=list)
+    documenti: List[DocumentoFondimpresaUpsert] = Field(default_factory=list)
+
+
+class VoceFondimpresa(VoceFondimpresaBase):
+    id: int
+    totale_voce: float = 0.0
+    righe_nominativo: List[RigaNominativoFondimpresa] = Field(default_factory=list)
+    documenti: List[DocumentoFondimpresa] = Field(default_factory=list)
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class PianoFondimpresaBase(BaseModel):
+    progetto_id: int
+    avviso_id: Optional[int] = None
+    anno: int = Field(..., ge=2020, le=2100)
+    ente_erogatore: str = "Fondimpresa"
+    tipo_conto: str = "conto_formazione"
+    totale_preventivo: float = Field(0.0, ge=0)
+
+
+class PianoFondimpresaCreate(PianoFondimpresaBase):
+    pass
+
+
+class PianoFondimpresa(PianoFondimpresaBase):
+    id: int
+    avviso_rel: Optional["Avviso"] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class PianoFondimpresaBulkUpdate(BaseModel):
+    voci: List[VoceFondimpresaUpsert]
+
+
+class PianoFondimpresaDocumentiBulkUpdate(BaseModel):
+    voci: List[VoceFondimpresaUpsert]
+
+
+class BudgetConsulenteFondimpresaBase(BaseModel):
+    nominativo: str = ""
+    ore: float = Field(0.0, ge=0)
+    costo_orario: float = Field(0.0, ge=0)
+
+
+class BudgetConsulenteFondimpresaUpsert(BudgetConsulenteFondimpresaBase):
+    id: Optional[int] = None
+
+
+class BudgetConsulenteFondimpresa(BudgetConsulenteFondimpresaBase):
+    id: int
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    @computed_field(return_type=float)
+    @property
+    def totale(self) -> float:
+        return round((self.ore or 0.0) * (self.costo_orario or 0.0), 2)
+
+
+class BudgetCostoFissoFondimpresaBase(BaseModel):
+    tipologia: str = ""
+    parametro: Optional[str] = None
+    totale: float = Field(0.0, ge=0)
+
+
+class BudgetCostoFissoFondimpresaUpsert(BudgetCostoFissoFondimpresaBase):
+    id: Optional[int] = None
+
+
+class BudgetCostoFissoFondimpresa(BudgetCostoFissoFondimpresaBase):
+    id: int
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class BudgetMargineFondimpresaBase(BaseModel):
+    tipologia: str = ""
+    percentuale: float = Field(0.0, ge=0)
+
+
+class BudgetMargineFondimpresaUpsert(BudgetMargineFondimpresaBase):
+    id: Optional[int] = None
+
+
+class BudgetMargineFondimpresa(BudgetMargineFondimpresaBase):
+    id: int
+    totale_riferimento: float = 0.0
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    @computed_field(return_type=float)
+    @property
+    def totale(self) -> float:
+        return round((self.totale_riferimento or 0.0) * ((self.percentuale or 0.0) / 100), 2)
+
+
+class DettaglioBudgetFondimpresaUpdate(BaseModel):
+    consulenti: List[BudgetConsulenteFondimpresaUpsert] = Field(default_factory=list)
+    costi_fissi: List[BudgetCostoFissoFondimpresaUpsert] = Field(default_factory=list)
+    margini: List[BudgetMargineFondimpresaUpsert] = Field(default_factory=list)
+
+
+class DettaglioBudgetFondimpresa(BaseModel):
+    consulenti: List[BudgetConsulenteFondimpresa] = Field(default_factory=list)
+    costi_fissi: List[BudgetCostoFissoFondimpresa] = Field(default_factory=list)
+    margini: List[BudgetMargineFondimpresa] = Field(default_factory=list)
+
+
+class PianoFondimpresaDettaglio(PianoFondimpresa):
+    progetto: Project
+    voci: List[VoceFondimpresa]
+    dettaglio_budget: Optional[DettaglioBudgetFondimpresa] = None
+
+
+class PianoFondimpresaSezioneSummary(BaseModel):
+    sezione: str
+    titolo: str
+    totale: float = 0.0
+    percentuale: float = 0.0
+    min_percentuale: Optional[float] = None
+    max_percentuale: Optional[float] = None
+    alert_level: str = "ok"
+
+
+class PianoFondimpresaRiepilogo(BaseModel):
+    piano_id: int
+    totale_a: float
+    totale_b: float
+    totale_c: float
+    totale_d: float
+    totale_escluso_cofinanziamento: float
+    totale_preventivo: float
+    differenza_preventivo_consuntivo: float
+    sezioni: List[PianoFondimpresaSezioneSummary]
+    alerts: List[PianoFinanziarioAlert]
+
+
+# ========================================
 # SCHEMI PER TEMPLATE CONTRATTI
 # ========================================
 
@@ -340,7 +985,13 @@ class ContractTemplateBase(BaseModel):
     """Schema base per Template Contratto"""
     nome_template: str
     descrizione: Optional[str] = None
-    tipo_contratto: str  # "professionale", "occasionale", "ordine_servizio", "contratto_progetto"
+    ambito_template: str = "contratto"  # "contratto", "timesheet", "piano_finanziario", "preventivo", "ordine", "generico"
+    chiave_documento: Optional[str] = None
+    ente_attuatore_id: Optional[int] = None
+    progetto_id: Optional[int] = None
+    ente_erogatore: Optional[str] = None
+    avviso: Optional[str] = None
+    tipo_contratto: str  # "professionale", "occasionale", "ordine_servizio", "contratto_progetto", "documento_generico"
     contenuto_html: str  # Contenuto HTML con variabili {{variabile}}
     intestazione: Optional[str] = None
     pie_pagina: Optional[str] = None
@@ -360,7 +1011,7 @@ class ContractTemplateBase(BaseModel):
     formato_importo: str = "€ {:.2f}"
 
     # Stato
-    is_default: bool = False
+    is_default: Optional[bool] = False
     is_active: bool = True
     versione: str = "1.0"
     note_interne: Optional[str] = None
@@ -375,6 +1026,12 @@ class ContractTemplateUpdate(BaseModel):
     """Schema per aggiornamento Template Contratto - tutti i campi opzionali"""
     nome_template: Optional[str] = None
     descrizione: Optional[str] = None
+    ambito_template: Optional[str] = None
+    chiave_documento: Optional[str] = None
+    ente_attuatore_id: Optional[int] = None
+    progetto_id: Optional[int] = None
+    ente_erogatore: Optional[str] = None
+    avviso: Optional[str] = None
     tipo_contratto: Optional[str] = None
     contenuto_html: Optional[str] = None
     intestazione: Optional[str] = None
@@ -412,6 +1069,19 @@ class ContractTemplate(ContractTemplateBase):
         from_attributes = True
 
 
+class TemplateDocumentoSelezionato(BaseModel):
+    id: int
+    nome_template: str
+    ambito_template: str
+    chiave_documento: Optional[str] = None
+    ente_erogatore: Optional[str] = None
+    avviso: Optional[str] = None
+    progetto_id: Optional[int] = None
+    ente_attuatore_id: Optional[int] = None
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
 class ContractTemplateWithVariables(ContractTemplate):
     """Schema Template Contratto con lista variabili disponibili"""
     variabili_disponibili: dict
@@ -433,6 +1103,7 @@ class ContractGenerationRequest(BaseModel):
     tariffa_oraria: float
     data_inizio: datetime
     data_fine: datetime
+    contract_signed_date: Optional[datetime] = None
 
     # Template da usare (opzionale, altrimenti usa il default per tipo_contratto)
     template_id: Optional[int] = None
@@ -440,3 +1111,507 @@ class ContractGenerationRequest(BaseModel):
 
     # Note aggiuntive opzionali
     note_personalizzate: Optional[str] = None
+
+
+# ─────────────────────────────────────────────
+# BLOCCO 1 — ANAGRAFICA ESPANSA
+# ─────────────────────────────────────────────
+
+def _validate_piva(v: Optional[str]) -> Optional[str]:
+    """Validazione P.IVA italiana: 11 cifre + checksum ufficiale."""
+    if v is None:
+        return v
+    clean = v.replace(" ", "").replace("IT", "").replace("it", "")
+    if not clean.isdigit() or len(clean) != 11:
+        raise ValueError("Partita IVA deve essere di 11 cifre numeriche")
+    # Algoritmo checksum P.IVA italiana
+    odd_sum = sum(int(clean[i]) for i in range(0, 10, 2))
+    even_sum = 0
+    for i in range(1, 10, 2):
+        d = int(clean[i]) * 2
+        even_sum += d if d < 10 else d - 9
+    check = (10 - (odd_sum + even_sum) % 10) % 10
+    if check != int(clean[10]):
+        raise ValueError("Partita IVA non valida (checksum errato)")
+    return clean
+
+
+# ── Agenzia ──────────────────────────────────
+
+class AgenziaBase(BaseModel):
+    nome: str = Field(..., min_length=2, max_length=200)
+    partita_iva: Optional[str] = None
+    telefono: Optional[str] = None
+    email: Optional[EmailStr] = None
+    note: Optional[str] = None
+    collaborator_id: Optional[int] = None
+    attivo: bool = True
+
+    @field_validator("partita_iva", mode="before")
+    @classmethod
+    def check_partita_iva(cls, v):
+        return _validate_piva_light(v)
+
+
+class AgenziaCreate(AgenziaBase):
+    pass
+
+
+class AgenziaUpdate(BaseModel):
+    nome: Optional[str] = Field(None, min_length=2, max_length=200)
+    partita_iva: Optional[str] = None
+    telefono: Optional[str] = None
+    email: Optional[EmailStr] = None
+    note: Optional[str] = None
+    collaborator_id: Optional[int] = None
+    attivo: Optional[bool] = None
+
+    @field_validator("partita_iva", mode="before")
+    @classmethod
+    def check_partita_iva(cls, v):
+        return _validate_piva_light(v)
+
+
+class Agenzia(AgenziaBase):
+    id: int
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+# ── Consulente ───────────────────────────────
+
+class ConsulenteBase(BaseModel):
+    nome: str = Field(..., min_length=1, max_length=100)
+    cognome: str = Field(..., min_length=1, max_length=100)
+    email: Optional[EmailStr] = None
+    telefono: Optional[str] = None
+    partita_iva: Optional[str] = None
+    agenzia_id: Optional[int] = None
+    zona_competenza: Optional[str] = None
+    provvigione_percentuale: Optional[float] = Field(None, ge=0, le=100)
+    note: Optional[str] = None
+    attivo: bool = True
+
+    @field_validator("partita_iva", mode="before")
+    @classmethod
+    def check_piva(cls, v):
+        return _validate_piva(v)
+
+
+class ConsulenteCreate(ConsulenteBase):
+    pass
+
+
+class ConsulenteUpdate(BaseModel):
+    nome: Optional[str] = Field(None, min_length=1, max_length=100)
+    cognome: Optional[str] = Field(None, min_length=1, max_length=100)
+    email: Optional[EmailStr] = None
+    telefono: Optional[str] = None
+    partita_iva: Optional[str] = None
+    agenzia_id: Optional[int] = None
+    zona_competenza: Optional[str] = None
+    provvigione_percentuale: Optional[float] = Field(None, ge=0, le=100)
+    note: Optional[str] = None
+    attivo: Optional[bool] = None
+
+    @field_validator("partita_iva", mode="before")
+    @classmethod
+    def check_piva(cls, v):
+        return _validate_piva(v)
+
+
+class Consulente(ConsulenteBase):
+    id: int
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class ConsulenteWithAgenzia(Consulente):
+    agenzia: Optional[Agenzia] = None
+
+
+# ── AziendaCliente ───────────────────────────
+
+class AziendaClienteBase(BaseModel):
+    ragione_sociale: str = Field(..., min_length=2, max_length=200)
+    partita_iva: str
+    codice_fiscale: Optional[str] = None
+    settore_ateco: Optional[str] = None
+    attivita_erogate: Optional[str] = None
+    indirizzo: Optional[str] = None
+    citta: Optional[str] = None
+    cap: Optional[str] = Field(None, pattern=r"^\d{5}$")
+    provincia: Optional[str] = Field(None, min_length=2, max_length=2)
+    email: Optional[EmailStr] = None
+    pec: Optional[EmailStr] = None
+    telefono: Optional[str] = None
+    sito_web: Optional[str] = None
+    linkedin_url: Optional[str] = None
+    facebook_url: Optional[str] = None
+    instagram_url: Optional[str] = None
+    legale_rappresentante_nome: Optional[str] = None
+    legale_rappresentante_cognome: Optional[str] = None
+    legale_rappresentante_codice_fiscale: Optional[str] = None
+    legale_rappresentante_email: Optional[EmailStr] = None
+    legale_rappresentante_telefono: Optional[str] = None
+    legale_rappresentante_indirizzo: Optional[str] = None
+    legale_rappresentante_linkedin: Optional[str] = None
+    legale_rappresentante_facebook: Optional[str] = None
+    legale_rappresentante_instagram: Optional[str] = None
+    legale_rappresentante_tiktok: Optional[str] = None
+    referente_nome: Optional[str] = None
+    referente_cognome: Optional[str] = None
+    referente_ruolo: Optional[str] = None
+    referente_email: Optional[EmailStr] = None
+    referente_telefono: Optional[str] = None
+    referente_indirizzo: Optional[str] = None
+    referente_luogo_nascita: Optional[str] = None
+    referente_data_nascita: Optional[datetime] = None
+    referente_linkedin: Optional[str] = None
+    referente_facebook: Optional[str] = None
+    referente_instagram: Optional[str] = None
+    referente_tiktok: Optional[str] = None
+    agenzia_id: Optional[int] = None
+    consulente_id: Optional[int] = None
+    note: Optional[str] = None
+    attivo: bool = True
+
+    @field_validator("partita_iva", mode="before")
+    @classmethod
+    def check_piva(cls, v):
+        return _validate_piva(v)
+
+    @field_validator("provincia", mode="before")
+    @classmethod
+    def check_provincia(cls, v):
+        if v:
+            v = v.upper()
+            if not v.isalpha() or len(v) != 2:
+                raise ValueError("Provincia deve essere sigla 2 lettere (es: NA, MI)")
+        return v
+
+
+class AziendaClienteCreate(AziendaClienteBase):
+    pass
+
+
+class AziendaClienteUpdate(BaseModel):
+    ragione_sociale: Optional[str] = Field(None, min_length=2, max_length=200)
+    partita_iva: Optional[str] = None
+    codice_fiscale: Optional[str] = None
+    settore_ateco: Optional[str] = None
+    attivita_erogate: Optional[str] = None
+    indirizzo: Optional[str] = None
+    citta: Optional[str] = None
+    cap: Optional[str] = Field(None, pattern=r"^\d{5}$")
+    provincia: Optional[str] = Field(None, min_length=2, max_length=2)
+    email: Optional[EmailStr] = None
+    pec: Optional[EmailStr] = None
+    telefono: Optional[str] = None
+    sito_web: Optional[str] = None
+    linkedin_url: Optional[str] = None
+    facebook_url: Optional[str] = None
+    instagram_url: Optional[str] = None
+    legale_rappresentante_nome: Optional[str] = None
+    legale_rappresentante_cognome: Optional[str] = None
+    legale_rappresentante_codice_fiscale: Optional[str] = None
+    legale_rappresentante_email: Optional[EmailStr] = None
+    legale_rappresentante_telefono: Optional[str] = None
+    legale_rappresentante_indirizzo: Optional[str] = None
+    legale_rappresentante_linkedin: Optional[str] = None
+    legale_rappresentante_facebook: Optional[str] = None
+    legale_rappresentante_instagram: Optional[str] = None
+    legale_rappresentante_tiktok: Optional[str] = None
+    referente_nome: Optional[str] = None
+    referente_cognome: Optional[str] = None
+    referente_ruolo: Optional[str] = None
+    referente_email: Optional[EmailStr] = None
+    referente_telefono: Optional[str] = None
+    referente_indirizzo: Optional[str] = None
+    referente_luogo_nascita: Optional[str] = None
+    referente_data_nascita: Optional[datetime] = None
+    referente_linkedin: Optional[str] = None
+    referente_facebook: Optional[str] = None
+    referente_instagram: Optional[str] = None
+    referente_tiktok: Optional[str] = None
+    agenzia_id: Optional[int] = None
+    consulente_id: Optional[int] = None
+    note: Optional[str] = None
+    attivo: Optional[bool] = None
+
+    @field_validator("partita_iva", mode="before")
+    @classmethod
+    def check_piva(cls, v):
+        return _validate_piva(v)
+
+    @field_validator("provincia", mode="before")
+    @classmethod
+    def check_provincia(cls, v):
+        if v:
+            v = v.upper()
+            if not v.isalpha() or len(v) != 2:
+                raise ValueError("Provincia deve essere sigla 2 lettere")
+        return v
+
+
+class AziendaCliente(AziendaClienteBase):
+    id: int
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class AziendaClienteWithConsulente(AziendaCliente):
+    agenzia: Optional[Agenzia] = None
+    consulente: Optional[Consulente] = None
+
+
+# ─────────────────────────────────────────────
+# BLOCCO 3 — CATALOGO + LISTINI
+# ─────────────────────────────────────────────
+
+from typing import Literal
+
+TIPI_PRODOTTO = Literal['apprendistato', 'tirocinio', 'formazione', 'altro']
+TIPI_CLIENTE = Literal['standard', 'apprendistato', 'finanziato', 'gratis']
+
+
+# ── Prodotto ─────────────────────────────────
+
+class ProdottoBase(BaseModel):
+    codice: Optional[str] = Field(None, max_length=50)
+    nome: str = Field(..., min_length=2, max_length=200)
+    descrizione: Optional[str] = None
+    tipo: TIPI_PRODOTTO = 'altro'
+    prezzo_base: float = Field(0.0, ge=0)
+    unita_misura: str = Field('ora', max_length=50)
+    attivo: bool = True
+
+
+class ProdottoCreate(ProdottoBase):
+    pass
+
+
+class ProdottoUpdate(BaseModel):
+    codice: Optional[str] = Field(None, max_length=50)
+    nome: Optional[str] = Field(None, min_length=2, max_length=200)
+    descrizione: Optional[str] = None
+    tipo: Optional[TIPI_PRODOTTO] = None
+    prezzo_base: Optional[float] = Field(None, ge=0)
+    unita_misura: Optional[str] = None
+    attivo: Optional[bool] = None
+
+
+class Prodotto(ProdottoBase):
+    id: int
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+# ── Listino ──────────────────────────────────
+
+class ListinoBase(BaseModel):
+    nome: str = Field(..., min_length=2, max_length=200)
+    descrizione: Optional[str] = None
+    tipo_cliente: TIPI_CLIENTE = 'standard'
+    attivo: bool = True
+
+
+class ListinoCreate(ListinoBase):
+    pass
+
+
+class ListinoUpdate(BaseModel):
+    nome: Optional[str] = Field(None, min_length=2, max_length=200)
+    descrizione: Optional[str] = None
+    tipo_cliente: Optional[TIPI_CLIENTE] = None
+    attivo: Optional[bool] = None
+
+
+class Listino(ListinoBase):
+    id: int
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+# ── ListinoVoce ──────────────────────────────
+
+class ListinoVoceBase(BaseModel):
+    listino_id: int
+    prodotto_id: int
+    prezzo_override: Optional[float] = Field(None, ge=0)
+    sconto_percentuale: float = Field(0.0, ge=0, le=100)
+    note: Optional[str] = None
+
+
+class ListinoVoceCreate(ListinoVoceBase):
+    pass
+
+
+class ListinoVoceUpdate(BaseModel):
+    prezzo_override: Optional[float] = Field(None, ge=0)
+    sconto_percentuale: Optional[float] = Field(None, ge=0, le=100)
+    note: Optional[str] = None
+
+
+class ListinoVoce(ListinoVoceBase):
+    id: int
+    prezzo_finale: Optional[float] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class ListinoVoceWithProdotto(ListinoVoce):
+    prodotto: Optional[Prodotto] = None
+
+
+class ListinoWithVoci(Listino):
+    voci: List[ListinoVoceWithProdotto] = []
+
+
+# ── Risposta prezzo calcolato ─────────────────
+
+class PrezzoCalcolatoResponse(BaseModel):
+    prodotto_id: int
+    listino_id: int
+    prezzo_base: float
+    prezzo_override: Optional[float]
+    sconto_percentuale: float
+    prezzo_finale: float
+    unita_misura: str
+
+
+# ═══════════════════════════════════════════════
+# BLOCCO 4 — Preventivi + Ordini
+# ═══════════════════════════════════════════════
+
+from typing import Literal
+from datetime import date
+
+STATI_PREVENTIVO = Literal['bozza', 'inviato', 'accettato', 'rifiutato']
+STATI_ORDINE = Literal['in_lavorazione', 'completato', 'annullato']
+
+# ── PreventivoRiga ────────────────────────────
+
+class PreventivoRigaCreate(BaseModel):
+    prodotto_id: Optional[int] = None
+    descrizione_custom: Optional[str] = None
+    quantita: float = Field(1.0, gt=0)
+    prezzo_unitario: float = Field(0.0, ge=0)
+    sconto_percentuale: float = Field(0.0, ge=0, le=100)
+    ordine: int = 0
+
+    @field_validator('descrizione_custom', 'prodotto_id', mode='before')
+    @classmethod
+    def at_least_one_description(cls, v):
+        return v
+
+
+class PreventivoRigaUpdate(BaseModel):
+    descrizione_custom: Optional[str] = None
+    quantita: Optional[float] = Field(None, gt=0)
+    prezzo_unitario: Optional[float] = Field(None, ge=0)
+    sconto_percentuale: Optional[float] = Field(None, ge=0, le=100)
+    ordine: Optional[int] = None
+
+
+class PreventivoRigaRead(BaseModel):
+    id: int
+    preventivo_id: int
+    prodotto_id: Optional[int] = None
+    descrizione_custom: Optional[str] = None
+    quantita: float
+    prezzo_unitario: float
+    sconto_percentuale: float
+    importo: float
+    ordine: int
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    prodotto: Optional['Prodotto'] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ── Preventivo ────────────────────────────────
+
+class PreventivoCreate(BaseModel):
+    azienda_cliente_id: Optional[int] = None
+    listino_id: Optional[int] = None
+    consulente_id: Optional[int] = None
+    oggetto: Optional[str] = None
+    data_scadenza: Optional[date] = None
+    note: Optional[str] = None
+    righe: List[PreventivoRigaCreate] = []
+
+
+class PreventivoUpdate(BaseModel):
+    azienda_cliente_id: Optional[int] = None
+    listino_id: Optional[int] = None
+    consulente_id: Optional[int] = None
+    oggetto: Optional[str] = None
+    data_scadenza: Optional[date] = None
+    note: Optional[str] = None
+    attivo: Optional[bool] = None
+
+
+class PreventivoRead(BaseModel):
+    id: int
+    numero: str
+    anno: int
+    numero_progressivo: int
+    azienda_cliente_id: Optional[int] = None
+    listino_id: Optional[int] = None
+    consulente_id: Optional[int] = None
+    stato: str
+    oggetto: Optional[str] = None
+    data_scadenza: Optional[datetime] = None
+    note: Optional[str] = None
+    attivo: bool
+    totale: float = 0.0
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PreventivoWithRighe(PreventivoRead):
+    righe: List[PreventivoRigaRead] = []
+    azienda_cliente: Optional['AziendaCliente'] = None
+    consulente: Optional['Consulente'] = None
+
+
+# ── Ordine ────────────────────────────────────
+
+class OrdineRead(BaseModel):
+    id: int
+    numero: str
+    anno: int
+    numero_progressivo: int
+    preventivo_id: Optional[int] = None
+    azienda_cliente_id: Optional[int] = None
+    stato: str
+    note: Optional[str] = None
+    progetto_id: Optional[int] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    azienda_cliente: Optional['AziendaCliente'] = None
+    preventivo: Optional[PreventivoRead] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class OrdineUpdate(BaseModel):
+    stato: Optional[STATI_ORDINE] = None
+    note: Optional[str] = None
+    progetto_id: Optional[int] = None

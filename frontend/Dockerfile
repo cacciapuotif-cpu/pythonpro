@@ -15,8 +15,8 @@ RUN npm install --no-audit
 # Copy source code
 COPY . .
 
-# Build argument for API URL
-ARG REACT_APP_API_URL=http://localhost:8001/api/v1
+# Build argument for API URL (empty = usa URL relativo, nginx fa il proxy)
+ARG REACT_APP_API_URL=
 
 # Build static files
 RUN REACT_APP_API_URL=$REACT_APP_API_URL npm run build

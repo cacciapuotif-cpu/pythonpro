@@ -1,0 +1,49 @@
+.consulenti-manager {
+  padding: 1.5rem;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.consulenti-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.consulenti-header h2 {
+  margin: 0 0 0.25rem;
+  font-size: 1.4rem;
+  color: var(--text-primary, #1a1a2e);
+}
+
+.count-badge {
+  font-size: 0.85rem;
+  color: var(--text-secondary, #666);
+}
+
+.consulenti-toolbar {
+  margin-bottom: 1.25rem;
+}
+
+.consulenti-table-wrap {
+  overflow-x: auto;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+}
+
+.modal-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem 1.25rem;
+}
+
+.form-group-full {
+  grid-column: 1 / -1;
+}
+
+.row-inactive td {
+  opacity: 0.55;
+}

@@ -232,8 +232,8 @@ app = FastAPI(
 # - In produzione: specifica SOLO i domini autorizzati in .env
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.BACKEND_CORS_ORIGINS,  # Domini autorizzati (da settings)
-    allow_credentials=True,  # Permette invio cookies/auth headers
+    allow_origins=["*"],  # Domini autorizzati (da settings)
+    allow_credentials=False,  # Permette invio cookies/auth headers
     allow_methods=["*"],     # Permette tutti i metodi HTTP (GET, POST, PUT, DELETE, etc.)
     allow_headers=["*"],     # Permette tutti gli headers
 )

@@ -55,6 +55,13 @@
   box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
 }
 
+.btn-primary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
 .btn-secondary {
   background-color: #ecf0f1;
   color: #2c3e50;
@@ -130,6 +137,80 @@
   border: 1px solid #e0e0e0;
 }
 
+.project-focus-panel {
+  background: white;
+  border-radius: 14px;
+  padding: 22px 24px;
+  margin-bottom: 24px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+  border: 1px solid #e0e0e0;
+}
+
+.project-focus-main {
+  display: grid;
+  gap: 16px;
+}
+
+.project-focus-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.financial-summary-strip {
+  background: linear-gradient(135deg, #16324f 0%, #0f6c8d 100%);
+  color: white;
+  border-radius: 16px;
+  padding: 22px 24px;
+  margin-bottom: 24px;
+  box-shadow: 0 12px 30px rgba(15, 108, 141, 0.18);
+}
+
+.financial-summary-header h3 {
+  margin: 6px 0 8px;
+  font-size: 1.5rem;
+}
+
+.financial-summary-header p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.financial-summary-eyebrow {
+  display: inline-block;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.financial-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.financial-kpi-card {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  padding: 14px 16px;
+  display: grid;
+  gap: 6px;
+}
+
+.financial-kpi-card span {
+  font-size: 0.82rem;
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.financial-kpi-card strong {
+  font-size: 1.35rem;
+  line-height: 1.1;
+}
+
 .filters-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -177,6 +258,15 @@
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
   border: 1px solid #e0e0e0;
   overflow-x: auto;
+}
+
+.project-selection-empty {
+  background: white;
+  border-radius: 14px;
+  padding: 32px 24px;
+  text-align: center;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+  border: 1px solid #e0e0e0;
 }
 
 .associations-table {
@@ -413,6 +503,13 @@
 .form-group textarea {
   resize: vertical;
   min-height: 60px;
+}
+
+.field-hint {
+  margin-top: 8px;
+  color: #0f6c8d;
+  font-size: 0.82rem;
+  line-height: 1.4;
 }
 
 .checkbox-label {

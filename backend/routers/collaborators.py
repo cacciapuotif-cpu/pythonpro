@@ -3,15 +3,16 @@ Router per gestione collaboratori
 Gestisce tutte le operazioni CRUD su collaboratori e upload documenti
 """
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 from datetime import datetime
 import logging
 
 import crud
 import schemas
+from agent_workflows import sync_collaborator_data_quality
 from database import get_db
 
 logger = logging.getLogger(__name__)
@@ -47,9 +48,21 @@ def create_collaborator(
                 detail=f"Esiste già un collaboratore con codice fiscale '{collaborator.fiscal_code.upper()}'"
             )
 
+        if collaborator.partita_iva:
+            piva_conflict = crud.find_partita_iva_conflict(db, collaborator.partita_iva, entity_type="collaborator")
+            if piva_conflict:
+                raise HTTPException(
+                    status_code=409,
+                    detail=piva_conflict["message"]
+                )
+
         result = crud.create_collaborator(db=db, collaborator=collaborator)
         db.commit()
         db.refresh(result)
+        try:
+            sync_collaborator_data_quality(db, collaborator_id=result.id, trigger_source="collaborator_create")
+        except Exception as workflow_exc:
+            logger.warning("Auto data quality collaborator %s failed after create: %s", result.id, workflow_exc)
         logger.info(f"Collaboratore creato: {result.first_name} {result.last_name} (CF: {result.fiscal_code})")
         return result
     except HTTPException:
@@ -64,12 +77,58 @@ def create_collaborator(
 def read_collaborators(
     skip: int = 0,
     limit: int = 100,
+    active_only: bool = False,
     db: Session = Depends(get_db)
 ):
     """OTTIENI LISTA DI TUTTI I COLLABORATORI con paginazione"""
-    collaborators = crud.get_collaborators(db, skip=skip, limit=limit)
+    collaborators = crud.get_collaborators(db, skip=skip, limit=limit, is_active=True if active_only else None)
     logger.info(f"Totale collaboratori restituiti: {len(collaborators)}")
     return collaborators
+
+
+@router.get("/search", response_model_by_alias=False)
+def search_collaborators(
+    search: Optional[str] = Query(None, description="Ricerca su nome, cognome, email, CF, posizione"),
+    competenza: Optional[str] = Query(None, description="Filtro parziale su posizione/competenza"),
+    disponibile: Optional[bool] = Query(None, description="True=ha progetto attivo, False=nessun progetto attivo"),
+    citta: Optional[str] = Query(None, description="Filtro parziale su città"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    sort_by: str = Query("last_name", description="Campo di ordinamento"),
+    order: str = Query("asc", pattern="^(asc|desc)$"),
+    db: Session = Depends(get_db)
+):
+    """
+    SMART SEARCH COLLABORATORI — server-side con filtri, paginazione e ordinamento.
+
+    Restituisce PaginatedResponse con items, total, page, pages, has_next.
+    """
+    VALID_SORT = {"last_name", "first_name", "email", "position", "city", "created_at"}
+    if sort_by not in VALID_SORT:
+        sort_by = "last_name"
+
+    items, total, pages = crud.search_collaborators_paginated(
+        db,
+        search=search,
+        competenza=competenza,
+        disponibile=disponibile,
+        citta=citta,
+        page=page,
+        limit=limit,
+        sort_by=sort_by,
+        order=order
+    )
+
+    # Serializzazione manuale per mantenere response_model_by_alias=False
+    serialized = [schemas.CollaboratorWithProjects.model_validate(c) for c in items]
+
+    return {
+        "items": [s.model_dump() for s in serialized],
+        "total": total,
+        "page": page,
+        "pages": pages,
+        "has_next": page < pages,
+    }
 
 
 @router.get("/{collaborator_id}", response_model=schemas.CollaboratorWithProjects, response_model_by_alias=False)
@@ -121,7 +180,24 @@ def update_collaborator(
                     detail=f"Esiste già un collaboratore con codice fiscale '{collaborator.fiscal_code.upper()}'"
                 )
 
+        if collaborator.partita_iva:
+            piva_conflict = crud.find_partita_iva_conflict(
+                db,
+                collaborator.partita_iva,
+                entity_type="collaborator",
+                entity_id=collaborator_id,
+            )
+            if piva_conflict:
+                raise HTTPException(
+                    status_code=409,
+                    detail=piva_conflict["message"]
+                )
+
         updated_collaborator = crud.update_collaborator(db, collaborator_id, collaborator)
+        try:
+            sync_collaborator_data_quality(db, collaborator_id=collaborator_id, trigger_source="collaborator_update")
+        except Exception as workflow_exc:
+            logger.warning("Auto data quality collaborator %s failed after update: %s", collaborator_id, workflow_exc)
         return updated_collaborator
     except HTTPException:
         raise
@@ -191,6 +267,22 @@ def bulk_import_collaborators(
                     })
                     continue
 
+            if collaborator_data.partita_iva:
+                piva_conflict = crud.find_partita_iva_conflict(
+                    db,
+                    collaborator_data.partita_iva,
+                    entity_type="collaborator",
+                )
+                if piva_conflict:
+                    error_count += 1
+                    errors.append({
+                        "index": index + 1,
+                        "email": collaborator_data.email,
+                        "name": f"{collaborator_data.first_name} {collaborator_data.last_name}",
+                        "error": piva_conflict["message"]
+                    })
+                    continue
+
             # Crea il collaboratore
             result = crud.create_collaborator(db=db, collaborator=collaborator_data)
             db.flush()  # Flush per ottenere l'ID senza committare
@@ -242,6 +334,7 @@ def bulk_import_collaborators(
 async def upload_documento_identita(
     collaborator_id: int,
     file: UploadFile = File(...),
+    data_scadenza: str | None = Form(None),
     db: Session = Depends(get_db)
 ):
     """
@@ -261,19 +354,34 @@ async def upload_documento_identita(
 
     try:
         filename, filepath = await save_uploaded_file(file, collaborator_id, "documento")
+        expiry_date = None
+        if data_scadenza:
+            try:
+                expiry_date = datetime.fromisoformat(data_scadenza.replace("Z", "+00:00"))
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Data scadenza documento non valida"
+                ) from exc
 
         collaborator.documento_identita_filename = filename
         collaborator.documento_identita_path = filepath
         collaborator.documento_identita_uploaded_at = datetime.now()
+        collaborator.documento_identita_scadenza = expiry_date
         db.commit()
         db.refresh(collaborator)
+        try:
+            sync_collaborator_data_quality(db, collaborator_id=collaborator_id, trigger_source="document_upload")
+        except Exception as workflow_exc:
+            logger.warning("Auto data quality collaborator %s failed after document upload: %s", collaborator_id, workflow_exc)
 
         logger.info(f"Documento identità uploadato per collaboratore {collaborator_id}")
 
         return {
             "message": "Documento identità caricato con successo",
             "filename": filename,
-            "uploaded_at": collaborator.documento_identita_uploaded_at
+            "uploaded_at": collaborator.documento_identita_uploaded_at,
+            "documento_identita_scadenza": collaborator.documento_identita_scadenza
         }
     except HTTPException:
         raise
@@ -311,6 +419,10 @@ async def upload_curriculum(
         collaborator.curriculum_uploaded_at = datetime.now()
         db.commit()
         db.refresh(collaborator)
+        try:
+            sync_collaborator_data_quality(db, collaborator_id=collaborator_id, trigger_source="curriculum_upload")
+        except Exception as workflow_exc:
+            logger.warning("Auto data quality collaborator %s failed after curriculum upload: %s", collaborator_id, workflow_exc)
 
         logger.info(f"Curriculum uploadato per collaboratore {collaborator_id}")
 
@@ -394,6 +506,7 @@ async def delete_documento_identita(
     collaborator.documento_identita_filename = None
     collaborator.documento_identita_path = None
     collaborator.documento_identita_uploaded_at = None
+    collaborator.documento_identita_scadenza = None
     db.commit()
 
     return {"message": "Documento identità eliminato con successo"}

@@ -5,6 +5,7 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import inspect, text
 from typing import List
 from datetime import datetime
 import os
@@ -17,13 +18,18 @@ import crud
 from database import SessionLocal, engine, get_db
 
 # Setup logging avanzato
+_log_dir = os.getenv('LOG_DIR', 'logs')
+os.makedirs(_log_dir, exist_ok=True)
+_log_handlers = [logging.StreamHandler()]
+try:
+    _log_handlers.insert(0, logging.FileHandler(os.path.join(_log_dir, 'gestionale.log')))
+except (OSError, PermissionError):
+    pass  # Se logs non è scrivibile usa solo stdout
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s',
-    handlers=[
-        logging.FileHandler(os.path.join(os.getenv('LOG_DIR', 'logs'), 'gestionale.log')),
-        logging.StreamHandler()
-    ]
+    handlers=_log_handlers
 )
 logger = logging.getLogger(__name__)
 
@@ -55,6 +61,7 @@ from auth import User, UserRole, create_user
 
 # IMPORTAZIONI ROUTERS MODULARI
 from routers import (
+    auth,
     collaborators,
     projects,
     attendances,
@@ -64,11 +71,153 @@ from routers import (
     contract_templates,
     admin,
     system,
-    reporting
+    reporting,
+    agenzie,
+    consulenti,
+    aziende_clienti,
+    catalogo,
+    listini,
+    preventivi,
+    ordini,
+    piani_finanziari,
+    piani_fondimpresa,
+    avvisi,
+    agents,
 )
 
 # CREIAMO LE TABELLE NEL DATABASE
 models.Base.metadata.create_all(bind=engine)
+
+
+def ensure_runtime_schema_updates():
+    """Aggiunge colonne mancanti su installazioni già esistenti senza migrazione completa."""
+    table_updates = {
+        "assignments": {
+            "contract_signed_date": "TIMESTAMP",
+            "edizione_label": "VARCHAR(100)",
+        },
+        "collaborators": {
+            "documento_identita_scadenza": "TIMESTAMP",
+            "is_agency": "BOOLEAN DEFAULT FALSE",
+            "is_consultant": "BOOLEAN DEFAULT FALSE",
+            "partita_iva": "VARCHAR(11)",
+            "profilo_professionale": "TEXT",
+            "competenze_principali": "TEXT",
+            "certificazioni": "TEXT",
+            "sito_web": "VARCHAR(255)",
+            "portfolio_url": "VARCHAR(255)",
+            "linkedin_url": "VARCHAR(255)",
+            "facebook_url": "VARCHAR(255)",
+            "instagram_url": "VARCHAR(255)",
+            "tiktok_url": "VARCHAR(255)",
+        },
+        "agenzie": {
+            "partita_iva": "VARCHAR(11)",
+            "collaborator_id": "INTEGER",
+        },
+        "aziende_clienti": {
+            "agenzia_id": "INTEGER",
+            "attivita_erogate": "TEXT",
+            "sito_web": "VARCHAR(255)",
+            "linkedin_url": "VARCHAR(255)",
+            "facebook_url": "VARCHAR(255)",
+            "instagram_url": "VARCHAR(255)",
+            "legale_rappresentante_nome": "VARCHAR(100)",
+            "legale_rappresentante_cognome": "VARCHAR(100)",
+            "legale_rappresentante_codice_fiscale": "VARCHAR(16)",
+            "legale_rappresentante_email": "VARCHAR(100)",
+            "legale_rappresentante_telefono": "VARCHAR(30)",
+            "legale_rappresentante_indirizzo": "VARCHAR(255)",
+            "legale_rappresentante_linkedin": "VARCHAR(255)",
+            "legale_rappresentante_facebook": "VARCHAR(255)",
+            "legale_rappresentante_instagram": "VARCHAR(255)",
+            "legale_rappresentante_tiktok": "VARCHAR(255)",
+            "referente_cognome": "VARCHAR(100)",
+            "referente_ruolo": "VARCHAR(100)",
+            "referente_telefono": "VARCHAR(30)",
+            "referente_indirizzo": "VARCHAR(255)",
+            "referente_luogo_nascita": "VARCHAR(100)",
+            "referente_data_nascita": "TIMESTAMP",
+            "referente_linkedin": "VARCHAR(255)",
+            "referente_facebook": "VARCHAR(255)",
+            "referente_instagram": "VARCHAR(255)",
+            "referente_tiktok": "VARCHAR(255)",
+        },
+        "projects": {
+            "atto_approvazione": "VARCHAR(255)",
+            "sede_aziendale_comune": "VARCHAR(100)",
+            "sede_aziendale_via": "VARCHAR(200)",
+            "sede_aziendale_numero_civico": "VARCHAR(20)",
+            "ente_erogatore": "VARCHAR(100)",
+            "avviso": "VARCHAR(100)",
+            "avviso_id": "INTEGER",
+            "template_piano_finanziario_id": "INTEGER",
+        },
+        "implementing_entities": {
+            "legale_rappresentante_nome": "VARCHAR(50)",
+            "legale_rappresentante_cognome": "VARCHAR(50)",
+            "legale_rappresentante_luogo_nascita": "VARCHAR(100)",
+            "legale_rappresentante_data_nascita": "DATETIME",
+            "legale_rappresentante_comune_residenza": "VARCHAR(100)",
+            "legale_rappresentante_via_residenza": "VARCHAR(200)",
+            "legale_rappresentante_codice_fiscale": "VARCHAR(16)",
+        },
+        "contract_templates": {
+            "ambito_template": "VARCHAR(50) DEFAULT 'contratto'",
+            "chiave_documento": "VARCHAR(100)",
+            "ente_attuatore_id": "INTEGER",
+            "progetto_id": "INTEGER",
+            "ente_erogatore": "VARCHAR(100)",
+            "avviso": "VARCHAR(100)",
+        },
+        "piani_finanziari": {
+            "template_id": "INTEGER",
+            "avviso": "VARCHAR(100) DEFAULT ''",
+            "avviso_id": "INTEGER",
+        },
+        "piani_finanziari_fondimpresa": {
+            "avviso_id": "INTEGER",
+        },
+        "avvisi": {
+            "codice": "VARCHAR(50)",
+            "ente_erogatore": "VARCHAR(100)",
+            "descrizione": "VARCHAR(200)",
+            "template_id": "INTEGER",
+            "is_active": "BOOLEAN DEFAULT TRUE",
+        },
+        "voci_piano_finanziario": {
+            "importo_presentato": "FLOAT DEFAULT 0",
+        },
+    }
+
+    try:
+        inspector = inspect(engine)
+        with engine.begin() as connection:
+            for table_name, columns in table_updates.items():
+                existing_columns = {col["name"] for col in inspector.get_columns(table_name)}
+                for column_name, column_type in columns.items():
+                    if column_name in existing_columns:
+                        continue
+                    connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}"))
+                    logger.info(f"Aggiunta colonna runtime {table_name}.{column_name}")
+    except Exception as exc:
+        logger.warning(f"Schema runtime non aggiornato automaticamente: {exc}")
+
+
+ensure_runtime_schema_updates()
+
+try:
+    with engine.begin() as connection:
+        connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_collaborators_partita_iva_unique ON collaborators (partita_iva)"))
+        connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_agenzie_partita_iva_unique ON agenzie (partita_iva)"))
+        connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_agenzie_collaborator_id_unique ON agenzie (collaborator_id)"))
+        connection.execute(text("DROP INDEX IF EXISTS idx_unique_piano_progetto_anno"))
+        connection.execute(text("DROP INDEX IF EXISTS idx_unique_piano_progetto_anno_fondo"))
+        connection.execute(text("DROP INDEX IF EXISTS idx_unique_piano_progetto_anno_fondo_avviso"))
+        connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_piano_progetto_anno_ente_avviso_id ON piani_finanziari (progetto_id, anno, ente_erogatore, avviso_id)"))
+        connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_avvisi_codice_ente ON avvisi (codice, ente_erogatore)"))
+except Exception as exc:
+    logger.warning(f"Indici runtime non aggiornati automaticamente: {exc}")
 
 # CREAZIONE DELL'APPLICAZIONE FASTAPI
 app = FastAPI(
@@ -139,12 +288,8 @@ async def general_exception_handler(request: Request, exc: Exception):
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:3001",
-        "http://127.0.0.1:3001",
-    ],
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -155,6 +300,9 @@ setup_middleware(app)
 # ========================================
 # REGISTRAZIONE ROUTERS MODULARI
 # ========================================
+
+# Router autenticazione
+app.include_router(auth.router)
 
 # Router per risorse principali
 app.include_router(system.router)
@@ -175,6 +323,25 @@ app.include_router(reporting.router)
 
 # Router amministrazione
 app.include_router(admin.router)
+
+# Router Blocco 1 — Anagrafica espansa
+app.include_router(agenzie.router)
+app.include_router(consulenti.router)
+app.include_router(aziende_clienti.router)
+
+# Router Blocco 3 — Catalogo + Listini
+app.include_router(catalogo.router)
+app.include_router(listini.router)
+
+# Router Blocco 4 — Preventivi + Ordini
+app.include_router(preventivi.router)
+app.include_router(ordini.router)
+
+# Router Piano Finanziario Formazienda
+app.include_router(piani_finanziari.router)
+app.include_router(piani_fondimpresa.router)
+app.include_router(avvisi.router)
+app.include_router(agents.router)
 
 
 # ========================================
@@ -295,14 +462,18 @@ async def startup_event():
     logger.info("✅ Security middleware enabled")
     logger.info("✅ Database connection pool configured")
 
+    auto_backup_enabled = os.getenv("AUTO_BACKUP_ENABLED", "false").lower() == "true"
+
     # Inizializza sistema backup (se disponibile)
-    if BACKUP_AVAILABLE:
+    if BACKUP_AVAILABLE and auto_backup_enabled:
         try:
             backup_mgr = get_backup_manager()
             backup_mgr.schedule_automatic_backups()
             logger.info("✅ Automatic backup system started")
         except Exception as e:
             logger.error(f"Error starting backup system: {e}")
+    elif BACKUP_AVAILABLE:
+        logger.info("ℹ️ Automatic backup scheduler disabled for web process")
     else:
         logger.warning("⚠️ Backup system not available")
 
@@ -317,10 +488,10 @@ async def startup_event():
     else:
         logger.warning("⚠️ Performance monitoring not available")
 
-    # Crea utente admin default se non esiste
+    # Crea utenti di accesso iniziali se non esistono
     try:
         db = SessionLocal()
-        admin_exists = db.query(User).filter(User.role == UserRole.ADMIN).first()
+        admin_exists = db.query(User).filter(User.username == "admin").first()
         if not admin_exists:
             create_user(
                 db=db,
@@ -331,6 +502,18 @@ async def startup_event():
                 role=UserRole.ADMIN
             )
             logger.info("👤 Created default admin user (change password!)")
+
+        operator_exists = db.query(User).filter(User.username == "operatore").first()
+        if not operator_exists:
+            create_user(
+                db=db,
+                username="operatore",
+                email="operatore@gestionale.local",
+                password="operatore123",  # CAMBIARE IN PRODUZIONE!
+                full_name="Operatore Gestionale",
+                role=UserRole.USER
+            )
+            logger.info("👤 Created default operator user (change password!)")
         db.close()
     except Exception as e:
         logger.error(f"Error creating admin user: {e}")
@@ -360,8 +543,10 @@ async def shutdown_event():
         except Exception as e:
             logger.error(f"Error stopping performance monitoring: {e}")
 
+    auto_backup_enabled = os.getenv("AUTO_BACKUP_ENABLED", "false").lower() == "true"
+
     # Crea backup di emergenza allo shutdown (se disponibile)
-    if BACKUP_AVAILABLE:
+    if BACKUP_AVAILABLE and auto_backup_enabled:
         try:
             backup_mgr = get_backup_manager()
             backup_mgr.stop_automatic_backups()

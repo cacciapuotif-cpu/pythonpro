@@ -34,7 +34,7 @@ cd C:\pythonpro
 
 # 3. Apri browser
 # Frontend: http://localhost:3001
-# API Docs: http://localhost:8000/docs
+# API Docs: http://localhost:8001/docs
 ```
 
 **Stato attuale:** ✅ Tutti i container funzionanti e healthy
@@ -178,10 +178,11 @@ docker compose logs -f backend
 
 **Tutti i container devono essere `healthy`:**
 ```
-gestionale_db        healthy
-gestionale_redis     healthy
-gestionale_backend   healthy
-gestionale_frontend  healthy
+pythonpro_db               healthy
+pythonpro_redis            healthy
+pythonpro_backend          healthy
+pythonpro_frontend         healthy
+pythonpro_backup_scheduler running
 ```
 
 ---
@@ -193,10 +194,10 @@ gestionale_frontend  healthy
 | Servizio | URL | Credenziali |
 |----------|-----|-------------|
 | **Frontend** | http://localhost:3001 | - |
-| **Backend API** | http://localhost:8000 | - |
-| **API Docs** | http://localhost:8000/docs | - |
-| **PostgreSQL** | localhost:5433 | `admin` / vedi .env |
-| **Redis** | localhost:6379 | vedi .env |
+| **Backend API** | http://localhost:8001 | - |
+| **API Docs** | http://localhost:8001/docs | - |
+| **PostgreSQL** | localhost:5434 | `admin` / vedi .env |
+| **Redis** | localhost:6381 | vedi .env |
 
 ### Sviluppo Backend (standalone)
 
@@ -214,7 +215,7 @@ pip install -r requirements.txt
 cp .env.sample .env
 
 # Avvia server
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 ### Sviluppo Frontend (standalone)
@@ -227,7 +228,7 @@ npm install
 
 # Configura .env.local
 cp .env.sample .env.local
-# Setta REACT_APP_API_URL=http://localhost:8000
+# Setta REACT_APP_API_URL=http://localhost:8001
 
 # Avvia dev server
 npm start
@@ -244,6 +245,41 @@ docker compose exec backend alembic revision --autogenerate -m "descrizione"
 
 # Storico migrations
 docker compose exec backend alembic history
+```
+
+### Backup Automatico
+
+Il progetto usa un servizio separato `backup_scheduler`, verificato runtime, che esegue i backup fuori dal processo web.
+
+```powershell
+# Stato scheduler
+docker compose ps backup_scheduler
+
+# Log scheduler
+docker compose logs -f backup_scheduler
+
+# Backup manuale
+make backup
+
+# Elenco backup disponibili
+make backup-list
+```
+
+**Variabili configurabili in `.env`:**
+- `BACKUP_DIR`
+- `BACKUP_RETENTION_COUNT`
+- `BACKUP_DAILY_TIME`
+- `BACKUP_WEEKLY_TIME`
+- `BACKUP_MONTHLY_INTERVAL_DAYS`
+
+**Output backup:**
+- archivio ZIP nella directory backup
+- file JSON con metadata e checksum
+
+Esempio:
+```text
+gestionale_backup_manual_20260319_154825.sql.zip
+gestionale_backup_manual_20260319_154825.sql.json
 ```
 
 ---
@@ -288,12 +324,15 @@ docker compose ps
 ### Backup Database
 
 ```powershell
-# Backup
-docker compose exec db pg_dump -U admin gestionale_prod > backup_$(date +%Y%m%d).sql
+# Backup manuale tramite scheduler
+docker compose exec -T backup_scheduler python run_backup.py create --type manual
 
-# Restore
-docker compose exec -T db psql -U admin gestionale_prod < backup.sql
+# Elenco backup disponibili
+docker compose exec -T backup_scheduler python run_backup.py list
 ```
+
+I backup vengono salvati nel volume `backend_backups` come file ZIP più metadata JSON.
+Per il restore applicativo usare l'endpoint admin o una procedura di restore SQL in finestra di manutenzione.
 
 ### Monitoraggio
 
@@ -305,7 +344,7 @@ docker compose logs -f --tail=100
 docker stats
 
 # Health check
-curl http://localhost:8000/health
+curl http://localhost:8001/health
 ```
 
 Vedi `docs/RUNBOOK_produzione.md` per procedure complete.
@@ -341,10 +380,10 @@ docker compose exec backend pytest --cov=app --cov-report=html
 
 ```powershell
 # Health
-curl http://localhost:8000/health
+curl http://localhost:8001/health
 
 # API Docs
-start http://localhost:8000/docs
+start http://localhost:8001/docs
 
 # Frontend
 start http://localhost:3001
@@ -388,7 +427,7 @@ docker compose build frontend
 docker compose up -d frontend
 
 # Verifica healthcheck
-docker inspect gestionale_frontend --format='{{json .State.Health}}'
+docker inspect pythonpro_frontend --format='{{json .State.Health}}'
 
 # Test manuale
 curl http://localhost:3001/healthz
@@ -506,8 +545,8 @@ $env:BACKEND_PORT=8002; node scripts/smoke.js
 
 ### API Documentation
 
-- **Swagger UI:** http://localhost:8000/docs
-- **ReDoc:** http://localhost:8000/redoc
+- **Swagger UI:** http://localhost:8001/docs
+- **ReDoc:** http://localhost:8001/redoc
 
 ### Script Utili
 

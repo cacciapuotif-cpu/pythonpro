@@ -24,7 +24,7 @@ from datetime import datetime
 import sys
 
 # Configurazione
-BASE_URL = "http://localhost:8000"
+BASE_URL = "http://localhost:8001"
 NUM_THREADS = 10
 REQUESTS_PER_THREAD = 50
 TIMEOUT = 5

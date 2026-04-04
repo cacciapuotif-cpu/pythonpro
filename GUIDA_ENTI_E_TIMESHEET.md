@@ -321,7 +321,7 @@ Frontend: http://localhost:3001
 ### Enti Attuatori Non Si Caricano
 ```bash
 # Verifica backend
-curl http://localhost:8000/implementing-entities/
+curl http://localhost:8001/implementing-entities/
 
 # Check logs
 make docker-logs
@@ -356,7 +356,7 @@ make docker-logs
 ### API Docs
 Consulta la documentazione interattiva:
 ```
-http://localhost:8000/docs
+http://localhost:8001/docs
 ```
 
 Sezioni rilevanti:

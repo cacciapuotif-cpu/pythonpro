@@ -12,7 +12,8 @@ echo "=================================="
 
 # Test 1: Health endpoint
 echo -n "Test 1: /health endpoint... "
-RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/health.json http://localhost:8000/health)
+BACKEND_URL="${BACKEND_URL:-http://localhost:8001}"
+RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/health.json "$BACKEND_URL/health")
 if [ "$RESPONSE" = "200" ]; then
     echo "✅ PASS"
     cat /tmp/health.json | python3 -m json.tool

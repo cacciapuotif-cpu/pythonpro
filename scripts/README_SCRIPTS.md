@@ -141,8 +141,8 @@ Se uno script fallisce:
 
 1. **verify_fixes.bat**:
    - Controllare output per identificare test fallito
-   - Eseguire `docker-compose logs <service>` per debug
-   - Verificare che container siano running: `docker-compose ps`
+   - Eseguire `docker compose logs <service>` per debug
+   - Verificare che container siano running: `docker compose ps`
 
 2. **simulate_restart.bat**:
    - Verificare che container si siano riavviati: `docker ps`
@@ -162,7 +162,7 @@ Se uno script fallisce:
 
 ```batch
 REM 1. Rebuild container
-docker-compose up -d --build
+docker compose up -d --build
 
 REM 2. Verifica base
 cd scripts
@@ -218,7 +218,7 @@ REM ==========================================
 REM TEST CUSTOM: Descrizione
 REM ==========================================
 echo [TEST X] Testando feature custom...
-curl -f http://localhost:8000/mio-endpoint > output.json
+curl -f http://localhost:8001/mio-endpoint > output.json
 if %errorlevel% equ 0 (
     echo    ✓ Test custom: PASS
 ) else (
@@ -252,6 +252,16 @@ pip install requests
 Windows 10+ include curl. Se non disponibile:
 - Installare curl: https://curl.se/windows/
 - O usare PowerShell: `Invoke-WebRequest`
+
+## Stato Attuale
+
+Gli script operativi aggiornati fanno riferimento allo stack reale del progetto:
+
+- backend locale: `http://localhost:8001`
+- frontend locale: `http://localhost:3001`
+- database Docker esposto: `5434`
+- orchestrazione: `docker compose`
+- servizio backup dedicato: `backup_scheduler`
 
 ### "python: command not found"
 Installare Python:
@@ -302,7 +312,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: Start services
-        run: docker-compose up -d
+        run: docker compose up -d
       - name: Wait for startup
         run: timeout /t 90
       - name: Run verification
@@ -320,7 +330,7 @@ Per problemi con gli script:
 1. Controllare log in `_fix_results/logs/`
 2. Verificare prerequisiti (Docker, Python, curl)
 3. Consultare sezione Troubleshooting sopra
-4. Verificare che sistema base funzioni: `docker-compose ps`
+4. Verificare che sistema base funzioni: `docker compose ps`
 
 ---
 

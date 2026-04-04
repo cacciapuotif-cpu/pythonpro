@@ -3,7 +3,7 @@
  * Updated to use shared http client from lib/http.js
  */
 
-import { http } from '../lib/http';
+import { http, apiRootUrl } from '../lib/http';
 
 // Retry logic per richieste fallite
 const retryRequest = async (requestFn, maxRetries = 3, delay = 1000) => {
@@ -250,10 +250,7 @@ class ApiService {
 
   // System endpoints
   async healthCheck() {
-    // Health endpoint is on root, not under /api/v1
-    // Use fetch directly for this special endpoint
-    const baseUrl = (process.env.REACT_APP_API_URL || 'http://localhost:8001').replace(/\/+$/, '');
-    const response = await fetch(`${baseUrl}/health`);
+    const response = await fetch(`${apiRootUrl}/health`);
     if (!response.ok) {
       throw new Error(`Health check failed: ${response.status}`);
     }
@@ -310,6 +307,12 @@ class ApiService {
       skip: filters?.skip || 0,
       limit: filters?.limit || 100,
     };
+    if (filters?.ambito_template) params.ambito_template = filters.ambito_template;
+    if (filters?.chiave_documento) params.chiave_documento = filters.chiave_documento;
+    if (filters?.ente_attuatore_id) params.ente_attuatore_id = filters.ente_attuatore_id;
+    if (filters?.progetto_id) params.progetto_id = filters.progetto_id;
+    if (filters?.ente_erogatore) params.ente_erogatore = filters.ente_erogatore;
+    if (filters?.avviso !== undefined) params.avviso = filters.avviso;
     if (filters?.tipo_contratto) params.tipo_contratto = filters.tipo_contratto;
     if (filters?.is_active !== undefined) params.is_active = filters.is_active;
     if (filters?.search) params.search = filters.search;
@@ -339,7 +342,9 @@ class ApiService {
   }
 
   async generateContract(data) {
-    const response = await http.post('/contracts/generate', data);
+    const response = await http.post('/contracts/generate-contract', data, {
+      responseType: 'blob'
+    });
     return response.data;
   }
 
@@ -364,6 +369,39 @@ class ApiService {
     return response.data;
   }
 
+  // Piani finanziari
+  async getPianiFinanziari(params = {}) {
+    const response = await http.get('/piani-finanziari', { params });
+    return response.data;
+  }
+
+  async getPianoFinanziario(id) {
+    const response = await http.get(`/piani-finanziari/${id}`);
+    return response.data;
+  }
+
+  async createPianoFinanziario(data) {
+    const response = await http.post('/piani-finanziari', data);
+    return response.data;
+  }
+
+  async updateVociPianoFinanziario(id, data) {
+    const response = await http.put(`/piani-finanziari/${id}/voci`, data);
+    return response.data;
+  }
+
+  async getRiepilogoPianoFinanziario(id) {
+    const response = await http.get(`/piani-finanziari/${id}/riepilogo`);
+    return response.data;
+  }
+
+  async exportPianoFinanziarioExcel(id) {
+    const response = await http.get(`/piani-finanziari/${id}/export-excel`, {
+      responseType: 'blob',
+    });
+    return response;
+  }
+
   // Batch operations
   async batchUpdateAssignments(updates) {
     const response = await http.post('/assignments/batch-update', { updates });
@@ -371,9 +409,12 @@ class ApiService {
   }
 
   // File operations - Document upload for collaborators
-  async uploadDocumentoIdentita(collaboratorId, file) {
+  async uploadDocumentoIdentita(collaboratorId, file, dataScadenza = null) {
     const formData = new FormData();
     formData.append('file', file);
+    if (dataScadenza) {
+      formData.append('data_scadenza', dataScadenza);
+    }
 
     const response = await http.post(`/collaborators/${collaboratorId}/upload-documento`, formData, {
       headers: {
@@ -516,8 +557,6 @@ export const getProjectAssignments = (projectId) => apiService.getAssignmentsByP
 export const createAssignment = (data) => apiService.createAssignment(data);
 export const updateAssignment = (id, data) => apiService.updateAssignment(id, data);
 export const deleteAssignment = (id) => apiService.deleteAssignment(id);
-export const generateContractPdf = (assignmentId) => http.get(`/assignments/${assignmentId}/generate-contract`, { responseType: 'blob' }).then(r => r.data);
-
 // Implementing Entities
 export const getImplementingEntities = (skip, limit, search, is_active) => apiService.getEntities({ search, isActive: is_active }, { skip, limit });
 export const getImplementingEntity = (id) => apiService.getEntity(id);
@@ -533,11 +572,200 @@ export const updateContractTemplate = (id, data) => apiService.updateContractTem
 export const deleteContractTemplate = (id, soft_delete = true) => apiService.deleteContractTemplate(id, soft_delete);
 export const generateContract = (data) => apiService.generateContract(data);
 
+// Avvisi
+export const getAvvisi = (params = {}) =>
+  http.get('/avvisi/', { params }).then(r => r.data);
+export const getAvviso = (id) =>
+  http.get(`/avvisi/${id}`).then(r => r.data);
+export const createAvviso = (data) =>
+  http.post('/avvisi/', data).then(r => r.data);
+export const updateAvviso = (id, data) =>
+  http.put(`/avvisi/${id}`, data).then(r => r.data);
+export const deleteAvviso = (id) =>
+  http.delete(`/avvisi/${id}`).then(r => r.data);
+
+// Agents
+export const getAgentsCatalog = () =>
+  http.get('/agents/catalog').then(r => r.data);
+export const getAgentLlmHealth = () =>
+  http.get('/agents/llm/health').then(r => r.data);
+export const runAgent = (data) =>
+  http.post('/agents/run', data).then(r => r.data);
+export const getAgentRuns = (params = {}) =>
+  http.get('/agents/runs', { params }).then(r => r.data);
+export const getAgentSuggestions = (params = {}) =>
+  http.get('/agents/suggestions', { params }).then(r => r.data);
+export const acceptAgentSuggestion = (suggestionId, data) =>
+  http.post(`/agents/suggestions/${suggestionId}/accept`, data).then(r => r.data);
+export const rejectAgentSuggestion = (suggestionId, data) =>
+  http.post(`/agents/suggestions/${suggestionId}/reject`, data).then(r => r.data);
+export const workflowAgentSuggestion = (suggestionId, data) =>
+  http.post(`/agents/suggestions/${suggestionId}/workflow`, data).then(r => r.data);
+export const getAgentCommunications = (params = {}) =>
+  http.get('/agents/communications', { params }).then(r => r.data);
+export const updateAgentCommunicationStatus = (draftId, data) =>
+  http.post(`/agents/communications/${draftId}/status`, data).then(r => r.data);
+
 // Reporting
 export const getTimesheetReport = (filters) => apiService.getTimesheetReport(filters);
 export const getSummaryReport = (filters) => apiService.getSummaryReport(filters);
 export const getCollaboratorStats = (collaboratorId, filters) => apiService.getCollaboratorStats(collaboratorId, filters);
 export const getProjectStats = (projectId, filters) => apiService.getProjectStats(projectId, filters);
+
+// ── Blocco 2: Smart Collaborators Search ─────
+export const getCollaboratorsPaginated = (params = {}) =>
+  http.get('/collaborators/search', { params }).then(r => r.data);
+
+// ── Blocco 1: Agenzie ────────────────────────
+export const getAgenzie = (params = {}) =>
+  http.get('/agenzie/', { params }).then(r => r.data);
+export const getAgenzia = (id) =>
+  http.get(`/agenzie/${id}`).then(r => r.data);
+export const createAgenzia = (data) =>
+  http.post('/agenzie/', data).then(r => r.data);
+export const updateAgenzia = (id, data) =>
+  http.put(`/agenzie/${id}`, data).then(r => r.data);
+export const deleteAgenzia = (id) =>
+  http.delete(`/agenzie/${id}`).then(r => r.data);
+
+// ── Blocco 1: Consulenti ─────────────────────
+export const getConsulenti = (params = {}) =>
+  http.get('/consulenti/', { params }).then(r => r.data);
+export const getConsulente = (id) =>
+  http.get(`/consulenti/${id}`).then(r => r.data);
+export const getAziendeConsulente = (id) =>
+  http.get(`/consulenti/${id}/aziende`).then(r => r.data);
+export const createConsulente = (data) =>
+  http.post('/consulenti/', data).then(r => r.data);
+export const updateConsulente = (id, data) =>
+  http.put(`/consulenti/${id}`, data).then(r => r.data);
+export const deleteConsulente = (id) =>
+  http.delete(`/consulenti/${id}`).then(r => r.data);
+
+// ── Blocco 1: Aziende Clienti ────────────────
+export const getAziendeClienti = (params = {}) =>
+  http.get('/aziende-clienti/', {
+    params: {
+      ...params,
+      limit: params.limit ? Math.min(Number(params.limit) || 0, 100) || undefined : params.limit,
+    },
+  }).then(r => r.data);
+export const getAziendaCliente = (id) =>
+  http.get(`/aziende-clienti/${id}`).then(r => r.data);
+export const searchAziendeClienti = (q, limit = 10) =>
+  http.get('/aziende-clienti/search', { params: { q, limit } }).then(r => r.data);
+export const createAziendaCliente = (data) =>
+  http.post('/aziende-clienti/', data).then(r => r.data);
+export const updateAziendaCliente = (id, data) =>
+  http.put(`/aziende-clienti/${id}`, data).then(r => r.data);
+export const deleteAziendaCliente = (id) =>
+  http.delete(`/aziende-clienti/${id}`).then(r => r.data);
+
+// ── Blocco 3: Catalogo ───────────────────────
+export const getProdotti = (params = {}) =>
+  http.get('/catalogo/', { params }).then(r => r.data);
+export const getProdotto = (id) =>
+  http.get(`/catalogo/${id}`).then(r => r.data);
+export const getTipiProdotto = () =>
+  http.get('/catalogo/tipi').then(r => r.data);
+export const createProdotto = (data) =>
+  http.post('/catalogo/', data).then(r => r.data);
+export const updateProdotto = (id, data) =>
+  http.put(`/catalogo/${id}`, data).then(r => r.data);
+export const deleteProdotto = (id) =>
+  http.delete(`/catalogo/${id}`).then(r => r.data);
+
+// ── Blocco 3: Listini ────────────────────────
+export const getListini = (params = {}) =>
+  http.get('/listini/', { params }).then(r => r.data);
+export const getListino = (id) =>
+  http.get(`/listini/${id}`).then(r => r.data);
+export const getTipiCliente = () =>
+  http.get('/listini/tipi-cliente').then(r => r.data);
+export const createListino = (data) =>
+  http.post('/listini/', data).then(r => r.data);
+export const updateListino = (id, data) =>
+  http.put(`/listini/${id}`, data).then(r => r.data);
+export const deleteListino = (id) =>
+  http.delete(`/listini/${id}`).then(r => r.data);
+export const getVociListino = (listinoId) =>
+  http.get(`/listini/${listinoId}/voci`).then(r => r.data);
+export const addVoceListino = (listinoId, data) =>
+  http.post(`/listini/${listinoId}/voci`, data).then(r => r.data);
+export const updateVoceListino = (listinoId, voceId, data) =>
+  http.put(`/listini/${listinoId}/voci/${voceId}`, data).then(r => r.data);
+export const deleteVoceListino = (listinoId, voceId) =>
+  http.delete(`/listini/${listinoId}/voci/${voceId}`).then(r => r.data);
+export const getPrezzoInListino = (listinoId, prodottoId) =>
+  http.get(`/listini/${listinoId}/prezzo/${prodottoId}`).then(r => r.data);
+
+// ── Piano Finanziario ───────────────────────
+export const getPianiFinanziari = (params = {}) =>
+  http.get('/piani-finanziari/', { params }).then(r => r.data);
+export const getPianoFinanziario = (id) =>
+  http.get(`/piani-finanziari/${id}`).then(r => r.data);
+export const createPianoFinanziario = (data) =>
+  http.post('/piani-finanziari/', data).then(r => r.data);
+export const updateVociPianoFinanziario = (pianoId, data) =>
+  http.put(`/piani-finanziari/${pianoId}/voci`, data).then(r => r.data);
+export const getRiepilogoPianoFinanziario = (pianoId) =>
+  http.get(`/piani-finanziari/${pianoId}/riepilogo`).then(r => r.data);
+export const exportPianoFinanziarioExcel = (pianoId) =>
+  http.get(`/piani-finanziari/${pianoId}/export-excel`, { responseType: 'blob' });
+
+// ── Piano Fondimpresa ───────────────────────
+export const getPianiFondimpresa = (params = {}) =>
+  http.get('/piani-fondimpresa/', { params }).then(r => r.data);
+export const getPianoFondimpresa = (id) =>
+  http.get(`/piani-fondimpresa/${id}`).then(r => r.data);
+export const createPianoFondimpresa = (data) =>
+  http.post('/piani-fondimpresa/', data).then(r => r.data);
+export const updateVociPianoFondimpresa = (pianoId, data) =>
+  http.put(`/piani-fondimpresa/${pianoId}/voci`, data).then(r => r.data);
+export const updateDocumentiPianoFondimpresa = (pianoId, data) =>
+  http.put(`/piani-fondimpresa/${pianoId}/documenti`, data).then(r => r.data);
+export const updateDettaglioBudgetFondimpresa = (pianoId, data) =>
+  http.put(`/piani-fondimpresa/${pianoId}/dettaglio-budget`, data).then(r => r.data);
+export const getRiepilogoPianoFondimpresa = (pianoId) =>
+  http.get(`/piani-fondimpresa/${pianoId}/riepilogo`).then(r => r.data);
+export const exportPianoFondimpresaExcel = (pianoId) =>
+  http.get(`/piani-fondimpresa/${pianoId}/export-excel`, { responseType: 'blob' });
+
+// ── Blocco 4: Preventivi ─────────────────────
+export const getPreventivi = (params = {}) =>
+  http.get('/preventivi/', { params }).then(r => r.data);
+export const getPreventivo = (id) =>
+  http.get(`/preventivi/${id}`).then(r => r.data);
+export const createPreventivo = (data) =>
+  http.post('/preventivi/', data).then(r => r.data);
+export const updatePreventivo = (id, data) =>
+  http.put(`/preventivi/${id}`, data).then(r => r.data);
+export const deletePreventivo = (id) =>
+  http.delete(`/preventivi/${id}`).then(r => r.data);
+export const inviaPreventivo = (id) =>
+  http.put(`/preventivi/${id}/invia`).then(r => r.data);
+export const accettaPreventivo = (id) =>
+  http.put(`/preventivi/${id}/accetta`).then(r => r.data);
+export const rifiutaPreventivo = (id) =>
+  http.put(`/preventivi/${id}/rifiuta`).then(r => r.data);
+export const convertiInOrdine = (id) =>
+  http.post(`/preventivi/${id}/converti-ordine`).then(r => r.data);
+export const downloadPreventivoPDF = (id) =>
+  http.get(`/preventivi/${id}/pdf`, { responseType: 'blob' }).then(r => r.data);
+export const addRigaPreventivo = (prevId, data) =>
+  http.post(`/preventivi/${prevId}/righe`, data).then(r => r.data);
+export const updateRigaPreventivo = (prevId, rigaId, data) =>
+  http.put(`/preventivi/${prevId}/righe/${rigaId}`, data).then(r => r.data);
+export const deleteRigaPreventivo = (prevId, rigaId) =>
+  http.delete(`/preventivi/${prevId}/righe/${rigaId}`).then(r => r.data);
+
+// ── Blocco 4: Ordini ─────────────────────────
+export const getOrdini = (params = {}) =>
+  http.get('/ordini/', { params }).then(r => r.data);
+export const getOrdine = (id) =>
+  http.get(`/ordini/${id}`).then(r => r.data);
+export const updateOrdine = (id, data) =>
+  http.put(`/ordini/${id}`, data).then(r => r.data);
 
 export { apiService };
 export default apiService;

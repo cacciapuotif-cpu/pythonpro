@@ -81,6 +81,7 @@ dependencies = [
 
     # Scheduling
     "schedule==1.2.0",
+    "openpyxl>=3.1.0",
 ]
 
 # Dipendenze opzionali per sviluppo

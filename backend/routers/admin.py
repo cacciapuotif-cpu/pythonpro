@@ -20,6 +20,38 @@ from error_handler import error_monitor
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/admin", tags=["Admin"])
 
+
+def _serialize_dashboard_metrics(metrics):
+    if not metrics:
+        return {}
+    if hasattr(metrics, "_mapping"):
+        return dict(metrics._mapping)
+    if hasattr(metrics, "_asdict"):
+        return metrics._asdict()
+    return dict(metrics)
+
+
+def _serialize_performance_analysis(performance):
+    overloaded = []
+    for row in performance.get("overloaded_collaborators", []):
+        if hasattr(row, "_mapping"):
+            overloaded.append(dict(row._mapping))
+        elif hasattr(row, "_asdict"):
+            overloaded.append(row._asdict())
+        else:
+            overloaded.append({
+                "id": row[0],
+                "first_name": row[1],
+                "last_name": row[2],
+                "total_assigned_hours": row[3],
+                "total_completed_hours": row[4],
+            })
+
+    return {
+        "overloaded_collaborators": overloaded,
+        "timestamp": performance.get("timestamp"),
+    }
+
 # Verifica disponibilità sistemi avanzati
 try:
     from backup_manager import get_backup_manager
@@ -52,8 +84,8 @@ def get_system_metrics(
         performance = crud.get_performance_bottlenecks(db)
 
         return {
-            "dashboard_metrics": metrics._asdict() if metrics else {},
-            "performance_analysis": performance,
+            "dashboard_metrics": _serialize_dashboard_metrics(metrics),
+            "performance_analysis": _serialize_performance_analysis(performance),
             "timestamp": datetime.now()
         }
     except Exception as e:

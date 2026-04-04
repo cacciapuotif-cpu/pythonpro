@@ -1,5 +1,7 @@
 # ✅ FASE 1 - BASE DI PROGETTO - COMPLETATA
 
+> Nota 2026-03-19: questo documento descrive una fase storica della ristrutturazione. Il backend operativo corrente del progetto e` `backend/main.py` con entrypoint `main:app`.
+
 ## 📅 Data Completamento
 2025-10-05
 
@@ -62,7 +64,7 @@ Gestione centralizzata impostazioni con:
 - Commenti didattici in italiano
 
 ### 3. **backend/app/main.py** ⭐
-Entry point FastAPI con:
+Struttura FastAPI alternativa di fase con:
 - Configurazione app completa
 - Middleware CORS
 - Eventi startup/shutdown
@@ -87,7 +89,7 @@ Template e configurazione locale per sviluppo
 ### ✅ Server Avviato Correttamente
 ```bash
 cd backend
-venv/Scripts/python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+venv/Scripts/python.exe -m uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
 **Output:**
@@ -106,7 +108,7 @@ INFO:     Uvicorn running on http://0.0.0.0:8000
 
 **Request:**
 ```bash
-curl http://localhost:8000/
+curl http://localhost:8001/
 ```
 
 **Response:**
@@ -126,7 +128,7 @@ curl http://localhost:8000/
 
 **Request:**
 ```bash
-curl http://localhost:8000/health
+curl http://localhost:8001/health
 ```
 
 **Response:**
@@ -144,7 +146,7 @@ curl http://localhost:8000/health
 
 ### ✅ Documentazione Swagger Accessibile
 
-**URL:** http://localhost:8000/docs
+**URL:** http://localhost:8001/docs
 
 La documentazione interattiva Swagger UI è completamente funzionante.
 
@@ -194,7 +196,7 @@ venv\Scripts\activate     # Windows
 make run
 
 # Oppure direttamente:
-python -m uvicorn app.main:app --reload
+python -m uvicorn main:app --reload
 ```
 
 ### Avvio con Docker
@@ -211,13 +213,13 @@ docker-compose -f deploy/docker-compose.yml up --build
 
 ```bash
 # Health check
-curl http://localhost:8000/health
+curl http://localhost:8001/health
 
 # Root
-curl http://localhost:8000/
+curl http://localhost:8001/
 
 # Documentazione
-# Browser: http://localhost:8000/docs
+# Browser: http://localhost:8001/docs
 ```
 
 ## ⏭️ Prossimi Passi (Fase 2)

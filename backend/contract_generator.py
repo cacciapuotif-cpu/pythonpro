@@ -8,6 +8,7 @@ per compatibilità con OneDrive.
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any
+import tempfile
 from jinja2 import Environment, FileSystemLoader
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -30,8 +31,8 @@ class ContractGenerator:
 
     def __init__(self):
         self.template_dir = Path(__file__).parent / "contract_templates"
-        self.output_dir = Path(__file__).parent / "contracts_output"
-        self.output_dir.mkdir(exist_ok=True)
+        self.output_dir = Path(tempfile.gettempdir()) / "pythonpro_contracts_output"
+        self.output_dir.mkdir(parents=True, exist_ok=True)
 
         # Setup Jinja2
         self.jinja_env = Environment(loader=FileSystemLoader(str(self.template_dir)))

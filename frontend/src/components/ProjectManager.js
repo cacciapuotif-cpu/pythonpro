@@ -9,11 +9,66 @@
  * - Gestire stati e date dei progetti
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useProjects, useImplementingEntities, useNotifications } from '../hooks/useEntity';
+import { getAvvisi, getContractTemplates } from '../services/apiService';
 import './ProjectManager.css';
 
-const ProjectManager = () => {
+const ROLE_EXPERIENCE = {
+  admin: {
+    eyebrow: 'Controllo strutturale',
+    label: 'Amministratore',
+    summary: 'Puoi creare, modificare e dismettere i progetti, oltre a presidiare gli elementi amministrativi piu sensibili.',
+    ctaLabel: '➕ Nuovo Progetto',
+  },
+  manager: {
+    eyebrow: 'Presidio operativo',
+    label: 'Operatore',
+    summary: 'Concentrati sull’aggiornamento di delivery, stato e coerenza progettuale. Creazione ed eliminazione restano presidiate dagli admin.',
+    ctaLabel: '✏️ Aggiorna Progetto',
+  },
+  user: {
+    eyebrow: 'Presidio operativo',
+    label: 'Operatore',
+    summary: 'Concentrati sull’aggiornamento di delivery, stato e coerenza progettuale. Creazione ed eliminazione restano presidiate dagli admin.',
+    ctaLabel: '✏️ Aggiorna Progetto',
+  },
+};
+
+const PROJECT_FORM_STEPS = [
+  {
+    id: 'base',
+    title: 'Base',
+    description: 'Identita del progetto, stato e calendario operativo.',
+    fields: ['name', 'status', 'start_date', 'end_date', 'description'],
+  },
+  {
+    id: 'governance',
+    title: 'Governance',
+    description: 'CUP, atto di approvazione e riferimenti amministrativi.',
+    fields: ['cup', 'atto_approvazione'],
+  },
+  {
+    id: 'delivery',
+    title: 'Delivery',
+    description: 'Sede operativa, ente attuatore, ente erogatore e avviso.',
+    fields: ['sede_aziendale_comune', 'sede_aziendale_via', 'sede_aziendale_numero_civico', 'ente_attuatore_id', 'template_piano_finanziario_id', 'ente_erogatore', 'avviso'],
+  },
+];
+
+const PROJECT_ENTI_EROGATORI = [
+  'FAPI',
+  'FONDIMPRESA',
+  'FORMAZIENDA',
+  'REGIONE CAMPANIA',
+  'REGIONE LOMBARDIA',
+  'MIMIT',
+  'ALTRO',
+];
+
+const normalizeText = (value) => String(value || '').trim().toLowerCase();
+
+const ProjectManager = ({ currentUser }) => {
   // ==========================================
   // CONTEXT E HOOKS
   // ==========================================
@@ -22,6 +77,8 @@ const ProjectManager = () => {
   const { data: projects, loading: loadingProjects, error: contextError, refresh, create, update, remove } = useProjects();
   const { data: allEntities, loading: loadingEntities } = useImplementingEntities();
   const { showSuccess, showError } = useNotifications();
+  const isAdmin = currentUser?.role === 'admin';
+  const roleExperience = ROLE_EXPERIENCE[currentUser?.role] || ROLE_EXPERIENCE.user;
 
   // Filtra solo enti attivi per il dropdown
   const implementingEntities = useMemo(() =>
@@ -36,19 +93,74 @@ const ProjectManager = () => {
     start_date: '',
     end_date: '',
     status: 'active',
+    ente_erogatore: '',
     cup: '',
-    ente_erogatore: '', // DEPRECATO: mantenuto per retrocompatibilità
+    atto_approvazione: '',
+    sede_aziendale_comune: '',
+    sede_aziendale_via: '',
+    sede_aziendale_numero_civico: '',
+    avviso: '',
+    avviso_id: '',
+    template_piano_finanziario_id: '',
     ente_attuatore_id: null // NUOVO: FK verso ente attuatore
   });
+  const [financialTemplates, setFinancialTemplates] = useState([]);
+  const [avvisiCatalogo, setAvvisiCatalogo] = useState([]);
 
   // Stati locali dell'interfaccia
   const [editingId, setEditingId] = useState(null); // ID del progetto in modifica
   const [showForm, setShowForm] = useState(false);  // Mostra/nascondi form
   const [deleteConfirm, setDeleteConfirm] = useState(null); // Stato per conferma eliminazione
   const [statusFilter, setStatusFilter] = useState('all'); // Filtri per la visualizzazione
+  const [activeStepIndex, setActiveStepIndex] = useState(0);
 
   // Combina stati di loading
   const loading = loadingProjects || loadingEntities;
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadFinancialTemplates = async () => {
+      try {
+        const [data, avvisi] = await Promise.all([
+          getContractTemplates({
+            ambito_template: 'piano_finanziario',
+            is_active: true,
+            limit: 300,
+          }),
+          getAvvisi({ active_only: true, limit: 500 }),
+        ]);
+        if (!cancelled) {
+          setFinancialTemplates(Array.isArray(data) ? data : []);
+          setAvvisiCatalogo(Array.isArray(avvisi) ? avvisi : []);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setFinancialTemplates([]);
+          setAvvisiCatalogo([]);
+        }
+      }
+    };
+
+    loadFinancialTemplates();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const getTemplateLinkedAvvisi = (templateId) =>
+    avvisiCatalogo.filter((item) => String(item.template_id || '') === String(templateId));
+
+  const getTemplateAvvisoCodes = (template) => {
+    const linkedCodes = getTemplateLinkedAvvisi(template?.id).map((item) => item.codice).filter(Boolean);
+    if (linkedCodes.length > 0) {
+      return linkedCodes;
+    }
+    return template?.avviso ? [template.avviso] : [];
+  };
+
+  const selectedFinancialTemplate = financialTemplates.find(
+    (template) => String(template.id) === String(formData.template_piano_finanziario_id),
+  );
 
   // ==========================================
   // GESTIONE FORM
@@ -59,9 +171,58 @@ const ProjectManager = () => {
    */
   const handleInputChange = (e) => {
     const { name, value } = e.target;
+
+    if (name === 'template_piano_finanziario_id') {
+      const nextTemplate = financialTemplates.find((template) => String(template.id) === String(value));
+      const linkedAvvisi = nextTemplate ? getTemplateLinkedAvvisi(nextTemplate.id) : [];
+      const linkedAvviso = linkedAvvisi[0] || null;
+      setFormData(prev => ({
+        ...prev,
+        template_piano_finanziario_id: value,
+        ...(nextTemplate ? {
+          ente_erogatore: nextTemplate.ente_erogatore || prev.ente_erogatore,
+          avviso: (linkedAvviso?.codice || nextTemplate.avviso || prev.avviso),
+          avviso_id: linkedAvviso ? String(linkedAvviso.id) : prev.avviso_id,
+        } : {
+          avviso: '',
+          avviso_id: '',
+        })
+      }));
+      return;
+    }
+
+    if (name === 'avviso_id') {
+      const selected = avvisiCatalogo.find((a) => String(a.id) === String(value));
+      setFormData(prev => ({
+        ...prev,
+        avviso_id: value,
+        avviso: selected?.codice || prev.avviso,
+      }));
+      return;
+    }
+
+    if (name === 'ente_erogatore') {
+      setFormData(prev => {
+        const currentTemplate = financialTemplates.find((template) => String(template.id) === String(prev.template_piano_finanziario_id));
+        const templateEnte = normalizeText(currentTemplate?.ente_erogatore);
+        const nextEnte = normalizeText(value);
+        const shouldClearTemplate = currentTemplate && templateEnte && nextEnte && templateEnte !== nextEnte;
+        return {
+          ...prev,
+          ente_erogatore: value,
+          ...(shouldClearTemplate ? {
+            template_piano_finanziario_id: '',
+            avviso: '',
+            avviso_id: '',
+          } : {}),
+        };
+      });
+      return;
+    }
+
     setFormData(prev => ({
       ...prev,
-      [name]: value
+      [name]: value,
     }));
   };
 
@@ -79,6 +240,10 @@ const ProjectManager = () => {
       errors.push('La descrizione è obbligatoria');
     }
 
+    if (!formData.atto_approvazione.trim()) {
+      errors.push('L\'atto di approvazione è obbligatorio');
+    }
+
     // Validazione date
     if (formData.start_date && formData.end_date) {
       const startDate = new Date(formData.start_date);
@@ -90,6 +255,21 @@ const ProjectManager = () => {
     }
 
     return errors;
+  };
+
+  const getStepErrorCounts = () => {
+    const errors = validateForm();
+    return PROJECT_FORM_STEPS.map((step) =>
+      step.fields.filter((field) =>
+        errors.some((error) => {
+          if (field === 'name') return error.includes('nome del progetto');
+          if (field === 'description') return error.includes('descrizione');
+          if (field === 'atto_approvazione') return error.includes("atto di approvazione");
+          if (field === 'end_date' || field === 'start_date') return error.includes('data di fine');
+          return false;
+        })
+      ).length
+    );
   };
 
   /**
@@ -109,8 +289,13 @@ const ProjectManager = () => {
       // Prepara i dati (converte date vuote in null e formatta quelle presenti)
       const projectData = {
         ...formData,
+        ente_attuatore_id: formData.ente_attuatore_id ? parseInt(formData.ente_attuatore_id, 10) : null,
         start_date: formData.start_date ? `${formData.start_date}T00:00:00Z` : null,
-        end_date: formData.end_date ? `${formData.end_date}T23:59:59Z` : null
+        end_date: formData.end_date ? `${formData.end_date}T23:59:59Z` : null,
+        ente_erogatore: formData.ente_erogatore || null,
+        avviso: formData.avviso || null,
+        avviso_id: formData.avviso_id ? parseInt(formData.avviso_id, 10) : null,
+        template_piano_finanziario_id: formData.template_piano_finanziario_id ? parseInt(formData.template_piano_finanziario_id, 10) : null,
       };
 
       if (editingId) {
@@ -129,7 +314,7 @@ const ProjectManager = () => {
 
     } catch (err) {
       console.error('Errore salvataggio:', err);
-      showError('Errore nel salvataggio. Riprova.');
+      showError(err?.response?.data?.detail || err?.message || 'Errore nel salvataggio. Riprova.');
     }
   };
 
@@ -143,12 +328,20 @@ const ProjectManager = () => {
       start_date: '',
       end_date: '',
       status: 'active',
-      cup: '',
       ente_erogatore: '',
+      cup: '',
+      atto_approvazione: '',
+      sede_aziendale_comune: '',
+      sede_aziendale_via: '',
+      sede_aziendale_numero_civico: '',
+      avviso: '',
+      avviso_id: '',
+      template_piano_finanziario_id: '',
       ente_attuatore_id: null
     });
     setEditingId(null);
     setShowForm(false);
+    setActiveStepIndex(0);
   };
 
   // ==========================================
@@ -165,12 +358,20 @@ const ProjectManager = () => {
       start_date: project.start_date ? project.start_date.split('T')[0] : '',
       end_date: project.end_date ? project.end_date.split('T')[0] : '',
       status: project.status,
-      cup: project.cup || '',
       ente_erogatore: project.ente_erogatore || '',
+      cup: project.cup || '',
+      atto_approvazione: project.atto_approvazione || '',
+      sede_aziendale_comune: project.sede_aziendale_comune || '',
+      sede_aziendale_via: project.sede_aziendale_via || '',
+      sede_aziendale_numero_civico: project.sede_aziendale_numero_civico || '',
+      avviso: project.avviso || '',
+      avviso_id: project.avviso_id ? String(project.avviso_id) : '',
+      template_piano_finanziario_id: project.template_piano_finanziario_id ? String(project.template_piano_finanziario_id) : '',
       ente_attuatore_id: project.ente_attuatore_id || null
     });
     setEditingId(project.id);
     setShowForm(true);
+    setActiveStepIndex(0);
   };
 
   /**
@@ -221,10 +422,87 @@ const ProjectManager = () => {
   /**
    * FILTRA PROGETTI PER STATO
    */
+  const getProjectOperationalState = (project) => {
+    const hasEntity = !!project.ente_attuatore_id;
+
+    if (project.status === 'active' && project.end_date) {
+      const endDate = new Date(project.end_date);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      endDate.setHours(0, 0, 0, 0);
+      const diffDays = Math.ceil((endDate - today) / (1000 * 60 * 60 * 24));
+
+      if (diffDays < 0) {
+        return 'overdue';
+      }
+
+      if (diffDays <= 30 || !hasEntity) {
+        return 'attention';
+      }
+    }
+
+    if (!hasEntity) {
+      return 'attention';
+    }
+
+    return 'stable';
+  };
+
   const filteredProjects = projects.filter(project => {
     if (statusFilter === 'all') return true;
+    if (statusFilter === 'attention') return getProjectOperationalState(project) !== 'stable';
     return project.status === statusFilter;
   });
+
+  const projectSummary = useMemo(() => {
+    return projects.reduce((summary, project) => {
+      const state = getProjectOperationalState(project);
+      summary.total += 1;
+      if (project.status === 'active') summary.active += 1;
+      if (state === 'attention') summary.attention += 1;
+      if (state === 'overdue') summary.overdue += 1;
+      if (!project.ente_attuatore_id) summary.missingEntity += 1;
+      return summary;
+    }, {
+      total: 0,
+      active: 0,
+      attention: 0,
+      overdue: 0,
+      missingEntity: 0,
+    });
+  }, [projects]);
+
+  const stepErrorCounts = getStepErrorCounts();
+  const completedFields = [
+    formData.name,
+    formData.description,
+    formData.start_date,
+    formData.end_date,
+    formData.ente_erogatore,
+    formData.cup,
+    formData.atto_approvazione,
+    formData.sede_aziendale_comune,
+    formData.sede_aziendale_via,
+    formData.sede_aziendale_numero_civico,
+    formData.ente_attuatore_id,
+  ].filter((value) => `${value ?? ''}`.trim() !== '').length;
+  const completionPercentage = Math.round((completedFields / 12) * 100);
+  const currentStep = PROJECT_FORM_STEPS[activeStepIndex];
+  const selectedEntity = implementingEntities.find((entity) => String(entity.id) === String(formData.ente_attuatore_id));
+  const avvisiFiltrati = selectedFinancialTemplate
+    ? getTemplateLinkedAvvisi(selectedFinancialTemplate.id)
+    : avvisiCatalogo.filter(
+      (item) => !formData.ente_erogatore || normalizeText(item.ente_erogatore) === normalizeText(formData.ente_erogatore)
+    );
+  const showCreateAction = isAdmin || editingId !== null;
+
+  const goToStep = (index) => {
+    if (index < 0 || index >= PROJECT_FORM_STEPS.length) {
+      return;
+    }
+
+    setActiveStepIndex(index);
+  };
 
   // ==========================================
   // RENDER DEL COMPONENTE
@@ -248,15 +526,33 @@ const ProjectManager = () => {
         <h1>📁 Gestione Progetti</h1>
         <p>Crea e gestisci i progetti formativi della tua organizzazione</p>
 
-        <button
-          className={`add-button ${showForm ? 'active' : ''}`}
-          onClick={() => {
-            setShowForm(!showForm);
-            if (showForm) resetForm();
-          }}
-        >
-          {showForm ? '❌ Chiudi Form' : '➕ Nuovo Progetto'}
-        </button>
+        <div className="role-operations-banner project-role-banner">
+          <div>
+            <span className="role-operations-eyebrow">{roleExperience.eyebrow}</span>
+            <strong>{roleExperience.label}</strong>
+          </div>
+          <p>{roleExperience.summary}</p>
+        </div>
+
+        {showCreateAction ? (
+          <button
+            className={`add-button ${showForm ? 'active' : ''}`}
+            onClick={() => {
+              setShowForm(!showForm);
+              if (showForm) {
+                resetForm();
+              } else {
+                setActiveStepIndex(0);
+              }
+            }}
+          >
+            {showForm ? '❌ Chiudi Form' : roleExperience.ctaLabel}
+          </button>
+        ) : (
+          <div className="project-guidance-pill">
+            Apri un progetto esistente per aggiornarne stato, delivery e riferimenti attuativi.
+          </div>
+        )}
       </div>
 
       {/* MESSAGGI DI STATO */}
@@ -268,157 +564,417 @@ const ProjectManager = () => {
 
       {/* FORM AGGIUNTA/MODIFICA */}
       {showForm && (
-        <div className="form-section">
-          <h2>{editingId ? '✏️ Modifica Progetto' : '➕ Nuovo Progetto'}</h2>
-
-          <form onSubmit={handleSubmit} className="project-form">
-            <div className="form-grid">
-              {/* Nome Progetto */}
-              <div className="form-group">
-                <label htmlFor="name">Nome Progetto *</label>
-                <input
-                  type="text"
-                  id="name"
-                  name="name"
-                  value={formData.name}
-                  onChange={handleInputChange}
-                  placeholder="Es: Corso React Avanzato"
-                  required
-                />
-              </div>
-
-              {/* Stato */}
-              <div className="form-group">
-                <label htmlFor="status">Stato Progetto</label>
-                <select
-                  id="status"
-                  name="status"
-                  value={formData.status}
-                  onChange={handleInputChange}
-                >
-                  <option value="active">🟢 Attivo</option>
-                  <option value="paused">⏸️ In Pausa</option>
-                  <option value="completed">✅ Completato</option>
-                  <option value="cancelled">❌ Annullato</option>
-                </select>
-              </div>
-
-              {/* Data Inizio */}
-              <div className="form-group">
-                <label htmlFor="start_date">Data Inizio</label>
-                <input
-                  type="date"
-                  id="start_date"
-                  name="start_date"
-                  value={formData.start_date}
-                  onChange={handleInputChange}
-                />
-              </div>
-
-              {/* Data Fine */}
-              <div className="form-group">
-                <label htmlFor="end_date">Data Fine</label>
-                <input
-                  type="date"
-                  id="end_date"
-                  name="end_date"
-                  value={formData.end_date}
-                  onChange={handleInputChange}
-                />
-              </div>
-
-              {/* CUP */}
-              <div className="form-group">
-                <label htmlFor="cup">Codice CUP</label>
-                <input
-                  type="text"
-                  id="cup"
-                  name="cup"
-                  value={formData.cup}
-                  onChange={handleInputChange}
-                  placeholder="Es: C12D20001234567"
-                  maxLength="15"
-                />
-              </div>
-
-              {/* Ente Attuatore */}
-              <div className="form-group">
-                <label htmlFor="ente_attuatore_id">Ente Attuatore</label>
-                <select
-                  id="ente_attuatore_id"
-                  name="ente_attuatore_id"
-                  value={formData.ente_attuatore_id || ''}
-                  onChange={handleInputChange}
-                >
-                  <option value="">Seleziona Ente Attuatore</option>
-                  {implementingEntities.map(entity => (
-                    <option key={entity.id} value={entity.id}>
-                      {entity.ragione_sociale} - {entity.citta}
-                    </option>
-                  ))}
-                </select>
-                <small className="field-hint">
-                  Seleziona l'ente che attua il progetto (es: piemmei, Next Group, Wonder)
-                </small>
-              </div>
-
-              {/* Ente Erogatore (deprecato ma mantenuto) */}
-              <div className="form-group">
-                <label htmlFor="ente_erogatore">Ente Erogatore (opzionale)</label>
-                <select
-                  id="ente_erogatore"
-                  name="ente_erogatore"
-                  value={formData.ente_erogatore}
-                  onChange={handleInputChange}
-                >
-                  <option value="">Seleziona Ente Erogatore</option>
-                  <option value="FAPI">FAPI</option>
-                  <option value="FONDIMPRESA">FONDIMPRESA</option>
-                  <option value="FORMAZIENDA">FORMAZIENDA</option>
-                  <option value="REGIONE CAMPANIA">REGIONE CAMPANIA</option>
-                  <option value="REGIONE LOMBARDIA">REGIONE LOMBARDIA</option>
-                  <option value="MIMIT">MIMIT</option>
-                </select>
-                <small className="field-hint">
-                  Ente che finanzia il progetto (campo legacy)
-                </small>
-              </div>
-
-              {/* Descrizione */}
-              <div className="form-group full-width">
-                <label htmlFor="description">Descrizione *</label>
-                <textarea
-                  id="description"
-                  name="description"
-                  value={formData.description}
-                  onChange={handleInputChange}
-                  placeholder="Descrivi gli obiettivi e i contenuti del progetto formativo..."
-                  rows="4"
-                  required
-                />
-              </div>
+        <div className="form-section project-wizard">
+          <div className="wizard-header">
+            <div>
+              <span className="wizard-eyebrow">Wizard progetto</span>
+              <h2>{editingId ? 'Modifica progetto' : 'Nuovo progetto'}</h2>
+              <p>
+                Organizza il progetto in tre passaggi: base, governance e delivery operativo.
+              </p>
             </div>
-
-            {/* Pulsanti Form */}
-            <div className="form-buttons">
-              <button
-                type="button"
-                onClick={resetForm}
-                className="cancel-button"
-              >
-                Annulla
-              </button>
-              <button
-                type="submit"
-                className="submit-button"
-                disabled={loading}
-              >
-                {loading ? '⏳ Salvando...' : (editingId ? '✏️ Aggiorna' : '➕ Crea Progetto')}
-              </button>
+            <div className="wizard-progress-card project-progress-card">
+              <span>Completamento</span>
+              <strong>{completionPercentage}%</strong>
+              <small>{completedFields} campi su 12 valorizzati</small>
             </div>
-          </form>
+          </div>
+
+          <div className="wizard-layout">
+            <aside className="wizard-sidebar">
+              <ol className="wizard-steps">
+                {PROJECT_FORM_STEPS.map((step, index) => {
+                  const isActive = index === activeStepIndex;
+                  const isDone = index < activeStepIndex;
+                  const hasErrors = stepErrorCounts[index] > 0;
+
+                  return (
+                    <li key={step.id}>
+                      <button
+                        type="button"
+                        className={`wizard-step ${isActive ? 'active' : ''} ${isDone ? 'done' : ''}`}
+                        onClick={() => goToStep(index)}
+                      >
+                        <span className={`wizard-step-index ${hasErrors ? 'error' : ''}`}>
+                          {isDone ? '✓' : index + 1}
+                        </span>
+                        <span className="wizard-step-copy">
+                          <strong>{step.title}</strong>
+                          <small>{step.description}</small>
+                          {hasErrors ? <em>{stepErrorCounts[index]} controlli aperti</em> : null}
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ol>
+
+              <div className="wizard-summary-card">
+                <h3>Checkpoint progetto</h3>
+                <ul>
+                  <li className={formData.name ? 'done' : ''}>
+                    Nome progetto {formData.name ? 'presente' : 'mancante'}
+                  </li>
+                  <li className={formData.atto_approvazione ? 'done' : ''}>
+                    Atto di approvazione {formData.atto_approvazione ? 'presente' : 'mancante'}
+                  </li>
+                  <li className={formData.start_date && formData.end_date ? 'done' : ''}>
+                    Finestra temporale {formData.start_date && formData.end_date ? 'impostata' : 'incompleta'}
+                  </li>
+                  <li className={formData.ente_attuatore_id ? 'done' : ''}>
+                    Ente attuatore {formData.ente_attuatore_id ? 'selezionato' : 'non selezionato'}
+                  </li>
+                  <li className={formData.ente_erogatore ? 'done' : ''}>
+                    Ente erogatore {formData.ente_erogatore ? 'selezionato' : 'non selezionato'}
+                  </li>
+                </ul>
+              </div>
+            </aside>
+
+            <form onSubmit={handleSubmit} className="project-form wizard-form">
+              <div className="wizard-step-panel">
+                <div className="wizard-step-header">
+                  <div>
+                    <span className="wizard-step-label">
+                      Step {activeStepIndex + 1} di {PROJECT_FORM_STEPS.length}
+                    </span>
+                    <h3>{currentStep.title}</h3>
+                    <p>{currentStep.description}</p>
+                  </div>
+                </div>
+
+                {currentStep.id === 'base' && (
+                  <div className="form-grid">
+                    <div className="form-group">
+                      <label htmlFor="name">Nome Progetto *</label>
+                      <input
+                        type="text"
+                        id="name"
+                        name="name"
+                        value={formData.name}
+                        onChange={handleInputChange}
+                        placeholder="Es: Corso React Avanzato"
+                        required
+                      />
+                    </div>
+
+                    <div className="form-group">
+                      <label htmlFor="status">Stato Progetto</label>
+                      <select
+                        id="status"
+                        name="status"
+                        value={formData.status}
+                        onChange={handleInputChange}
+                      >
+                        <option value="active">🟢 Attivo</option>
+                        <option value="paused">⏸️ In Pausa</option>
+                        <option value="completed">✅ Completato</option>
+                        <option value="cancelled">❌ Annullato</option>
+                      </select>
+                    </div>
+
+                    <div className="form-group">
+                      <label htmlFor="start_date">Data Inizio</label>
+                      <input
+                        type="date"
+                        id="start_date"
+                        name="start_date"
+                        value={formData.start_date}
+                        onChange={handleInputChange}
+                      />
+                    </div>
+
+                    <div className="form-group">
+                      <label htmlFor="end_date">Data Fine</label>
+                      <input
+                        type="date"
+                        id="end_date"
+                        name="end_date"
+                        value={formData.end_date}
+                        onChange={handleInputChange}
+                      />
+                    </div>
+
+                    <div className="form-group full-width">
+                      <label htmlFor="description">Descrizione *</label>
+                      <textarea
+                        id="description"
+                        name="description"
+                        value={formData.description}
+                        onChange={handleInputChange}
+                        placeholder="Descrivi obiettivi, attivita, target e valore operativo del progetto..."
+                        rows="5"
+                        required
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {currentStep.id === 'governance' && (
+                  <div className="form-grid">
+                    <div className="form-group">
+                      <label htmlFor="cup">Codice CUP</label>
+                      <input
+                        type="text"
+                        id="cup"
+                        name="cup"
+                        value={formData.cup}
+                        onChange={handleInputChange}
+                        placeholder="Es: C12D20001234567"
+                        maxLength="15"
+                      />
+                      <small className="field-hint">
+                        Utile per tracciabilita, reporting e documentazione.
+                      </small>
+                    </div>
+
+                    <div className="wizard-hint-card project-hint-card">
+                      <h4>Governance minima</h4>
+                      <p>
+                        Atto di approvazione e date coerenti sono la base per evitare attriti a valle su presenze, assegnazioni e contratti.
+                      </p>
+                    </div>
+
+                    <div className="form-group full-width">
+                      <label htmlFor="atto_approvazione">Atto di Approvazione *</label>
+                      <input
+                        type="text"
+                        id="atto_approvazione"
+                        name="atto_approvazione"
+                        value={formData.atto_approvazione}
+                        onChange={handleInputChange}
+                        placeholder="Es: DD n. 123 del 15/02/2026"
+                        required
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {currentStep.id === 'delivery' && (
+                  <div className="wizard-documents-grid">
+                    <div className="form-grid">
+                      <div className="form-group">
+                        <label htmlFor="sede_aziendale_comune">Sede Aziendale - Comune</label>
+                        <input
+                          type="text"
+                          id="sede_aziendale_comune"
+                          name="sede_aziendale_comune"
+                          value={formData.sede_aziendale_comune}
+                          onChange={handleInputChange}
+                          placeholder="Es: Napoli"
+                        />
+                      </div>
+
+                      <div className="form-group">
+                        <label htmlFor="sede_aziendale_via">Sede Aziendale - Via</label>
+                        <input
+                          type="text"
+                          id="sede_aziendale_via"
+                          name="sede_aziendale_via"
+                          value={formData.sede_aziendale_via}
+                          onChange={handleInputChange}
+                          placeholder="Es: Via Roma"
+                        />
+                      </div>
+
+                      <div className="form-group">
+                        <label htmlFor="sede_aziendale_numero_civico">Sede Aziendale - Numero Civico</label>
+                        <input
+                          type="text"
+                          id="sede_aziendale_numero_civico"
+                          name="sede_aziendale_numero_civico"
+                          value={formData.sede_aziendale_numero_civico}
+                          onChange={handleInputChange}
+                          placeholder="Es: 25"
+                        />
+                      </div>
+
+                      <div className="form-group">
+                        <label htmlFor="ente_attuatore_id">Ente Attuatore</label>
+                        <select
+                          id="ente_attuatore_id"
+                          name="ente_attuatore_id"
+                          value={formData.ente_attuatore_id || ''}
+                          onChange={handleInputChange}
+                        >
+                          <option value="">Seleziona Ente Attuatore</option>
+                          {implementingEntities.map(entity => (
+                            <option key={entity.id} value={entity.id}>
+                              {entity.ragione_sociale} - {entity.citta}
+                            </option>
+                          ))}
+                        </select>
+                        <small className="field-hint">
+                          Seleziona l'ente che attua il progetto.
+                        </small>
+                      </div>
+
+                      <div className="form-group">
+                        <label htmlFor="template_piano_finanziario_id">Template Piano Finanziario</label>
+                        <select
+                          id="template_piano_finanziario_id"
+                          name="template_piano_finanziario_id"
+                          value={formData.template_piano_finanziario_id}
+                          onChange={handleInputChange}
+                        >
+                          <option value="">Nessun template collegato</option>
+                          {financialTemplates.map((template) => (
+                            <option key={template.id} value={template.id}>
+                              {template.nome_template}
+                              {template.ente_erogatore ? ` · ${template.ente_erogatore}` : ''}
+                              {getTemplateAvvisoCodes(template).length > 0 ? ` · Avvisi ${getTemplateAvvisoCodes(template).join(', ')}` : ''}
+                            </option>
+                          ))}
+                        </select>
+                        <small className="field-hint">
+                          Se selezionato, il progetto propone ente erogatore e avvisi collegati al template, ma puoi ancora scegliere l'avviso corretto.
+                        </small>
+                      </div>
+
+                      <div className="form-group">
+                        <label htmlFor="ente_erogatore">Ente Erogatore</label>
+                        <select
+                          id="ente_erogatore"
+                          name="ente_erogatore"
+                          value={formData.ente_erogatore}
+                          onChange={handleInputChange}
+                        >
+                          <option value="">Seleziona Ente Erogatore</option>
+                          {PROJECT_ENTI_EROGATORI.map((ente) => (
+                            <option key={ente} value={ente}>
+                              {ente}
+                            </option>
+                          ))}
+                        </select>
+                        <small className="field-hint">
+                          Ente che eroga il finanziamento. Usato per agganciare il progetto al piano finanziario corretto.
+                        </small>
+                      </div>
+
+                      <div className="form-group">
+                        <label htmlFor="avviso">Avviso</label>
+                        <select
+                          id="avviso_id"
+                          name="avviso_id"
+                          value={formData.avviso_id}
+                          onChange={handleInputChange}
+                        >
+                          <option value="">Seleziona avviso</option>
+                          {avvisiFiltrati.map((avvisoItem) => (
+                            <option key={avvisoItem.id} value={avvisoItem.id}>
+                              {avvisoItem.codice}
+                            </option>
+                          ))}
+                        </select>
+                        <small className="field-hint">
+                          {selectedFinancialTemplate
+                            ? 'Avvisi collegati al template selezionato.'
+                            : 'Catalogo centralizzato avvisi filtrato per ente erogatore.'}
+                        </small>
+                      </div>
+                    </div>
+
+                    <div className="project-delivery-card">
+                      <h4>Riepilogo delivery</h4>
+                      <div className="project-delivery-list">
+                        <div>
+                          <span>Ente attuatore</span>
+                          <strong>{selectedEntity ? selectedEntity.ragione_sociale : 'Non selezionato'}</strong>
+                        </div>
+                        <div>
+                          <span>Sede operativa</span>
+                          <strong>
+                            {[formData.sede_aziendale_via, formData.sede_aziendale_numero_civico, formData.sede_aziendale_comune]
+                              .filter(Boolean)
+                              .join(', ') || 'Non impostata'}
+                          </strong>
+                        </div>
+                        <div>
+                          <span>Template piano</span>
+                          <strong>
+                            {financialTemplates.find((template) => String(template.id) === String(formData.template_piano_finanziario_id))?.nome_template || 'Non impostato'}
+                          </strong>
+                        </div>
+                        <div>
+                          <span>Ente erogatore</span>
+                          <strong>{formData.ente_erogatore || 'Non impostato'}</strong>
+                        </div>
+                        <div>
+                          <span>Avviso</span>
+                          <strong>{formData.avviso || 'Non impostato'}</strong>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="form-buttons wizard-actions">
+                <button
+                  type="button"
+                  onClick={resetForm}
+                  className="cancel-button"
+                >
+                  Annulla
+                </button>
+
+                <div className="wizard-actions-right">
+                  <button
+                    type="button"
+                    onClick={() => goToStep(activeStepIndex - 1)}
+                    className="secondary-button"
+                    disabled={activeStepIndex === 0}
+                  >
+                    Indietro
+                  </button>
+
+                  {activeStepIndex < PROJECT_FORM_STEPS.length - 1 ? (
+                    <button
+                      type="button"
+                      onClick={() => goToStep(activeStepIndex + 1)}
+                      className="submit-button"
+                    >
+                      Continua
+                    </button>
+                  ) : (
+                    <button
+                      type="submit"
+                      className="submit-button"
+                      disabled={loading}
+                    >
+                      {loading ? '⏳ Salvando...' : (editingId ? '✏️ Aggiorna' : isAdmin ? '➕ Crea Progetto' : '✏️ Aggiorna Progetto')}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </form>
+          </div>
         </div>
       )}
+
+      <div className="projects-ops-summary">
+        <div className="ops-summary-card info">
+          <span>Progetti attivi</span>
+          <strong>{projectSummary.active}</strong>
+          <small>Pipeline operativa corrente</small>
+        </div>
+        <div className="ops-summary-card warning">
+          <span>In attenzione</span>
+          <strong>{projectSummary.attention}</strong>
+          <small>Scadenza vicina o ente mancante</small>
+        </div>
+        <div className="ops-summary-card critical">
+          <span>Oltre termine</span>
+          <strong>{projectSummary.overdue}</strong>
+          <small>Ancora attivi oltre data fine</small>
+        </div>
+      </div>
+
+      {!isAdmin ? (
+        <div className="project-ops-note">
+          Le azioni strutturali su creazione ed eliminazione progetto sono riservate agli admin. Da qui puoi comunque presidiare stato, date, ente attuatore e dati di delivery.
+        </div>
+      ) : null}
 
       {/* FILTRI */}
       <div className="filters-section">
@@ -448,6 +1004,12 @@ const ProjectManager = () => {
           >
             ⏸️ In Pausa ({projects.filter(p => p.status === 'paused').length})
           </button>
+          <button
+            className={`filter-button ${statusFilter === 'attention' ? 'active' : ''}`}
+            onClick={() => setStatusFilter('attention')}
+          >
+            ⚠️ Attenzione ({projectSummary.attention + projectSummary.overdue})
+          </button>
         </div>
       </div>
 
@@ -468,11 +1030,22 @@ const ProjectManager = () => {
         ) : (
           <div className="projects-grid">
             {filteredProjects.map(project => (
-              <div key={project.id} className="project-card">
+              <div key={project.id} className={`project-card project-state-${getProjectOperationalState(project)}`}>
                 {/* Header Card */}
                 <div className="card-header">
                   <div className="project-title">
                     <h3>{project.name}</h3>
+                    <div className="project-attention-row">
+                      {getProjectOperationalState(project) === 'attention' && (
+                        <span className="project-operational-pill attention">Scadenza/ente da verificare</span>
+                      )}
+                      {getProjectOperationalState(project) === 'overdue' && (
+                        <span className="project-operational-pill overdue">Oltre data fine</span>
+                      )}
+                      {!project.ente_attuatore_id && (
+                        <span className="project-operational-pill neutral">Ente attuatore mancante</span>
+                      )}
+                    </div>
                     <span
                       className="status-badge"
                       style={{ backgroundColor: getStatusColor(project.status) }}
@@ -492,6 +1065,8 @@ const ProjectManager = () => {
                       onClick={() => setDeleteConfirm(project.id)}
                       className="delete-button"
                       title="Elimina progetto"
+                      hidden={!isAdmin}
+                      disabled={!isAdmin}
                     >
                       🗑️
                     </button>
@@ -519,6 +1094,22 @@ const ProjectManager = () => {
                     </div>
                   )}
 
+                  <div className="info-row">
+                    <span className="label">📄 Atto:</span>
+                    <span>{project.atto_approvazione || 'Non impostato'}</span>
+                  </div>
+
+                  {(project.sede_aziendale_comune || project.sede_aziendale_via || project.sede_aziendale_numero_civico) && (
+                    <div className="info-row">
+                      <span className="label">🏢 Sede:</span>
+                      <span>
+                        {[project.sede_aziendale_via, project.sede_aziendale_numero_civico, project.sede_aziendale_comune]
+                          .filter(Boolean)
+                          .join(', ')}
+                      </span>
+                    </div>
+                  )}
+
                   {project.cup && (
                     <div className="info-row">
                       <span className="label">🏷️ CUP:</span>
@@ -532,6 +1123,20 @@ const ProjectManager = () => {
                       <span>{project.ente_erogatore}</span>
                     </div>
                   )}
+
+                  {project.avviso && (
+                    <div className="info-row">
+                      <span className="label">📢 Avviso:</span>
+                      <span>{project.avviso}</span>
+                    </div>
+                  )}
+
+                  <div className="info-row">
+                    <span className="label">🤝 Attuatore:</span>
+                    <span>
+                      {implementingEntities.find((entity) => entity.id === project.ente_attuatore_id)?.ragione_sociale || 'Non associato'}
+                    </span>
+                  </div>
 
                   <div className="info-row">
                     <span className="label">🗓️ Creato:</span>
@@ -571,6 +1176,7 @@ const ProjectManager = () => {
               <button
                 onClick={() => handleDelete(deleteConfirm)}
                 className="delete-button"
+                disabled={!isAdmin}
               >
                 🗑️ Elimina
               </button>

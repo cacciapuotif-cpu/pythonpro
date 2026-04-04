@@ -21,13 +21,22 @@ from datetime import datetime
 from fastapi import UploadFile, HTTPException
 import logging
 
-# Importa validatore per nomi riservati Windows
-from backend.windows_filename_validator import (
-    sanitize_filename as windows_sanitize_filename,
-    is_valid_filename as is_valid_windows_filename,
-    is_windows_reserved_name,
-    validate_and_fix_filename
-)
+# Importa validatore per nomi riservati Windows.
+# Compatibile sia con esecuzione da package sia con working dir /app.
+try:
+    from backend.windows_filename_validator import (
+        sanitize_filename as windows_sanitize_filename,
+        is_valid_filename as is_valid_windows_filename,
+        is_windows_reserved_name,
+        validate_and_fix_filename
+    )
+except ModuleNotFoundError:
+    from windows_filename_validator import (
+        sanitize_filename as windows_sanitize_filename,
+        is_valid_filename as is_valid_windows_filename,
+        is_windows_reserved_name,
+        validate_and_fix_filename
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +48,7 @@ logger = logging.getLogger(__name__)
 UPLOAD_DIR = Path("uploads")
 DOCUMENTS_DIR = UPLOAD_DIR / "documents"
 CURRICULUM_DIR = UPLOAD_DIR / "curriculum"
+ENTITY_LOGOS_DIR = UPLOAD_DIR / "entity_logos"
 
 # Dimensione massima file: 10MB
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB in bytes
@@ -46,6 +56,7 @@ MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB in bytes
 # Estensioni permesse
 ALLOWED_DOCUMENT_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png"}
 ALLOWED_CV_EXTENSIONS = {".pdf", ".doc", ".docx"}
+ALLOWED_ENTITY_LOGO_EXTENSIONS = {".png", ".jpg", ".jpeg", ".svg", ".gif"}
 
 # =================================================================
 # SETUP DIRECTORIES
@@ -55,6 +66,7 @@ def setup_upload_directories():
     """Crea directories per upload se non esistono"""
     DOCUMENTS_DIR.mkdir(parents=True, exist_ok=True)
     CURRICULUM_DIR.mkdir(parents=True, exist_ok=True)
+    ENTITY_LOGOS_DIR.mkdir(parents=True, exist_ok=True)
     logger.info(f"Upload directories ready: {UPLOAD_DIR}")
 
 # Crea directories all'import
@@ -157,7 +169,7 @@ def generate_unique_filename(original_filename: str) -> str:
 async def save_uploaded_file(
     file: UploadFile,
     collaborator_id: int,
-    file_type: str  # "documento" o "curriculum"
+    file_type: str  # "documento", "curriculum" o "logo_ente"
 ) -> Tuple[str, str]:
     """
     Salva file uploadato su filesystem.
@@ -165,7 +177,7 @@ async def save_uploaded_file(
     Args:
         file: File uploadato da FastAPI
         collaborator_id: ID collaboratore
-        file_type: Tipo file ("documento" o "curriculum")
+        file_type: Tipo file ("documento", "curriculum" o "logo_ente")
 
     Returns:
         Tuple (filename, filepath)
@@ -184,6 +196,9 @@ async def save_uploaded_file(
     elif file_type == "curriculum":
         target_dir = CURRICULUM_DIR
         allowed_extensions = ALLOWED_CV_EXTENSIONS
+    elif file_type == "logo_ente":
+        target_dir = ENTITY_LOGOS_DIR
+        allowed_extensions = ALLOWED_ENTITY_LOGO_EXTENSIONS
     else:
         raise HTTPException(status_code=400, detail="Tipo file non valido")
 
@@ -197,12 +212,13 @@ async def save_uploaded_file(
     # Genera nome file univoco
     unique_filename = generate_unique_filename(file.filename)
 
-    # Crea subdirectory per collaboratore (usa int() per assicurarsi che sia un numero valido)
-    collaborator_dir = target_dir / f"collaborator_{int(collaborator_id)}"
-    collaborator_dir.mkdir(parents=True, exist_ok=True)
+    # Crea subdirectory dedicata. Per i loghi usiamo l'ID ente, per gli altri l'ID collaboratore.
+    owner_prefix = "entity" if file_type == "logo_ente" else "collaborator"
+    owner_dir = target_dir / f"{owner_prefix}_{int(collaborator_id)}"
+    owner_dir.mkdir(parents=True, exist_ok=True)
 
     # Path completo file
-    file_path = collaborator_dir / unique_filename
+    file_path = owner_dir / unique_filename
 
     # Leggi e salva file con validazione dimensione
     try:

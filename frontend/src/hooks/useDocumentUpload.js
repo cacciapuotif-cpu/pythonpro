@@ -33,7 +33,7 @@ const useDocumentUpload = (showSuccess, showError, refreshCollaborators) => {
   };
 
   // Upload Documento Identità
-  const uploadDocumento = async (collaboratorId, file) => {
+  const uploadDocumento = async (collaboratorId, file, dataScadenza = null) => {
     const allowedExtensions = ['.pdf', '.jpg', '.jpeg', '.png'];
 
     if (!validateFile(file, allowedExtensions)) {
@@ -42,7 +42,7 @@ const useDocumentUpload = (showSuccess, showError, refreshCollaborators) => {
 
     try {
       setUploadingDocumento(true);
-      await apiService.uploadDocumentoIdentita(collaboratorId, file);
+      await apiService.uploadDocumentoIdentita(collaboratorId, file, dataScadenza);
       showSuccess('Documento identità caricato con successo!');
       await refreshCollaborators();
     } catch (err) {

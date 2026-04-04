@@ -3,7 +3,6 @@ import os
 import shutil
 import sqlite3
 import subprocess
-import schedule
 import time
 import logging
 import json
@@ -13,8 +12,31 @@ from pathlib import Path
 import threading
 import zipfile
 import hashlib
+from urllib.parse import urlparse, unquote
+
+try:
+    import schedule
+except ImportError:  # pragma: no cover - disponibile nel runtime completo
+    schedule = None
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_postgres_url(db_url: str):
+    parsed = urlparse(db_url)
+    if not parsed.scheme.startswith("postgresql"):
+        raise ValueError("DATABASE_URL non configurato per PostgreSQL")
+
+    user = unquote(parsed.username) if parsed.username else None
+    password = unquote(parsed.password) if parsed.password else None
+    host = parsed.hostname or "localhost"
+    port = str(parsed.port or 5432)
+    database = parsed.path.lstrip("/")
+
+    if not user or not database:
+        raise ValueError("DATABASE_URL non contiene credenziali o database validi")
+
+    return user, password, host, port, database
 
 class BackupManager:
     """Gestione backup automatici del database e configurazioni"""
@@ -23,7 +45,7 @@ class BackupManager:
         self.db_path = db_path
         self.backup_dir = Path(backup_dir)
         self.backup_dir.mkdir(exist_ok=True)
-        self.max_backups = 30  # Mantieni 30 backup
+        self.max_backups = int(os.getenv("BACKUP_RETENTION_COUNT", "30"))
         self.is_running = False
         self.backup_thread = None
 
@@ -68,16 +90,7 @@ class BackupManager:
     def _backup_postgresql(self, backup_path: str):
         """Backup specifico per PostgreSQL"""
         db_url = os.getenv("DATABASE_URL", "")
-        if not db_url.startswith("postgresql"):
-            raise ValueError("DATABASE_URL non configurato per PostgreSQL")
-
-        # Estrai parametri connessione
-        import re
-        match = re.match(r"postgresql://([^:]+):([^@]+)@([^:]+):(\d+)/(.+)", db_url)
-        if not match:
-            raise ValueError("Formato DATABASE_URL non valido")
-
-        user, password, host, port, database = match.groups()
+        user, password, host, port, database = _parse_postgres_url(db_url)
 
         # Esegui pg_dump
         cmd = [
@@ -213,12 +226,7 @@ class BackupManager:
     def _restore_postgresql(self, sql_file: str):
         """Ripristino specifico per PostgreSQL"""
         db_url = os.getenv("DATABASE_URL", "")
-        import re
-        match = re.match(r"postgresql://([^:]+):([^@]+)@([^:]+):(\d+)/(.+)", db_url)
-        if not match:
-            raise ValueError("Formato DATABASE_URL non valido")
-
-        user, password, host, port, database = match.groups()
+        user, password, host, port, database = _parse_postgres_url(db_url)
 
         # Esegui psql per ripristinare
         cmd = [
@@ -269,14 +277,17 @@ class BackupManager:
 
     def schedule_automatic_backups(self):
         """Avvia scheduling backup automatici"""
-        # Backup giornaliero alle 2:00
-        schedule.every().day.at("02:00").do(lambda: self.create_backup("daily"))
+        if schedule is None:
+            raise RuntimeError("La libreria 'schedule' non è installata")
 
-        # Backup settimanale la domenica alle 3:00
-        schedule.every().sunday.at("03:00").do(lambda: self.create_backup("weekly"))
+        daily_time = os.getenv("BACKUP_DAILY_TIME", "02:00")
+        weekly_time = os.getenv("BACKUP_WEEKLY_TIME", "03:00")
+        monthly_days = int(os.getenv("BACKUP_MONTHLY_INTERVAL_DAYS", "30"))
 
-        # Backup mensile ogni 30 giorni
-        schedule.every(30).days.do(lambda: self.create_backup("monthly"))
+        schedule.clear()
+        schedule.every().day.at(daily_time).do(lambda: self.create_backup("daily"))
+        schedule.every().sunday.at(weekly_time).do(lambda: self.create_backup("weekly"))
+        schedule.every(monthly_days).days.do(lambda: self.create_backup("monthly"))
 
         self.is_running = True
         self.backup_thread = threading.Thread(target=self._backup_scheduler, daemon=True)
@@ -286,6 +297,8 @@ class BackupManager:
 
     def _backup_scheduler(self):
         """Thread per eseguire backup schedulati"""
+        if schedule is None:
+            raise RuntimeError("La libreria 'schedule' non è installata")
         while self.is_running:
             schedule.run_pending()
             time.sleep(60)  # Controlla ogni minuto
@@ -367,7 +380,7 @@ def get_backup_manager(db_path: str = None) -> BackupManager:
             db_path = os.getenv("DATABASE_URL", "sqlite:///./gestionale_new.db")
             if db_path.startswith("sqlite:///"):
                 db_path = db_path[10:]  # Rimuovi prefisso sqlite:///
-
-        backup_manager = BackupManager(db_path)
+        backup_dir = os.getenv("BACKUP_DIR", "./backups")
+        backup_manager = BackupManager(db_path, backup_dir)
 
     return backup_manager
