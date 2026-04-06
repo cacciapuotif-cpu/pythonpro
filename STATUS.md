@@ -1,6 +1,254 @@
 # PythonPro — Status & Development Context
 _Ultimo aggiornamento: 2026-04-04_
 
+## Sessione 2026-04-06
+
+### Fix creazione progetti
+- Individuato blocco reale nel layer frontend context:
+  - `frontend/src/context/AppContext.js` usava import dinamici errati del servizio API con `const { apiService } = await import(...)`
+  - `apiService` e invece export `default`, quindi le CRUD via context potevano fallire prima di colpire l'API reale
+- Corretto il wiring usando `const { default: apiService } = await import(...)` nei punti CRUD/auth coinvolti.
+- Impatto atteso:
+  - creazione progetto ripristinata
+  - update/delete tramite context riallineati allo stesso fix
+
+### Fix navigazione Piani Finanziari
+- Verificato che la UI caricava ancora il modulo legacy `PianoFinanziarioManager`, che mostrava filtri `progetto/stato`.
+- Corretto `frontend/src/App.js` per montare `frontend/src/components/PianiFinanziariHub.js` sulla sezione `piani-finanziari`.
+- La logica attesa ora e:
+  - prima `ente erogatore`
+  - poi `avviso`
+  - poi `progetto`
+
+### Fix dashboard agenti e allineamento API agenti
+- Individuato crash frontend in `frontend/src/components/AgentsDashboard.js`:
+  - il componente trattava `apiService` come istanza axios (`apiService.get/post`)
+  - il file `services/apiService.js` espone invece helper/metodi applicativi
+- Corretto `AgentsDashboard.js` per usare:
+  - `getAgentsCatalog()`
+  - `getAgentRuns()`
+  - `runAgentByType()`
+- Allineato anche il backend agenti per compatibilita con il frontend esistente:
+  - endpoint `GET /api/v1/agents/`
+  - endpoint `GET /api/v1/agents/llm/health`
+  - endpoint `POST /api/v1/agents/run`
+  - alias/endpoint per `accept`, `reject`, `workflow`, update stato comunicazioni
+- Aggiornati schema e export agenti per tollerare il mix tra campi workflow e campi legacy registry.
+
+### Verifiche eseguite
+- `python3 -m py_compile` passato su:
+  - `backend/routers/agents.py`
+  - `backend/ai_agents/__init__.py`
+  - `backend/schemas.py`
+- Non eseguita build frontend completa in questa sessione.
+- Non eseguito test browser end-to-end in questa sessione.
+
+### Stato dopo i fix di oggi
+- Probabile blocco principale sulla creazione progetti frontend risolto.
+- Modulo `Piani Finanziari` riallineato alla UX richiesta.
+- `AgentsDashboard` non dovrebbe piu crashare per chiamate API errate lato frontend.
+- Resta da verificare a runtime se gli endpoint agenti eliminano anche i `500` osservati nella console sulle liste `runs/suggestions`.
+
+### Pendenti immediati
+- [ ] Verificare da browser:
+  - creazione nuovo progetto
+  - percorso `Piani Finanziari`
+  - schermata `Agents Dashboard`
+  - schermata `Agenti`
+- [ ] Validare che `GET /api/v1/agents/runs/` e `GET /api/v1/agents/suggestions/` non producano piu `500`
+- [ ] Ripulire `backend/schemas.py`, ancora noto come file con duplicati e shadowing storico
+- [ ] Valutare build frontend completa per intercettare eventuali regressioni residue
+- [ ] Aggiornare eventualmente i test frontend/backend sui flussi agenti e piani finanziari
+
+## Sessione 2026-04-05
+
+### Audit completo repository e report certificazione
+- Eseguito audit profondo su backend, frontend, database, test, migrazioni e dominio piani finanziari.
+- Report salvato in `docs/AUDIT_REPORT_CERTIFICAZIONE.md`.
+
+### Esito audit
+- Stato generale classificato `CRITICAL`.
+- Problemi critici principali emersi:
+  - backend non avviabile per import error agentico: `get_agent_definition` non esportato da `ai_agents`
+  - mismatch modello/database su `AgentReviewAction` (`reviewed_by` assente nel DB reale)
+  - `backend/schemas.py` contiene duplicati reali con shadowing per blocchi `PianoFinanziario`, `VocePianoFinanziario`, `AgentRun`, `AgentSuggestion`, `AgentReviewAction`
+  - frontend non compilabile: `App.js` importa `./components/AgentsDashboard` ma il file non esiste
+  - test suite backend non eseguibile nel container per opzioni `--cov` presenti in `pytest.ini` senza plugin coverage installato
+
+### Stato piani finanziari verificato
+- I 3 template obbligatori sono presenti nel DB:
+  - `formazienda`
+  - `fapi`
+  - `fondimpresa`
+- Nessun `AvvisoPianoFinanziario` presente nel DB al momento dell'audit.
+- Esistono 2 piani finanziari e 54 voci piano.
+- Sui dati reali correnti il requisito `Assignment -> VocePianoFinanziario` non risulta ancora soddisfatto:
+  - 4 assegnazioni attive sul progetto `Progetto Test`
+  - 0 voci con `assignment_id` valorizzato
+  - nessuna assegnazione esistente ha trovato una voce corrispondente nel piano
+- Il nuovo codice di auto-collegamento e presente in `crud.create_assignment`, ma manca il backfill dei record gia esistenti.
+
+### Verifiche runtime eseguite
+- DB raggiungibile via container one-shot:
+  - `SELECT 1` OK
+  - tabelle principali presenti
+- Integrita relazionale base verificata:
+  - 0 presenze orfane
+  - 0 assegnazioni orfane
+  - 0 progetti con ente invalido
+- Tutti i `curl` su `localhost:8000` falliscono per backend non in ascolto, coerente col crash in bootstrap agenti.
+- `npm run build` frontend fallisce per modulo mancante `AgentsDashboard`.
+
+### Prossimi passi consigliati dopo audit
+- [ ] Sistemare il bootstrap agentico (`backend/ai_agents/__init__.py` / `agent_workflows.py`) per far ripartire il backend
+- [ ] Allineare schema DB e modello `AgentReviewAction` con migration dedicata
+- [ ] Ripulire `backend/schemas.py` eliminando i duplicati shadowed
+- [ ] Ripristinare o rimuovere `AgentsDashboard` dal frontend per far tornare verde la build
+- [ ] Rendere eseguibile la suite test installando `pytest-cov` oppure correggendo `pytest.ini`
+- [ ] Creare uno script di backfill `Assignment -> VocePianoFinanziario` e ricalcolo `Attendance -> importo_rendicontato`
+- [ ] Configurare almeno un avviso per ciascun template piano finanziario
+
+### Sistema completo Piani Finanziari esteso
+- Introdotti nel backend i nuovi modelli dedicati alla formazione finanziata:
+  - `TemplatePianoFinanziario`
+  - `AvvisoPianoFinanziario`
+  - estensioni retrocompatibili su `PianoFinanziario`
+  - estensioni retrocompatibili su `VocePianoFinanziario`
+- I nuovi template sono separati dal dominio `ContractTemplate`, evitando di mescolare i template contrattuali con quelli economici.
+- `PianoFinanziario` ora traccia anche:
+  - `codice_piano`
+  - `budget_approvato`
+  - `budget_rimanente`
+  - `data_approvazione`
+  - `data_rendicontazione`
+  - `note_ente`
+- `VocePianoFinanziario` ora supporta automazione per mansioni/presenze con:
+  - `assignment_id`
+  - `mansione_riferimento`
+  - `sottocategoria`
+  - `ore_previste`
+  - `ore_effettive`
+  - `tariffa_oraria`
+  - `importo_approvato`
+  - `importo_validato`
+  - `stato`
+  - `note`
+
+### Automazioni operative implementate
+- `create_assignment` e `update_assignment` ora tentano il collegamento automatico dell'assegnazione alla voce del piano finanziario del progetto.
+- Aggiunta in `crud.py` la funzione chiave `collega_assegnazione_a_piano(...)`:
+  - trova il piano del progetto
+  - mappa la mansione a categoria/macrovoce
+  - collega o crea la voce piano
+  - aggiorna importi previsti e consuntivi
+- `create_attendance` e `update_attendance` ora ricalcolano automaticamente la voce piano collegata tramite `assignment_id`.
+- Aggiunta `aggiorna_voce_da_presenze(...)` per riallineare `ore_effettive` e `importo_consuntivo`.
+
+### API e bootstrap aggiunti
+- Esteso `backend/routers/piani_finanziari.py` con:
+  - CRUD Template Piani
+  - CRUD Avvisi Piani
+  - endpoint `assignments/{assignment_id}/collega-mansione`
+  - endpoint `voci/{voce_id}/aggiorna-da-presenze`
+  - alias `riepilogo-budget`
+- Creato script `backend/scripts/init_templates.py`.
+- Creati e inizializzati i 3 template obbligatori:
+  - `FORMAZIENDA_STD`
+  - `FAPI_STD`
+  - `FONDIMPRESA_STD`
+
+### Migrazione DB eseguita
+- Creata migration manuale `029_add_complete_piani_finanziari_structure.py`.
+- Corretto il revision id per compatibilita con il vincolo `alembic_version.version_num` del DB.
+- Verificata applicazione migration tramite container one-shot: completata con successo.
+
+### Verifiche eseguite
+- `python3 -m py_compile` passato su:
+  - `backend/models.py`
+  - `backend/schemas.py`
+  - `backend/crud.py`
+  - `backend/routers/piani_finanziari.py`
+  - `backend/scripts/init_templates.py`
+  - migration Alembic nuova
+- Verifica one-shot nel container:
+  - import modelli nuovo dominio OK
+  - `template-count = 3`
+  - template presenti: Formazienda, FAPI, Fondimpresa
+
+### Blocco residuo fuori perimetro piani
+- Il test finale HTTP via API non e stato completabile per un problema gia presente e indipendente da questo lavoro:
+  - import error in bootstrap app: `ImportError: cannot import name 'get_agent_definition' from 'ai_agents'`
+- Il backend continua quindi a fallire in avvio Gunicorn/FASTAPI per il modulo agentico, anche se migration e verifiche one-shot DB sono andate a buon fine.
+
+### Prossimi passi consigliati
+- [ ] Sistemare il bootstrap agentico (`ai_agents` / `agent_workflows`) per ripristinare l'avvio dell'app
+- [ ] Testare via HTTP gli endpoint nuovi `/api/v1/piani-finanziari/templates/` e `/api/v1/piani-finanziari/avvisi/`
+- [ ] Collegare la UI React ai nuovi CRUD Template/Avvisi
+- [ ] Aggiungere test backend dedicati per:
+  - auto-collegamento assignment -> voce piano
+  - aggiornamento attendance -> importo rendicontato
+  - coerenza budget utilizzato/rimanente
+- [ ] Valutare se migrare progressivamente la UI piano esistente dal modello legacy ai nuovi template/avvisi dedicati
+
+### Modello `AgentReviewAction` riallineato (`backend/models.py`)
+- Nel blocco AI agent e stato aggiornato il modello `AgentReviewAction` subito dopo `AgentSuggestion` per tracciare le azioni dell'operatore sui suggerimenti.
+- Schema ora allineato ai campi richiesti:
+  - `suggestion_id`
+  - `action`
+  - `reviewed_by`
+  - `reviewed_at`
+  - `notes`
+  - `auto_fix_applied`
+  - `result_success`
+  - `result_message`
+- Mantenuta la relazione `suggestion = relationship("AgentSuggestion", back_populates="review_actions")`.
+- Aggiunto validatore `@validates("action")` con soli valori ammessi: `approved`, `rejected`, `deferred`, `implemented`.
+
+### Pendente immediato
+- Allineare o creare la migration Alembic relativa a `agent_review_actions`, perche il modello precedente usava campi diversi (`reviewed_by_user_id`, `created_at`) e il database potrebbe non riflettere ancora il nuovo schema.
+
+## Sessione 2026-04-04
+
+### Modello `PianoFinanziario` esteso (`models.py:596`)
+- Il modello esistente era già presente ma incompleto. Aggiunti i campi mancanti:
+  - `nome: String(200)` (default `""`)
+  - `tipo_fondo: String(50)` con `@validates` — valori: `formazienda`, `fondimpresa`, `fse`, `altro`
+  - `budget_totale: Float`, `budget_utilizzato: Float`
+  - `data_inizio: DateTime`, `data_fine: DateTime`
+  - `stato: String(20)` con `@validates` — valori: `bozza`, `approvato`, `in_corso`, `rendicontato`, `chiuso`
+  - `note: Text`
+- Aggiunti 3 nuovi indici: `(progetto_id, stato)`, `(tipo_fondo, stato)`, `(data_inizio, data_fine)`
+
+### Modello `VocePianoFinanziario` esteso (`models.py:658`)
+- Aggiunti al modello esistente:
+  - `categoria: String(100)` con `@validates` — valori: `docenza`, `tutoraggio`, `coordinamento`, `materiali`, `aula`, `altro`
+  - `descrizione` promossa da `String(255)` a `Text`
+  - Proprietà Python: `importo_previsto` (alias `importo_preventivo`), `importo_rendicontato` (alias `importo_consuntivo`), `importo_rimanente`, `percentuale_utilizzo`
+  - Relationship alias `collaboratore` → `collaborator`
+  - Nuovo indice `(piano_id, categoria)`
+
+### Migration `528d59380940` applicata
+- Autogenerate Alembic aveva incluso operazioni pericolose non correlate (incluso `DROP TABLE users`).
+- File riscritto manualmente per includere solo le modifiche effettive.
+- `server_default` aggiunti ai campi NOT NULL per compatibilità con righe esistenti.
+- `alembic upgrade head` applicato con successo — DB a head `528d59380940`.
+- Verificata presenza colonne sul DB con `inspect(engine)`.
+
+### Schemas Pydantic aggiunti (`schemas.py`, fondo file)
+- **VocePianoFinanziario** (4 classi): `Base`, `Create`, `Update`, `VocePianoFinanziario` con 4 `@computed_field` (`importo_previsto`, `importo_rendicontato`, `importo_rimanente`, `percentuale_utilizzo`)
+- **PianoFinanziario** (5 classi): `Base` con `field_validator` su `data_fine > data_inizio`, `Create`, `Update` (tutti Optional), `PianoFinanziario`, `PianoFinanziarioWithVoci`
+- Usa `Literal` per `TIPO_FONDO`, `STATO_PIANO`, `CATEGORIA_VOCE`
+- Verifica: `import schemas` + test istanziazione in container → OK
+
+### Stato sistema fine sessione 2026-04-04
+- Backend Docker: in esecuzione
+- DB: migration head `528d59380940`
+- Ultimo `py_compile` / import check: passato
+- **Prossimi step suggeriti**:
+  - Aggiungere router FastAPI `piani_finanziari` con endpoint CRUD + riepilogo budget
+  - Aggiungere CRUD in `crud.py` per PianoFinanziario e VocePianoFinanziario
+  - Collegare il campo `tipo_fondo` nella UI del `PianiFinanziariHub` (oggi usa solo `ente_erogatore`)
+
 ## Aggiornamento audit tecnico ERP
 - Eseguito audit architetturale del repository con focus su schema dati, vincoli di business, maturita moduli e predisposizione agenti AI.
 - Deliverable salvato in `docs/AUDIT_TECNICO_ERP_2026-04-04.md`.
@@ -2118,3 +2366,165 @@ Migration Alembic `015_add_collaborator_fk_to_voci_piano.py`.
 ### Pendente residuo reale
 - Collegare provider esterno WhatsApp per invio reale automatico
 - Se desiderato, portare le stesse pratiche anche in una sezione dashboard dedicata o dentro il dettaglio collaboratore con azioni inline piu ricche
+
+## Sessione 2026-04-04 — Workflow documentale collaboratori
+
+### Backend completato
+- Aggiunti i modelli ORM:
+  - `DocumentoRichiesto` con migration dedicata applicata e tabella verificata
+  - `Notifica` con indici su destinatario/letta
+- Esteso `crud.py` con CRUD piani/voci piano e CRUD `DocumentoRichiesto`, inclusi:
+  - documenti mancanti
+  - documenti in scadenza
+  - validazione/rifiuto
+  - marcatura automatica scaduti
+- Creato router [`backend/routers/documenti_richiesti.py`](/DATA/progetti/pythonpro/backend/routers/documenti_richiesti.py) e registrato in [`backend/main.py`](/DATA/progetti/pythonpro/backend/main.py)
+- Creato servizio SMTP [`backend/services/email_sender.py`](/DATA/progetti/pythonpro/backend/services/email_sender.py):
+  - supporto env `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`
+  - `send_email(...)`
+  - `send_template_email(...)`
+  - test mode e rendering template Jinja2
+- Aggiornato [`backend/app/core/settings.py`](/DATA/progetti/pythonpro/backend/app/core/settings.py) con configurazione SMTP esplicita
+- Creati template email:
+  - [`backend/templates/email/default.html`](/DATA/progetti/pythonpro/backend/templates/email/default.html)
+  - [`backend/templates/email/default.txt`](/DATA/progetti/pythonpro/backend/templates/email/default.txt)
+  - [`backend/templates/email/sollecito_documento.html`](/DATA/progetti/pythonpro/backend/templates/email/sollecito_documento.html)
+  - [`backend/templates/email/sollecito_documento.txt`](/DATA/progetti/pythonpro/backend/templates/email/sollecito_documento.txt)
+- Creato job standalone/schedulabile [`backend/jobs/check_scadenze.py`](/DATA/progetti/pythonpro/backend/jobs/check_scadenze.py):
+  - esecuzione singola `python jobs/check_scadenze.py run`
+  - scheduler giornaliero `python jobs/check_scadenze.py schedule`
+  - marca scaduti, crea notifiche per documenti in scadenza, invio email opzionale
+  - bootstrap difensivo tabella `notifiche`
+- Aggiornato [`docker-compose.yml`](/DATA/progetti/pythonpro/docker-compose.yml) con servizio `check_scadenze_scheduler`
+
+### Frontend completato
+- Creato manager documentale collaboratore [`frontend/src/components/DocumentiCollaboratore.js`](/DATA/progetti/pythonpro/frontend/src/components/DocumentiCollaboratore.js):
+  - tabella documenti
+  - badge stato
+  - upload file
+  - warning scadenze
+  - valida/rifiuta per operatore
+  - filtro per stato
+- Integrato in [`frontend/src/components/CollaboratorManager.js`](/DATA/progetti/pythonpro/frontend/src/components/CollaboratorManager.js) come sezione espandibile richiamata dalla tabella collaboratori
+- Estesa [`frontend/src/components/collaborators/CollaboratorsTable.js`](/DATA/progetti/pythonpro/frontend/src/components/collaborators/CollaboratorsTable.js) con azione `📄` per aprire i documenti del collaboratore
+- Creato dashboard globale [`frontend/src/components/DocumentiMancanti.js`](/DATA/progetti/pythonpro/frontend/src/components/DocumentiMancanti.js):
+  - conteggio totale documenti mancanti/scaduti
+  - lista collaboratori ordinata per urgenza
+  - filtri per tipo documento e scadenza
+  - sollecito singolo e bulk via `mailto:`
+  - export CSV
+- Aggiornato [`frontend/src/App.js`](/DATA/progetti/pythonpro/frontend/src/App.js):
+  - nuova voce menu `Documenti` sotto gruppo `Reportistica`
+  - nuova sezione `documenti-mancanti`
+- Esteso [`frontend/src/services/apiService.js`](/DATA/progetti/pythonpro/frontend/src/services/apiService.js) con endpoint frontend per:
+  - documenti richiesti
+  - documenti collaboratore
+  - documenti mancanti
+  - upload/valida/rifiuta documento richiesto
+
+### Verifiche eseguite
+- `python3 -m py_compile backend/models.py` -> OK
+- `python3 -m py_compile backend/crud.py backend/routers/documenti_richiesti.py backend/main.py` -> OK
+- `python3 -m py_compile backend/services/email_sender.py backend/jobs/check_scadenze.py` -> OK
+- `docker compose exec backend alembic upgrade head` -> OK per `documenti_richiesti`
+- verifica DB nel container backend:
+  - `documenti_richiesti` presente
+  - `notifiche` bootstrap/creazione riuscita
+- `docker compose exec backend python jobs/check_scadenze.py --help` -> OK
+- `docker compose exec backend python jobs/check_scadenze.py run` -> OK
+- `npm run build` frontend -> OK
+
+### Stato attuale
+- Il gestionale ha ora un primo workflow documentale end-to-end su collaboratori:
+  - richieste documenti
+  - upload/validazione/rifiuto
+  - dashboard documenti mancanti
+  - template email sollecito
+  - job schedulabile per scadenze/notifiche
+
+### Pendente residuo reale
+- Aggiungere migration Alembic esplicita per `Notifica` invece del bootstrap runtime nel job
+- Esporre endpoint backend dedicato per `invia sollecito` reale, evitando il fallback frontend via `mailto:`
+- Collegare la dashboard `Documenti Mancanti` anche a una card sintetica in `Dashboard`
+
+## Sessione 2026-04-05 — Sistema Agenti AI
+
+### Backend completato
+- Riallineati i modelli ORM agentici in [`backend/models.py`](/DATA/progetti/pythonpro/backend/models.py):
+  - `AgentRun`
+  - `AgentSuggestion`
+  - `AgentReviewAction`
+- Creata e applicata migration Alembic dedicata [`backend/alembic/versions/a10d08b5e238_add_agent_tables.py`](/DATA/progetti/pythonpro/backend/alembic/versions/a10d08b5e238_add_agent_tables.py) per riallineare le tre tabelle agenti legacy al nuovo schema richiesto.
+- Aggiunti gli schema Pydantic agentici in fondo a [`backend/schemas.py`](/DATA/progetti/pythonpro/backend/schemas.py).
+- Esteso [`backend/crud.py`](/DATA/progetti/pythonpro/backend/crud.py) con CRUD completo per:
+  - `AgentRun`
+  - `AgentSuggestion`
+  - `AgentReviewAction`
+- Ricostruita la struttura `backend/ai_agents/`:
+  - [`backend/ai_agents/__init__.py`](/DATA/progetti/pythonpro/backend/ai_agents/__init__.py) vuoto
+  - [`backend/ai_agents/registry.py`](/DATA/progetti/pythonpro/backend/ai_agents/registry.py) con `BaseAgent`, `AgentRunResult`, `AgentRegistry`, singleton `agent_registry`
+  - [`backend/ai_agents/data_quality.py`](/DATA/progetti/pythonpro/backend/ai_agents/data_quality.py) con primo agente concreto `DataQualityAgent`
+- Sostituito [`backend/routers/agents.py`](/DATA/progetti/pythonpro/backend/routers/agents.py) con endpoint coerenti al nuovo registry:
+  - lista agenti registrati
+  - info agente
+  - run manuale
+  - lista/dettaglio run
+  - lista/dettaglio suggerimenti
+  - pending
+  - review singola
+  - apply fix
+  - bulk review
+- Aggiornato [`backend/main.py`](/DATA/progetti/pythonpro/backend/main.py) per importare `ai_agents.data_quality` al bootstrap e registrare il router agenti.
+- Creato script schedulabile [`backend/jobs/run_agents.py`](/DATA/progetti/pythonpro/backend/jobs/run_agents.py):
+  - `--all`
+  - `--agent <type>`
+  - `--show-schedule`
+  - esecuzione robusta con logging e isolamento errori tra agenti
+- Aggiunto file operativo [`docs/CRONTAB_EXAMPLE.md`](/DATA/progetti/pythonpro/docs/CRONTAB_EXAMPLE.md) con esempi crontab per:
+  - `data_quality`
+  - `document_reminder`
+  - `budget_alert`
+
+### Frontend completato
+- Creato [`frontend/src/components/AgentSuggestionsReview.js`](/DATA/progetti/pythonpro/frontend/src/components/AgentSuggestionsReview.js):
+  - contatori pending per priority
+  - filtri status/priority/entity/agent
+  - bulk review
+  - dettaglio suggerimento con review log
+  - fix automatico
+- Esteso [`frontend/src/services/apiService.js`](/DATA/progetti/pythonpro/frontend/src/services/apiService.js) per i nuovi endpoint agenti (`info`, `run by type`, dettaglio run, pending, detail suggestion, review, apply fix, bulk review).
+- Avviato routing frontend agenti in [`frontend/src/App.js`](/DATA/progetti/pythonpro/frontend/src/App.js):
+  - route `agents-dashboard`
+  - route `agents-review`
+- Installata dipendenza frontend `recharts` per il dashboard panoramico agenti richiesto nella sessione corrente.
+
+### Verifiche eseguite
+- `python3 -m py_compile backend/models.py` -> OK
+- `python3 -m py_compile backend/schemas.py` -> OK
+- `python3 -m py_compile backend/crud.py` -> OK
+- `python3 -m py_compile backend/ai_agents/registry.py backend/ai_agents/data_quality.py` -> OK
+- `python3 -m py_compile backend/routers/agents.py backend/main.py` -> OK
+- `python3 -m py_compile backend/alembic/versions/a10d08b5e238_add_agent_tables.py` -> OK
+- `docker compose exec backend alembic upgrade head` -> OK
+- `docker compose exec backend python -c "from models import AgentRun, AgentSuggestion, AgentReviewAction; print('OK')"` -> OK
+- `npm install recharts` -> OK
+- `npm run build` frontend -> OK dopo introduzione review suggerimenti agenti
+
+### Stato attuale
+- Il backend dispone ora di un primo framework agentico persistente con:
+  - registry singleton
+  - tracking run
+  - suggerimenti persistiti
+  - review actions
+  - primo agente `data_quality`
+  - esecuzione manuale via API
+  - esecuzione schedulabile da CLI/cron
+- Il frontend dispone di una prima UI operativa per review suggerimenti agentici.
+
+### Pendente residuo reale
+- Chiudere [`frontend/src/components/AgentsDashboard.js`](/DATA/progetti/pythonpro/frontend/src/components/AgentsDashboard.js) con grafico Recharts, quick actions e route `/agents/dashboard`
+- Riallineare o rimuovere il vecchio [`frontend/src/components/AgentsManager.js`](/DATA/progetti/pythonpro/frontend/src/components/AgentsManager.js), oggi ancora parzialmente basato sul vecchio contratto agenti
+- Creare gli agenti successivi:
+  - `document_reminder`
+  - `budget_alert`
+- Aggiungere apply-fix reale lato backend per suggerimenti che supportano correzione automatica, oggi ancora simulato

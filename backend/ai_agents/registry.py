@@ -1,61 +1,110 @@
 from __future__ import annotations
 
-from typing import Any, Optional
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional
 
-from .data_quality import run_data_quality_agent
-from .mail_recovery import run_mail_recovery_agent
-
-
-AGENT_REGISTRY = {
-    "data_quality": {
-        "name": "data_quality",
-        "label": "Data Quality Agent",
-        "description": (
-            "Analizza progetti, collaboratori e aziende per trovare buchi di dato, "
-            "incoerenze operative e prerequisiti mancanti."
-        ),
-        "supported_entity_types": ["project", "collaborator", "azienda_cliente", "global"],
-        "runner": run_data_quality_agent,
-    },
-    "mail_recovery": {
-        "name": "mail_recovery",
-        "label": "Mail Recovery Agent",
-        "description": (
-            "Genera bozze email verso collaboratori con dati mancanti o documenti "
-            "identita mancanti/in scadenza, senza invio automatico."
-        ),
-        "supported_entity_types": ["collaborator"],
-        "runner": run_mail_recovery_agent,
-    },
-}
+import crud
 
 
-def list_agent_definitions() -> list[dict[str, Any]]:
-    return [
-        {
-            "name": item["name"],
-            "label": item["label"],
-            "description": item["description"],
-            "supported_entity_types": item["supported_entity_types"],
+@dataclass
+class AgentRunResult:
+    items_processed: int
+    items_with_issues: int
+    suggestions: List[dict] = field(default_factory=list)
+    error: Optional[str] = None
+
+
+class BaseAgent(ABC):
+    agent_type: str = ""
+    version: str = "1.0"
+    description: str = ""
+
+    @abstractmethod
+    def run(self, db) -> AgentRunResult:
+        raise NotImplementedError
+
+    def get_info(self) -> dict:
+        return {
+            "agent_type": self.agent_type,
+            "version": self.version,
+            "description": self.description,
         }
-        for item in AGENT_REGISTRY.values()
-    ]
 
 
-def get_agent_definition(agent_name: str) -> Optional[dict[str, Any]]:
-    return AGENT_REGISTRY.get((agent_name or "").strip().lower())
+class AgentRegistry:
+    _instance: Optional["AgentRegistry"] = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._agents = {}
+        return cls._instance
+
+    def register(self, agent: BaseAgent):
+        if not agent.agent_type:
+            raise ValueError("agent.agent_type obbligatorio")
+        self._agents[agent.agent_type] = agent
+
+    def get(self, agent_type: str) -> BaseAgent:
+        agent = self._agents.get((agent_type or "").strip())
+        if not agent:
+            raise ValueError(f"Agente non registrato: {agent_type}")
+        return agent
+
+    def list_agents(self) -> List[dict]:
+        return [agent.get_info() for agent in self._agents.values()]
+
+    def run_agent(self, db, agent_type: str, triggered_by: str):
+        run = crud.create_agent_run(
+            db,
+            agent_type=agent_type,
+            triggered_by=triggered_by,
+            trigger_details=None,
+        )
+
+        try:
+            agent = self.get(agent_type)
+            result = agent.run(db)
+
+            created_suggestions = 0
+            for suggestion in result.suggestions:
+                crud.create_suggestion(
+                    db=db,
+                    run_id=run.id,
+                    suggestion_type=suggestion["suggestion_type"],
+                    priority=suggestion.get("priority", "medium"),
+                    entity_type=suggestion["entity_type"],
+                    entity_id=suggestion.get("entity_id"),
+                    title=suggestion["title"],
+                    description=suggestion.get("description"),
+                    suggested_action=suggestion.get("suggested_action"),
+                    confidence_score=suggestion.get("confidence_score"),
+                    auto_fix_available=suggestion.get("auto_fix_available", False),
+                    auto_fix_payload=suggestion.get("auto_fix_payload"),
+                )
+                created_suggestions += 1
+
+            final_status = "failed" if result.error else "completed"
+            return crud.complete_agent_run(
+                db=db,
+                run_id=run.id,
+                status=final_status,
+                items_processed=result.items_processed,
+                items_with_issues=result.items_with_issues,
+                suggestions_created=created_suggestions,
+                error_message=result.error,
+            )
+        except Exception as exc:
+            return crud.complete_agent_run(
+                db=db,
+                run_id=run.id,
+                status="failed",
+                items_processed=0,
+                items_with_issues=0,
+                suggestions_created=0,
+                error_message=str(exc),
+            )
 
 
-def run_registered_agent(db, *, agent_name: str, entity_type: Optional[str] = None, entity_id: Optional[int] = None, input_payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
-    definition = get_agent_definition(agent_name)
-    if not definition:
-        raise ValueError(f"Agente non supportato: {agent_name}")
-
-    runner = definition["runner"]
-    payload = input_payload or {}
-    return runner(
-        db,
-        entity_type=entity_type,
-        entity_id=entity_id,
-        limit=int(payload.get("limit", 25)),
-    )
+agent_registry = AgentRegistry()

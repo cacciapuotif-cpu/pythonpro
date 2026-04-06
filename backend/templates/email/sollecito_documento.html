@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="it">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sollecito Documenti</title>
+  </head>
+  <body style="margin: 0; padding: 0; background: #f8fafc; font-family: Arial, Helvetica, sans-serif; color: #0f172a;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background: #f8fafc; padding: 32px 16px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width: 720px; background: #ffffff; border-radius: 20px; overflow: hidden; border: 1px solid #dbe4f0;">
+            <tr>
+              <td style="padding: 28px 32px; background: linear-gradient(135deg, #0f766e, #1d4ed8); color: #ffffff;">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                  <tr>
+                    <td align="left" style="font-size: 24px; font-weight: 700;">
+                      Gestionale Collaboratori
+                    </td>
+                    <td align="right">
+                      <div style="display: inline-block; padding: 10px 16px; border: 1px dashed rgba(255,255,255,0.75); border-radius: 12px; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase;">
+                        Logo Placeholder
+                      </div>
+                    </td>
+                  </tr>
+                </table>
+                <div style="margin-top: 20px; font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.9;">
+                  Sollecito caricamento documenti
+                </div>
+                <h1 style="margin: 10px 0 0; font-size: 30px; line-height: 1.2;">
+                  Documentazione da completare
+                </h1>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding: 32px;">
+                <p style="margin: 0 0 16px; font-size: 16px; line-height: 1.7;">
+                  Gentile <strong>{{ collaboratore_nome }}</strong>,
+                </p>
+                <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.7; color: #334155;">
+                  ti ricordiamo che risultano ancora mancanti o da aggiornare i seguenti documenti necessari per completare il tuo fascicolo collaboratore.
+                </p>
+
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse: collapse; margin-bottom: 24px;">
+                  <tr>
+                    <td style="padding: 14px 16px; background: #e2e8f0; color: #0f172a; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;">
+                      Documento
+                    </td>
+                    <td style="padding: 14px 16px; background: #e2e8f0; color: #0f172a; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;">
+                      Scadenza
+                    </td>
+                  </tr>
+                  {% for documento in documenti %}
+                  <tr>
+                    <td style="padding: 16px; border-bottom: 1px solid #e2e8f0; font-size: 15px; color: #0f172a;">
+                      {{ documento.nome }}
+                    </td>
+                    <td style="padding: 16px; border-bottom: 1px solid #e2e8f0; font-size: 15px; color: #b45309;">
+                      {{ documento.scadenza }}
+                    </td>
+                  </tr>
+                  {% endfor %}
+                </table>
+
+                <div style="padding: 20px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 16px; margin-bottom: 24px;">
+                  <p style="margin: 0 0 14px; font-size: 15px; line-height: 1.7; color: #1e3a8a;">
+                    Puoi caricare i documenti richiesti utilizzando il link seguente:
+                  </p>
+                  <a
+                    href="{{ link_upload }}"
+                    style="display: inline-block; padding: 12px 18px; border-radius: 999px; background: #1d4ed8; color: #ffffff; text-decoration: none; font-weight: 700;"
+                  >
+                    Carica documenti
+                  </a>
+                  <p style="margin: 14px 0 0; font-size: 13px; color: #475569;">
+                    Se il pulsante non funziona, copia e incolla questo URL nel browser:<br />
+                    <span style="word-break: break-all;">{{ link_upload }}</span>
+                  </p>
+                </div>
+
+                <p style="margin: 0; font-size: 14px; line-height: 1.7; color: #475569;">
+                  In caso di dubbi o difficoltà nel caricamento, rispondi a questa email o contatta il nostro ufficio amministrativo.
+                </p>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding: 24px 32px; background: #0f172a; color: #cbd5e1;">
+                <div style="font-size: 14px; font-weight: 700; color: #ffffff; margin-bottom: 8px;">
+                  Contatti
+                </div>
+                <div style="font-size: 13px; line-height: 1.7;">
+                  Email: amministrazione@example.com<br />
+                  Telefono: +39 000 000 0000<br />
+                  Orari: lun-ven, 09:00-18:00
+                </div>
+                <div style="margin-top: 16px; font-size: 12px; line-height: 1.6; color: #94a3b8;">
+                  Nota privacy: questo messaggio contiene informazioni riservate destinate esclusivamente al destinatario. Se hai ricevuto questa email per errore, elimina il messaggio e avvisa il mittente.
+                </div>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

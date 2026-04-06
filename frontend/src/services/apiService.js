@@ -540,6 +540,43 @@ export const updateCollaborator = (id, data) => apiService.updateCollaborator(id
 export const deleteCollaborator = (id) => apiService.deleteCollaborator(id);
 export const bulkImportCollaborators = (collaboratorsArray) => apiService.bulkImportCollaborators(collaboratorsArray);
 export const getCollaborator = (id) => apiService.getCollaborator(id);
+export const uploadDocumentoIdentita = (collaboratorId, file, dataScadenza = null) =>
+  apiService.uploadDocumentoIdentita(collaboratorId, file, dataScadenza);
+export const uploadCurriculum = (collaboratorId, file) =>
+  apiService.uploadCurriculum(collaboratorId, file);
+
+// Documenti richiesti
+export const getDocumentiRichiesti = (params = {}) =>
+  http.get('/documenti-richiesti/', { params }).then(r => r.data);
+export const getDocumentoRichiesto = (docId) =>
+  http.get(`/documenti-richiesti/${docId}`).then(r => r.data);
+export const createDocumentoRichiesto = (data) =>
+  http.post('/documenti-richiesti/', data).then(r => r.data);
+export const updateDocumentoRichiesto = (docId, data) =>
+  http.put(`/documenti-richiesti/${docId}`, data).then(r => r.data);
+export const deleteDocumentoRichiesto = (docId) =>
+  http.delete(`/documenti-richiesti/${docId}`).then(r => r.data);
+export const getDocumentiCollaboratore = (collaboratoreId, params = {}) =>
+  http.get(`/collaborators/${collaboratoreId}/documenti`, { params }).then(r => r.data);
+export const getDocumentiMancantiCollaboratore = (collaboratoreId) =>
+  http.get(`/collaborators/${collaboratoreId}/documenti-mancanti`).then(r => r.data);
+export const validaDocumentoRichiesto = (docId, data) =>
+  http.post(`/documenti-richiesti/${docId}/valida`, data).then(r => r.data);
+export const rifiutaDocumentoRichiesto = (docId, data) =>
+  http.post(`/documenti-richiesti/${docId}/rifiuta`, data).then(r => r.data);
+export const uploadDocumentoRichiesto = (docId, file, dataScadenza = null) => {
+  const formData = new FormData();
+  formData.append('file', file);
+  if (dataScadenza) {
+    formData.append('data_scadenza', dataScadenza);
+  }
+  return http.post(`/documenti-richiesti/${docId}/upload`, formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+    timeout: 60000,
+  }).then(r => r.data);
+};
 
 // Projects
 export const createProject = (data) => apiService.createProject(data);
@@ -586,15 +623,31 @@ export const deleteAvviso = (id) =>
 
 // Agents
 export const getAgentsCatalog = () =>
-  http.get('/agents/catalog').then(r => r.data);
+  http.get('/agents/').then(r => r.data);
+export const getAgentInfo = (agentType) =>
+  http.get(`/agents/${agentType}/info`).then(r => r.data);
 export const getAgentLlmHealth = () =>
   http.get('/agents/llm/health').then(r => r.data);
 export const runAgent = (data) =>
   http.post('/agents/run', data).then(r => r.data);
+export const runAgentByType = (agentType) =>
+  http.post(`/agents/${agentType}/run`).then(r => r.data);
 export const getAgentRuns = (params = {}) =>
-  http.get('/agents/runs', { params }).then(r => r.data);
+  http.get('/agents/runs/', { params }).then(r => r.data);
+export const getAgentRunDetail = (runId) =>
+  http.get(`/agents/runs/${runId}`).then(r => r.data);
 export const getAgentSuggestions = (params = {}) =>
-  http.get('/agents/suggestions', { params }).then(r => r.data);
+  http.get('/agents/suggestions/', { params }).then(r => r.data);
+export const getPendingAgentSuggestions = () =>
+  http.get('/agents/suggestions/pending').then(r => r.data);
+export const getAgentSuggestionDetail = (suggestionId) =>
+  http.get(`/agents/suggestions/${suggestionId}`).then(r => r.data);
+export const reviewAgentSuggestion = (suggestionId, data) =>
+  http.post(`/agents/suggestions/${suggestionId}/review`, data).then(r => r.data);
+export const applyAgentSuggestionFix = (suggestionId) =>
+  http.post(`/agents/suggestions/${suggestionId}/apply-fix`).then(r => r.data);
+export const bulkReviewAgentSuggestions = (data) =>
+  http.post('/agents/suggestions/bulk-review', data).then(r => r.data);
 export const acceptAgentSuggestion = (suggestionId, data) =>
   http.post(`/agents/suggestions/${suggestionId}/accept`, data).then(r => r.data);
 export const rejectAgentSuggestion = (suggestionId, data) =>
@@ -706,6 +759,18 @@ export const getPianoFinanziario = (id) =>
   http.get(`/piani-finanziari/${id}`).then(r => r.data);
 export const createPianoFinanziario = (data) =>
   http.post('/piani-finanziari/', data).then(r => r.data);
+export const updatePianoFinanziario = (id, data) =>
+  http.put(`/piani-finanziari/${id}`, data).then(r => r.data);
+export const deletePianoFinanziario = (id, softDelete = true) =>
+  http.delete(`/piani-finanziari/${id}`, { params: { soft_delete: softDelete } }).then(r => r.data);
+export const getVociPianoFinanziario = (pianoId) =>
+  http.get(`/piani-finanziari/${pianoId}/voci`).then(r => r.data);
+export const addVocePianoFinanziario = (pianoId, data) =>
+  http.post(`/piani-finanziari/${pianoId}/voci`, data).then(r => r.data);
+export const updateVocePianoFinanziario = (pianoId, voceId, data) =>
+  http.put(`/piani-finanziari/${pianoId}/voci/${voceId}`, data).then(r => r.data);
+export const deleteVocePianoFinanziario = (pianoId, voceId) =>
+  http.delete(`/piani-finanziari/${pianoId}/voci/${voceId}`).then(r => r.data);
 export const updateVociPianoFinanziario = (pianoId, data) =>
   http.put(`/piani-finanziari/${pianoId}/voci`, data).then(r => r.data);
 export const getRiepilogoPianoFinanziario = (pianoId) =>

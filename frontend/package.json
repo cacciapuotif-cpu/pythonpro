@@ -31,6 +31,7 @@
     "react-virtualized": "^9.22.5",
     "react-window": "^1.8.8",
     "react-window-infinite-loader": "^1.0.9",
+    "recharts": "^3.8.1",
     "use-debounce": "^9.0.4",
     "xlsx": "^0.18.5",
     "zustand": "^4.4.4"

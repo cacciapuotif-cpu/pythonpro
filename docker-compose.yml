@@ -258,6 +258,50 @@ services:
         limits:
           cpus: '0.25'
           memory: 256M
+
+  # === DOCUMENTI SCADENZE SCHEDULER ===
+  check_scadenze_scheduler:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    working_dir: /app
+    entrypoint: ["python", "jobs/check_scadenze.py", "schedule"]
+    command: ["--time", "${CHECK_SCADENZE_TIME:-08:00}"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://${DB_USER:-admin}:${DB_PASSWORD:-changeme_in_production}@db:5432/${DB_NAME:-gestionale}
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-admin}
+      DB_PASSWORD: ${DB_PASSWORD:-changeme_in_production}
+      DB_NAME: ${DB_NAME:-gestionale}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-no-reply@gestionale.local}
+      SMTP_TEST_MODE: ${SMTP_TEST_MODE:-true}
+      SMTP_USE_TLS: ${SMTP_USE_TLS:-true}
+    container_name: pythonpro_check_scadenze_scheduler
+    depends_on:
+      db:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+    restart: unless-stopped
+    networks:
+      - pythonpro_net
+    labels:
+      - "com.project=pythonpro"
+      - "com.role=document-scheduler"
+    healthcheck:
+      disable: true
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
         reservations:
           cpus: '0.10'
           memory: 128M

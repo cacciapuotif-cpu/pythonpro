@@ -16,6 +16,7 @@ import models
 import schemas
 import crud
 from database import SessionLocal, engine, get_db
+from ai_agents import data_quality
 
 # Setup logging avanzato
 _log_dir = os.getenv('LOG_DIR', 'logs')
@@ -81,6 +82,7 @@ from routers import (
     ordini,
     piani_finanziari,
     piani_fondimpresa,
+    documenti_richiesti,
     avvisi,
     agents,
 )
@@ -340,6 +342,7 @@ app.include_router(ordini.router)
 # Router Piano Finanziario Formazienda
 app.include_router(piani_finanziari.router)
 app.include_router(piani_fondimpresa.router)
+app.include_router(documenti_richiesti.router)
 app.include_router(avvisi.router)
 app.include_router(agents.router)
 

@@ -504,7 +504,7 @@ export const AppProvider = ({ children }) => {
 
     try {
       // Import dinamico dell'API service
-      const { apiService } = await import('../services/apiService');
+      const { default: apiService } = await import('../services/apiService');
 
       let data;
       const entityState = currentState[entityType];
@@ -577,7 +577,7 @@ export const AppProvider = ({ children }) => {
     dispatch({ type: ActionTypes.LOGIN_START });
 
     try {
-      const { apiService } = await import('../services/apiService');
+      const { default: apiService } = await import('../services/apiService');
       const response = await apiService.login(credentials);
 
       localStorage.setItem('access_token', response.access_token);
@@ -619,7 +619,7 @@ export const AppProvider = ({ children }) => {
 
   const refreshToken = useCallback(async () => {
     try {
-      const { apiService } = await import('../services/apiService');
+      const { default: apiService } = await import('../services/apiService');
       const refreshToken = localStorage.getItem('refresh_token');
       if (!refreshToken) throw new Error('No refresh token');
 
@@ -650,7 +650,7 @@ export const AppProvider = ({ children }) => {
     });
 
     try {
-      const { apiService } = await import('../services/apiService');
+      const { default: apiService } = await import('../services/apiService');
       let createdEntity;
 
       switch (entityType) {
@@ -720,7 +720,7 @@ export const AppProvider = ({ children }) => {
     });
 
     try {
-      const { apiService } = await import('../services/apiService');
+      const { default: apiService } = await import('../services/apiService');
       let updatedEntity;
 
       switch (entityType) {
@@ -786,7 +786,7 @@ export const AppProvider = ({ children }) => {
     });
 
     try {
-      const { apiService } = await import('../services/apiService');
+      const { default: apiService } = await import('../services/apiService');
 
       switch (entityType) {
         case 'collaborators':

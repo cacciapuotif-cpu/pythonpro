@@ -18,6 +18,7 @@ from xml.sax.saxutils import escape
 import crud
 import schemas
 from database import get_db
+from validators import EnhancedAssignmentCreate
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/assignments", tags=["Assignments"])
@@ -223,7 +224,7 @@ except ImportError:
 
 @router.post("/", response_model=schemas.Assignment)
 def create_assignment(
-    assignment: schemas.AssignmentCreate,
+    assignment: EnhancedAssignmentCreate,
     db: Session = Depends(get_db)
 ):
     """CREA UNA NUOVA ASSEGNAZIONE"""
@@ -238,7 +239,8 @@ def create_assignment(
         if not project:
             raise HTTPException(status_code=404, detail="Progetto non trovato")
 
-        result = crud.create_assignment(db=db, assignment=assignment)
+        assignment_data = schemas.AssignmentCreate(**assignment.dict())
+        result = crud.create_assignment(db=db, assignment=assignment_data)
         db.commit()
         db.refresh(result)
 
@@ -247,6 +249,10 @@ def create_assignment(
 
     except HTTPException:
         raise
+    except ValueError as e:
+        db.rollback()
+        logger.warning(f"Validazione assegnazione fallita: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         db.rollback()
         logger.error(f"Errore creazione assegnazione: {e}")

@@ -99,11 +99,17 @@ class Settings(BaseSettings):
     LOG_FORMAT: str = "%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s"
     LOG_FILE: str = "logs/gestionale.log"  # path file log
 
-    # === Email (opzionale, per notifiche) ===
-    SMTP_SERVER: str | None = None
-    SMTP_PORT: int | None = None
+    # === Email / SMTP ===
+    SMTP_HOST: str | None = None
+    SMTP_PORT: int = 587
     SMTP_USER: str | None = None
     SMTP_PASSWORD: str | None = None
+    SMTP_FROM: str = "no-reply@gestionale.local"
+    SMTP_TEST_MODE: bool = True
+    SMTP_USE_TLS: bool = True
+
+    # Alias legacy mantenuti per compatibilità
+    SMTP_SERVER: str | None = None
     EMAIL_FROM: str = "no-reply@gestionale.local"
     ENABLE_EMAIL: bool = False  # Abilita invio email
 

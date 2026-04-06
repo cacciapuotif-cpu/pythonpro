@@ -14,6 +14,7 @@ import crud
 import schemas
 from agent_workflows import sync_collaborator_data_quality
 from database import get_db
+from validators import EnhancedCollaboratorCreate
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/collaborators", tags=["Collaborators"])
@@ -21,7 +22,7 @@ router = APIRouter(prefix="/api/v1/collaborators", tags=["Collaborators"])
 
 @router.post("/", response_model=schemas.Collaborator, response_model_by_alias=False)
 def create_collaborator(
-    collaborator: schemas.CollaboratorCreate,
+    collaborator: EnhancedCollaboratorCreate,
     db: Session = Depends(get_db)
 ):
     """
@@ -32,31 +33,33 @@ def create_collaborator(
     - Codice Fiscale: deve essere unico, 16 caratteri, normalizzato uppercase
     """
     try:
+        collaborator_data = schemas.CollaboratorCreate(**collaborator.dict())
+
         # Verifica email duplicata
-        existing_email = crud.get_collaborator_by_email(db, collaborator.email)
+        existing_email = crud.get_collaborator_by_email(db, collaborator_data.email)
         if existing_email:
             raise HTTPException(
                 status_code=409,
-                detail=f"Esiste già un collaboratore con email '{collaborator.email}'"
+                detail=f"Esiste già un collaboratore con email '{collaborator_data.email}'"
             )
 
         # Verifica codice fiscale duplicato
-        existing_cf = crud.get_collaborator_by_fiscal_code(db, collaborator.fiscal_code)
+        existing_cf = crud.get_collaborator_by_fiscal_code(db, collaborator_data.fiscal_code)
         if existing_cf:
             raise HTTPException(
                 status_code=409,
-                detail=f"Esiste già un collaboratore con codice fiscale '{collaborator.fiscal_code.upper()}'"
+                detail=f"Esiste già un collaboratore con codice fiscale '{collaborator_data.fiscal_code.upper()}'"
             )
 
-        if collaborator.partita_iva:
-            piva_conflict = crud.find_partita_iva_conflict(db, collaborator.partita_iva, entity_type="collaborator")
+        if collaborator_data.partita_iva:
+            piva_conflict = crud.find_partita_iva_conflict(db, collaborator_data.partita_iva, entity_type="collaborator")
             if piva_conflict:
                 raise HTTPException(
                     status_code=409,
                     detail=piva_conflict["message"]
                 )
 
-        result = crud.create_collaborator(db=db, collaborator=collaborator)
+        result = crud.create_collaborator(db=db, collaborator=collaborator_data)
         db.commit()
         db.refresh(result)
         try:
@@ -67,6 +70,10 @@ def create_collaborator(
         return result
     except HTTPException:
         raise
+    except ValueError as e:
+        db.rollback()
+        logger.warning(f"Validazione collaboratore fallita: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         db.rollback()
         logger.error(f"Errore creazione collaboratore: {e}")

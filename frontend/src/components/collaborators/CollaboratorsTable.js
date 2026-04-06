@@ -131,6 +131,7 @@ const CollaboratorsTable = ({
   currentUser,
   onEdit,
   onDelete,
+  onOpenDocuments,
   onOpenAssignmentModal,
   onAssignProject,
   onRemoveProject,
@@ -451,7 +452,7 @@ const CardView = ({ items, currentUser, onEdit, onOpenAssignmentModal, onDelete,
 // ─────────────────────────────────────────────────────────────────────────────
 const ListView = ({
   items, projects, assignments, currentUser, filters, expandedRows,
-  canDelete, onEdit, onDelete, onOpenAssignmentModal, onAssignProject,
+  canDelete, onEdit, onDelete, onOpenDocuments, onOpenAssignmentModal, onAssignProject,
   onRemoveProject, onEditAssignment, onDownloadContract, agentQueueByCollaborator,
   toggleSort, toggleRowExpansion, SortIcon
 }) => (
@@ -519,6 +520,7 @@ const ListView = ({
                   </div>
                 </td>
                 <td className="actions-cell">
+                  <button className="action-btn assign-btn" onClick={() => onOpenDocuments(c)} title="Documenti">📄</button>
                   <button className="action-btn edit-btn" onClick={() => onEdit(c)}>✏️</button>
                   <button className="action-btn assign-btn" onClick={() => onOpenAssignmentModal(c)}>➕</button>
                   <button className="action-btn delete-btn" onClick={() => onDelete(c.id)}

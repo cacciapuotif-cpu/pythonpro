@@ -1,128 +1,27 @@
-"""Router per il modulo Piano Finanziario Formazienda."""
+"""
+Router per gestione piani finanziari e relative voci.
+Pattern allineato agli altri router CRUD del progetto.
+"""
 
 from io import BytesIO
-import logging
-import re
 from typing import List, Optional
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from openpyxl import Workbook
-from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.styles import Font, PatternFill
 from sqlalchemy.orm import Session
 
 import crud
 import schemas
 from database import get_db
-from piano_finanziario_config import MACROVOCE_TITLES, get_voice_template_map, ordered_templates
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/piani-finanziari", tags=["Piani Finanziari"])
 
 
-def _serialize_template_documento(template):
-    if not template:
-        return None
-    return schemas.TemplateDocumentoSelezionato(
-        id=template.id,
-        nome_template=template.nome_template,
-        ambito_template=template.ambito_template,
-        chiave_documento=template.chiave_documento,
-        ente_erogatore=template.ente_erogatore,
-        avviso=template.avviso,
-        progetto_id=template.progetto_id,
-        ente_attuatore_id=template.ente_attuatore_id,
-    )
-
-def _effective_avviso_code(piano):
-    return (getattr(getattr(piano, "avviso_rel", None), "codice", None) or piano.avviso or "").strip()
-
-
-def _derive_piano_template_key(ente_erogatore: str) -> str:
-    normalized = re.sub(r"[^a-z0-9]+", "_", (ente_erogatore or "").strip().lower()).strip("_")
-    return f"piano_finanziario_{normalized}" if normalized else "piano_finanziario_standard"
-
-
-def _resolve_piano_template(piano, db: Session):
-    if getattr(piano, "template", None):
-        return piano.template
-    ente = piano.ente_erogatore or (getattr(piano.progetto, "ente_erogatore", None) if piano.progetto else None)
-    return crud.resolve_document_template(
-        db,
-        ambito_template="piano_finanziario",
-        chiave_documento=_derive_piano_template_key(ente),
-        progetto_id=piano.progetto_id,
-        ente_attuatore_id=getattr(piano.progetto, "ente_attuatore_id", None) if piano.progetto else None,
-        ente_erogatore=ente,
-        avviso=_effective_avviso_code(piano) or (getattr(piano.progetto, "avviso", None) if piano.progetto else None),
-    )
-
-
-def _build_detail_response(piano, db: Session | None = None) -> schemas.PianoFinanziarioDettaglio:
-    effective_rows = crud.build_effective_piano_rows(piano, db=db)
-    riepilogo = crud.build_piano_finanziario_riepilogo(piano, db=db)
-    totale_consuntivo = riepilogo["totale_consuntivo"]
-    voci = [
-        schemas.VocePianoFinanziario(
-            id=voce["id"] or 0,
-            piano_id=voce["piano_id"],
-            macrovoce=voce["macrovoce"],
-            voce_codice=voce["voce_codice"],
-            descrizione=voce["descrizione"],
-            progetto_label=voce["progetto_label"],
-            edizione_label=voce["edizione_label"],
-            ore=float(voce["ore"] or 0.0),
-            importo_consuntivo=float(voce["importo_consuntivo"] or 0.0),
-            importo_preventivo=float(voce["importo_preventivo"] or 0.0),
-            importo_presentato=float(voce["importo_presentato"] or 0.0),
-            created_at=voce["created_at"],
-            updated_at=voce["updated_at"],
-            totale_consuntivo_riferimento=totale_consuntivo,
-        )
-        for voce in sorted(
-            effective_rows,
-            key=lambda item: (item["macrovoce"], item["voce_codice"], item["progetto_label"] or "", item["edizione_label"] or ""),
-        )
-    ]
-    template_documento = _serialize_template_documento(_resolve_piano_template(piano, db)) if db else None
-    return schemas.PianoFinanziarioDettaglio(
-        id=piano.id,
-        progetto_id=piano.progetto_id,
-        template_id=piano.template_id,
-        anno=piano.anno,
-        ente_erogatore=piano.ente_erogatore,
-        avviso=_effective_avviso_code(piano),
-        avviso_id=getattr(piano, "avviso_id", None),
-        avviso_rel=schemas.Avviso.model_validate(piano.avviso_rel) if getattr(piano, "avviso_rel", None) else None,
-        created_at=piano.created_at,
-        updated_at=piano.updated_at,
-        progetto=schemas.Project.model_validate(piano.progetto),
-        voci=voci,
-        template_documento=template_documento,
-    )
-
-
-def _ordered_export_rows(piano):
-    by_code = {}
-    for voce in piano.voci:
-        by_code.setdefault(voce.voce_codice, []).append(voce)
-
-    rows = []
-    for template in ordered_templates():
-        voce_codice = template["voce_codice"]
-        if template["is_dynamic"]:
-            dynamic_rows = sorted(
-                by_code.get(voce_codice, []),
-                key=lambda item: (item.progetto_label or "", item.edizione_label or ""),
-            )
-            rows.extend(dynamic_rows)
-        else:
-            fixed_row = next(iter(by_code.get(voce_codice, [])), None)
-            rows.append(fixed_row or template)
-    return rows
-
-
-def _build_excel_workbook(piano):
+def _build_excel_workbook(piano, riepilogo: dict) -> Workbook:
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "Piano Finanziario"
@@ -130,139 +29,450 @@ def _build_excel_workbook(piano):
     bold = Font(bold=True)
     header_fill = PatternFill(fill_type="solid", fgColor="D9EAF7")
     total_fill = PatternFill(fill_type="solid", fgColor="E5E7EB")
-    section_fill = PatternFill(fill_type="solid", fgColor="C7D2FE")
 
-    sheet["A1"] = f"Piano Finanziario - {piano.progetto.name}"
-    sheet["A1"].font = Font(bold=True, size=14)
-    sheet["A2"] = f"Anno {piano.anno} · Ente Erogatore {piano.ente_erogatore} · Avviso {_effective_avviso_code(piano)}"
-    current_row = 4
+    sheet["A1"] = "PIANO FINANZIARIO"
+    sheet["A1"].font = bold
+    sheet["A2"] = "Progetto"
+    sheet["B2"] = piano.progetto.name if getattr(piano, "progetto", None) else f"Progetto {piano.progetto_id}"
+    sheet["A3"] = "Ente erogatore"
+    sheet["B3"] = piano.ente_erogatore or ""
+    sheet["A4"] = "Avviso"
+    sheet["B4"] = piano.avviso or ""
+    sheet["A5"] = "Anno"
+    sheet["B5"] = piano.anno
 
-    macro_total_rows = {}
-    data_rows_for_percent = []
-    consuntivo_col = "E"
-    percent_col = "F"
-    preventivo_col = "G"
+    headers = [
+        "MACROVOCE",
+        "CODICE",
+        "DESCRIZIONE",
+        "PROGETTO",
+        "EDIZIONE",
+        "ORE",
+        "IMPORTO PREVENTIVO",
+        "IMPORTO CONSUNTIVO",
+        "IMPORTO PRESENTATO",
+    ]
+    for index, label in enumerate(headers, start=1):
+        cell = sheet.cell(row=8, column=index, value=label)
+        cell.font = bold
+        cell.fill = header_fill
 
-    voice_map = get_voice_template_map()
-    export_rows = _ordered_export_rows(piano)
+    rows = crud.build_effective_piano_rows(piano, db=None)
+    row_cursor = 9
+    for row in sorted(rows, key=lambda item: (item["macrovoce"], item["voce_codice"], item.get("progetto_label") or "", item.get("edizione_label") or "")):
+        sheet.cell(row=row_cursor, column=1, value=row["macrovoce"])
+        sheet.cell(row=row_cursor, column=2, value=row["voce_codice"])
+        sheet.cell(row=row_cursor, column=3, value=row["descrizione"])
+        sheet.cell(row=row_cursor, column=4, value=row.get("progetto_label") or "")
+        sheet.cell(row=row_cursor, column=5, value=row.get("edizione_label") or "")
+        sheet.cell(row=row_cursor, column=6, value=float(row.get("ore") or 0.0))
+        sheet.cell(row=row_cursor, column=7, value=float(row.get("importo_preventivo") or 0.0))
+        sheet.cell(row=row_cursor, column=8, value=float(row.get("importo_consuntivo") or 0.0))
+        sheet.cell(row=row_cursor, column=9, value=float(row.get("importo_presentato") or 0.0))
+        row_cursor += 1
 
-    for macrovoce in ["A", "B", "C", "D"]:
-        sheet.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=7)
-        title_cell = sheet.cell(row=current_row, column=1, value=MACROVOCE_TITLES[macrovoce])
-        title_cell.font = bold
-        title_cell.fill = section_fill
-        current_row += 1
+    row_cursor += 1
+    summary_headers = ["MACROVOCE", "TITOLO", "PREVENTIVO", "CONSUNTIVO", "% PREVENTIVO", "% CONSUNTIVO", "ALERT"]
+    for index, label in enumerate(summary_headers, start=1):
+        cell = sheet.cell(row=row_cursor, column=index, value=label)
+        cell.font = bold
+        cell.fill = total_fill
+    row_cursor += 1
 
-        headers = ["ID / Voce", "Progetto", "Edizione", "Ore", "Consuntivo (€)", "%", "Preventivo (€)"]
-        for idx, label in enumerate(headers, start=1):
-            cell = sheet.cell(row=current_row, column=idx, value=label)
-            cell.font = bold
-            cell.fill = header_fill
-            cell.alignment = Alignment(horizontal="center")
-        current_row += 1
+    for item in riepilogo.get("macrovoci", []):
+        sheet.cell(row=row_cursor, column=1, value=item["macrovoce"])
+        sheet.cell(row=row_cursor, column=2, value=item["titolo"])
+        sheet.cell(row=row_cursor, column=3, value=float(item.get("importo_preventivo") or 0.0))
+        sheet.cell(row=row_cursor, column=4, value=float(item.get("importo_consuntivo") or 0.0))
+        sheet.cell(row=row_cursor, column=5, value=float(item.get("percentuale_preventivo") or 0.0) / 100)
+        sheet.cell(row=row_cursor, column=6, value=float(item.get("percentuale_consuntivo") or 0.0) / 100)
+        sheet.cell(row=row_cursor, column=7, value=item.get("alert_level") or "ok")
+        row_cursor += 1
 
-        section_start_row = current_row
-        for item in export_rows:
-            row_macrovoce = item.macrovoce if hasattr(item, "macrovoce") else item["macrovoce"]
-            if row_macrovoce != macrovoce:
-                continue
+    row_cursor += 1
+    totals = [
+        ("Totale preventivo", float(riepilogo.get("totale_preventivo") or 0.0)),
+        ("Totale consuntivo", float(riepilogo.get("totale_consuntivo") or 0.0)),
+        ("Contributo richiesto", float(riepilogo.get("contributo_richiesto") or 0.0)),
+        ("Cofinanziamento", float(riepilogo.get("cofinanziamento") or 0.0)),
+    ]
+    for label, value in totals:
+        sheet.cell(row=row_cursor, column=1, value=label).font = bold
+        sheet.cell(row=row_cursor, column=2, value=value)
+        row_cursor += 1
 
-            voce_codice = item.voce_codice if hasattr(item, "voce_codice") else item["voce_codice"]
-            descrizione = item.descrizione if hasattr(item, "descrizione") else item["descrizione"]
-            progetto_label = item.progetto_label if hasattr(item, "progetto_label") else item.get("progetto_label")
-            edizione_label = item.edizione_label if hasattr(item, "edizione_label") else item.get("edizione_label")
-            ore = float(item.ore or 0.0) if hasattr(item, "ore") else 0.0
-            importo_consuntivo = float(item.importo_consuntivo or 0.0) if hasattr(item, "importo_consuntivo") else 0.0
-            importo_preventivo = float(item.importo_preventivo or 0.0) if hasattr(item, "importo_preventivo") else 0.0
-
-            sheet.cell(row=current_row, column=1, value=f"{voce_codice} - {descrizione}")
-            sheet.cell(row=current_row, column=2, value=progetto_label)
-            sheet.cell(row=current_row, column=3, value=edizione_label)
-            sheet.cell(row=current_row, column=4, value=ore)
-            sheet.cell(row=current_row, column=5, value=importo_consuntivo)
-            sheet.cell(row=current_row, column=7, value=importo_preventivo)
-            data_rows_for_percent.append(current_row)
-            current_row += 1
-
-        total_row = current_row
-        sheet.cell(row=total_row, column=1, value=f"Totale Macrovoce {macrovoce}")
-        sheet.cell(row=total_row, column=4, value=f"=SUM(D{section_start_row}:D{total_row - 1})")
-        sheet.cell(row=total_row, column=5, value=f"=SUM(E{section_start_row}:E{total_row - 1})")
-        sheet.cell(row=total_row, column=7, value=f"=SUM(G{section_start_row}:G{total_row - 1})")
-        for col in range(1, 8):
-            sheet.cell(row=total_row, column=col).font = bold
-            sheet.cell(row=total_row, column=col).fill = total_fill
-        macro_total_rows[macrovoce] = total_row
-        current_row += 2
-
-    summary_start = current_row
-    totale_row = summary_start
-    contributo_row = summary_start + 1
-    cofin_row = summary_start + 2
-
-    sheet.cell(row=totale_row, column=1, value="Totale consuntivo / preventivo").font = bold
-    sheet.cell(row=totale_row, column=5, value=f"=E{macro_total_rows['A']}+E{macro_total_rows['B']}+E{macro_total_rows['C']}+E{macro_total_rows['D']}")
-    sheet.cell(row=totale_row, column=7, value=f"=G{macro_total_rows['A']}+G{macro_total_rows['B']}+G{macro_total_rows['C']}+G{macro_total_rows['D']}")
-
-    sheet.cell(row=contributo_row, column=1, value="Contributo richiesto").font = bold
-    sheet.cell(row=contributo_row, column=5, value=f"=E{macro_total_rows['A']}+E{macro_total_rows['B']}+E{macro_total_rows['C']}")
-
-    sheet.cell(row=cofin_row, column=1, value="Cofinanziamento").font = bold
-    sheet.cell(row=cofin_row, column=5, value=f"=E{macro_total_rows['D']}")
-
-    for row_num in list(data_rows_for_percent) + list(macro_total_rows.values()):
-        sheet.cell(row=row_num, column=6, value=f"=IF($E${totale_row}=0,0,E{row_num}/$E${totale_row})")
-
-    for row_num in [totale_row, contributo_row, cofin_row]:
-        for col in range(1, 8):
-            sheet.cell(row=row_num, column=col).font = bold
-            sheet.cell(row=row_num, column=col).fill = total_fill
-
-    for column in [consuntivo_col, percent_col, preventivo_col]:
-        for row in range(1, cofin_row + 1):
-            sheet[f"{column}{row}"].number_format = "€ #,##0.00" if column != percent_col else "0.00%"
-
-    for row in range(1, cofin_row + 1):
-        sheet[f"D{row}"].number_format = "#,##0.00"
-
-    for column_letter, width in {"A": 40, "B": 20, "C": 18, "D": 12, "E": 16, "F": 10, "G": 16}.items():
-        sheet.column_dimensions[column_letter].width = width
+    for column_letter in ["G", "H", "I", "B", "C", "D"]:
+        for row in range(9, row_cursor + 2):
+            sheet[f"{column_letter}{row}"].number_format = "EUR #,##0.00"
+    for column_letter in ["E", "F"]:
+        for row in range(9, row_cursor + 2):
+            sheet[f"{column_letter}{row}"].number_format = "0.00%"
 
     return workbook
 
 
-@router.get("/", response_model=List[schemas.PianoFinanziario])
-def list_piani_finanziari(
-    progetto_id: Optional[int] = Query(None),
+@router.get("/templates/", response_model=List[schemas.TemplatePianoFinanziario])
+def get_templates_piano(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=200),
+    solo_attivi: bool = Query(True),
     db: Session = Depends(get_db),
 ):
-    return crud.get_piani_finanziari(db, progetto_id=progetto_id, skip=skip, limit=limit)
+    return crud.get_templates_piano(db, skip=skip, limit=limit, solo_attivi=solo_attivi)
 
 
-@router.post("/", response_model=schemas.PianoFinanziarioDettaglio, status_code=status.HTTP_201_CREATED)
-def create_piano_finanziario(
-    payload: schemas.PianoFinanziarioCreate,
+@router.get("/templates/{template_id}", response_model=schemas.TemplatePianoFinanziario)
+def get_template_piano(template_id: int, db: Session = Depends(get_db)):
+    template = crud.get_template_piano(db, template_id)
+    if not template:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template piano finanziario non trovato")
+    return template
+
+
+@router.post("/templates/", response_model=schemas.TemplatePianoFinanziario, status_code=status.HTTP_201_CREATED)
+def create_template_piano(
+    template: schemas.TemplatePianoFinanziarioCreate,
     db: Session = Depends(get_db),
 ):
     try:
-        piano = crud.create_piano_finanziario(db, payload)
-        return _build_detail_response(piano, db=db)
+        return crud.create_template_piano(db, template)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
 
-@router.get("/{piano_id}", response_model=schemas.PianoFinanziarioDettaglio)
-def get_piano_finanziario(piano_id: int, db: Session = Depends(get_db)):
+@router.put("/templates/{template_id}", response_model=schemas.TemplatePianoFinanziario)
+def update_template_piano(
+    template_id: int,
+    template: schemas.TemplatePianoFinanziarioUpdate,
+    db: Session = Depends(get_db),
+):
+    updated = crud.update_template_piano(db, template_id, template)
+    if not updated:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template piano finanziario non trovato")
+    return updated
+
+
+@router.delete("/templates/{template_id}")
+def delete_template_piano(
+    template_id: int,
+    soft_delete: bool = True,
+    db: Session = Depends(get_db),
+):
+    deleted = crud.delete_template_piano(db, template_id, soft_delete=soft_delete)
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template piano finanziario non trovato")
+    return {"template_id": template_id, "soft_delete": soft_delete}
+
+
+@router.get("/avvisi/", response_model=List[schemas.AvvisoPianoFinanziario])
+def get_avvisi_piano(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=200),
+    template_id: Optional[int] = Query(None),
+    solo_aperti: bool = Query(False),
+    db: Session = Depends(get_db),
+):
+    return crud.get_avvisi_piano(
+        db,
+        skip=skip,
+        limit=limit,
+        template_id=template_id,
+        solo_aperti=solo_aperti,
+    )
+
+
+@router.get("/avvisi/{avviso_id}", response_model=schemas.AvvisoPianoFinanziario)
+def get_avviso_piano(avviso_id: int, db: Session = Depends(get_db)):
+    avviso = crud.get_avviso_piano(db, avviso_id)
+    if not avviso:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Avviso piano finanziario non trovato")
+    return avviso
+
+
+@router.post("/avvisi/", response_model=schemas.AvvisoPianoFinanziario, status_code=status.HTTP_201_CREATED)
+def create_avviso_piano(
+    avviso: schemas.AvvisoPianoFinanziarioCreate,
+    db: Session = Depends(get_db),
+):
+    try:
+        return crud.create_avviso_piano(db, avviso)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@router.put("/avvisi/{avviso_id}", response_model=schemas.AvvisoPianoFinanziario)
+def update_avviso_piano(
+    avviso_id: int,
+    avviso: schemas.AvvisoPianoFinanziarioUpdate,
+    db: Session = Depends(get_db),
+):
+    updated = crud.update_avviso_piano(db, avviso_id, avviso)
+    if not updated:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Avviso piano finanziario non trovato")
+    return updated
+
+
+@router.delete("/avvisi/{avviso_id}")
+def delete_avviso_piano(
+    avviso_id: int,
+    soft_delete: bool = True,
+    db: Session = Depends(get_db),
+):
+    deleted = crud.delete_avviso_piano(db, avviso_id, soft_delete=soft_delete)
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Avviso piano finanziario non trovato")
+    return {"avviso_id": avviso_id, "soft_delete": soft_delete}
+
+
+@router.get("/", response_model=List[schemas.PianoFinanziarioWithVoci])
+def get_piani_finanziari(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=200),
+    progetto_id: Optional[int] = Query(None),
+    stato: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    return crud.get_piani_finanziari(
+        db,
+        skip=skip,
+        limit=limit,
+        progetto_id=progetto_id,
+        stato=stato,
+    )
+
+
+@router.get("/{piano_id}", response_model=schemas.PianoFinanziarioWithVoci)
+def get_piano_finanziario(
+    piano_id: int,
+    db: Session = Depends(get_db),
+):
     piano = crud.get_piano_finanziario(db, piano_id)
     if not piano:
-        raise HTTPException(status_code=404, detail="Piano finanziario non trovato")
-    return _build_detail_response(piano, db=db)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Piano finanziario non trovato",
+        )
+    return piano
 
 
-@router.put("/{piano_id}/voci", response_model=schemas.PianoFinanziarioDettaglio)
-def update_voci_piano_finanziario(
+@router.post("/", response_model=schemas.PianoFinanziarioWithVoci, status_code=status.HTTP_201_CREATED)
+def create_piano_finanziario(
+    piano: schemas.PianoFinanziarioCreate,
+    db: Session = Depends(get_db),
+):
+    try:
+        db_piano = crud.create_piano_finanziario(db, piano)
+        logger.info("Created piano finanziario: ID %s", db_piano.id)
+        return db_piano
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Error creating piano finanziario: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Errore nella creazione del piano finanziario",
+        )
+
+
+@router.put("/{piano_id}", response_model=schemas.PianoFinanziarioWithVoci)
+def update_piano_finanziario(
+    piano_id: int,
+    piano: schemas.PianoFinanziarioUpdate,
+    db: Session = Depends(get_db),
+):
+    try:
+        existing = crud.get_piano_finanziario(db, piano_id)
+        if not existing:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Piano finanziario non trovato",
+            )
+
+        updated = crud.update_piano_finanziario(db, piano_id, piano)
+        return updated
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Error updating piano finanziario %s: %s", piano_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Errore nell'aggiornamento del piano finanziario",
+        )
+
+
+@router.delete("/{piano_id}")
+def delete_piano_finanziario(
+    piano_id: int,
+    soft_delete: bool = True,
+    db: Session = Depends(get_db),
+):
+    try:
+        existing = crud.get_piano_finanziario(db, piano_id)
+        if not existing:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Piano finanziario non trovato",
+            )
+
+        crud.delete_piano_finanziario(db, piano_id, soft_delete=soft_delete)
+        return {
+            "message": "Piano finanziario eliminato con successo" if not soft_delete else "Piano finanziario chiuso con successo",
+            "piano_id": piano_id,
+            "soft_delete": soft_delete,
+        }
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Error deleting piano finanziario %s: %s", piano_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Errore nell'eliminazione del piano finanziario",
+        )
+
+
+@router.get("/{piano_id}/voci", response_model=List[schemas.VocePianoFinanziario])
+def get_voci_piano(
+    piano_id: int,
+    db: Session = Depends(get_db),
+):
+    piano = crud.get_piano_finanziario(db, piano_id)
+    if not piano:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Piano finanziario non trovato",
+        )
+    return crud.get_voci_piano(db, piano_id)
+
+
+@router.post("/{piano_id}/voci", response_model=schemas.VocePianoFinanziario, status_code=status.HTTP_201_CREATED)
+def create_voce_piano(
+    piano_id: int,
+    voce: schemas.VocePianoFinanziarioCreate,
+    db: Session = Depends(get_db),
+):
+    try:
+        if voce.piano_id != piano_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Il piano_id del body non coincide con il path",
+            )
+
+        db_voce = crud.create_voce_piano(db, voce)
+        logger.info("Created voce piano finanziario: ID %s", db_voce.id)
+        return db_voce
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Error creating voce for piano %s: %s", piano_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Errore nella creazione della voce piano",
+        )
+
+
+@router.put("/{piano_id}/voci/{voce_id}", response_model=schemas.VocePianoFinanziario)
+def update_voce_piano(
+    piano_id: int,
+    voce_id: int,
+    voce: schemas.VocePianoFinanziarioUpdate,
+    db: Session = Depends(get_db),
+):
+    try:
+        piano = crud.get_piano_finanziario(db, piano_id)
+        if not piano:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Piano finanziario non trovato",
+            )
+
+        existing_voce = crud.get_voce_piano(db, voce_id)
+        if not existing_voce or existing_voce.piano_id != piano_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Voce piano non trovata",
+            )
+
+        updated = crud.update_voce_piano(db, voce_id, voce)
+        return updated
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Error updating voce %s for piano %s: %s", voce_id, piano_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Errore nell'aggiornamento della voce piano",
+        )
+
+
+@router.delete("/{piano_id}/voci/{voce_id}")
+def delete_voce_piano(
+    piano_id: int,
+    voce_id: int,
+    db: Session = Depends(get_db),
+):
+    try:
+        piano = crud.get_piano_finanziario(db, piano_id)
+        if not piano:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Piano finanziario non trovato",
+            )
+
+        existing_voce = crud.get_voce_piano(db, voce_id)
+        if not existing_voce or existing_voce.piano_id != piano_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Voce piano non trovata",
+            )
+
+        crud.delete_voce_piano(db, voce_id)
+        return {
+            "message": "Voce piano eliminata con successo",
+            "piano_id": piano_id,
+            "voce_id": voce_id,
+        }
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Error deleting voce %s for piano %s: %s", voce_id, piano_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Errore nell'eliminazione della voce piano",
+        )
+
+
+@router.put("/{piano_id}/voci", response_model=schemas.PianoFinanziarioWithVoci)
+def bulk_update_voci_piano(
     piano_id: int,
     payload: schemas.PianoFinanziarioBulkUpdate,
     db: Session = Depends(get_db),
@@ -270,31 +480,86 @@ def update_voci_piano_finanziario(
     try:
         piano = crud.bulk_upsert_voci_piano(db, piano_id, payload)
         if not piano:
-            raise HTTPException(status_code=404, detail="Piano finanziario non trovato")
-        return _build_detail_response(piano, db=db)
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Piano finanziario non trovato",
+            )
+        return piano
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Error bulk updating voci for piano %s: %s", piano_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Errore nell'aggiornamento massivo delle voci piano",
+        )
 
 
 @router.get("/{piano_id}/riepilogo", response_model=schemas.PianoFinanziarioRiepilogo)
-def get_riepilogo_piano_finanziario(piano_id: int, db: Session = Depends(get_db)):
+def get_riepilogo_piano(piano_id: int, db: Session = Depends(get_db)):
     piano = crud.get_piano_finanziario(db, piano_id)
     if not piano:
-        raise HTTPException(status_code=404, detail="Piano finanziario non trovato")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Piano finanziario non trovato",
+        )
     return crud.build_piano_finanziario_riepilogo(piano, db=db)
+
+
+@router.get("/{piano_id}/riepilogo-budget", response_model=schemas.PianoFinanziarioRiepilogo)
+def get_riepilogo_budget_piano(piano_id: int, db: Session = Depends(get_db)):
+    piano = crud.get_piano_finanziario(db, piano_id)
+    if not piano:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Piano finanziario non trovato",
+        )
+    return crud.build_piano_finanziario_riepilogo(piano, db=db)
+
+
+@router.post("/assignments/{assignment_id}/collega-mansione", response_model=schemas.VocePianoFinanziario)
+def collega_assignment_a_piano(assignment_id: int, db: Session = Depends(get_db)):
+    try:
+        voce = crud.collega_assegnazione_a_piano(db, assignment_id)
+        if not voce:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Assegnazione o piano finanziario non trovato",
+            )
+        return voce
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@router.post("/voci/{voce_id}/aggiorna-da-presenze", response_model=schemas.VocePianoFinanziario)
+def aggiorna_voce_piano_da_presenze(voce_id: int, db: Session = Depends(get_db)):
+    voce = crud.aggiorna_voce_da_presenze(db, voce_id)
+    if not voce:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Voce piano non trovata")
+    return voce
 
 
 @router.get("/{piano_id}/export-excel")
 def export_piano_finanziario_excel(piano_id: int, db: Session = Depends(get_db)):
     piano = crud.get_piano_finanziario(db, piano_id)
     if not piano:
-        raise HTTPException(status_code=404, detail="Piano finanziario non trovato")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Piano finanziario non trovato",
+        )
 
-    workbook = _build_excel_workbook(piano)
+    riepilogo = crud.build_piano_finanziario_riepilogo(piano, db=db)
+    workbook = _build_excel_workbook(piano, riepilogo)
     stream = BytesIO()
     workbook.save(stream)
     stream.seek(0)
-    filename = f"piano_finanziario_{piano.progetto.name.replace(' ', '_')}_{piano.anno}.xlsx"
+    project_name = (piano.progetto.name if getattr(piano, "progetto", None) else f"progetto_{piano.progetto_id}").replace(" ", "_")
+    filename = f"piano_finanziario_{project_name}_{piano.anno}.xlsx"
     return StreamingResponse(
         stream,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

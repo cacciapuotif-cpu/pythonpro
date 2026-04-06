@@ -22,6 +22,7 @@ import CollaboratorForm from './collaborators/CollaboratorForm';
 import CollaboratorsTable from './collaborators/CollaboratorsTable';
 import CollaboratorBulkImport from './collaborators/CollaboratorBulkImport';
 import AssignmentModal from './AssignmentModal';
+import DocumentiCollaboratore from './DocumentiCollaboratore';
 import './CollaboratorManager.css';
 
 const CONTRACT_TYPE_LABELS = {
@@ -96,6 +97,7 @@ const CollaboratorManager = ({ currentUser }) => {
 
   // Stato per conferma eliminazione
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [selectedDocumentCollaborator, setSelectedDocumentCollaborator] = useState(null);
   const [contractPreflight, setContractPreflight] = useState(null);
   const [contractGenerating, setContractGenerating] = useState(false);
 
@@ -643,6 +645,12 @@ const CollaboratorManager = ({ currentUser }) => {
     setContractPreflight(getContractPreflight(assignment));
   };
 
+  const handleOpenDocuments = (collaborator) => {
+    setSelectedDocumentCollaborator((current) => (
+      current?.id === collaborator.id ? null : collaborator
+    ));
+  };
+
   // ==========================================
   // RENDER DEL COMPONENTE
   // ==========================================
@@ -744,6 +752,7 @@ const CollaboratorManager = ({ currentUser }) => {
         currentUser={currentUser}
         onEdit={openEditCollaboratorForm}
         onDelete={setDeleteConfirm}
+        onOpenDocuments={handleOpenDocuments}
         onOpenAssignmentModal={openNewAssignmentModal}
         onAssignProject={handleAssignProject}
         onRemoveProject={handleRemoveProject}
@@ -751,6 +760,16 @@ const CollaboratorManager = ({ currentUser }) => {
         onDownloadContract={handleDownloadContract}
         refreshTrigger={refreshTrigger}
       />
+
+      {selectedDocumentCollaborator && (
+        <div style={{ marginTop: '1.5rem' }}>
+          <DocumentiCollaboratore
+            collaboratore_id={selectedDocumentCollaborator.id}
+            currentUser={currentUser}
+            onUpdated={refreshCollaborators}
+          />
+        </div>
+      )}
 
       {contractPreflight && (
         <div className="modal-overlay" onClick={(event) => event.target === event.currentTarget && closeContractPreflight()}>

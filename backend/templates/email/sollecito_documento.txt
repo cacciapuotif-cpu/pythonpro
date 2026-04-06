@@ -1,0 +1,16 @@
+Gentile {{ collaboratore_nome }},
+
+ti ricordiamo che risultano ancora mancanti o da aggiornare i seguenti documenti:
+
+{% for documento in documenti %}
+- {{ documento.nome }} | Scadenza: {{ documento.scadenza }}
+{% endfor %}
+
+Puoi caricare i documenti richiesti utilizzando il seguente link:
+{{ link_upload }}
+
+Per supporto:
+Email: amministrazione@example.com
+Telefono: +39 000 000 0000
+
+Nota privacy: questo messaggio contiene informazioni riservate destinate esclusivamente al destinatario. Se hai ricevuto questa email per errore, elimina il messaggio e avvisa il mittente.

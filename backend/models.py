@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Table, Text, Float, Index, Boolean, text, event
-from sqlalchemy.orm import relationship, validates
+from sqlalchemy.orm import relationship, validates, foreign
 from sqlalchemy.sql import func
 from sqlalchemy.ext.hybrid import hybrid_property
 from database import Base
@@ -96,6 +96,74 @@ class Collaborator(Base):
             return piva_clean
         return piva
 
+
+class DocumentoRichiesto(Base):
+    __tablename__ = "documenti_richiesti"
+
+    id = Column(Integer, primary_key=True, index=True)
+    collaboratore_id = Column(Integer, ForeignKey("collaborators.id", ondelete="CASCADE"), nullable=False, index=True)
+    tipo_documento = Column(String(100), nullable=False, index=True)
+    descrizione = Column(Text)
+    obbligatorio = Column(Boolean, nullable=False, default=True)
+    data_richiesta = Column(DateTime, nullable=False, default=func.now())
+    data_scadenza = Column(DateTime, nullable=True, index=True)
+    data_caricamento = Column(DateTime, nullable=True)
+    stato = Column(String(20), nullable=False, default="richiesto", index=True)
+    file_path = Column(String(500), nullable=True)
+    file_name = Column(String(255), nullable=True)
+    note_operatore = Column(Text)
+    validato_da = Column(String(100))
+    validato_il = Column(DateTime)
+
+    collaboratore = relationship("Collaborator", backref="documenti_richiesti")
+
+    @validates("stato")
+    def validate_stato(self, key, value):
+        stati_validi = {"richiesto", "caricato", "validato", "rifiutato", "scaduto"}
+        if value not in stati_validi:
+            raise ValueError(f"stato deve essere uno di: {sorted(stati_validi)}")
+        return value
+
+
+class Notifica(Base):
+    __tablename__ = "notifiche"
+
+    id = Column(Integer, primary_key=True, index=True)
+    tipo = Column(String(50), nullable=False, index=True)
+    titolo = Column(String(200), nullable=False)
+    messaggio = Column(Text, nullable=False)
+    destinatario_id = Column(Integer, ForeignKey("collaborators.id", ondelete="SET NULL"), nullable=True, index=True)
+    destinatario_email = Column(String(100), nullable=True, index=True)
+    letta = Column(Boolean, nullable=False, default=False, index=True)
+    inviata_email = Column(Boolean, nullable=False, default=False)
+    data_invio_email = Column(DateTime, nullable=True)
+    riferimento_tipo = Column(String(50), nullable=True, index=True)
+    riferimento_id = Column(Integer, nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+    destinatario = relationship("Collaborator", backref="notifiche")
+
+    @validates("tipo")
+    def validate_tipo(self, key, value):
+        tipi_validi = {"documento_mancante", "documento_scadenza", "assegnazione", "sistema"}
+        if value not in tipi_validi:
+            raise ValueError(f"tipo deve essere uno di: {sorted(tipi_validi)}")
+        return value
+
+    @validates("riferimento_tipo")
+    def validate_riferimento_tipo(self, key, value):
+        if value is None:
+            return value
+        tipi_validi = {"documento", "assegnazione", "progetto"}
+        if value not in tipi_validi:
+            raise ValueError(f"riferimento_tipo deve essere uno di: {sorted(tipi_validi)}")
+        return value
+
+    __table_args__ = (
+        Index("idx_notifiche_destinatario_letta", "destinatario_id", "letta"),
+        Index("idx_notifiche_email_letta", "destinatario_email", "letta"),
+    )
+
 class Project(Base):
     __tablename__ = "projects"
 
@@ -113,6 +181,7 @@ class Project(Base):
     ente_erogatore = Column(String(100), nullable=True, index=True)
     avviso = Column(String(100), nullable=True, index=True)
     avviso_id = Column(Integer, ForeignKey("avvisi.id", ondelete="SET NULL"), nullable=True, index=True)
+    avviso_pf_id = Column(Integer, ForeignKey("avvisi_piani_finanziari.id", ondelete="SET NULL"), nullable=True, index=True)
     template_piano_finanziario_id = Column(Integer, ForeignKey("contract_templates.id", ondelete="SET NULL"), nullable=True, index=True)
 
     # FK verso ImplementingEntity (Ente Attuatore)
@@ -133,6 +202,7 @@ class Project(Base):
     ente_attuatore = relationship("ImplementingEntity", back_populates="projects", lazy="select")
     template_piano_finanziario = relationship("ContractTemplate", foreign_keys=[template_piano_finanziario_id], lazy="select")
     avviso_rel = relationship("Avviso", back_populates="projects", lazy="select")
+    avviso_pf = relationship("AvvisoPianoFinanziario", foreign_keys="Project.avviso_pf_id", back_populates="progetti", lazy="select")
     piani_finanziari = relationship("PianoFinanziario", back_populates="progetto", lazy="select", cascade="all, delete-orphan")
     piani_fondimpresa = relationship("PianoFinanziarioFondimpresa", back_populates="progetto", lazy="select", cascade="all, delete-orphan")
 
@@ -164,12 +234,120 @@ class Avviso(Base):
 
     template = relationship("ContractTemplate", back_populates="avvisi", lazy="select")
     projects = relationship("Project", back_populates="avviso_rel", lazy="select")
-    piani_finanziari = relationship("PianoFinanziario", back_populates="avviso_rel", lazy="select")
+    piani_finanziari = relationship(
+        "PianoFinanziario",
+        primaryjoin="foreign(PianoFinanziario.legacy_avviso_id) == Avviso.id",
+        lazy="select",
+        viewonly=True,
+    )
     piani_fondimpresa = relationship("PianoFinanziarioFondimpresa", back_populates="avviso_rel", lazy="select")
 
     __table_args__ = (
         Index("idx_unique_avvisi_codice_ente", "codice", "ente_erogatore", unique=True),
     )
+
+
+class TemplatePianoFinanziario(Base):
+    """
+    Template dedicato ai piani finanziari della formazione finanziata.
+    Mantiene separato il dominio dei template economici da quello dei contratti.
+    """
+    __tablename__ = "template_piani_finanziari"
+
+    id = Column(Integer, primary_key=True, index=True)
+    codice = Column(String(50), unique=True, nullable=False)
+    nome = Column(String(200), nullable=False)
+    tipo_fondo = Column(String(50), nullable=False, index=True)
+    versione = Column(String(20), default="1.0")
+    descrizione = Column(Text)
+    note_compilazione = Column(Text)
+    categorie_spesa = Column(Text)
+    percentuale_max_docenza = Column(Float, default=100.0)
+    percentuale_max_coordinamento = Column(Float, default=15.0)
+    percentuale_max_materiali = Column(Float, default=20.0)
+    ore_minime_corso = Column(Integer, default=8)
+    ore_massime_corso = Column(Integer, default=200)
+    is_active = Column(Boolean, default=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    avvisi = relationship("AvvisoPianoFinanziario", back_populates="template", lazy="select", cascade="all, delete-orphan")
+    piani = relationship("PianoFinanziario", back_populates="template", lazy="select")
+
+    @validates("tipo_fondo")
+    def validate_tipo_fondo(self, key, valore):
+        tipi_validi = ["formazienda", "fapi", "fondimpresa", "fse", "altro"]
+        if valore not in tipi_validi:
+            raise ValueError(f"tipo_fondo deve essere uno di: {tipi_validi}")
+        return valore
+
+    __table_args__ = (
+        Index("idx_template_piano_tipo_fondo", "tipo_fondo"),
+        Index("idx_template_piano_active", "is_active"),
+    )
+
+    def __repr__(self):
+        return f"<TemplatePianoFinanziario {self.codice} ({self.tipo_fondo})>"
+
+
+class AvvisoPianoFinanziario(Base):
+    """
+    Avviso/bando associato a un template di piano finanziario.
+    Ogni template può avere molteplici avvisi nel tempo.
+    """
+    __tablename__ = "avvisi_piani_finanziari"
+
+    id = Column(Integer, primary_key=True, index=True)
+    template_id = Column(Integer, ForeignKey("template_piani_finanziari.id", ondelete="CASCADE"), nullable=False, index=True)
+    codice_avviso = Column(String(100), unique=True, nullable=False)
+    titolo = Column(String(300), nullable=False)
+    descrizione = Column(Text)
+    data_apertura = Column(DateTime(timezone=True), nullable=False)
+    data_chiusura = Column(DateTime(timezone=True), nullable=False)
+    data_rendicontazione = Column(DateTime(timezone=True))
+    budget_totale_avviso = Column(Float)
+    budget_max_progetto = Column(Float)
+    budget_min_progetto = Column(Float)
+    ore_minime = Column(Integer)
+    ore_massime = Column(Integer)
+    partecipanti_min = Column(Integer)
+    partecipanti_max = Column(Integer)
+    costo_ora_formazione_max = Column(Float)
+    costo_ora_docenza_max = Column(Float)
+    costo_ora_tutoraggio_max = Column(Float)
+    costo_ora_coordinamento_max = Column(Float)
+    documenti_richiesti = Column(Text)
+    stato = Column(String(20), default="aperto", index=True)
+    is_active = Column(Boolean, default=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    template = relationship("TemplatePianoFinanziario", back_populates="avvisi", lazy="joined")
+    piani = relationship("PianoFinanziario", back_populates="avviso_piano", lazy="select")
+    progetti = relationship("Project", foreign_keys="Project.avviso_pf_id", back_populates="avviso_pf", lazy="select")
+
+    @validates("stato")
+    def validate_stato(self, key, valore):
+        stati_validi = ["bozza", "aperto", "chiuso", "rendicontato"]
+        if valore not in stati_validi:
+            raise ValueError(f"stato deve essere uno di: {stati_validi}")
+        return valore
+
+    __table_args__ = (
+        Index("idx_avviso_piano_template", "template_id"),
+        Index("idx_avviso_piano_stato", "stato"),
+        Index("idx_avviso_piano_date", "data_apertura", "data_chiusura"),
+    )
+
+    def __repr__(self):
+        return f"<AvvisoPianoFinanziario {self.codice_avviso}>"
+
+    @property
+    def is_open(self):
+        from datetime import datetime
+
+        now = datetime.now()
+        return self.data_apertura <= now <= self.data_chiusura and self.stato == "aperto"
 
 
 class Attendance(Base):
@@ -594,27 +772,87 @@ class ProgettoMansioneEnte(Base):
 
 
 class PianoFinanziario(Base):
-    """Piano finanziario Formazienda collegato a un progetto."""
+    """Piano finanziario collegato a un progetto."""
     __tablename__ = "piani_finanziari"
 
     id = Column(Integer, primary_key=True, index=True)
     progetto_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
-    template_id = Column(Integer, ForeignKey("contract_templates.id", ondelete="SET NULL"), nullable=True, index=True)
-    avviso_id = Column(Integer, ForeignKey("avvisi.id", ondelete="SET NULL"), nullable=True, index=True)
+    legacy_template_id = Column(Integer, nullable=True)
+    legacy_avviso_id = Column(Integer, nullable=True)
+    template_id = Column(Integer, ForeignKey("template_piani_finanziari.id", ondelete="SET NULL"), nullable=True, index=True)
+    avviso_id = Column(Integer, ForeignKey("avvisi_piani_finanziari.id", ondelete="SET NULL"), nullable=True, index=True)
     anno = Column(Integer, nullable=False, index=True)
     ente_erogatore = Column(String(100), nullable=False, default="Formazienda")
     avviso = Column(String(100), nullable=False, default="")
+
+    # === IDENTIFICAZIONE ===
+    codice_piano = Column(String(100), unique=True, nullable=True, index=True)
+    nome = Column(String(200), nullable=False, default="")
+    tipo_fondo = Column(String(50), nullable=False, default="formazienda", index=True)
+    # Valori: "formazienda", "fapi", "fondimpresa", "fse", "altro"
+
+    # === BUDGET ===
+    budget_totale = Column(Float, nullable=False, default=0.0)
+    budget_approvato = Column(Float, nullable=False, default=0.0)
+    budget_utilizzato = Column(Float, default=0.0)
+    budget_rimanente = Column(Float, default=0.0)
+
+    # === DATE ===
+    data_inizio = Column(DateTime, nullable=False, default=func.now())
+    data_fine = Column(DateTime, nullable=False, default=func.now())
+    data_approvazione = Column(DateTime(timezone=True), nullable=True)
+    data_rendicontazione = Column(DateTime(timezone=True), nullable=True)
+
+    # === STATO ===
+    stato = Column(String(20), default="bozza", index=True)
+    # Valori: "bozza", "inviato", "approvato", "in_corso", "completato", "rendicontato", "chiuso", "respinto"
+
+    # === NOTE ===
+    note = Column(Text)
+    note_ente = Column(Text)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     progetto = relationship("Project", back_populates="piani_finanziari", lazy="joined")
-    template = relationship("ContractTemplate", lazy="joined")
-    avviso_rel = relationship("Avviso", back_populates="piani_finanziari", lazy="joined")
+    template = relationship("TemplatePianoFinanziario", back_populates="piani", lazy="joined")
+    avviso_piano = relationship("AvvisoPianoFinanziario", back_populates="piani", lazy="joined")
     voci = relationship("VocePianoFinanziario", back_populates="piano", lazy="select", cascade="all, delete-orphan")
+
+    @validates('tipo_fondo')
+    def validate_tipo_fondo(self, key, valore):
+        tipi_validi = ['formazienda', 'fapi', 'fondimpresa', 'fse', 'altro']
+        if valore not in tipi_validi:
+            raise ValueError(f"tipo_fondo deve essere uno di: {tipi_validi}")
+        return valore
+
+    @validates('stato')
+    def validate_stato(self, key, valore):
+        stati_validi = ['bozza', 'inviato', 'approvato', 'in_corso', 'completato', 'rendicontato', 'chiuso', 'respinto']
+        if valore not in stati_validi:
+            raise ValueError(f"stato deve essere uno di: {stati_validi}")
+        return valore
 
     __table_args__ = (
         Index("idx_unique_piano_progetto_anno_ente_avviso", "progetto_id", "anno", "ente_erogatore", "avviso", unique=True),
+        Index("idx_piano_progetto_stato", "progetto_id", "stato"),
+        Index("idx_piano_fondo_stato", "tipo_fondo", "stato"),
+        Index("idx_piano_date", "data_inizio", "data_fine"),
+        Index("idx_piano_template_avviso", "template_id", "avviso_id"),
     )
+
+    def __repr__(self):
+        return f"<PianoFinanziario {self.codice_piano or self.id}>"
+
+    def aggiorna_budget_utilizzato(self, db):
+        totale = db.query(
+            func.coalesce(func.sum(VocePianoFinanziario.importo_consuntivo), 0.0)
+        ).filter(
+            VocePianoFinanziario.piano_id == self.id
+        ).scalar()
+        self.budget_utilizzato = float(totale or 0.0)
+        self.budget_rimanente = float(self.budget_totale or 0.0) - self.budget_utilizzato
+        return self.budget_utilizzato
 
 
 class VocePianoFinanziario(Base):
@@ -624,21 +862,57 @@ class VocePianoFinanziario(Base):
     id = Column(Integer, primary_key=True, index=True)
     piano_id = Column(Integer, ForeignKey("piani_finanziari.id", ondelete="CASCADE"), nullable=False, index=True)
     collaborator_id = Column(Integer, ForeignKey("collaborators.id", ondelete="SET NULL"), nullable=True, index=True)
+    assignment_id = Column(Integer, ForeignKey("assignments.id", ondelete="SET NULL"), nullable=True, index=True)
     macrovoce = Column(String(1), nullable=False, index=True)
     voce_codice = Column(String(10), nullable=False, index=True)
-    descrizione = Column(String(255), nullable=False)
+    categoria = Column(String(100), nullable=True, index=True)
+    # Valori: "docenza", "tutoraggio", "coordinamento", "materiali", "aula", "altro"
+    sottocategoria = Column(String(100), nullable=True)
+    mansione_riferimento = Column(String(100), nullable=True, index=True)
+    descrizione = Column(Text)
     progetto_label = Column(String(100), nullable=True)
     edizione_label = Column(String(100), nullable=True)
     ore = Column(Float, nullable=False, default=0.0)
+    ore_previste = Column(Float, nullable=False, default=0.0)
+    ore_effettive = Column(Float, nullable=False, default=0.0)
+    tariffa_oraria = Column(Float, nullable=False, default=0.0)
     importo_consuntivo = Column(Float, nullable=False, default=0.0)
     importo_preventivo = Column(Float, nullable=False, default=0.0)
+    importo_approvato = Column(Float, nullable=False, default=0.0)
+    importo_validato = Column(Float, nullable=False, default=0.0)
     importo_presentato = Column(Float, nullable=False, default=0.0)
+    stato = Column(String(20), nullable=False, default="previsto", index=True)
+    note = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     created_by_user = Column(String(100), nullable=True)
 
     piano = relationship("PianoFinanziario", back_populates="voci", lazy="select")
     collaborator = relationship("Collaborator", foreign_keys=[collaborator_id], lazy="select")
+    assignment = relationship("Assignment", backref="voci_piano", lazy="select")
+
+    # Alias italiano per compatibilità con l'interfaccia richiesta
+    @property
+    def collaboratore(self):
+        return self.collaborator
+
+    @property
+    def importo_previsto(self) -> float:
+        return self.importo_preventivo
+
+    @property
+    def importo_rendicontato(self) -> float:
+        return self.importo_consuntivo
+
+    @property
+    def importo_rimanente(self) -> float:
+        return self.importo_preventivo - self.importo_consuntivo
+
+    @property
+    def percentuale_utilizzo(self) -> float:
+        if not self.importo_preventivo:
+            return 0.0
+        return (self.importo_consuntivo / self.importo_preventivo) * 100
 
     @validates("macrovoce")
     def validate_macrovoce(self, key, value):
@@ -646,7 +920,23 @@ class VocePianoFinanziario(Base):
             raise ValueError("Macrovoce deve essere una di: A, B, C, D")
         return value
 
-    @validates("ore", "importo_consuntivo", "importo_preventivo", "importo_presentato")
+    @validates("categoria")
+    def validate_categoria(self, key, value):
+        if value is None:
+            return value
+        categorie_valide = ["docenza", "tutoraggio", "coordinamento", "progettazione", "materiali", "materiali_didattici", "aula", "viaggi", "attrezzature", "certificazioni", "altro"]
+        if value not in categorie_valide:
+            raise ValueError(f"categoria deve essere una di: {categorie_valide}")
+        return value
+
+    @validates("stato")
+    def validate_stato(self, key, value):
+        stati_validi = ["previsto", "in_corso", "rendicontato", "validato"]
+        if value not in stati_validi:
+            raise ValueError(f"stato deve essere uno di: {stati_validi}")
+        return value
+
+    @validates("ore", "ore_previste", "ore_effettive", "tariffa_oraria", "importo_consuntivo", "importo_preventivo", "importo_approvato", "importo_validato", "importo_presentato")
     def validate_non_negative(self, key, value):
         if value is None:
             return 0.0
@@ -657,7 +947,30 @@ class VocePianoFinanziario(Base):
     __table_args__ = (
         Index("idx_voci_piano_macrovoce", "piano_id", "macrovoce"),
         Index("idx_voci_piano_codice", "piano_id", "voce_codice"),
+        Index("idx_voci_piano_categoria", "piano_id", "categoria"),
+        Index("idx_voci_piano_assignment", "assignment_id"),
+        Index("idx_voci_piano_mansione", "mansione_riferimento"),
     )
+
+    def __repr__(self):
+        return f"<VocePianoFinanziario {self.voce_codice} {self.importo_preventivo}>"
+
+    def aggiorna_da_presenze(self, db):
+        if not self.assignment_id:
+            return
+
+        ore = db.query(
+            func.coalesce(func.sum(Attendance.hours), 0.0)
+        ).filter(
+            Attendance.assignment_id == self.assignment_id
+        ).scalar()
+
+        self.ore_effettive = float(ore or 0.0)
+        self.ore = self.ore_effettive
+        self.importo_consuntivo = round(self.ore_effettive * float(self.tariffa_oraria or 0.0), 2)
+        self.importo_presentato = self.importo_consuntivo
+        if self.importo_consuntivo > 0 and self.stato == "previsto":
+            self.stato = "in_corso"
 
 
 class PianoFinanziarioFondimpresa(Base):
@@ -1466,21 +1779,32 @@ def _prevent_audit_log_delete(mapper, connection, target):
 
 
 class AgentRun(Base):
-    """Traccia una singola esecuzione agente con input e riepilogo risultato."""
+    """Traccia una singola esecuzione di un agente AI."""
     __tablename__ = "agent_runs"
 
     id = Column(Integer, primary_key=True, index=True)
-    agent_name = Column(String(100), nullable=False, index=True)
-    status = Column(String(30), nullable=False, default="completed", index=True)
+    # Workflow system fields
+    agent_name = Column(String(100), nullable=True, index=True)
     entity_type = Column(String(50), nullable=True, index=True)
     entity_id = Column(Integer, nullable=True, index=True)
     requested_by_user_id = Column(Integer, nullable=True, index=True)
     input_payload = Column(Text, nullable=True)
     result_summary = Column(Text, nullable=True)
-    error_message = Column(Text, nullable=True)
     suggestions_count = Column(Integer, nullable=False, default=0)
-    started_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
-    completed_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    # Registry system fields (legacy)
+    agent_type = Column(String(100), nullable=True, index=True)
+    agent_version = Column(String(20), nullable=False, default="1.0")
+    status = Column(String(20), nullable=False, default="running", index=True)
+    started_at = Column(DateTime, nullable=False, default=func.now(), index=True)
+    completed_at = Column(DateTime, nullable=True)
+    triggered_by = Column(String(50), nullable=True)
+    trigger_details = Column(Text, nullable=True)
+    items_processed = Column(Integer, nullable=False, default=0)
+    items_with_issues = Column(Integer, nullable=False, default=0)
+    suggestions_created = Column(Integer, nullable=False, default=0)
+    error_message = Column(Text, nullable=True)
+    execution_time_ms = Column(Integer, nullable=True)
+    metadata_json = Column("metadata", Text, nullable=True)
 
     suggestions = relationship(
         "AgentSuggestion",
@@ -1489,26 +1813,40 @@ class AgentRun(Base):
         cascade="all, delete-orphan",
     )
 
+    __table_args__ = (
+        Index("idx_agent_type_status", "agent_type", "status"),
+        Index("idx_started_at", "started_at"),
+    )
+
 
 class AgentSuggestion(Base):
-    """Suggerimento generato da un agente e sottoposto a review umana."""
+    """Suggerimento generato da un agente AI."""
     __tablename__ = "agent_suggestions"
 
     id = Column(Integer, primary_key=True, index=True)
     run_id = Column(Integer, ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False, index=True)
-    agent_name = Column(String(100), nullable=False, index=True)
-    entity_type = Column(String(50), nullable=False, index=True)
-    entity_id = Column(Integer, nullable=True, index=True)
-    suggestion_type = Column(String(100), nullable=False, index=True)
-    severity = Column(String(20), nullable=False, default="medium", index=True)
-    status = Column(String(20), nullable=False, default="pending", index=True)
-    title = Column(String(200), nullable=False)
-    description = Column(Text, nullable=False)
+    # Workflow system fields
+    agent_name = Column(String(100), nullable=True, index=True)
+    severity = Column(String(20), nullable=True, index=True)
     payload = Column(Text, nullable=True)
     confidence = Column(Float, nullable=True)
-    reviewed_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    reviewed_at = Column(DateTime, nullable=True)
     reviewed_by_user_id = Column(Integer, nullable=True, index=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    # Shared fields
+    suggestion_type = Column(String(50), nullable=False, index=True)
+    status = Column(String(20), nullable=False, default="pending", index=True)
+    entity_type = Column(String(50), nullable=False, index=True)
+    entity_id = Column(Integer, nullable=True, index=True)
+    title = Column(String(300), nullable=False)
+    description = Column(Text, nullable=True)
+    # Registry system fields (legacy)
+    priority = Column(String(20), nullable=False, default="medium", index=True)
+    suggested_action = Column(Text, nullable=True)
+    auto_fix_available = Column(Boolean, nullable=False, default=False)
+    auto_fix_payload = Column(Text, nullable=True)
+    confidence_score = Column(Float, nullable=True)
+    expires_at = Column(DateTime, nullable=True, index=True)
+    created_at = Column(DateTime, nullable=False, default=func.now(), index=True)
 
     run = relationship("AgentRun", back_populates="suggestions", lazy="select")
     review_actions = relationship(
@@ -1518,6 +1856,11 @@ class AgentSuggestion(Base):
         cascade="all, delete-orphan",
     )
 
+    __table_args__ = (
+        Index("idx_status_priority", "status", "priority"),
+        Index("idx_entity", "entity_type", "entity_id"),
+    )
+
 
 class AgentReviewAction(Base):
     """Storico decisioni umane sui suggerimenti agentici."""
@@ -1525,10 +1868,16 @@ class AgentReviewAction(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     suggestion_id = Column(Integer, ForeignKey("agent_suggestions.id", ondelete="CASCADE"), nullable=False, index=True)
-    action = Column(String(20), nullable=False, index=True)
-    notes = Column(Text, nullable=True)
+    action = Column(String(50), nullable=False, index=True)
+    # Workflow system field
     reviewed_by_user_id = Column(Integer, nullable=True, index=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    # Registry system field (legacy)
+    reviewed_by = Column(String(100), nullable=True, index=True)
+    reviewed_at = Column(DateTime, nullable=False, default=func.now(), index=True)
+    notes = Column(Text, nullable=True)
+    auto_fix_applied = Column(Boolean, nullable=False, default=False)
+    result_success = Column(Boolean, nullable=True)
+    result_message = Column(Text, nullable=True)
 
     suggestion = relationship("AgentSuggestion", back_populates="review_actions", lazy="select")
 

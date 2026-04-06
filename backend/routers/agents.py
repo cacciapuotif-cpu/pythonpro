@@ -2,47 +2,132 @@ import json
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session, selectinload
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
+from sqlalchemy.orm import Session, joinedload, selectinload
 
+import crud
 import models
 import schemas
+from agent_workflows import apply_workflow_action, run_agent_workflow
 from ai_agents import list_agent_definitions
 from ai_agents.llm import probe_agent_llm_health
-from agent_workflows import apply_workflow_action, promote_due_followups, run_agent_workflow
+from ai_agents.registry import agent_registry
 from database import get_db
 
 router = APIRouter(prefix="/api/v1/agents", tags=["Agents"])
 
 
-def _agent_run_query(db: Session):
+class SuggestionReviewPayload(BaseModel):
+    action: str
+    reviewed_by: str
+    notes: Optional[str] = None
+
+
+class BulkReviewPayload(BaseModel):
+    suggestion_ids: List[int]
+    action: str
+    reviewed_by: str
+    notes: Optional[str] = None
+
+
+class CommunicationStatusPayload(BaseModel):
+    status: str
+    reviewed_by_user_id: Optional[int] = None
+
+
+def _run_query(db: Session):
     return db.query(models.AgentRun).options(
-        selectinload(models.AgentRun.suggestions).selectinload(models.AgentSuggestion.review_actions)
+        selectinload(models.AgentRun.suggestions)
     )
 
 
-def _agent_suggestion_query(db: Session):
+def _suggestion_query(db: Session):
     return db.query(models.AgentSuggestion).options(
-        selectinload(models.AgentSuggestion.review_actions)
+        joinedload(models.AgentSuggestion.run),
+        selectinload(models.AgentSuggestion.review_actions),
     )
 
 
-def _communication_draft_query(db: Session):
-    return db.query(models.AgentCommunicationDraft)
+def _normalize_review_action(action: str) -> str:
+    normalized = (action or "").strip().lower()
+    allowed = {"approve", "approved", "reject", "rejected", "implemented", "deferred"}
+    if normalized not in allowed:
+        raise HTTPException(status_code=400, detail="Azione review non supportata")
+    return normalized
 
 
-@router.get("/catalog", response_model=List[schemas.AgentCatalogItem], response_model_by_alias=False)
-def read_agent_catalog():
-    return list_agent_definitions()
+def _map_action_to_status(action: str) -> str:
+    mapping = {
+        "approve": "approved",
+        "approved": "approved",
+        "reject": "rejected",
+        "rejected": "rejected",
+        "implemented": "implemented",
+        "deferred": "expired",
+    }
+    return mapping[action]
 
 
-@router.get("/llm/health", response_model=schemas.AgentLlmHealth, response_model_by_alias=False)
-def read_agent_llm_health():
+@router.get("/")
+def list_registered_agents():
+    registered = {
+        item.get("agent_type"): item
+        for item in agent_registry.list_agents()
+        if item.get("agent_type")
+    }
+
+    catalog = []
+    for definition in list_agent_definitions():
+        registered_item = registered.get(definition["name"], {})
+        catalog.append({
+            "name": definition["name"],
+            "label": definition["name"].replace("_", " ").title(),
+            "description": definition.get("description") or registered_item.get("description") or "",
+            "supported_entity_types": definition.get("supported_entity_types") or [],
+            "agent_type": definition["name"],
+            "version": registered_item.get("version", "1.0"),
+        })
+
+    for agent_type, registered_item in registered.items():
+        if any(item["name"] == agent_type for item in catalog):
+            continue
+        catalog.append({
+            "name": agent_type,
+            "label": agent_type.replace("_", " ").title(),
+            "description": registered_item.get("description") or "",
+            "supported_entity_types": [],
+            "agent_type": agent_type,
+            "version": registered_item.get("version", "1.0"),
+        })
+
+    return catalog
+
+
+@router.get("/{agent_type}/info")
+def get_agent_info(agent_type: str):
+    for definition in list_agent_definitions():
+        if definition["name"] == agent_type:
+            return {
+                "name": definition["name"],
+                "label": definition["name"].replace("_", " ").title(),
+                "description": definition.get("description") or "",
+                "supported_entity_types": definition.get("supported_entity_types") or [],
+                "agent_type": definition["name"],
+            }
+    try:
+        return agent_registry.get(agent_type).get_info()
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@router.get("/llm/health", response_model=schemas.AgentLlmHealth)
+def get_llm_health():
     return probe_agent_llm_health()
 
 
-@router.post("/run", response_model=schemas.AgentRun, response_model_by_alias=False)
-def run_agent(payload: schemas.AgentRunRequest, db: Session = Depends(get_db)):
+@router.post("/run", response_model=schemas.AgentRun)
+def run_agent_via_workflow(payload: schemas.AgentRunRequest, db: Session = Depends(get_db)):
     try:
         run = run_agent_workflow(
             db,
@@ -53,171 +138,149 @@ def run_agent(payload: schemas.AgentRunRequest, db: Session = Depends(get_db)):
             input_payload=payload.input_payload,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=f"Esecuzione agente fallita: {exc}")
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Esecuzione agente fallita: {exc}")
-
-    return _agent_run_query(db).filter(models.AgentRun.id == run.id).first()
+        raise HTTPException(status_code=400, detail=str(exc))
+    return crud.get_agent_run(db, run.id)
 
 
-@router.get("/runs", response_model=List[schemas.AgentRun], response_model_by_alias=False)
-def read_agent_runs(
-    agent_name: Optional[str] = None,
-    entity_type: Optional[str] = None,
-    entity_id: Optional[int] = None,
+@router.post("/{agent_type}/run", response_model=schemas.AgentRun)
+def run_agent_manually(agent_type: str, db: Session = Depends(get_db)):
+    try:
+        run = agent_registry.run_agent(db, agent_type=agent_type, triggered_by="manual")
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return crud.get_agent_run(db, run.id)
+
+
+@router.get("/runs/", response_model=List[schemas.AgentRun])
+def list_agent_runs(
+    agent_type: Optional[str] = None,
     status: Optional[str] = None,
-    limit: int = 50,
+    start_date_from: Optional[datetime] = Query(None),
+    start_date_to: Optional[datetime] = Query(None),
+    skip: int = 0,
+    limit: int = 100,
     db: Session = Depends(get_db),
 ):
-    query = _agent_run_query(db)
-    if agent_name:
-        query = query.filter(models.AgentRun.agent_name == agent_name)
-    if entity_type:
-        query = query.filter(models.AgentRun.entity_type == entity_type)
-    if entity_id is not None:
-        query = query.filter(models.AgentRun.entity_id == entity_id)
+    query = _run_query(db)
+    if agent_type:
+        query = query.filter(models.AgentRun.agent_type == agent_type)
     if status:
         query = query.filter(models.AgentRun.status == status)
-    return query.order_by(models.AgentRun.started_at.desc()).limit(limit).all()
+    if start_date_from:
+        query = query.filter(models.AgentRun.started_at >= start_date_from)
+    if start_date_to:
+        query = query.filter(models.AgentRun.started_at <= start_date_to)
+    return (
+        query.order_by(models.AgentRun.started_at.desc(), models.AgentRun.id.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
 
 
-@router.get("/suggestions", response_model=List[schemas.AgentSuggestion], response_model_by_alias=False)
-def read_agent_suggestions(
+@router.get("/runs/{run_id}", response_model=schemas.AgentRunWithSuggestions)
+def get_run_detail(run_id: int, db: Session = Depends(get_db)):
+    run = crud.get_agent_run(db, run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run agente non trovato")
+    return run
+
+
+@router.get("/suggestions/", response_model=List[schemas.AgentSuggestion])
+def list_suggestions(
     agent_name: Optional[str] = None,
-    entity_type: Optional[str] = None,
-    entity_id: Optional[int] = None,
-    run_id: Optional[int] = None,
     status: Optional[str] = None,
-    severity: Optional[str] = None,
+    priority: Optional[str] = None,
+    entity_type: Optional[str] = None,
+    skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
 ):
-    promote_due_followups(db)
-    query = _agent_suggestion_query(db)
+    query = _suggestion_query(db)
     if agent_name:
         query = query.filter(models.AgentSuggestion.agent_name == agent_name)
-    if entity_type:
-        query = query.filter(models.AgentSuggestion.entity_type == entity_type)
-    if entity_id is not None:
-        query = query.filter(models.AgentSuggestion.entity_id == entity_id)
-    if run_id is not None:
-        query = query.filter(models.AgentSuggestion.run_id == run_id)
     if status:
         query = query.filter(models.AgentSuggestion.status == status)
-    if severity:
-        query = query.filter(models.AgentSuggestion.severity == severity)
-    return query.order_by(models.AgentSuggestion.created_at.desc()).limit(limit).all()
+    if entity_type:
+        query = query.filter(models.AgentSuggestion.entity_type == entity_type)
+    return query.order_by(models.AgentSuggestion.id.desc()).offset(skip).limit(limit).all()
 
 
-@router.get("/communications", response_model=List[schemas.AgentCommunicationDraft], response_model_by_alias=False)
-def read_agent_communications(
-    agent_name: Optional[str] = None,
-    recipient_type: Optional[str] = None,
-    recipient_id: Optional[int] = None,
-    status: Optional[str] = None,
-    limit: int = 100,
-    db: Session = Depends(get_db),
-):
-    promote_due_followups(db)
-    query = _communication_draft_query(db)
-    if agent_name:
-        query = query.filter(models.AgentCommunicationDraft.agent_name == agent_name)
-    if recipient_type:
-        query = query.filter(models.AgentCommunicationDraft.recipient_type == recipient_type)
-    if recipient_id is not None:
-        query = query.filter(models.AgentCommunicationDraft.recipient_id == recipient_id)
-    if status:
-        query = query.filter(models.AgentCommunicationDraft.status == status)
-    return query.order_by(models.AgentCommunicationDraft.created_at.desc()).limit(limit).all()
+@router.get("/suggestions/pending", response_model=List[schemas.AgentSuggestion])
+def list_pending_suggestions(db: Session = Depends(get_db)):
+    return crud.get_pending_suggestions(db)
 
 
-@router.post("/communications/{draft_id}/status", response_model=schemas.AgentCommunicationDraft, response_model_by_alias=False)
-def update_agent_communication_status(
-    draft_id: int,
-    payload: schemas.AgentCommunicationDraftStatusUpdate,
-    db: Session = Depends(get_db),
-):
-    draft = _communication_draft_query(db).filter(models.AgentCommunicationDraft.id == draft_id).first()
-    if draft is None:
-        raise HTTPException(status_code=404, detail="Bozza comunicazione non trovata")
-
-    old_status = draft.status
-    draft.status = payload.status
-    draft.reviewed_by_user_id = payload.reviewed_by_user_id
-    if payload.status == "sent":
-        draft.sent_at = datetime.utcnow()
-
-    db.add(models.AuditLog(
-        entity="agent_communication_draft",
-        action="status_updated",
-        old_value=json.dumps({"draft_id": draft.id, "status": old_status}),
-        new_value=json.dumps({"draft_id": draft.id, "status": draft.status}),
-        user_id=payload.reviewed_by_user_id,
-    ))
-    db.commit()
-    return _communication_draft_query(db).filter(models.AgentCommunicationDraft.id == draft.id).first()
-
-
-def _review_suggestion(
-    db: Session,
-    *,
-    suggestion_id: int,
-    action: str,
-    payload: schemas.AgentReviewActionCreate,
-):
-    suggestion = _agent_suggestion_query(db).filter(models.AgentSuggestion.id == suggestion_id).first()
-    if suggestion is None:
+@router.get("/suggestions/{suggestion_id}", response_model=schemas.AgentSuggestionWithDetails)
+def get_suggestion_detail(suggestion_id: int, db: Session = Depends(get_db)):
+    suggestion = crud.get_suggestion(db, suggestion_id)
+    if not suggestion:
         raise HTTPException(status_code=404, detail="Suggerimento non trovato")
-    if suggestion.status != "pending":
-        raise HTTPException(status_code=409, detail="Suggerimento gia revisionato")
+    return suggestion
 
-    suggestion.status = "accepted" if action == "accept" else "rejected"
-    suggestion.reviewed_at = datetime.utcnow()
-    suggestion.reviewed_by_user_id = payload.reviewed_by_user_id
-    review_action = models.AgentReviewAction(
-        suggestion_id=suggestion.id,
-        action=suggestion.status,
+
+@router.post("/suggestions/{suggestion_id}/review", response_model=schemas.AgentSuggestionWithDetails)
+def review_suggestion(
+    suggestion_id: int,
+    payload: SuggestionReviewPayload,
+    db: Session = Depends(get_db),
+):
+    suggestion = crud.get_suggestion(db, suggestion_id)
+    if not suggestion:
+        raise HTTPException(status_code=404, detail="Suggerimento non trovato")
+
+    normalized_action = _normalize_review_action(payload.action)
+    next_status = _map_action_to_status(normalized_action)
+    crud.create_review_action(
+        db=db,
+        suggestion_id=suggestion_id,
+        action=normalized_action,
+        reviewed_by=payload.reviewed_by,
         notes=payload.notes,
-        reviewed_by_user_id=payload.reviewed_by_user_id,
+        auto_fix_applied=False,
+        result_success=None,
+        result_message=None,
     )
-    db.add(review_action)
-    db.add(models.AuditLog(
-        entity="agent_suggestion",
-        action=suggestion.status,
-        old_value=json.dumps({"suggestion_id": suggestion.id, "status": "pending"}),
-        new_value=json.dumps({"suggestion_id": suggestion.id, "status": suggestion.status, "notes": payload.notes}),
-        user_id=payload.reviewed_by_user_id,
-    ))
-    db.commit()
-    return _agent_suggestion_query(db).filter(models.AgentSuggestion.id == suggestion.id).first()
+    crud.update_suggestion_status(db, suggestion_id, next_status)
+    return crud.get_suggestion(db, suggestion_id)
 
 
-@router.post("/suggestions/{suggestion_id}/accept", response_model=schemas.AgentSuggestion, response_model_by_alias=False)
-def accept_agent_suggestion(
+@router.post("/suggestions/{suggestion_id}/accept", response_model=schemas.AgentSuggestionWithDetails)
+def accept_suggestion(
     suggestion_id: int,
-    payload: schemas.AgentReviewActionCreate,
+    payload: schemas.AgentWorkflowActionRequest,
     db: Session = Depends(get_db),
 ):
-    return _review_suggestion(db, suggestion_id=suggestion_id, action="accept", payload=payload)
+    review_payload = SuggestionReviewPayload(
+        action="approved",
+        reviewed_by=str(payload.reviewed_by_user_id or "system"),
+        notes=payload.notes,
+    )
+    return review_suggestion(suggestion_id, review_payload, db)
 
 
-@router.post("/suggestions/{suggestion_id}/reject", response_model=schemas.AgentSuggestion, response_model_by_alias=False)
-def reject_agent_suggestion(
+@router.post("/suggestions/{suggestion_id}/reject", response_model=schemas.AgentSuggestionWithDetails)
+def reject_suggestion(
     suggestion_id: int,
-    payload: schemas.AgentReviewActionCreate,
+    payload: schemas.AgentWorkflowActionRequest,
     db: Session = Depends(get_db),
 ):
-    return _review_suggestion(db, suggestion_id=suggestion_id, action="reject", payload=payload)
+    review_payload = SuggestionReviewPayload(
+        action="rejected",
+        reviewed_by=str(payload.reviewed_by_user_id or "system"),
+        notes=payload.notes,
+    )
+    return review_suggestion(suggestion_id, review_payload, db)
 
 
-@router.post("/suggestions/{suggestion_id}/workflow", response_model=schemas.AgentSuggestion, response_model_by_alias=False)
-def workflow_agent_suggestion(
+@router.post("/suggestions/{suggestion_id}/workflow", response_model=schemas.AgentSuggestionWithDetails)
+def workflow_suggestion(
     suggestion_id: int,
     payload: schemas.AgentWorkflowActionRequest,
     db: Session = Depends(get_db),
 ):
     try:
-        suggestion = apply_workflow_action(
+        return apply_workflow_action(
             db,
             suggestion_id=suggestion_id,
             action=payload.action,
@@ -226,4 +289,97 @@ def workflow_agent_suggestion(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    return _agent_suggestion_query(db).filter(models.AgentSuggestion.id == suggestion.id).first()
+
+
+@router.post("/suggestions/{suggestion_id}/apply-fix", response_model=schemas.AgentSuggestionWithDetails)
+def apply_suggestion_fix(suggestion_id: int, db: Session = Depends(get_db)):
+    suggestion = crud.get_suggestion(db, suggestion_id)
+    if not suggestion:
+        raise HTTPException(status_code=404, detail="Suggerimento non trovato")
+    if not suggestion.auto_fix_available:
+        raise HTTPException(status_code=400, detail="Auto-fix non disponibile per questo suggerimento")
+
+    result_message = "Auto-fix applicato"
+    if suggestion.auto_fix_payload:
+        try:
+            payload_preview = json.loads(suggestion.auto_fix_payload)
+            result_message = f"Auto-fix applicato con payload: {payload_preview}"
+        except json.JSONDecodeError:
+            result_message = "Auto-fix applicato con payload non JSON"
+
+    crud.create_review_action(
+        db=db,
+        suggestion_id=suggestion_id,
+        action="implemented",
+        reviewed_by="system",
+        notes="Applicazione auto-fix",
+        auto_fix_applied=True,
+        result_success=True,
+        result_message=result_message,
+    )
+    crud.update_suggestion_status(db, suggestion_id, "implemented")
+    return crud.get_suggestion(db, suggestion_id)
+
+
+@router.get("/communications", response_model=List[schemas.AgentCommunicationDraft])
+def list_communications(
+    agent_name: Optional[str] = None,
+    recipient_type: Optional[str] = None,
+    status: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 200,
+    db: Session = Depends(get_db),
+):
+    query = db.query(models.AgentCommunicationDraft)
+    if agent_name:
+        query = query.filter(models.AgentCommunicationDraft.agent_name == agent_name)
+    if recipient_type:
+        query = query.filter(models.AgentCommunicationDraft.recipient_type == recipient_type)
+    if status:
+        query = query.filter(models.AgentCommunicationDraft.status == status)
+    return query.order_by(models.AgentCommunicationDraft.id.desc()).offset(skip).limit(limit).all()
+
+
+@router.post("/communications/{draft_id}/status", response_model=schemas.AgentCommunicationDraft)
+def update_communication_status(
+    draft_id: int,
+    payload: CommunicationStatusPayload,
+    db: Session = Depends(get_db),
+):
+    draft = db.query(models.AgentCommunicationDraft).filter(models.AgentCommunicationDraft.id == draft_id).first()
+    if not draft:
+        raise HTTPException(status_code=404, detail="Bozza comunicazione non trovata")
+
+    draft.status = payload.status
+    draft.reviewed_by_user_id = payload.reviewed_by_user_id
+    if payload.status == "sent" and draft.sent_at is None:
+        draft.sent_at = datetime.utcnow()
+
+    db.commit()
+    db.refresh(draft)
+    return draft
+
+
+@router.post("/suggestions/bulk-review", response_model=List[schemas.AgentSuggestion])
+def bulk_review_suggestions(payload: BulkReviewPayload, db: Session = Depends(get_db)):
+    normalized_action = _normalize_review_action(payload.action)
+    next_status = _map_action_to_status(normalized_action)
+
+    suggestions = []
+    for suggestion_id in payload.suggestion_ids:
+        suggestion = crud.get_suggestion(db, suggestion_id)
+        if not suggestion:
+            continue
+        crud.create_review_action(
+            db=db,
+            suggestion_id=suggestion_id,
+            action=normalized_action,
+            reviewed_by=payload.reviewed_by,
+            notes=payload.notes,
+            auto_fix_applied=False,
+            result_success=None,
+            result_message=None,
+        )
+        suggestions.append(suggestion_id)
+
+    return crud.bulk_update_suggestions_status(db, suggestions, next_status)

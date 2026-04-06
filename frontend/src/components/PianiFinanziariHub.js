@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { getProjects } from '../services/apiService';
+import { getAvvisi, getProjects } from '../services/apiService';
 import PianiFinanziariManager from './PianiFinanziariManager';
 import PianiFondimpresaManager from './PianiFondimpresaManager';
 import './PianiFinanziariManager.css';
@@ -13,6 +13,7 @@ export default function PianiFinanziariHub() {
   const [filterEnte, setFilterEnte] = useState('');
   const [filterAvviso, setFilterAvviso] = useState('');
   const [loadingProjects, setLoadingProjects] = useState(false);
+  const [avvisiCatalogo, setAvvisiCatalogo] = useState([]);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -45,18 +46,18 @@ export default function PianiFinanziariHub() {
     return Array.from(seen).sort();
   }, [projects]);
 
-  // Step 2: avvisi unici per l'ente selezionato
-  const avvisiDisponibili = useMemo(() => {
-    if (!filterEnte) return [];
-    const seen = new Set();
-    projects
-      .filter((p) => (p.ente_erogatore || '').trim() === filterEnte)
-      .forEach((p) => {
-        const a = (p.avviso || '').trim();
-        if (a) seen.add(a);
-      });
-    return Array.from(seen).sort();
-  }, [projects, filterEnte]);
+  // Step 2: avvisi dal catalogo per l'ente selezionato
+  useEffect(() => {
+    if (!filterEnte) {
+      setAvvisiCatalogo([]);
+      return;
+    }
+    getAvvisi({ ente_erogatore: filterEnte, active_only: true, limit: 200 })
+      .then((data) => setAvvisiCatalogo(Array.isArray(data) ? data : []))
+      .catch(() => setAvvisiCatalogo([]));
+  }, [filterEnte]);
+
+  const avvisiDisponibili = avvisiCatalogo;
 
   // Step 3: progetti filtrati per ente + avviso
   const progettiDisponibili = useMemo(() => {
@@ -114,13 +115,13 @@ export default function PianiFinanziariHub() {
             </select>
           </label>
 
-          {/* Step 2 — Avviso (cascade da ente) */}
+          {/* Step 2 — Avviso (cascade da ente, dal catalogo) */}
           <label>
             <span>2. Avviso</span>
             <select value={filterAvviso} onChange={handleAvvisoChange} disabled={!filterEnte}>
               <option value="">Tutti gli avvisi</option>
               {avvisiDisponibili.map((avviso) => (
-                <option key={avviso} value={avviso}>{avviso}</option>
+                <option key={avviso.id} value={avviso.codice}>{avviso.codice}</option>
               ))}
             </select>
           </label>

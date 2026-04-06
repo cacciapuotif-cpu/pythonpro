@@ -84,6 +84,13 @@ const parseLocaleNumber = (value) => {
 
 const createLocalKey = () => `tmp-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 const normalizeText = (value) => String(value || '').trim().toLowerCase();
+const mapEnteToTipoFondo = (ente) => {
+  const normalized = normalizeText(ente);
+  if (normalized.includes('fondimpresa')) return 'fondimpresa';
+  if (normalized === 'fapi') return 'fapi';
+  if (normalized === 'formazienda') return 'formazienda';
+  return 'altro';
+};
 
 const createRowModel = (row, fallback) => ({
   id: row?.id ?? null,
@@ -470,12 +477,33 @@ export default function PianiFinanziariManager({ forcedProjectId = '', forcedEnt
     setCreating(true);
     setError(null);
     try {
+      const projectStart = selectedProject?.start_date ? new Date(selectedProject.start_date) : null;
+      const projectEnd = selectedProject?.end_date ? new Date(selectedProject.end_date) : null;
+      const fallbackStart = new Date(Number(anno), 0, 1, 0, 0, 0);
+      const fallbackEnd = new Date(Number(anno), 11, 31, 23, 59, 59);
+      const dataInizio = projectStart && !Number.isNaN(projectStart.getTime()) ? projectStart : fallbackStart;
+      const dataFine = projectEnd && !Number.isNaN(projectEnd.getTime()) && projectEnd > dataInizio
+        ? projectEnd
+        : fallbackEnd;
+      const pianoNomeParts = ['Piano Finanziario', selectedProject?.name, enteErogatore, avviso ? `Avviso ${avviso}` : '']
+        .filter(Boolean);
       const detail = await createPianoFinanziario({
         progetto_id: Number(selectedProjectId),
-        template_id: selectedTemplateId ? Number(selectedTemplateId) : null,
-        anno: Number(anno),
-        ente_erogatore: enteErogatore,
-        avviso: avviso || selectedEnteConfig.defaultAvviso || '',
+        template_id: null,
+        avviso_id: null,
+        nome: pianoNomeParts.join(' - '),
+        tipo_fondo: mapEnteToTipoFondo(enteErogatore),
+        budget_totale: 0,
+        budget_approvato: 0,
+        budget_utilizzato: 0,
+        budget_rimanente: 0,
+        data_inizio: dataInizio.toISOString(),
+        data_fine: dataFine.toISOString(),
+        data_approvazione: null,
+        data_rendicontazione: null,
+        stato: 'bozza',
+        note: null,
+        note_ente: null,
       });
       await loadPlans(selectedProjectId);
       setSelectedPianoId(String(detail.id));
@@ -642,12 +670,14 @@ export default function PianiFinanziariManager({ forcedProjectId = '', forcedEnt
             </label>
           )}
 
-          <label>
-            <span>Anno piano</span>
-            <input type="number" value={anno} onChange={(event) => setAnno(event.target.value)} min="2020" max="2100" />
-          </label>
+          {!embedded && (
+            <label>
+              <span>Anno piano</span>
+              <input type="number" value={anno} onChange={(event) => setAnno(event.target.value)} min="2020" max="2100" />
+            </label>
+          )}
 
-          {!forcedEnte && (
+          {!embedded && !forcedEnte && (
             <label>
               <span>Ente Erogatore</span>
               <select value={enteErogatore} onChange={(event) => {
@@ -663,16 +693,19 @@ export default function PianiFinanziariManager({ forcedProjectId = '', forcedEnt
             </label>
           )}
 
-          <label>
-            <span>Avviso</span>
-            <select value={avviso} onChange={(event) => setAvviso(event.target.value)}>
-              <option value="">Seleziona avviso</option>
-              {selectableAvvisi.map((a) => (
-                <option key={a.id} value={a.codice}>{a.codice}</option>
-              ))}
-            </select>
-          </label>
+          {!embedded && (
+            <label>
+              <span>Avviso</span>
+              <select value={avviso} onChange={(event) => setAvviso(event.target.value)}>
+                <option value="">Seleziona avviso</option>
+                {selectableAvvisi.map((a) => (
+                  <option key={a.id} value={a.codice}>{a.codice}</option>
+                ))}
+              </select>
+            </label>
+          )}
 
+          {!embedded && avvisiCatalogo.length === 0 && (
           <label>
             <span>Template piano</span>
             <select
@@ -699,18 +732,21 @@ export default function PianiFinanziariManager({ forcedProjectId = '', forcedEnt
               ))}
             </select>
           </label>
+          )}
 
-          <label>
-            <span>Piano esistente</span>
-            <select value={selectedPianoId} onChange={(event) => setSelectedPianoId(event.target.value)} disabled={!selectedProjectId}>
-              <option value="">Seleziona piano</option>
-              {plans.map((plan) => (
-                <option key={plan.id} value={plan.id}>
-                  {plan.anno} · {plan.ente_erogatore}{plan.avviso ? ` · Avviso ${plan.avviso}` : ''}
-                </option>
-              ))}
-            </select>
-          </label>
+          {!embedded && (
+            <label>
+              <span>Piano esistente</span>
+              <select value={selectedPianoId} onChange={(event) => setSelectedPianoId(event.target.value)} disabled={!selectedProjectId}>
+                <option value="">Seleziona piano</option>
+                {plans.map((plan) => (
+                  <option key={plan.id} value={plan.id}>
+                    {plan.anno} · {plan.ente_erogatore}{plan.avviso ? ` · Avviso ${plan.avviso}` : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
 
           <div className="toolbar-create">
             <button className="btn-primary" onClick={handleCreatePlan} disabled={!selectedProjectId || creating}>

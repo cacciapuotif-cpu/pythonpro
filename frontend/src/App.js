@@ -21,8 +21,11 @@ import Dashboard from './components/Dashboard';
 import ImplementingEntitiesList from './components/ImplementingEntitiesList';
 import TimesheetReport from './components/TimesheetReport';
 import PianiFinanziariHub from './components/PianiFinanziariHub';
+import DocumentiMancanti from './components/DocumentiMancanti';
 import ContractTemplatesManager from './components/ContractTemplatesManager';
 import AgentsManager from './components/AgentsManager';
+import AgentsDashboard from './components/AgentsDashboard';
+import AgentSuggestionsReview from './components/AgentSuggestionsReview';
 import apiService, { healthCheck } from './services/apiService';
 import './App.css';
 
@@ -61,6 +64,7 @@ const SECTION_CONFIG = [
   { id: 'dashboard',         label: 'Dashboard',      icon: '📊', group: null,           title: 'Statistiche e report',               breadcrumb: '📊 Dashboard',            roles: ['admin', 'user', 'manager'] },
   { id: 'calendar',          label: 'Calendario',     icon: '📅', group: 'Attività',     title: 'Presenze sul calendario',            breadcrumb: '📅 Calendario Presenze',   roles: ['admin', 'user', 'manager'] },
   { id: 'timesheet',         label: 'Timesheet',      icon: '⏱️', group: null,           title: 'Timesheet delle ore lavorate',       breadcrumb: '⏱️ Timesheet',             roles: ['admin', 'user', 'manager'] },
+  { id: 'documenti-mancanti', label: 'Documenti',     icon: '📑', group: 'Reportistica', title: 'Documenti mancanti o in scadenza',    breadcrumb: '📑 Documenti Mancanti',    roles: ['admin', 'user', 'manager'] },
   { id: 'collaborators',     label: 'Collaboratori',  icon: '👥', group: 'Persone',      title: 'Gestione collaboratori',             breadcrumb: '👥 Collaboratori',         roles: ['admin', 'user', 'manager'] },
   { id: 'projects',          label: 'Progetti',       icon: '📁', group: null,           title: 'Progetti formativi',                 breadcrumb: '📁 Progetti',              roles: ['admin', 'user', 'manager'] },
   { id: 'aziende-clienti',   label: 'Aziende',        icon: '🏭', group: 'Commerciale',  title: 'Aziende clienti',                    breadcrumb: '🏭 Aziende Clienti',       roles: ['admin', 'user', 'manager'] },
@@ -69,17 +73,27 @@ const SECTION_CONFIG = [
   { id: 'preventivi',        label: 'Preventivi',     icon: '📝', group: null,           title: 'Preventivi commerciali',             breadcrumb: '📝 Preventivi',            roles: ['admin', 'user', 'manager'] },
   { id: 'ordini',            label: 'Ordini',         icon: '🛒', group: null,           title: 'Gestione ordini',                    breadcrumb: '🛒 Ordini',                roles: ['admin', 'user', 'manager'] },
   { id: 'entities',          label: 'Enti Attuatori', icon: '🏢', group: 'Config',       title: 'Enti attuatori',                     breadcrumb: '🏢 Enti Attuatori',        roles: ['admin'] },
-  { id: 'piani-finanziari',  label: 'Piani',          icon: '💼', group: null,           title: 'Piani finanziari per progetto',      breadcrumb: '💼 Piani Finanziari',      roles: ['admin'] },
+  { id: 'piani-finanziari',  label: 'Piani Finanziari', icon: '🧮', group: null,         title: 'Piani finanziari per progetto',      breadcrumb: '🧮 Piani Finanziari',      roles: ['admin'] },
+  { id: 'agents-dashboard',  label: 'Agents Dashboard', icon: '📡', group: null,         title: 'Panoramica sistema agenti',          breadcrumb: '📡 Agents Dashboard',      roles: ['admin'] },
   { id: 'agents',            label: 'Agenti',         icon: '🤖', group: null,           title: 'Agenti operativi e revisioni AI',    breadcrumb: '🤖 Agenti Operativi',      roles: ['admin'] },
   { id: 'templates',         label: 'Template',       icon: '📋', group: null,           title: 'Template documentali',               breadcrumb: '📋 Template',              roles: ['admin'] },
 ];
 
 const getSectionFromPath = (pathname) => {
+  if (pathname.startsWith('/agents/dashboard')) {
+    return 'agents-dashboard';
+  }
+  if (pathname.startsWith('/agents/review')) {
+    return 'agents-review';
+  }
   if (pathname.startsWith('/piani-finanziari') || pathname.startsWith('/piani-fondimpresa')) {
     return 'piani-finanziari';
   }
   if (pathname.startsWith('/agents')) {
     return 'agents';
+  }
+  if (pathname.startsWith('/documenti-mancanti')) {
+    return 'documenti-mancanti';
   }
   return null;
 };
@@ -88,8 +102,17 @@ const getPathForSection = (sectionId) => {
   if (sectionId === 'piani-finanziari') {
     return '/piani-finanziari';
   }
+  if (sectionId === 'agents-dashboard') {
+    return '/agents/dashboard';
+  }
+  if (sectionId === 'agents-review') {
+    return '/agents/review';
+  }
   if (sectionId === 'agents') {
     return '/agents';
+  }
+  if (sectionId === 'documenti-mancanti') {
+    return '/documenti-mancanti';
   }
   return '/';
 };
@@ -302,8 +325,17 @@ function App() {
       case 'piani-finanziari':
         return <PianiFinanziariHub />;
 
+      case 'agents-dashboard':
+        return <AgentsDashboard currentUser={currentUser} />;
+
+      case 'agents-review':
+        return <AgentSuggestionsReview currentUser={currentUser} />;
+
       case 'timesheet':
         return <TimesheetReport />;
+
+      case 'documenti-mancanti':
+        return <DocumentiMancanti />;
 
       case 'templates':
         return <ContractTemplatesManager />;

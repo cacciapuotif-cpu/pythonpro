@@ -47,7 +47,7 @@ class CollaboratorBase(BaseModel):
     first_name: str = Field(...)
     last_name: str = Field(...)
     email: EmailStr
-    fiscal_code: Optional[str] = Field(None)  # Codice fiscale opzionale - se fornito deve essere 16 caratteri, unico, normalizzato uppercase
+    fiscal_code: str = Field(..., min_length=16, max_length=16)
     partita_iva: Optional[str] = Field(None)
     phone: Optional[str] = Field(None)
     position: Optional[str] = Field(None)
@@ -88,7 +88,7 @@ class CollaboratorUpdate(BaseModel):
     birthplace: Optional[str] = None
     birth_date: Optional[datetime] = None
     gender: Optional[str] = None
-    fiscal_code: Optional[str] = None
+    fiscal_code: Optional[str] = Field(None, min_length=16, max_length=16)
     city: Optional[str] = None
     address: Optional[str] = None
     education: Optional[str] = None
@@ -136,6 +136,7 @@ class ProjectBase(BaseModel):
     sede_aziendale_numero_civico: Optional[str] = None
     avviso: Optional[str] = None
     avviso_id: Optional[int] = None
+    avviso_pf_id: Optional[int] = None
     template_piano_finanziario_id: Optional[int] = None
 
 class ProjectCreate(ProjectBase):
@@ -155,6 +156,7 @@ class ProjectUpdate(BaseModel):
     sede_aziendale_numero_civico: Optional[str] = None
     avviso: Optional[str] = None
     avviso_id: Optional[int] = None
+    avviso_pf_id: Optional[int] = None
     template_piano_finanziario_id: Optional[int] = None
 
 class Project(ProjectBase):
@@ -267,7 +269,9 @@ class AgentRunRequest(BaseModel):
 
 
 class AgentRunBase(BaseModel):
-    agent_name: str
+    agent_name: Optional[str] = None
+    agent_type: Optional[str] = None
+    agent_version: Optional[str] = None
     status: str
     entity_type: Optional[str] = None
     entity_id: Optional[int] = None
@@ -276,17 +280,20 @@ class AgentRunBase(BaseModel):
     result_summary: Optional[str] = None
     error_message: Optional[str] = None
     suggestions_count: int = 0
+    suggestions_created: int = 0
+    items_processed: int = 0
+    items_with_issues: int = 0
 
 
 class AgentSuggestionBase(BaseModel):
-    agent_name: str
-    entity_type: str
+    agent_name: Optional[str] = None
+    entity_type: Optional[str] = None
     entity_id: Optional[int] = None
-    suggestion_type: str
-    severity: str
-    status: str
-    title: str
-    description: str
+    suggestion_type: Optional[str] = None
+    severity: Optional[str] = None
+    status: Optional[str] = None
+    title: Optional[str] = None
+    description: Optional[str] = None
     payload: Optional[str] = None
     confidence: Optional[float] = None
     reviewed_by_user_id: Optional[int] = None
@@ -296,6 +303,7 @@ class AgentReviewActionBase(BaseModel):
     action: str
     notes: Optional[str] = None
     reviewed_by_user_id: Optional[int] = None
+    reviewed_by: Optional[str] = None
 
 
 class AgentReviewActionCreate(AgentReviewActionBase):
@@ -310,7 +318,8 @@ class AgentWorkflowActionRequest(BaseModel):
 
 class AgentReviewAction(AgentReviewActionBase):
     id: int
-    created_at: datetime
+    reviewed_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
@@ -332,6 +341,28 @@ class AgentRun(AgentRunBase):
     suggestions: List[AgentSuggestion] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+# AgentRun already includes suggestions, expose as alias for router compatibility
+AgentRunWithSuggestions = AgentRun
+
+
+class AgentSuggestionWithDetails(AgentSuggestion):
+    run: Optional["AgentRunShallow"] = None
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class AgentRunShallow(AgentRunBase):
+    """AgentRun senza suggestions annidati - usato in AgentSuggestionWithDetails per evitare ricorsione."""
+    id: int
+    started_at: datetime
+    completed_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+AgentSuggestionWithDetails.model_rebuild()
 
 
 class AgentCommunicationDraftBase(BaseModel):
@@ -666,7 +697,7 @@ class ProgettoMansioneEnteWithDetails(ProgettoMansioneEnte):
 # SCHEMI PER PIANI FINANZIARI
 # ========================================
 
-class PianoFinanziarioBase(BaseModel):
+class PianoFinanziarioLegacyBase(BaseModel):
     progetto_id: int
     template_id: Optional[int] = None
     avviso_id: Optional[int] = None
@@ -675,11 +706,11 @@ class PianoFinanziarioBase(BaseModel):
     avviso: str = ""
 
 
-class PianoFinanziarioCreate(PianoFinanziarioBase):
+class PianoFinanziarioLegacyCreate(PianoFinanziarioLegacyBase):
     pass
 
 
-class PianoFinanziario(PianoFinanziarioBase):
+class PianoFinanziarioLegacy(PianoFinanziarioLegacyBase):
     id: int
     avviso_rel: Optional["Avviso"] = None
     created_at: datetime
@@ -688,7 +719,7 @@ class PianoFinanziario(PianoFinanziarioBase):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
-class VocePianoFinanziarioBase(BaseModel):
+class VocePianoFinanziarioLegacyBase(BaseModel):
     macrovoce: str
     voce_codice: str
     descrizione: str
@@ -701,11 +732,11 @@ class VocePianoFinanziarioBase(BaseModel):
     collaborator_id: Optional[int] = None
 
 
-class VocePianoFinanziarioCreate(VocePianoFinanziarioBase):
+class VocePianoFinanziarioLegacyCreate(VocePianoFinanziarioLegacyBase):
     piano_id: int
 
 
-class VocePianoFinanziarioUpsert(VocePianoFinanziarioBase):
+class VocePianoFinanziarioUpsert(VocePianoFinanziarioLegacyBase):
     id: Optional[int] = None
 
 
@@ -713,7 +744,7 @@ class PianoFinanziarioBulkUpdate(BaseModel):
     voci: List[VocePianoFinanziarioUpsert]
 
 
-class VocePianoFinanziario(VocePianoFinanziarioBase):
+class VocePianoFinanziarioLegacy(VocePianoFinanziarioLegacyBase):
     id: int
     piano_id: int
     created_at: datetime
@@ -731,9 +762,9 @@ class VocePianoFinanziario(VocePianoFinanziarioBase):
         return round((self.importo_consuntivo / self.totale_consuntivo_riferimento) * 100, 2)
 
 
-class PianoFinanziarioDettaglio(PianoFinanziario):
-    progetto: Project
-    voci: List[VocePianoFinanziario]
+class PianoFinanziarioDettaglio(PianoFinanziarioLegacy):
+    progetto: "Project"
+    voci: List[VocePianoFinanziarioLegacy]
     template_documento: Optional["TemplateDocumentoSelezionato"] = None
 
 
@@ -1615,3 +1646,246 @@ class OrdineUpdate(BaseModel):
     stato: Optional[STATI_ORDINE] = None
     note: Optional[str] = None
     progetto_id: Optional[int] = None
+
+
+# ── Piano Finanziario ─────────────────────────
+
+from typing import Literal
+
+TIPO_FONDO = Literal['formazienda', 'fapi', 'fondimpresa', 'fse', 'altro']
+STATO_PIANO = Literal['bozza', 'inviato', 'approvato', 'in_corso', 'completato', 'rendicontato', 'chiuso', 'respinto']
+STATO_AVVISO_PIANO = Literal['bozza', 'aperto', 'chiuso', 'rendicontato']
+STATO_VOCE_PIANO = Literal['previsto', 'in_corso', 'rendicontato', 'validato']
+CATEGORIA_VOCE = Literal['docenza', 'tutoraggio', 'coordinamento', 'progettazione', 'materiali', 'materiali_didattici', 'aula', 'viaggi', 'attrezzature', 'certificazioni', 'altro']
+
+
+class TemplatePianoFinanziarioBase(BaseModel):
+    codice: str = Field(..., max_length=50)
+    nome: str = Field(..., max_length=200)
+    tipo_fondo: TIPO_FONDO
+    versione: Optional[str] = "1.0"
+    descrizione: Optional[str] = None
+    note_compilazione: Optional[str] = None
+    categorie_spesa: Optional[str] = None
+    percentuale_max_docenza: Optional[float] = 100.0
+    percentuale_max_coordinamento: Optional[float] = 15.0
+    percentuale_max_materiali: Optional[float] = 20.0
+    ore_minime_corso: Optional[int] = 8
+    ore_massime_corso: Optional[int] = 200
+    is_active: Optional[bool] = True
+
+
+class TemplatePianoFinanziarioCreate(TemplatePianoFinanziarioBase):
+    pass
+
+
+class TemplatePianoFinanziarioUpdate(BaseModel):
+    nome: Optional[str] = None
+    descrizione: Optional[str] = None
+    note_compilazione: Optional[str] = None
+    categorie_spesa: Optional[str] = None
+    percentuale_max_docenza: Optional[float] = None
+    percentuale_max_coordinamento: Optional[float] = None
+    percentuale_max_materiali: Optional[float] = None
+    ore_minime_corso: Optional[int] = None
+    ore_massime_corso: Optional[int] = None
+    is_active: Optional[bool] = None
+
+
+class TemplatePianoFinanziario(TemplatePianoFinanziarioBase):
+    id: int
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class AvvisoPianoFinanziarioBase(BaseModel):
+    template_id: int
+    codice_avviso: str = Field(..., max_length=100)
+    titolo: str = Field(..., max_length=300)
+    descrizione: Optional[str] = None
+    data_apertura: datetime
+    data_chiusura: datetime
+    data_rendicontazione: Optional[datetime] = None
+    budget_totale_avviso: Optional[float] = None
+    budget_max_progetto: Optional[float] = None
+    budget_min_progetto: Optional[float] = None
+    ore_minime: Optional[int] = None
+    ore_massime: Optional[int] = None
+    partecipanti_min: Optional[int] = None
+    partecipanti_max: Optional[int] = None
+    costo_ora_formazione_max: Optional[float] = None
+    costo_ora_docenza_max: Optional[float] = None
+    costo_ora_tutoraggio_max: Optional[float] = None
+    costo_ora_coordinamento_max: Optional[float] = None
+    documenti_richiesti: Optional[str] = None
+    stato: Optional[STATO_AVVISO_PIANO] = "aperto"
+    is_active: Optional[bool] = True
+
+
+class AvvisoPianoFinanziarioCreate(AvvisoPianoFinanziarioBase):
+    pass
+
+
+class AvvisoPianoFinanziarioUpdate(BaseModel):
+    titolo: Optional[str] = None
+    descrizione: Optional[str] = None
+    data_apertura: Optional[datetime] = None
+    data_chiusura: Optional[datetime] = None
+    data_rendicontazione: Optional[datetime] = None
+    budget_totale_avviso: Optional[float] = None
+    budget_max_progetto: Optional[float] = None
+    budget_min_progetto: Optional[float] = None
+    ore_minime: Optional[int] = None
+    ore_massime: Optional[int] = None
+    partecipanti_min: Optional[int] = None
+    partecipanti_max: Optional[int] = None
+    costo_ora_formazione_max: Optional[float] = None
+    costo_ora_docenza_max: Optional[float] = None
+    costo_ora_tutoraggio_max: Optional[float] = None
+    costo_ora_coordinamento_max: Optional[float] = None
+    documenti_richiesti: Optional[str] = None
+    stato: Optional[STATO_AVVISO_PIANO] = None
+    is_active: Optional[bool] = None
+
+
+class AvvisoPianoFinanziario(AvvisoPianoFinanziarioBase):
+    id: int
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class VocePianoFinanziarioBase(BaseModel):
+    piano_id: int
+    categoria: Optional[CATEGORIA_VOCE] = None
+    sottocategoria: Optional[str] = None
+    descrizione: Optional[str] = None
+    mansione_riferimento: Optional[str] = None
+    assignment_id: Optional[int] = None
+    importo_preventivo: float = Field(default=0.0, ge=0)
+    importo_approvato: float = Field(default=0.0, ge=0)
+    importo_consuntivo: float = Field(default=0.0, ge=0)
+    importo_validato: float = Field(default=0.0, ge=0)
+    collaborator_id: Optional[int] = None
+    ore_previste: float = Field(default=0.0, ge=0)
+    ore_effettive: float = Field(default=0.0, ge=0)
+    tariffa_oraria: float = Field(default=0.0, ge=0)
+    stato: STATO_VOCE_PIANO = 'previsto'
+    note: Optional[str] = None
+
+
+class VocePianoFinanziarioCreate(VocePianoFinanziarioBase):
+    pass
+
+
+class VocePianoFinanziarioUpdate(BaseModel):
+    categoria: Optional[CATEGORIA_VOCE] = None
+    sottocategoria: Optional[str] = None
+    descrizione: Optional[str] = None
+    mansione_riferimento: Optional[str] = None
+    assignment_id: Optional[int] = None
+    importo_preventivo: Optional[float] = Field(default=None, ge=0)
+    importo_approvato: Optional[float] = Field(default=None, ge=0)
+    importo_consuntivo: Optional[float] = Field(default=None, ge=0)
+    importo_validato: Optional[float] = Field(default=None, ge=0)
+    collaborator_id: Optional[int] = None
+    ore_previste: Optional[float] = Field(default=None, ge=0)
+    ore_effettive: Optional[float] = Field(default=None, ge=0)
+    tariffa_oraria: Optional[float] = Field(default=None, ge=0)
+    stato: Optional[STATO_VOCE_PIANO] = None
+    note: Optional[str] = None
+
+
+class VocePianoFinanziario(VocePianoFinanziarioBase):
+    id: int
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    @computed_field
+    @property
+    def importo_previsto(self) -> float:
+        return self.importo_preventivo
+
+    @computed_field
+    @property
+    def importo_rendicontato(self) -> float:
+        return self.importo_consuntivo
+
+    @computed_field
+    @property
+    def importo_rimanente(self) -> float:
+        return self.importo_preventivo - self.importo_consuntivo
+
+    @computed_field
+    @property
+    def percentuale_utilizzo(self) -> float:
+        if not self.importo_preventivo:
+            return 0.0
+        return (self.importo_consuntivo / self.importo_preventivo) * 100
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class PianoFinanziarioBase(BaseModel):
+    progetto_id: int
+    template_id: Optional[int] = None
+    avviso_id: Optional[int] = None
+    nome: str = Field(max_length=200)
+    tipo_fondo: TIPO_FONDO
+    budget_totale: float = Field(ge=0)
+    budget_approvato: float = Field(default=0.0, ge=0)
+    budget_utilizzato: float = Field(default=0.0, ge=0)
+    budget_rimanente: float = Field(default=0.0, ge=0)
+    data_inizio: datetime
+    data_fine: datetime
+    data_approvazione: Optional[datetime] = None
+    data_rendicontazione: Optional[datetime] = None
+    stato: STATO_PIANO = 'bozza'
+    note: Optional[str] = None
+    note_ente: Optional[str] = None
+
+    @field_validator('data_fine')
+    @classmethod
+    def data_fine_dopo_inizio(cls, v: datetime, info) -> datetime:
+        data_inizio = info.data.get('data_inizio')
+        if data_inizio and v < data_inizio:
+            raise ValueError('data_fine deve essere successiva a data_inizio')
+        return v
+
+
+class PianoFinanziarioCreate(PianoFinanziarioBase):
+    pass
+
+
+class PianoFinanziarioUpdate(BaseModel):
+    template_id: Optional[int] = None
+    avviso_id: Optional[int] = None
+    nome: Optional[str] = Field(default=None, max_length=200)
+    tipo_fondo: Optional[TIPO_FONDO] = None
+    budget_totale: Optional[float] = Field(default=None, ge=0)
+    budget_approvato: Optional[float] = Field(default=None, ge=0)
+    budget_utilizzato: Optional[float] = Field(default=None, ge=0)
+    budget_rimanente: Optional[float] = Field(default=None, ge=0)
+    data_inizio: Optional[datetime] = None
+    data_fine: Optional[datetime] = None
+    data_approvazione: Optional[datetime] = None
+    data_rendicontazione: Optional[datetime] = None
+    stato: Optional[STATO_PIANO] = None
+    note: Optional[str] = None
+    note_ente: Optional[str] = None
+
+
+class PianoFinanziario(PianoFinanziarioBase):
+    id: int
+    codice_piano: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class PianoFinanziarioWithVoci(PianoFinanziario):
+    voci: List[VocePianoFinanziario] = []
