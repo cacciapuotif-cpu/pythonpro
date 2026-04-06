@@ -161,25 +161,34 @@ const CollaboratorsTable = ({
       if (f.competenza) params.competenza = f.competenza;
       if (f.disponibile !== '') params.disponibile = f.disponibile === 'true';
       if (f.citta) params.citta = f.citta;
-      const [data, agentSuggestions] = await Promise.all([
-        getCollaboratorsPaginated(params),
-        getAgentSuggestions({ agent_name: 'data_quality', entity_type: 'collaborator', limit: 300 }),
-      ]);
+      const data = await getCollaboratorsPaginated(params);
       setResult({ items: data.items || [], total: data.total || 0, pages: data.pages || 1 });
-      const queueMap = (Array.isArray(agentSuggestions) ? agentSuggestions : [])
-        .filter(item => ['pending', 'waiting', 'approved', 'sent', 'followup_due'].includes(item.status))
-        .reduce((accumulator, item) => {
-          if (!item.entity_id) {
+
+      try {
+        const agentSuggestions = await getAgentSuggestions({
+          agent_name: 'data_quality',
+          entity_type: 'collaborator',
+          limit: 300,
+        });
+        const queueMap = (Array.isArray(agentSuggestions) ? agentSuggestions : [])
+          .filter(item => ['pending', 'waiting', 'approved', 'sent', 'followup_due'].includes(item.status))
+          .reduce((accumulator, item) => {
+            if (!item.entity_id) {
+              return accumulator;
+            }
+            accumulator[item.entity_id] = accumulator[item.entity_id] || { count: 0, followupDue: false };
+            accumulator[item.entity_id].count += 1;
+            if (item.status === 'followup_due') {
+              accumulator[item.entity_id].followupDue = true;
+            }
             return accumulator;
-          }
-          accumulator[item.entity_id] = accumulator[item.entity_id] || { count: 0, followupDue: false };
-          accumulator[item.entity_id].count += 1;
-          if (item.status === 'followup_due') {
-            accumulator[item.entity_id].followupDue = true;
-          }
-          return accumulator;
-        }, {});
-      setAgentQueueByCollaborator(queueMap);
+          }, {});
+        setAgentQueueByCollaborator(queueMap);
+      } catch (agentError) {
+        console.error('Errore caricamento suggerimenti agenti collaboratori:', agentError);
+        setAgentQueueByCollaborator({});
+      }
+
       // Sync URL
       const urlParams = filtersToParams(f);
       window.history.replaceState(null, '', '?' + urlParams.toString());

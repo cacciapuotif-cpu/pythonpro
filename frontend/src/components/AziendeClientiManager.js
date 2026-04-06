@@ -59,6 +59,19 @@ export default function AziendeClientiManager({ currentUser }) {
   const [formErrors, setFormErrors] = useState({});
   const searchTimer = useRef(null);
 
+  const loadCommercialOptions = useCallback(async () => {
+    try {
+      const [agenzieData, consulentiData] = await Promise.all([
+        getAgenzie({ limit: 100 }),
+        getConsulenti({ limit: 100, attivo: true }),
+      ]);
+      setAgenzie(agenzieData.items || agenzieData || []);
+      setConsulenti(consulentiData.items || []);
+    } catch {
+      // Mantieni la UI operativa anche se i cataloghi commerciali falliscono
+    }
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -84,9 +97,14 @@ export default function AziendeClientiManager({ currentUser }) {
   }, [filters.search]);
 
   useEffect(() => {
-    getAgenzie({ limit: 100 }).then(d => setAgenzie(d.items || d || [])).catch(() => {});
-    getConsulenti({ limit: 100 }).then(d => setConsulenti(d.items || [])).catch(() => {});
-  }, []);
+    loadCommercialOptions();
+  }, [loadCommercialOptions]);
+
+  useEffect(() => {
+    if (modal) {
+      loadCommercialOptions();
+    }
+  }, [modal, loadCommercialOptions]);
 
   const showToast = (msg, type = 'success') => {
     if (type === 'success') setSuccess(msg);

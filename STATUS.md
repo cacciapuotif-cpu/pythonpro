@@ -3,6 +3,105 @@ _Ultimo aggiornamento: 2026-04-04_
 
 ## Sessione 2026-04-06
 
+### Fix resilienza collaboratori e piani finanziari
+- Individuato che la scomparsa della lista collaboratori non era causata dal flag `consulente` in sé, ma dal fetch parallelo in `frontend/src/components/collaborators/CollaboratorsTable.js`:
+  - la tabella caricava insieme collaboratori e suggerimenti agenti
+  - se `GET /api/v1/agents/suggestions/` andava in `500`, falliva l'intera schermata collaboratori
+- Corretto il frontend separando i due fetch:
+  - i collaboratori vengono caricati comunque
+  - i suggerimenti agenti ora sono opzionali e, se falliscono, la tabella resta visibile senza badge/task agente
+- Applicato fallback difensivo anche nel backend agenti in `backend/routers/agents.py`:
+  - `GET /api/v1/agents/runs/` e `GET /api/v1/agents/suggestions/` ora degradano a lista vuota in caso di mismatch runtime, con log server-side invece di `500` verso la UI
+  - ridotto il carico del listing evitando preload non essenziale delle relazioni nel percorso lista
+
+### Diagnosi causa probabile dei 500 agenti
+- Trovata incoerenza concreta tra migration legacy e workflow agentico nuovo:
+  - `backend/alembic/versions/a10d08b5e238_add_agent_tables.py` rimuove colonne workflow da tabelle agentiche
+  - `backend/alembic/versions/b1c2d3e4f5a6_add_agent_workflow_fields.py` le riaggiunge solo in parte
+- Impatto probabile:
+  - database reale potenzialmente non allineato ai modelli/schemi correnti
+  - endpoint lista agenti/suggestions esposti a `500` su installazioni migrate in ordine imperfetto
+- Il fallback applicato riduce il danno UI, ma resta pendente un riallineamento strutturale migration/schema DB.
+
+### Fix flusso Piani Finanziari
+- Corretto `frontend/src/components/PianiFinanziariManager.js`:
+  - il select `Template piano` era mostrato solo quando `avvisiCatalogo.length === 0`, quindi in pratica restava nascosto nei casi normali
+  - ora il select template è sempre disponibile nella vista non embedded
+- Corretto anche il payload di creazione piano:
+  - prima ignorava `template_id`, `avviso_id`, `ente_erogatore`, `avviso` e `anno` selezionati in UI
+  - ora il piano viene creato usando davvero template e avviso scelti dall'utente
+
+### Verifiche eseguite
+- `python3 -m py_compile backend/routers/agents.py` passato
+- `python3 -m py_compile backend/main.py` passato
+- `npm run build` frontend passato con successo
+- Non eseguito test browser end-to-end in questa sessione
+
+### Hardening runtime schema agenti
+- Esteso `ensure_runtime_schema_updates()` in `backend/main.py` per coprire anche le tabelle agentiche:
+  - `agent_runs`
+  - `agent_suggestions`
+  - `agent_review_actions`
+  - `agent_communication_drafts`
+- Obiettivo:
+  - ridurre mismatch tra installazioni già migrate in modo incoerente e modelli/route correnti
+  - auto-aggiungere a runtime le colonne mancanti più sensibili che causavano `500` sugli endpoint agenti
+
+### Stato aggiornato dopo questa sessione
+- Frontend compilabile.
+- Schermata collaboratori resa resiliente anche con backend agenti degradato.
+- Backend agenti reso più tollerante sia lato router sia lato bootstrap schema runtime.
+- Resta ancora da verificare da browser contro l'istanza reale su `http://100.100.49.54:3001` se:
+  - il `401 /auth/me` dipende solo da sessione scaduta
+  - il `500 /agents/suggestions/` scompare davvero dopo riavvio backend con il nuovo `main.py`
+  - il collegamento avvisi/template nei piani finanziari funziona end-to-end sulla UI reale
+
+### Fix sincronizzazione Collaboratore -> Consulente
+- Identificata la causa del bug sulla selezione consulenti nelle aziende clienti:
+  - la UI `AziendeClientiManager` legge il dropdown dai record della tabella `consulenti`
+  - la spunta `is_consultant` sul collaboratore aggiornava solo il flag nel collaboratore
+  - `_sync_consultant_from_collaborator()` in `backend/crud.py` non creava il record `Consulente`, ma si limitava ad attivarlo/disattivarlo se già esistente
+- Corretto `backend/crud.py`:
+  - `create_collaborator()` ora sincronizza anche il consulente
+  - `update_collaborator()` ora sincronizza anche il consulente
+  - `_sync_consultant_from_collaborator()` ora:
+    - crea il consulente se manca
+    - prova prima a riallacciare eventuali consulenti orfani per `email` o `partita_iva`
+    - aggiorna campi base (`nome`, `cognome`, `email`, `telefono`, `partita_iva`, `zona_competenza`, `attivo`)
+    - disattiva il consulente quando il collaboratore perde la spunta o viene disattivato
+- Backfill eseguito nel DB per i collaboratori gia marcati come consulenti ma assenti in tabella `consulenti`
+- Verifica DB eseguita:
+  - `CLAUDIO DE PIETRO` presente in `consulenti` con `collaborator_id = 8` e `attivo = true`
+- Backend riavviato dopo il fix per rendere attivo il nuovo comportamento
+- Esteso il fix anche sul percorso lista:
+  - `crud.get_consulenti()` ora esegue un riallineamento preventivo dai collaboratori flaggati consulenti prima di restituire la lista
+  - `frontend/src/components/AziendeClientiManager.js` ora ricarica agenzie e consulenti anche quando si apre il modal azienda, evitando dropdown stale
+- Verifica DB aggiornata dopo il riallineamento:
+  - collaboratori `is_consultant = true` attualmente presenti e sincronizzati:
+    - `GIULIANA CICCARELLI` -> `consulente_id = 2`
+    - `CLAUDIO DE PIETRO` -> `consulente_id = 1`
+- Backend e frontend ricostruiti/ridistribuiti dopo quest'ultimo fix
+
+### Fix `500` endpoint consulenti
+- Analizzato il `500` reale su `GET /api/v1/consulenti/?limit=100&attivo=true`
+- Causa individuata nei log backend:
+  - `ResponseValidationError` sul campo `partita_iva` di un consulente storico
+  - lo schema `Consulente` in `backend/schemas.py` usava ancora `_validate_piva(...)` con checksum rigido
+  - il record `GIULIANA CICCARELLI` aveva `partita_iva = 05654840822`, accettabile per il dominio corrente ma respinta in serializzazione risposta
+- Correzione applicata:
+  - `ConsulenteBase` e `ConsulenteUpdate` ora usano `_validate_piva_light(...)` come collaboratori e agenzie
+- Verifica eseguita dopo riavvio backend:
+  - endpoint interno `GET /api/v1/consulenti/?limit=100&attivo=true` risponde `200`
+  - payload restituito con 2 consulenti attivi:
+    - `GIULIANA CICCARELLI`
+    - `CLAUDIO DE PIETRO`
+
+### Pendenti immediati aggiornati
+- [ ] Verificare da browser che la schermata `Collaboratori` non collassi più quando `agents/suggestions` fallisce
+- [ ] Verificare se i `500` agenti spariscono del tutto o vengono solo assorbiti dal fallback
+- [ ] Allineare definitivamente schema DB/migration agenti, soprattutto `agent_suggestions` e `agent_review_actions`
+- [ ] Verificare in UI il flusso reale di creazione/collegamento avvisi nei template piano finanziario dopo il fix del selector/template payload
+
 ### Fix creazione progetti
 - Individuato blocco reale nel layer frontend context:
   - `frontend/src/context/AppContext.js` usava import dinamici errati del servizio API con `const { apiService } = await import(...)`

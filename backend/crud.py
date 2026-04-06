@@ -400,6 +400,7 @@ def create_collaborator(db: Session, collaborator: schemas.CollaboratorCreate):
     db.add(db_collaborator)
     db.flush()
     _sync_agency_from_collaborator(db, db_collaborator)
+    _sync_consultant_from_collaborator(db, db_collaborator)
     return db_collaborator
 
 def update_collaborator(db: Session, collaborator_id: int, collaborator: schemas.CollaboratorUpdate):
@@ -432,6 +433,7 @@ def update_collaborator(db: Session, collaborator_id: int, collaborator: schemas
 
         db_collaborator.updated_at = func.now()
         _sync_agency_from_collaborator(db, db_collaborator)
+        _sync_consultant_from_collaborator(db, db_collaborator)
         db.commit()
         db.refresh(db_collaborator)
 
@@ -520,12 +522,104 @@ def _sync_consultant_from_collaborator(db: Session, collaborator: models.Collabo
         .filter(models.Consulente.collaborator_id == collaborator.id)
         .first()
     )
-    if linked_consultant is None:
-        return
+    if linked_consultant is None and collaborator.email:
+        linked_consultant = (
+            db.query(models.Consulente)
+            .filter(
+                func.lower(models.Consulente.email) == collaborator.email.lower(),
+                models.Consulente.collaborator_id.is_(None)
+            )
+            .first()
+        )
+
+    if linked_consultant is None and collaborator.partita_iva:
+        linked_consultant = (
+            db.query(models.Consulente)
+            .filter(
+                models.Consulente.partita_iva == collaborator.partita_iva,
+                models.Consulente.collaborator_id.is_(None)
+            )
+            .first()
+        )
+
     if collaborator.is_consultant and collaborator.is_active:
+        if linked_consultant is None:
+            linked_consultant = models.Consulente(collaborator_id=collaborator.id)
+            db.add(linked_consultant)
+
+        linked_consultant.collaborator_id = collaborator.id
+        linked_consultant.nome = collaborator.first_name or linked_consultant.nome
+        linked_consultant.cognome = collaborator.last_name or linked_consultant.cognome
+        linked_consultant.email = collaborator.email
+        linked_consultant.telefono = collaborator.phone
+        linked_consultant.partita_iva = collaborator.partita_iva
+        linked_consultant.zona_competenza = collaborator.city
         linked_consultant.attivo = True
-    else:
+
+        note_parts = []
+        if collaborator.position:
+            note_parts.append(f"Ruolo collaboratore: {collaborator.position}")
+        if collaborator.profilo_professionale:
+            note_parts.append(f"Profilo: {collaborator.profilo_professionale}")
+        if linked_consultant.note:
+            note_parts.insert(0, linked_consultant.note)
+        else:
+            note_parts.insert(0, "Auto-generato da collaboratore")
+        linked_consultant.note = " | ".join(dict.fromkeys(part for part in note_parts if part))
+    elif linked_consultant is not None:
         linked_consultant.attivo = False
+
+
+def sync_consultants_from_collaborators(db: Session):
+    collaborators = db.query(models.Collaborator).filter(models.Collaborator.is_active == True).all()
+    changed = False
+
+    for collaborator in collaborators:
+        before = (
+            db.query(models.Consulente)
+            .filter(models.Consulente.collaborator_id == collaborator.id)
+            .first()
+        )
+        before_state = None
+        if before is not None:
+            before_state = (
+                before.nome,
+                before.cognome,
+                before.email,
+                before.telefono,
+                before.partita_iva,
+                before.zona_competenza,
+                before.attivo,
+                before.collaborator_id,
+            )
+
+        _sync_consultant_from_collaborator(db, collaborator)
+
+        after = (
+            db.query(models.Consulente)
+            .filter(models.Consulente.collaborator_id == collaborator.id)
+            .first()
+        )
+        after_state = None
+        if after is not None:
+            after_state = (
+                after.nome,
+                after.cognome,
+                after.email,
+                after.telefono,
+                after.partita_iva,
+                after.zona_competenza,
+                after.attivo,
+                after.collaborator_id,
+            )
+
+        if before_state != after_state:
+            changed = True
+
+    if changed:
+        db.commit()
+
+    return changed
 
 def get_project(db: Session, project_id: int):
     return db.query(models.Project).options(
@@ -2868,6 +2962,7 @@ def delete_agenzia(db: Session, agenzia_id: int):
 
 def get_consulenti(db: Session, search: str = None, attivo: bool = None,
                    agenzia_id: int = None, page: int = 1, limit: int = 20):
+    sync_consultants_from_collaborators(db)
     q = db.query(models.Consulente)
     if attivo is not None:
         q = q.filter(models.Consulente.attivo == attivo)

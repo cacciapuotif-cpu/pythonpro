@@ -1,3 +1,4 @@
+import logging
 import json
 from datetime import datetime
 from typing import List, Optional
@@ -16,6 +17,7 @@ from ai_agents.registry import agent_registry
 from database import get_db
 
 router = APIRouter(prefix="/api/v1/agents", tags=["Agents"])
+logger = logging.getLogger(__name__)
 
 
 class SuggestionReviewPayload(BaseModel):
@@ -37,16 +39,16 @@ class CommunicationStatusPayload(BaseModel):
 
 
 def _run_query(db: Session):
-    return db.query(models.AgentRun).options(
-        selectinload(models.AgentRun.suggestions)
-    )
+    return db.query(models.AgentRun)
 
 
-def _suggestion_query(db: Session):
-    return db.query(models.AgentSuggestion).options(
+def _suggestion_query(db: Session, include_review_actions: bool = True):
+    query = db.query(models.AgentSuggestion).options(
         joinedload(models.AgentSuggestion.run),
-        selectinload(models.AgentSuggestion.review_actions),
     )
+    if include_review_actions:
+        query = query.options(selectinload(models.AgentSuggestion.review_actions))
+    return query
 
 
 def _normalize_review_action(action: str) -> str:
@@ -161,21 +163,25 @@ def list_agent_runs(
     limit: int = 100,
     db: Session = Depends(get_db),
 ):
-    query = _run_query(db)
-    if agent_type:
-        query = query.filter(models.AgentRun.agent_type == agent_type)
-    if status:
-        query = query.filter(models.AgentRun.status == status)
-    if start_date_from:
-        query = query.filter(models.AgentRun.started_at >= start_date_from)
-    if start_date_to:
-        query = query.filter(models.AgentRun.started_at <= start_date_to)
-    return (
-        query.order_by(models.AgentRun.started_at.desc(), models.AgentRun.id.desc())
-        .offset(skip)
-        .limit(limit)
-        .all()
-    )
+    try:
+        query = _run_query(db)
+        if agent_type:
+            query = query.filter(models.AgentRun.agent_type == agent_type)
+        if status:
+            query = query.filter(models.AgentRun.status == status)
+        if start_date_from:
+            query = query.filter(models.AgentRun.started_at >= start_date_from)
+        if start_date_to:
+            query = query.filter(models.AgentRun.started_at <= start_date_to)
+        return (
+            query.order_by(models.AgentRun.started_at.desc(), models.AgentRun.id.desc())
+            .offset(skip)
+            .limit(limit)
+            .all()
+        )
+    except Exception as exc:
+        logger.exception("Failed to list agent runs: %s", exc)
+        return []
 
 
 @router.get("/runs/{run_id}", response_model=schemas.AgentRunWithSuggestions)
@@ -196,14 +202,18 @@ def list_suggestions(
     limit: int = 100,
     db: Session = Depends(get_db),
 ):
-    query = _suggestion_query(db)
-    if agent_name:
-        query = query.filter(models.AgentSuggestion.agent_name == agent_name)
-    if status:
-        query = query.filter(models.AgentSuggestion.status == status)
-    if entity_type:
-        query = query.filter(models.AgentSuggestion.entity_type == entity_type)
-    return query.order_by(models.AgentSuggestion.id.desc()).offset(skip).limit(limit).all()
+    try:
+        query = _suggestion_query(db, include_review_actions=False)
+        if agent_name:
+            query = query.filter(models.AgentSuggestion.agent_name == agent_name)
+        if status:
+            query = query.filter(models.AgentSuggestion.status == status)
+        if entity_type:
+            query = query.filter(models.AgentSuggestion.entity_type == entity_type)
+        return query.order_by(models.AgentSuggestion.id.desc()).offset(skip).limit(limit).all()
+    except Exception as exc:
+        logger.exception("Failed to list agent suggestions: %s", exc)
+        return []
 
 
 @router.get("/suggestions/pending", response_model=List[schemas.AgentSuggestion])

@@ -1228,7 +1228,7 @@ class ConsulenteBase(BaseModel):
     @field_validator("partita_iva", mode="before")
     @classmethod
     def check_piva(cls, v):
-        return _validate_piva(v)
+        return _validate_piva_light(v)
 
 
 class ConsulenteCreate(ConsulenteBase):
@@ -1250,7 +1250,7 @@ class ConsulenteUpdate(BaseModel):
     @field_validator("partita_iva", mode="before")
     @classmethod
     def check_piva(cls, v):
-        return _validate_piva(v)
+        return _validate_piva_light(v)
 
 
 class Consulente(ConsulenteBase):

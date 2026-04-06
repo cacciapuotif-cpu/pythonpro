@@ -489,9 +489,12 @@ export default function PianiFinanziariManager({ forcedProjectId = '', forcedEnt
         .filter(Boolean);
       const detail = await createPianoFinanziario({
         progetto_id: Number(selectedProjectId),
-        template_id: null,
-        avviso_id: null,
+        template_id: selectedTemplateId ? Number(selectedTemplateId) : null,
+        avviso_id: selectableAvvisi.find((item) => normalizeText(item.codice) === normalizeText(avviso))?.id || null,
         nome: pianoNomeParts.join(' - '),
+        anno: Number(anno),
+        ente_erogatore: enteErogatore,
+        avviso: avviso || null,
         tipo_fondo: mapEnteToTipoFondo(enteErogatore),
         budget_totale: 0,
         budget_approvato: 0,
@@ -705,7 +708,7 @@ export default function PianiFinanziariManager({ forcedProjectId = '', forcedEnt
             </label>
           )}
 
-          {!embedded && avvisiCatalogo.length === 0 && (
+          {!embedded && (
           <label>
             <span>Template piano</span>
             <select
