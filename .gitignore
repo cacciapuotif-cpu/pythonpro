@@ -210,3 +210,4 @@ celerybeat.pid
 # Controlla: git diff
 # ============================================================
 nul 
+.worktrees/
