@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="it">
+<head><meta charset="UTF-8"></head>
+<body style="font-family: Arial, sans-serif; font-size: 14px; color: #333;">
+  <p>Ciao {{ recipient_name }},</p>
+  <p>abbiamo ricevuto il documento che hai inviato, ma purtroppo non è possibile elaborarlo per i seguenti motivi:</p>
+  <ul>
+    {% for issue in issues %}
+    <li>{{ issue }}</li>
+    {% endfor %}
+  </ul>
+  <p>Ti chiediamo di inviarci nuovamente il documento corretto rispondendo a questa email.</p>
+  <p>Grazie per la collaborazione.</p>
+</body>
+</html>

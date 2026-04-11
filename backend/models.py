@@ -1,8 +1,9 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Table, Text, Float, Index, Boolean, text, event
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Table, Text, Float, Index, Boolean, UniqueConstraint, text, event
 from sqlalchemy.orm import relationship, validates, foreign
 from sqlalchemy.sql import func
 from sqlalchemy.ext.hybrid import hybrid_property
 from database import Base
+from typing import Optional
 import re
 
 # TABELLA DI ASSOCIAZIONE per la relazione many-to-many
@@ -13,6 +14,13 @@ collaborator_project = Table(
     # Colonna che punta al collaboratore
     Column('collaborator_id', Integer, ForeignKey('collaborators.id', ondelete="CASCADE"), primary_key=True),
     # Colonna che punta al progetto
+    Column('project_id', Integer, ForeignKey('projects.id', ondelete="CASCADE"), primary_key=True)
+)
+
+allievo_project = Table(
+    'allievo_project',
+    Base.metadata,
+    Column('allievo_id', Integer, ForeignKey('allievi.id', ondelete="CASCADE"), primary_key=True),
     Column('project_id', Integer, ForeignKey('projects.id', ondelete="CASCADE"), primary_key=True)
 )
 
@@ -182,7 +190,7 @@ class Project(Base):
     avviso = Column(String(100), nullable=True, index=True)
     avviso_id = Column(Integer, ForeignKey("avvisi.id", ondelete="SET NULL"), nullable=True, index=True)
     avviso_pf_id = Column(Integer, ForeignKey("avvisi_piani_finanziari.id", ondelete="SET NULL"), nullable=True, index=True)
-    template_piano_finanziario_id = Column(Integer, ForeignKey("contract_templates.id", ondelete="SET NULL"), nullable=True, index=True)
+    template_piano_finanziario_id = Column(Integer, ForeignKey("template_piani_finanziari.id", ondelete="SET NULL"), nullable=True, index=True)
 
     # FK verso ImplementingEntity (Ente Attuatore)
     ente_attuatore_id = Column(Integer, ForeignKey("implementing_entities.id", ondelete="SET NULL"), nullable=True, index=True)
@@ -190,6 +198,9 @@ class Project(Base):
     # Campi per performance
     priority = Column(Integer, default=1, index=True)
     budget = Column(Float)
+    ore_totali = Column(Float, default=0.0)
+    ore_completate = Column(Float, default=0.0)
+    progress_percentage = Column(Float, default=0.0)
     is_active = Column(Boolean, default=True, index=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
@@ -197,10 +208,13 @@ class Project(Base):
 
     # Relazioni ottimizzate
     collaborators = relationship("Collaborator", secondary=collaborator_project, back_populates="projects", lazy="select")
+    allievi_coinvolti = relationship("Allievo", secondary=allievo_project, back_populates="projects", lazy="select")
     attendances = relationship("Attendance", back_populates="project", lazy="select")
     assignments = relationship("Assignment", back_populates="project", lazy="select")
+    azienda_links = relationship("AziendaClienteProjectLink", back_populates="project", lazy="select")
+    aziende_coinvolte = relationship("AziendaCliente", secondary="azienda_cliente_projects", lazy="select", viewonly=True)
     ente_attuatore = relationship("ImplementingEntity", back_populates="projects", lazy="select")
-    template_piano_finanziario = relationship("ContractTemplate", foreign_keys=[template_piano_finanziario_id], lazy="select")
+    template_piano_finanziario = relationship("TemplatePianoFinanziario", foreign_keys=[template_piano_finanziario_id], lazy="select")
     avviso_rel = relationship("Avviso", back_populates="projects", lazy="select")
     avviso_pf = relationship("AvvisoPianoFinanziario", foreign_keys="Project.avviso_pf_id", back_populates="progetti", lazy="select")
     piani_finanziari = relationship("PianoFinanziario", back_populates="progetto", lazy="select", cascade="all, delete-orphan")
@@ -219,6 +233,37 @@ class Project(Base):
         if status not in valid_statuses:
             raise ValueError(f"Status deve essere uno di: {valid_statuses}")
         return status
+
+    @property
+    def resolved_ente_erogatore(self):
+        if self.avviso_pf and self.avviso_pf.template:
+            tipo_fondo = (self.avviso_pf.template.tipo_fondo or "").strip().lower()
+            mapping = {
+                "formazienda": "FORMAZIENDA",
+                "fapi": "FAPI",
+                "fondimpresa": "FONDIMPRESA",
+                "fse": "FSE",
+            }
+            return mapping.get(tipo_fondo, (self.avviso_pf.template.tipo_fondo or "").upper() or None)
+        return self.ente_erogatore
+
+    @property
+    def resolved_avviso(self):
+        if self.avviso_pf:
+            return self.avviso_pf.codice_avviso
+        return self.avviso
+
+    @property
+    def azienda_ids(self):
+        if self.azienda_links:
+            return [link.azienda_cliente_id for link in self.azienda_links]
+        return []
+
+    @property
+    def allievo_ids(self):
+        if self.allievi_coinvolti:
+            return [allievo.id for allievo in self.allievi_coinvolti]
+        return []
 
 class Avviso(Base):
     __tablename__ = "avvisi"
@@ -392,6 +437,16 @@ class Attendance(Base):
             if time_value <= self.start_time:
                 raise ValueError("L'ora di fine deve essere successiva all'ora di inizio")
         return time_value
+
+    __table_args__ = (
+        UniqueConstraint(
+            "collaborator_id",
+            "project_id",
+            "date",
+            "start_time",
+            name="uq_attendance_collaborator_project_date_time",
+        ),
+    )
 
 class Assignment(Base):
     __tablename__ = "assignments"
@@ -834,7 +889,7 @@ class PianoFinanziario(Base):
         return valore
 
     __table_args__ = (
-        Index("idx_unique_piano_progetto_anno_ente_avviso", "progetto_id", "anno", "ente_erogatore", "avviso", unique=True),
+        UniqueConstraint("progetto_id", "anno", "avviso_id", name="uq_piano_progetto_anno_avviso"),
         Index("idx_piano_progetto_stato", "progetto_id", "stato"),
         Index("idx_piano_fondo_stato", "tipo_fondo", "stato"),
         Index("idx_piano_date", "data_inizio", "data_fine"),
@@ -1354,6 +1409,33 @@ class AziendaCliente(Base):
 
     agenzia = relationship("Agenzia", back_populates="aziende_clienti", lazy="select")
     consulente = relationship("Consulente", back_populates="aziende_clienti", lazy="select")
+    allievi = relationship("Allievo", back_populates="azienda_cliente", lazy="select")
+    sedi_operative = relationship(
+        "AziendaClienteSedeOperativa",
+        back_populates="azienda",
+        lazy="select",
+        cascade="all, delete-orphan",
+        order_by="AziendaClienteSedeOperativa.nome.asc()",
+    )
+    project_links = relationship(
+        "AziendaClienteProjectLink",
+        back_populates="azienda",
+        lazy="select",
+        cascade="all, delete-orphan",
+    )
+    linked_projects = relationship(
+        "Project",
+        secondary="azienda_cliente_projects",
+        lazy="select",
+        viewonly=True,
+    )
+    fund_memberships = relationship(
+        "AziendaClienteFundMembership",
+        back_populates="azienda",
+        lazy="select",
+        cascade="all, delete-orphan",
+        order_by="AziendaClienteFundMembership.data_inizio.desc()",
+    )
 
     @validates('partita_iva')
     def validate_partita_iva(self, key, piva):
@@ -1397,6 +1479,178 @@ class AziendaCliente(Base):
 
     __table_args__ = (
         Index('idx_azienda_ragione_citta', 'ragione_sociale', 'citta'),
+    )
+
+    @property
+    def project_ids(self):
+        if self.project_links:
+            return [link.project_id for link in self.project_links]
+        return []
+
+    @property
+    def allievo_ids(self):
+        if self.allievi:
+            return [allievo.id for allievo in self.allievi]
+        return []
+
+
+class Allievo(Base):
+    __tablename__ = "allievi"
+
+    id = Column(Integer, primary_key=True, index=True)
+    nome = Column(String(100), nullable=False, index=True)
+    cognome = Column(String(100), nullable=False, index=True)
+    codice_fiscale = Column(String(16), unique=True, nullable=True, index=True)
+    luogo_nascita = Column(String(100), nullable=True)
+    data_nascita = Column(DateTime, nullable=True, index=True)
+    telefono = Column(String(30), nullable=True)
+    email = Column(String(100), nullable=True, index=True)
+    residenza = Column(String(255), nullable=True)
+    cap = Column(String(5), nullable=True)
+    citta = Column(String(100), nullable=True, index=True)
+    provincia = Column(String(2), nullable=True)
+    occupato = Column(Boolean, default=False, index=True)
+    azienda_cliente_id = Column(Integer, ForeignKey("aziende_clienti.id", ondelete="SET NULL"), nullable=True, index=True)
+    azienda_sede_operativa_id = Column(Integer, ForeignKey("azienda_cliente_sedi_operative.id", ondelete="SET NULL"), nullable=True, index=True)
+    data_assunzione = Column(DateTime, nullable=True, index=True)
+    tipo_contratto = Column(String(100), nullable=True)
+    ccnl = Column(String(100), nullable=True)
+    mansione = Column(String(100), nullable=True)
+    livello_inquadramento = Column(String(100), nullable=True)
+    note = Column(Text, nullable=True)
+    attivo = Column(Boolean, default=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    azienda_cliente = relationship("AziendaCliente", back_populates="allievi", lazy="select")
+    sede_operativa = relationship("AziendaClienteSedeOperativa", back_populates="allievi", lazy="select")
+    projects = relationship("Project", secondary=allievo_project, back_populates="allievi_coinvolti", lazy="select")
+
+    @validates('email')
+    def validate_email(self, key, address):
+        if address and not re.match(r'^[^@]+@[^@]+\.[^@]+$', address):
+            raise ValueError("Email non valida")
+        return address.lower() if address else address
+
+    @validates('codice_fiscale')
+    def validate_codice_fiscale(self, key, cf):
+        if cf:
+            cf_clean = cf.replace(' ', '').upper()
+            if len(cf_clean) != 16:
+                raise ValueError("Codice fiscale deve essere di 16 caratteri")
+            return cf_clean
+        return cf
+
+    @validates('cap')
+    def validate_cap(self, key, cap):
+        if cap and (not cap.isdigit() or len(cap) != 5):
+            raise ValueError("CAP deve essere di 5 cifre")
+        return cap
+
+    @validates('provincia')
+    def validate_provincia(self, key, prov):
+        if prov:
+            prov_clean = prov.upper()
+            if len(prov_clean) != 2 or not prov_clean.isalpha():
+                raise ValueError("Provincia deve essere la sigla di 2 lettere")
+            return prov_clean
+        return prov
+
+    @property
+    def project_ids(self):
+        if self.projects:
+            return [project.id for project in self.projects]
+        return []
+
+
+class AziendaClienteProjectLink(Base):
+    __tablename__ = "azienda_cliente_projects"
+
+    id = Column(Integer, primary_key=True, index=True)
+    azienda_cliente_id = Column(Integer, ForeignKey("aziende_clienti.id", ondelete="CASCADE"), nullable=False, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+    azienda = relationship("AziendaCliente", back_populates="project_links", lazy="select")
+    project = relationship("Project", back_populates="azienda_links", lazy="select")
+
+    __table_args__ = (
+        UniqueConstraint("azienda_cliente_id", "project_id", name="uq_azienda_cliente_project"),
+    )
+
+
+class AziendaClienteSedeOperativa(Base):
+    __tablename__ = "azienda_cliente_sedi_operative"
+
+    id = Column(Integer, primary_key=True, index=True)
+    azienda_cliente_id = Column(Integer, ForeignKey("aziende_clienti.id", ondelete="CASCADE"), nullable=False, index=True)
+    nome = Column(String(150), nullable=False)
+    indirizzo = Column(String(255), nullable=True)
+    citta = Column(String(100), nullable=True, index=True)
+    cap = Column(String(5), nullable=True)
+    provincia = Column(String(2), nullable=True)
+    note = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    azienda = relationship("AziendaCliente", back_populates="sedi_operative", lazy="select")
+    allievi = relationship("Allievo", back_populates="sede_operativa", lazy="select")
+
+    @validates("nome")
+    def validate_nome(self, key, value):
+        normalized = (value or "").strip()
+        if not normalized:
+            raise ValueError("Il nome della sede operativa è obbligatorio")
+        return normalized
+
+    @validates("cap")
+    def validate_cap(self, key, cap):
+        if cap and (not cap.isdigit() or len(cap) != 5):
+            raise ValueError("CAP deve essere di 5 cifre")
+        return cap
+
+    @validates("provincia")
+    def validate_provincia(self, key, prov):
+        if prov:
+            prov_clean = prov.upper()
+            if len(prov_clean) != 2 or not prov_clean.isalpha():
+                raise ValueError("Provincia deve essere la sigla di 2 lettere")
+            return prov_clean
+        return prov
+
+    __table_args__ = (
+        UniqueConstraint("azienda_cliente_id", "nome", name="uq_azienda_sede_operativa_nome"),
+        Index("idx_azienda_sede_operativa_citta", "azienda_cliente_id", "citta"),
+    )
+
+
+class AziendaClienteFundMembership(Base):
+    __tablename__ = "azienda_cliente_fund_memberships"
+
+    id = Column(Integer, primary_key=True, index=True)
+    azienda_cliente_id = Column(Integer, ForeignKey("aziende_clienti.id", ondelete="CASCADE"), nullable=False, index=True)
+    fondo = Column(String(100), nullable=False, index=True)
+    data_inizio = Column(DateTime, nullable=False, index=True)
+    data_fine = Column(DateTime, nullable=True, index=True)
+    note = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    azienda = relationship("AziendaCliente", back_populates="fund_memberships", lazy="select")
+
+    @validates("fondo")
+    def validate_fondo(self, key, value):
+        normalized = (value or "").strip()
+        if not normalized:
+            raise ValueError("Il fondo interprofessionale è obbligatorio")
+        return normalized
+
+    @hybrid_property
+    def is_current(self):
+        return self.data_fine is None
+
+    __table_args__ = (
+        Index("idx_azienda_fund_period", "azienda_cliente_id", "data_inizio", "data_fine"),
     )
 
 
@@ -1784,15 +2038,14 @@ class AgentRun(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     # Workflow system fields
-    agent_name = Column(String(100), nullable=True, index=True)
     entity_type = Column(String(50), nullable=True, index=True)
     entity_id = Column(Integer, nullable=True, index=True)
     requested_by_user_id = Column(Integer, nullable=True, index=True)
     input_payload = Column(Text, nullable=True)
     result_summary = Column(Text, nullable=True)
     suggestions_count = Column(Integer, nullable=False, default=0)
-    # Registry system fields (legacy)
-    agent_type = Column(String(100), nullable=True, index=True)
+    # Registry system fields
+    agent_type = Column(String(100), nullable=False, index=True)
     agent_version = Column(String(20), nullable=False, default="1.0")
     status = Column(String(20), nullable=False, default="running", index=True)
     started_at = Column(DateTime, nullable=False, default=func.now(), index=True)
@@ -1818,6 +2071,14 @@ class AgentRun(Base):
         Index("idx_started_at", "started_at"),
     )
 
+    @property
+    def agent_name(self) -> str:
+        return self.agent_type
+
+    @agent_name.setter
+    def agent_name(self, value: str) -> None:
+        self.agent_type = value
+
 
 class AgentSuggestion(Base):
     """Suggerimento generato da un agente AI."""
@@ -1826,10 +2087,8 @@ class AgentSuggestion(Base):
     id = Column(Integer, primary_key=True, index=True)
     run_id = Column(Integer, ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False, index=True)
     # Workflow system fields
-    agent_name = Column(String(100), nullable=True, index=True)
     severity = Column(String(20), nullable=True, index=True)
     payload = Column(Text, nullable=True)
-    confidence = Column(Float, nullable=True)
     reviewed_at = Column(DateTime, nullable=True)
     reviewed_by_user_id = Column(Integer, nullable=True, index=True)
     # Shared fields
@@ -1861,6 +2120,20 @@ class AgentSuggestion(Base):
         Index("idx_entity", "entity_type", "entity_id"),
     )
 
+    @property
+    def agent_name(self) -> Optional[str]:
+        if self.run is not None:
+            return self.run.agent_type
+        return None
+
+    @property
+    def confidence(self) -> Optional[float]:
+        return self.confidence_score
+
+    @confidence.setter
+    def confidence(self, value: Optional[float]) -> None:
+        self.confidence_score = value
+
 
 class AgentReviewAction(Base):
     """Storico decisioni umane sui suggerimenti agentici."""
@@ -1869,10 +2142,7 @@ class AgentReviewAction(Base):
     id = Column(Integer, primary_key=True, index=True)
     suggestion_id = Column(Integer, ForeignKey("agent_suggestions.id", ondelete="CASCADE"), nullable=False, index=True)
     action = Column(String(50), nullable=False, index=True)
-    # Workflow system field
-    reviewed_by_user_id = Column(Integer, nullable=True, index=True)
-    # Registry system field (legacy)
-    reviewed_by = Column(String(100), nullable=True, index=True)
+    reviewed_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     reviewed_at = Column(DateTime, nullable=False, default=func.now(), index=True)
     notes = Column(Text, nullable=True)
     auto_fix_applied = Column(Boolean, nullable=False, default=False)
@@ -1907,3 +2177,23 @@ class AgentCommunicationDraft(Base):
 
     run = relationship("AgentRun", lazy="select")
     suggestion = relationship("AgentSuggestion", lazy="select")
+
+
+class EmailInboxItem(Base):
+    __tablename__ = "email_inbox_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    message_id = Column(String(500), unique=True, nullable=False, index=True)
+    received_at = Column(DateTime(timezone=True), nullable=False)
+    sender_email = Column(String(255), nullable=False, index=True)
+    subject = Column(String(500), nullable=True)
+    entity_type = Column(String(50), nullable=True)
+    entity_id = Column(Integer, nullable=True)
+    attachment_path = Column(String(1000), nullable=True)
+    attachment_name = Column(String(255), nullable=True)
+    processing_status = Column(String(50), nullable=False)
+    llm_result = Column(Text, nullable=True)
+    reply_sent = Column(Boolean, server_default=text("false"), nullable=False)
+    reply_sent_at = Column(DateTime(timezone=True), nullable=True)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)

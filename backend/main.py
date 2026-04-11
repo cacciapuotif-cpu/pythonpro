@@ -34,6 +34,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+ADMIN_DEFAULT_PASSWORD = os.getenv("ADMIN_DEFAULT_PASSWORD", "").strip()
+OPERATOR_DEFAULT_PASSWORD = os.getenv("OPERATOR_DEFAULT_PASSWORD", "").strip()
+
 # IMPORTAZIONI SISTEMI AVANZATI
 from error_handler import (
     ErrorHandler, GestionaleException,
@@ -85,6 +88,7 @@ from routers import (
     documenti_richiesti,
     avvisi,
     agents,
+    email_inbox,
 )
 
 # CREIAMO LE TABELLE NEL DATABASE
@@ -390,6 +394,7 @@ app.include_router(piani_fondimpresa.router)
 app.include_router(documenti_richiesti.router)
 app.include_router(avvisi.router)
 app.include_router(agents.router)
+app.include_router(email_inbox.router)
 
 
 # ========================================
@@ -536,32 +541,36 @@ async def startup_event():
     else:
         logger.warning("⚠️ Performance monitoring not available")
 
-    # Crea utenti di accesso iniziali se non esistono
+    # Crea utenti di accesso iniziali solo se le password bootstrap sono configurate.
     try:
         db = SessionLocal()
         admin_exists = db.query(User).filter(User.username == "admin").first()
-        if not admin_exists:
+        if not admin_exists and ADMIN_DEFAULT_PASSWORD:
             create_user(
                 db=db,
                 username="admin",
                 email="admin@gestionale.local",
-                password="admin123",  # CAMBIARE IN PRODUZIONE!
+                password=ADMIN_DEFAULT_PASSWORD,
                 full_name="Amministratore Sistema",
                 role=UserRole.ADMIN
             )
-            logger.info("👤 Created default admin user (change password!)")
+            logger.info("👤 Created default admin user from environment bootstrap password")
+        elif not admin_exists:
+            logger.warning("⚠️ Admin bootstrap skipped: ADMIN_DEFAULT_PASSWORD not configured")
 
         operator_exists = db.query(User).filter(User.username == "operatore").first()
-        if not operator_exists:
+        if not operator_exists and OPERATOR_DEFAULT_PASSWORD:
             create_user(
                 db=db,
                 username="operatore",
                 email="operatore@gestionale.local",
-                password="operatore123",  # CAMBIARE IN PRODUZIONE!
+                password=OPERATOR_DEFAULT_PASSWORD,
                 full_name="Operatore Gestionale",
                 role=UserRole.USER
             )
-            logger.info("👤 Created default operator user (change password!)")
+            logger.info("👤 Created default operator user from environment bootstrap password")
+        elif not operator_exists:
+            logger.warning("⚠️ Operator bootstrap skipped: OPERATOR_DEFAULT_PASSWORD not configured")
         db.close()
     except Exception as e:
         logger.error(f"Error creating admin user: {e}")
@@ -575,6 +584,13 @@ async def startup_event():
             logger.warning("⚠️ Database health check failed")
     except Exception as e:
         logger.error(f"Database health check error: {e}")
+
+    # Avvia worker IMAP email in arrivo (se configurato)
+    try:
+        from services.email_inbox_worker import start_email_inbox_worker
+        start_email_inbox_worker()
+    except Exception as e:
+        logger.error(f"Error starting email inbox worker: {e}")
 
 
 @app.on_event("shutdown")

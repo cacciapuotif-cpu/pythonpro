@@ -1,0 +1,9 @@
+Ciao {{ recipient_name }},
+
+abbiamo ricevuto il documento che hai inviato, ma purtroppo non è possibile elaborarlo per i seguenti motivi:
+
+{% for issue in issues %}- {{ issue }}
+{% endfor %}
+Ti chiediamo di inviarci nuovamente il documento corretto rispondendo a questa email.
+
+Grazie per la collaborazione.

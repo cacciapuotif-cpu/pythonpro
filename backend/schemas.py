@@ -385,6 +385,11 @@ class AgentCommunicationDraftStatusUpdate(BaseModel):
     reviewed_by_user_id: Optional[int] = None
 
 
+class AgentCommunicationDraftCreate(AgentCommunicationDraftBase):
+    run_id: Optional[int] = None
+    suggestion_id: Optional[int] = None
+
+
 class AgentCommunicationDraft(AgentCommunicationDraftBase):
     id: int
     run_id: Optional[int] = None
@@ -481,6 +486,19 @@ class Assignment(AssignmentBase):
 class AssignmentWithDetails(Assignment):
     collaborator: Collaborator
     project: Project
+
+
+class AssignmentBulkUpdateItem(BaseModel):
+    id: int
+    role: Optional[str] = None
+    edizione_label: Optional[str] = None
+    assigned_hours: Optional[float] = None
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+    contract_signed_date: Optional[datetime] = None
+    hourly_rate: Optional[float] = None
+    contract_type: Optional[str] = None
+
 
 # ========================================
 # SCHEMI PER ENTE ATTUATORE (Implementing Entity)
@@ -1402,6 +1420,70 @@ class AziendaClienteWithConsulente(AziendaCliente):
     consulente: Optional[Consulente] = None
 
 
+# ── Allievo ───────────────────────────────────
+
+class AllievoBase(BaseModel):
+    nome: str = Field(..., min_length=1, max_length=100)
+    cognome: str = Field(..., min_length=1, max_length=100)
+    codice_fiscale: Optional[str] = Field(None, max_length=16)
+    luogo_nascita: Optional[str] = None
+    data_nascita: Optional[datetime] = None
+    telefono: Optional[str] = None
+    email: Optional[str] = None
+    residenza: Optional[str] = None
+    cap: Optional[str] = None
+    citta: Optional[str] = None
+    provincia: Optional[str] = None
+    occupato: bool = False
+    azienda_cliente_id: Optional[int] = None
+    azienda_sede_operativa_id: Optional[int] = None
+    data_assunzione: Optional[datetime] = None
+    tipo_contratto: Optional[str] = None
+    ccnl: Optional[str] = None
+    mansione: Optional[str] = None
+    livello_inquadramento: Optional[str] = None
+    note: Optional[str] = None
+    attivo: bool = True
+    project_ids: List[int] = Field(default_factory=list)
+
+
+class AllievoCreate(AllievoBase):
+    pass
+
+
+class AllievoUpdate(BaseModel):
+    nome: Optional[str] = Field(None, min_length=1, max_length=100)
+    cognome: Optional[str] = Field(None, min_length=1, max_length=100)
+    codice_fiscale: Optional[str] = Field(None, max_length=16)
+    luogo_nascita: Optional[str] = None
+    data_nascita: Optional[datetime] = None
+    telefono: Optional[str] = None
+    email: Optional[str] = None
+    residenza: Optional[str] = None
+    cap: Optional[str] = None
+    citta: Optional[str] = None
+    provincia: Optional[str] = None
+    occupato: Optional[bool] = None
+    azienda_cliente_id: Optional[int] = None
+    azienda_sede_operativa_id: Optional[int] = None
+    data_assunzione: Optional[datetime] = None
+    tipo_contratto: Optional[str] = None
+    ccnl: Optional[str] = None
+    mansione: Optional[str] = None
+    livello_inquadramento: Optional[str] = None
+    note: Optional[str] = None
+    attivo: Optional[bool] = None
+    project_ids: Optional[List[int]] = None
+
+
+class AllievoOut(AllievoBase):
+    id: int
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 # ─────────────────────────────────────────────
 # BLOCCO 3 — CATALOGO + LISTINI
 # ─────────────────────────────────────────────
@@ -1889,3 +1971,34 @@ class PianoFinanziario(PianoFinanziarioBase):
 
 class PianoFinanziarioWithVoci(PianoFinanziario):
     voci: List[VocePianoFinanziario] = []
+
+
+# ---- Email Inbox ----
+
+class EmailInboxItemOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    message_id: str
+    received_at: datetime
+    sender_email: str
+    subject: Optional[str] = None
+    entity_type: Optional[str] = None
+    entity_id: Optional[int] = None
+    attachment_name: Optional[str] = None
+    processing_status: str
+    reply_sent: bool
+    reply_sent_at: Optional[datetime] = None
+    error_message: Optional[str] = None
+    created_at: datetime
+
+
+class EmailInboxListResponse(BaseModel):
+    items: List[EmailInboxItemOut]
+    total: int
+
+
+class EmailInboxStatusResponse(BaseModel):
+    running: bool
+    last_poll_at: Optional[str] = None
+    last_error: Optional[str] = None
