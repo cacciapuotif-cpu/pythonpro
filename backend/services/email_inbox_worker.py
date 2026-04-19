@@ -9,6 +9,7 @@ import os
 import threading
 from datetime import datetime, timezone
 from email.header import decode_header
+from email.message import Message
 from pathlib import Path
 from typing import Optional
 
@@ -75,12 +76,12 @@ class EmailInboxWorker:
 
         try:
             imap.select("INBOX")
-            status, data = imap.search(None, "UNSEEN")
+            status, data = imap.search(None, "ALL")
             if status != "OK" or not data or not data[0]:
                 return
 
             msg_ids = data[0].split()
-            logger.info("EmailInboxWorker: %d email non lette trovate", len(msg_ids))
+            logger.info("EmailInboxWorker: %d email trovate in inbox per controllo deduplica", len(msg_ids))
 
             for msg_id in msg_ids:
                 try:
@@ -128,8 +129,46 @@ class EmailInboxWorker:
         attachment_result = handler.extract_and_save(msg, entity_type=entity_type, entity_id=entity_id)
         attachment_path = attachment_result[0] if attachment_result else None
         attachment_name = attachment_result[1] if attachment_result else None
-
         entity_name = _get_entity_name(db, entity_type, entity_id)
+
+        non_pdf_attachment = _find_non_pdf_attachment(msg)
+        if non_pdf_attachment:
+            unsupported_name, unsupported_content_type = non_pdf_attachment
+            issues = [
+                "Accettiamo documenti solo in formato PDF.",
+                f"L'allegato ricevuto ('{unsupported_name}') non e' un PDF ({unsupported_content_type or 'tipo sconosciuto'}).",
+                "Reinvia il documento allegando un file PDF.",
+            ]
+            composer = InboxReplyComposer()
+            reply_sent = composer.send_reply(
+                to=sender_email,
+                recipient_name=entity_name,
+                issues=issues,
+                original_subject=subject,
+            )
+            self._save_record(
+                db,
+                message_id=message_id,
+                received_at=received_at,
+                sender_email=sender_email,
+                subject=subject,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                attachment_path=None,
+                attachment_name=unsupported_name,
+                processing_status="invalid",
+                llm_result={
+                    "raw_llm_output": None,
+                    "valid": False,
+                    "doc_type": "unsupported_attachment",
+                    "issues": issues,
+                    "extracted_data": {},
+                },
+                reply_sent=reply_sent,
+            )
+            imap.store(msg_id, "+FLAGS", "\\Seen")
+            return
+
         intake_agent = DocumentIntakeAgent()
         expected_doc_type = intake_agent.infer_expected_doc_type(
             db,
@@ -270,6 +309,18 @@ def _decode_header_str(header: str) -> str:
         else:
             result.append(str(part))
     return "".join(result)
+
+
+def _find_non_pdf_attachment(msg: Message) -> Optional[tuple[str, str]]:
+    for part in msg.walk():
+        disposition = (part.get_content_disposition() or "").lower()
+        if disposition != "attachment":
+            continue
+        filename = part.get_filename() or "allegato"
+        content_type = (part.get_content_type() or "").lower()
+        if content_type != "application/pdf":
+            return filename, content_type
+    return None
 
 
 def _get_entity_name(db, entity_type: Optional[str], entity_id: Optional[int]) -> str:

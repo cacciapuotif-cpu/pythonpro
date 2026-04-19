@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  downloadCurriculumFile,
+  downloadDocumentoIdentitaFile,
   getDocumentiCollaboratore,
   getDocumentiMancantiCollaboratore,
   rifiutaDocumentoRichiesto,
@@ -235,6 +237,92 @@ export default function DocumentiCollaboratore({ collaboratore_id, currentUser, 
     }
   };
 
+  const getDownloadConfig = (doc) => {
+    if (!doc?.file_name) {
+      return null;
+    }
+    if (doc.tipo_documento === 'documento_identita') {
+      return {
+        label: 'documento',
+        request: () => downloadDocumentoIdentitaFile(collaboratore_id),
+      };
+    }
+    if (doc.tipo_documento === 'curriculum') {
+      return {
+        label: 'curriculum',
+        request: () => downloadCurriculumFile(collaboratore_id),
+      };
+    }
+    return null;
+  };
+
+  const handleDownload = async (doc) => {
+    const config = getDownloadConfig(doc);
+    if (!config) {
+      setError('Download disponibile solo per documento identita e curriculum.');
+      return;
+    }
+    clearMessages();
+    setBusyDocId(doc.id);
+    try {
+      const response = await config.request();
+      const blob = new Blob([response.data]);
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', doc.file_name || `${config.label}_${doc.id}`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err?.response?.data?.detail || `Errore nel download del ${config.label}`);
+    } finally {
+      setBusyDocId(null);
+    }
+  };
+
+  const handlePreview = async (doc) => {
+    const config = getDownloadConfig(doc);
+    if (!config) {
+      setError('Anteprima disponibile solo per documento identita e curriculum.');
+      return;
+    }
+    const previewWindow = window.open('', '_blank');
+    clearMessages();
+    setBusyDocId(doc.id);
+    try {
+      const response = await config.request();
+      const extension = (doc.file_name || '').split('.').pop()?.toLowerCase();
+      const fallbackType = extension === 'pdf'
+        ? 'application/pdf'
+        : ['jpg', 'jpeg'].includes(extension)
+          ? 'image/jpeg'
+          : extension === 'png'
+            ? 'image/png'
+            : 'application/octet-stream';
+      const headerType = response.headers?.['content-type'];
+      const contentType = !headerType || headerType === 'application/octet-stream'
+        ? fallbackType
+        : headerType;
+      const blob = new Blob([response.data], { type: contentType });
+      const url = window.URL.createObjectURL(blob);
+      if (previewWindow) {
+        previewWindow.location.href = url;
+      } else {
+        window.open(url, '_blank', 'noopener,noreferrer');
+      }
+      window.setTimeout(() => window.URL.revokeObjectURL(url), 60000);
+    } catch (err) {
+      if (previewWindow && !previewWindow.closed) {
+        previewWindow.close();
+      }
+      setError(err?.response?.data?.detail || `Errore nell'anteprima del ${config.label}`);
+    } finally {
+      setBusyDocId(null);
+    }
+  };
+
   return (
     <section style={wrapStyle}>
       <div style={headerStyle}>
@@ -300,6 +388,7 @@ export default function DocumentiCollaboratore({ collaboratore_id, currentUser, 
               const expiry = getExpiryMeta(doc.data_scadenza);
               const showWarning = expiry.level === 'warning' || expiry.level === 'danger';
               const busy = busyDocId === doc.id;
+              const canOpenExistingFile = Boolean(getDownloadConfig(doc));
               return (
                 <tr key={doc.id}>
                   <td style={cellStyle}>
@@ -344,6 +433,26 @@ export default function DocumentiCollaboratore({ collaboratore_id, currentUser, 
                           }}
                         />
                       </label>
+                      {canOpenExistingFile ? (
+                        <>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => handlePreview(doc)}
+                            style={{ ...buttonStyle, background: '#eef2ff', color: '#3730a3' }}
+                          >
+                            Anteprima
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => handleDownload(doc)}
+                            style={{ ...buttonStyle, background: '#f8fafc', color: '#0f172a' }}
+                          >
+                            Scarica
+                          </button>
+                        </>
+                      ) : null}
                       {isOperatore ? (
                         <>
                           <button

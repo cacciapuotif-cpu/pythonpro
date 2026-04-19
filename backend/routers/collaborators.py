@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime
+from mimetypes import guess_type
 import logging
 
 import crud
@@ -91,6 +92,18 @@ def read_collaborators(
     collaborators = crud.get_collaborators(db, skip=skip, limit=limit, is_active=True if active_only else None)
     logger.info(f"Totale collaboratori restituiti: {len(collaborators)}")
     return collaborators
+
+
+@router.get("/count")
+def read_collaborators_count(
+    search: Optional[str] = Query(None, description="Ricerca su nome, cognome o email"),
+    is_active: Optional[bool] = Query(None, description="Filtro stato attivo"),
+    db: Session = Depends(get_db)
+):
+    """OTTIENI IL CONTEGGIO DEI COLLABORATORI con filtri opzionali."""
+    return {
+        "count": int(crud.get_collaborators_count(db, search=search, is_active=is_active) or 0)
+    }
 
 
 @router.get("/search", response_model_by_alias=False)
@@ -461,11 +474,12 @@ async def download_documento_identita(
         raise HTTPException(status_code=404, detail="Nessun documento identità caricato")
 
     file_path = get_file_path(collaborator.documento_identita_path)
+    media_type = guess_type(collaborator.documento_identita_filename or str(file_path))[0] or "application/octet-stream"
 
     return FileResponse(
         path=file_path,
         filename=collaborator.documento_identita_filename,
-        media_type="application/octet-stream"
+        media_type=media_type
     )
 
 
@@ -485,11 +499,12 @@ async def download_curriculum(
         raise HTTPException(status_code=404, detail="Nessun curriculum caricato")
 
     file_path = get_file_path(collaborator.curriculum_path)
+    media_type = guess_type(collaborator.curriculum_filename or str(file_path))[0] or "application/octet-stream"
 
     return FileResponse(
         path=file_path,
         filename=collaborator.curriculum_filename,
-        media_type="application/octet-stream"
+        media_type=media_type
     )
 
 

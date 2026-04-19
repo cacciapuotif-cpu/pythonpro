@@ -378,6 +378,7 @@ const CollaboratorsTable = ({
           canDelete={canDeleteCollaborators}
           onEdit={onEdit}
           onDelete={onDelete}
+          onOpenDocuments={onOpenDocuments}
           onOpenAssignmentModal={onOpenAssignmentModal}
           onAssignProject={onAssignProject}
           onRemoveProject={onRemoveProject}

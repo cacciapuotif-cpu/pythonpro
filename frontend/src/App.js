@@ -11,6 +11,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Calendar from './components/Calendar';
 import CollaboratorManager from './components/CollaboratorManager';
+import AllieviManager from './components/AllieviManager';
 import ProjectManager from './components/ProjectManager';
 import AziendeClientiManager from './components/AziendeClientiManager';
 import CatalogoManager from './components/CatalogoManager';
@@ -27,6 +28,7 @@ import AgentsManager from './components/AgentsManager';
 import AgentsDashboard from './components/AgentsDashboard';
 import AgentSuggestionsReview from './components/AgentSuggestionsReview';
 import apiService, { healthCheck } from './services/apiService';
+import { ensureValidAccessToken } from './lib/http';
 import './App.css';
 
 const ACCESS_PROFILES = {
@@ -66,6 +68,7 @@ const SECTION_CONFIG = [
   { id: 'timesheet',         label: 'Timesheet',      icon: '⏱️', group: null,           title: 'Timesheet delle ore lavorate',       breadcrumb: '⏱️ Timesheet',             roles: ['admin', 'user', 'manager'] },
   { id: 'documenti-mancanti', label: 'Documenti',     icon: '📑', group: 'Reportistica', title: 'Documenti mancanti o in scadenza',    breadcrumb: '📑 Documenti Mancanti',    roles: ['admin', 'user', 'manager'] },
   { id: 'collaborators',     label: 'Collaboratori',  icon: '👥', group: 'Persone',      title: 'Gestione collaboratori',             breadcrumb: '👥 Collaboratori',         roles: ['admin', 'user', 'manager'] },
+  { id: 'allievi',           label: 'Allievi',        icon: '🎓', group: null,           title: 'Gestione allievi',                   breadcrumb: '🎓 Allievi',               roles: ['admin', 'user', 'manager'] },
   { id: 'projects',          label: 'Progetti',       icon: '📁', group: null,           title: 'Progetti formativi',                 breadcrumb: '📁 Progetti',              roles: ['admin', 'user', 'manager'] },
   { id: 'aziende-clienti',   label: 'Aziende',        icon: '🏭', group: 'Commerciale',  title: 'Aziende clienti',                    breadcrumb: '🏭 Aziende Clienti',       roles: ['admin', 'user', 'manager'] },
   { id: 'catalogo',          label: 'Catalogo',       icon: '📦', group: null,           title: 'Catalogo prodotti e servizi',        breadcrumb: '📦 Catalogo',              roles: ['admin', 'user', 'manager'] },
@@ -172,8 +175,8 @@ function App() {
    * Si esegue una sola volta quando l'app si carica
    */
   const restoreSession = useCallback(async () => {
-    const existingToken = localStorage.getItem('access_token');
-    if (!existingToken) {
+    const validToken = await ensureValidAccessToken();
+    if (!validToken) {
       setCurrentUser(null);
       return;
     }
@@ -315,6 +318,9 @@ function App() {
 
       case 'collaborators':
         return <CollaboratorManager currentUser={currentUser} />;
+
+      case 'allievi':
+        return <AllieviManager currentUser={currentUser} />;
 
       case 'projects':
         return <ProjectManager currentUser={currentUser} />;

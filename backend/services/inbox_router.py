@@ -31,18 +31,20 @@ class InboxRouter:
                 logger.debug("InboxRouter: %s -> collaborator %s", sender_email, row[0])
                 return "collaborator", row[0]
         except Exception as exc:
+            self.db.rollback()
             logger.warning("InboxRouter: query collaborators fallita: %s", exc)
 
         # Cerca negli allievi
         try:
             row = self.db.execute(
-                text("SELECT id FROM allievi WHERE lower(email) = :email AND is_active = true LIMIT 1"),
+                text("SELECT id FROM allievi WHERE lower(email) = :email AND attivo = true LIMIT 1"),
                 {"email": normalized}
             ).fetchone()
             if row:
                 logger.debug("InboxRouter: %s -> allievo %s", sender_email, row[0])
                 return "allievo", row[0]
         except Exception as exc:
+            self.db.rollback()
             logger.warning("InboxRouter: query allievi fallita: %s", exc)
 
         # Cerca nelle aziende clienti
@@ -68,6 +70,7 @@ class InboxRouter:
                 logger.debug("InboxRouter: %s -> azienda_cliente %s", sender_email, row[0])
                 return "azienda_cliente", row[0]
         except Exception as exc:
+            self.db.rollback()
             logger.warning("InboxRouter: query aziende_clienti fallita: %s", exc)
 
         logger.info("InboxRouter: mittente sconosciuto %s, ignorato", sender_email)

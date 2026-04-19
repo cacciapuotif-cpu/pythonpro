@@ -13,10 +13,6 @@ logger = logging.getLogger(__name__)
 
 ALLOWED_CONTENT_TYPES = {
     "application/pdf",
-    "image/jpeg",
-    "image/png",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "application/msword",
 }
 
 DEFAULT_MAX_BYTES = int(os.getenv("MAX_ATTACHMENT_MB", "10")) * 1024 * 1024
@@ -43,14 +39,15 @@ class AttachmentHandler:
         Restituisce (path_assoluto, nome_file_originale) o None.
         """
         for part in msg.walk():
-            if part.get_content_disposition() != "attachment":
+            disposition = part.get_content_disposition() or ""
+            content_type = (part.get_content_type() or "").lower()
+            if disposition != "attachment":
                 continue
 
             filename = part.get_filename()
             if not filename:
                 continue
 
-            content_type = (part.get_content_type() or "").lower()
             if content_type not in ALLOWED_CONTENT_TYPES:
                 logger.info("AttachmentHandler: tipo %s non supportato, skip", content_type)
                 continue

@@ -70,7 +70,6 @@ class TestCollaboratorsInMemory:
         assert data["first_name"] == "Mario"
         assert "id" in data
         assert "created_at" in data
-        return data["id"]
 
     def test_create_collaborator_duplicate_email(self):
         """Test POST /api/v1/collaborators con email duplicata"""

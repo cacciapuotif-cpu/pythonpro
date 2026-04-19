@@ -26,6 +26,7 @@ from . import (
     piani_fondimpresa,
     avvisi,
     agents,
+    whatsapp,
 )
 
 __all__ = [
@@ -51,4 +52,5 @@ __all__ = [
     "piani_fondimpresa",
     "avvisi",
     "agents",
+    "whatsapp",
 ]

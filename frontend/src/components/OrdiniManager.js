@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { getOrdini, updateOrdine } from '../services/apiService';
+import { deleteOrdine, getOrdini, updateOrdine } from '../services/apiService';
 import './OrdiniManager.css';
 
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString('it-IT') : '—';
@@ -53,6 +53,20 @@ export default function OrdiniManager() {
       toast(`Ordine aggiornato: ${STATO_CONFIG[nuovoStato]?.label}`);
       load();
     } catch (e) { toast(e?.response?.data?.detail || 'Errore', 'error'); }
+  };
+
+  const handleDelete = async (ordineId) => {
+    if (!window.confirm('Sei sicuro di voler annullare questo ordine?')) {
+      return;
+    }
+
+    try {
+      await deleteOrdine(ordineId);
+      toast('Ordine annullato');
+      load();
+    } catch (e) {
+      toast(e?.response?.data?.detail || 'Errore annullamento ordine', 'error');
+    }
   };
 
   const pages = Math.ceil(total / filters.limit) || 1;
@@ -121,7 +135,7 @@ export default function OrdiniManager() {
                       )}
                       {o.stato === 'in_lavorazione' && (
                         <button className="btn-sm btn-danger"
-                          onClick={() => handleUpdateStato(o, 'annullato')}>Annulla</button>
+                          onClick={() => handleDelete(o.id)}>Annulla</button>
                       )}
                     </div>
                   </td>

@@ -16,7 +16,10 @@ import os
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://admin:password123@db:5432/gestionale')
+DATABASE_URL = os.getenv('DATABASE_URL')
+if not DATABASE_URL:
+    logger.error("DATABASE_URL non configurata. Impossibile avviare init_db.")
+    sys.exit(1)
 MAX_RETRIES = 30
 RETRY_INTERVAL = 2
 

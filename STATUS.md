@@ -1,5 +1,1445 @@
 # PythonPro — Status & Development Context
-_Ultimo aggiornamento: 2026-04-04_
+_Ultimo aggiornamento: 2026-04-19_
+
+---
+
+## SESSIONE 2026-04-17 — Email inbox, preview documenti e PDF-only (Codex)
+
+### ✅ Fix: `/agents/run` non fallisce piu' sui run globali
+- **File**: `frontend/src/components/AgentsManager.js`, `backend/routers/agents.py`
+- **Problema**: il frontend inviava `entity_type="global"` e il backend lo rifiutava
+- **Fix**:
+  - frontend normalizza `global` a `null`
+  - backend accetta e normalizza `global|all|""` a `None`
+
+### ✅ UI Agenti riallineata al flusso reale `mail_recovery`
+- **File**: `frontend/src/components/AgentsManager.js`, `AgentsManager.css`
+- Rimossa la confusione tra `data_quality` e `mail_recovery`
+- Le richieste email sono raggruppate per collaboratore
+- Etichette rese piu' chiare:
+  - `Da gestire`
+  - `Rimanda`
+  - `Chiudi senza inviare`
+  - `Invia richiesta ora`
+
+### ✅ Fix: `Analizza tutti` non va piu' in timeout
+- **File**: `backend/ai_agents/mail_recovery.py`, `frontend/src/services/apiService.js`
+- **Problema**: il bulk run invocava il LLM per troppe email e `POST /agents/run` andava oltre timeout
+- **Fix**:
+  - bulk run di `mail_recovery` usa copy deterministico
+  - timeout frontend alzato per `/agents/run`
+
+### ✅ Fix: suggestion duplicate ricreate dopo email gia' inviate
+- **File**: `backend/agent_workflows.py`
+- La deduplica ora considera anche suggestion `sent|approved|followup_due`
+- Risolto il caso reale di Felice Russillo che ricompariva dopo invio gia' eseguito
+
+### ✅ Nuovo flusso inbox email in `/agents`
+- **File**: `backend/routers/email_inbox.py`, `frontend/src/components/AgentsManager.js`, `frontend/src/services/apiService.js`
+- Aggiunti:
+  - lista documenti ricevuti
+  - sezione `Documenti ricevuti da revisionare`
+  - assegnazione manuale a `documento_identita` o `curriculum`
+  - sezione `Documenti ricevuti via email` per visibilita' anche dei casi gia' processati
+
+### ✅ Fix: path/download documenti ricevuti via email
+- **File**: `backend/file_upload.py`
+- Risolto il bug sui path `uploads/email_inbox/...` che venivano cercati come `uploads/uploads/...`
+
+### ✅ Fix: pulsanti `Anteprima` / `Scarica` nel profilo e nel pannello documenti
+- **File**:
+  - `frontend/src/hooks/useDocumentUpload.js`
+  - `frontend/src/components/collaborators/CollaboratorForm.js`
+  - `frontend/src/components/CollaboratorManager.js`
+  - `frontend/src/components/DocumentiCollaboratore.js`
+  - `backend/routers/collaborators.py`
+- Aggiunti pulsanti reali anche nel pannello `Documenti collaboratore`
+- Corretto il `media_type` backend e la logica frontend per evitare download forzato quando si vuole l'anteprima
+
+### ✅ Vincolo nuovo: via email si accettano solo PDF
+- **File**: `backend/services/attachment_handler.py`, `backend/services/email_inbox_worker.py`, `backend/templates/email/richiesta_integrazioni.html`, `backend/templates/email/richiesta_integrazioni.txt`
+- Il worker inbox ora:
+  - accetta solo allegati `application/pdf`
+  - se riceve JPG/PNG/DOC ecc. risponde automaticamente chiedendo il reinvio in PDF
+- Aggiornati anche i testi delle email `mail_recovery` per esplicitare il vincolo PDF
+
+### ✅ Fix critico: inbox agent ora controlla anche mail gia' ricevute/lette
+- **File**: `backend/services/email_inbox_worker.py`
+- Prima il poll cercava solo `UNSEEN`
+- Ora legge `ALL` e deduplica su `Message-ID`
+- Questo ha permesso di recuperare messaggi reali gia' presenti in inbox ma mai importati
+
+### ✅ Fix critico: `InboxRouter` non blocca piu' l'intera scansione inbox
+- **File**: `backend/services/inbox_router.py`
+- **Problema**:
+  - query su `allievi.is_active` non compatibile col DB reale (`attivo`)
+  - una query fallita lasciava la transazione abortita e il worker saltava tutte le mail successive
+- **Fix**:
+  - `allievi.attivo = true`
+  - rollback esplicito dopo query fallite
+
+### ✅ Caso reale verificato: Giuliana Ciccarelli
+- Il poll manuale ha trovato e salvato due PDF reali:
+  - `CV CICCARELLI G 04.25.pdf`
+  - `C.I.GIULIANA CICCARELLI NUOVA2025.pdf`
+- Record inbox creati:
+  - `EmailInboxItem #4` -> CV -> `manual_review`
+  - `EmailInboxItem #5` -> carta identita' -> `manual_review`
+- Il vecchio item `#2` con `image0.jpeg` resta storico, ma il canale corrente ora e' PDF-only
+
+### ✅ Fix UI: non proporre piu' item inbox non assegnabili
+- **File**: `frontend/src/components/AgentsManager.js`
+- La revisione manuale mostra solo item con allegato reale (`attachment_path`)
+- Aggiunti `Anteprima` e `Scarica` direttamente nella sezione inbox di `/agents`
+- Aggiunto endpoint backend dedicato per aprire/scaricare allegato inbox:
+  - `GET /api/v1/email-inbox/items/{id}/attachment`
+
+### ⚠️ Stato aperto: warning "Carica almeno documento identita e curriculum..."
+- Il messaggio nel profilo puo' ancora comparire anche se i PDF sono arrivati in inbox
+- Motivo: finche' il documento inbox resta in `manual_review`, i campi del collaboratore (`documento_identita_path`, `curriculum_path`) non vengono ancora aggiornati
+- Quindi:
+  - file presente in inbox != file gia' assegnato al profilo
+  - il warning sparisce solo dopo assegnazione manuale o auto-intake valido
+
+### ⚠️ Limite noto residuo: lettura automatica scadenza documento
+- Per i PDF arrivati via email il sistema non estrae ancora in modo affidabile la data di scadenza
+- In `manual_review` l'operatore puo' inserire la scadenza manualmente al momento dell'assegnazione
+- Se serve automazione vera, il prossimo passo corretto e' OCR/parsing PDF strutturato per `data_scadenza`
+
+### 🔜 Prossimo step consigliato
+1. Verificare in UI `/agents` l'assegnazione dei due PDF di Giuliana (`#4` curriculum, `#5` documento identita)
+2. Far sparire il warning profilo non appena inbox assignment aggiorna davvero `documento_identita_path/curriculum_path`
+3. Aggiungere estrazione automatica `data_scadenza` dai PDF testuali
+
+---
+
+## SESSIONE 2026-04-17 — Cosa è stato fatto (Claude Code)
+
+### ✅ Bug fix: CORS + 500 su POST /api/v1/agents/run
+- **File**: `backend/routers/agents.py:136`
+- **Problema**: `payload.agent_type` → `AttributeError` perché lo schema `AgentRunRequest` usa `agent_name`
+- **Fix**: cambiato in `payload.agent_name`
+
+### ✅ Redesign completo UI Agenti (AgentsManager)
+- **File**: `frontend/src/components/AgentsManager.js` + `AgentsManager.css`
+- Rimpiazzato layout a pannelli con **3 tab**: "In attesa" | "Esegui analisi" | "Storico"
+- "In attesa": raggruppato in Email da inviare / Email proposte / Bozze pronte, con avatar, nomi reali, chip campi mancanti, anteprima email leggibile
+- "Esegui analisi": card per agente con select collaboratore diretto + bottone "Analizza X"
+- "Storico": log run con nomi reali
+- Eliminati: raw JSON payload visibile, doppio step approva→segna inviata, jargon tecnico
+- Pulsante "Invia email ora" chiama direttamente `approve_email` workflow (invio SMTP reale)
+
+### ✅ Bug fix: SMTP non inviava
+- **File**: `backend/agent_workflows.py:_send_email`
+- `os.getenv("SMTP_SERVER")` → `os.getenv("SMTP_HOST") or os.getenv("SMTP_SERVER")`
+- `os.getenv("EMAIL_FROM")` → `os.getenv("SMTP_FROM") or os.getenv("EMAIL_FROM")`
+- **Risultato**: email da `assistentegestionale@gmail.com` arriva davvero ai collaboratori
+
+### ✅ Fix: worker IMAP non partiva
+- **File**: `docker-compose.yml` — sezione `arq_worker`
+- Mancavano tutte le env var email: `GMAIL_IMAP_USER`, `GMAIL_IMAP_APP_PASSWORD`, `SMTP_*`, `ENABLE_EMAIL`
+- Aggiunto anche `backend_uploads:/app/uploads` al worker (condivisione file allegati)
+- **Risultato**: worker ora autentica Gmail IMAP, polling ogni 5 min attivo
+
+### ✅ Fix: allegati inline (foto da iPhone/Gmail app) ignorati
+- **File**: `backend/services/attachment_handler.py`
+- Il worker scartava immagini con `Content-Disposition: inline` (tipico invio da mobile)
+- Fix: accetta anche `inline` per `image/jpeg` e `image/png`, assegna nome file automatico se mancante
+- **Test**: email di Giuliana Ciccarelli processata correttamente, file salvato in `uploads/email_inbox/collaborator/3/`
+
+### ✅ Fix: duplicati massivi in coda agenti (463 suggestion → 27)
+- **Causa**: agente eseguito più volte in test, ogni run creava nuove suggestion senza chiudere le precedenti
+- **DB cleanup** (eseguito): per ogni collaboratore+tipo conservata solo l'ultima suggestion; chiuse tutte quelle di collaboratori `is_active=false` (Mario Rossi × 9 record test)
+- **Fix permanente** `backend/agent_workflows.py:run_agent_workflow`: prima di creare una suggestion cerca se esiste già una aperta per stesso `entity_id+suggestion_type`; se sì la aggiorna invece di creare duplicato. Stesso per le bozze (`AgentCommunicationDraft`)
+
+### ✅ Bug fix: bottone 📄 documenti collaboratori crashava
+- **File**: `frontend/src/components/collaborators/CollaboratorsTable.js:382`
+- `onOpenDocuments` non veniva passato a `ListView` → `u is not a function`
+- Fix: aggiunto `onOpenDocuments={onOpenDocuments}` nel JSX di `ListView`
+
+### 📋 Stato corrente DB agenti (post-cleanup)
+- Suggestion aperte: **27** (19 collaboratori distinti con documenti mancanti reali)
+- Bozze aperte: **16**
+- Mario Rossi e collaboratori `is_active=false`: tutti chiusi
+- Worker IMAP: attivo, polling ogni 5 min su `assistentegestionale@gmail.com`
+
+### ⚠️ Limite noto: validazione automatica documenti
+- Il LLM (Ollama locale) non riesce ad analizzare le immagini JPEG ricevute via email in modo affidabile
+- I documenti arrivano in stato `manual_review` (salvati su disco, record `documenti_richiesti` creato, ma i campi del collaboratore non aggiornati automaticamente)
+- **Manca**: UI per revisione manuale inbox email → operatore vede il documento e lo approva con un click
+- Workaround attuale: aggiornamento manuale da DB o da scheda collaboratore
+
+### 🔜 Prossimo step consigliato
+1. **UI revisione inbox email** (`/agents` tab "In attesa" → sezione "Documenti ricevuti da revisionare") — mostra `email_inbox_items` con `processing_status='manual_review'`, anteprima immagine, bottone "Assegna come documento_identita / curriculum"
+2. **Test end-to-end** con un altro collaboratore reale per validare il flusso completo
+3. Riprendere roadmap **C2-C5** (Alembic/DB integrity) sospesa dalla sessione precedente
+
+---
+
+## PROSSIMA SESSIONE — Cosa fare subito
+
+### Audit di sicurezza completato (2026-04-16)
+Tutti i bug critici e importanti trovati nell'audit sono stati corretti:
+
+| Fix | File | Dettaglio |
+|-----|------|-----------|
+| A1 — CORS wildcard | `main.py` | `allow_origins=["*"]` → legge `CORS_ALLOWED_ORIGINS` env var |
+| A2+F5 — SECRET_KEY | `auth.py` | Fail-fast se vuota o usa default noti; rimosso fallback debole |
+| A4+F4 — Credenziali hardcoded | `alembic/env.py`, `init_db.py` | Rimossi fallback con password `password123`; sys.exit se non configurato |
+| A5 — EmailInboxWorker duplicato | `arq_worker.py`, `main.py` | Worker spostato in arq_worker come cron job ogni 5 min; rimosso da startup_event |
+| B1+B2+F2+F3 — Redis password | `auth.py`, `cache.py` | Aggiunta password Redis; `cache.py` ora usa `REDIS_URL` o la costruisce dai componenti |
+| B6 — Security middleware disabilitati | `request_middleware.py` | Riabilitati SecurityHeaders, RequestValidation, RateLimiting, RequestTracking |
+| F6+F7 — bare except + test endpoint | `auth.py`, `main.py` | `except:` → `except redis.RedisError`; rimosso `/test-post` non autenticato |
+| .env.example | `.env.example` | SECRET_KEY marcata obbligatoria, aggiunta REDIS_URL, CORS_ALLOWED_ORIGINS, GMAIL config |
+
+**Stato produzione dopo l'audit**: il sistema è pronto per il deploy se si configurano correttamente le env var (SECRET_KEY, REDIS_PASSWORD, CORS_ALLOWED_ORIGINS). Vedere checklist in `.env.example`.
+
+### Step 0 — immediato (5 min)
+1. **Consolidare il lavoro Email Agent già presente nel worktree `main`**
+   - il branch reale è `feature/email-agent` in `.worktrees/email-agent`
+   - il worktree `main` e' sporco e contiene gia' file Email Agent come modifiche locali/untracked
+   - prima di fare merge/cherry-pick bisogna confrontare e committare in modo intenzionale, evitando di sovrascrivere modifiche locali su `backend/main.py`, `docker-compose.yml`, `backend/models.py`, `backend/schemas.py`, `backend/requirements.txt`
+
+2. **Configurare Gmail IMAP** nel `.env` per attivare il worker reale:
+   ```
+   GMAIL_IMAP_USER=inbox@tuodominio.com
+   GMAIL_IMAP_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
+   ```
+
+3. **Configurare bootstrap utenti** nel `.env` se si vogliono creare admin/operator all'avvio:
+   ```
+   ADMIN_DEFAULT_PASSWORD=una-password-sicura
+   OPERATOR_DEFAULT_PASSWORD=una-password-sicura
+   ```
+
+### Step 1 — sicurezza (da fare prima di tutto il resto)
+- **C1**: completato il fix base: password bootstrap spostate da hardcoded a env vars in `backend/main.py`; resta da decidere se mantenere anche il bootstrap automatico dell'utente `operatore`
+
+### Step 2 — stabilità DB (fare in ordine)
+- **C2**: `alembic heads` → se > 1, collegare rami orfani
+- **C3**: `ensure_runtime_schema_updates()` — 250 righe di ALTER TABLE che bypassano Alembic → convertire in migrazioni
+
+---
+
+## SESSIONE 2026-04-19 — Plugin Caveman su Codex
+
+### ✅ Caveman abilitato anche in PythonPro
+- **File**:
+  - `.agents/plugins/marketplace.json`
+  - `.codex/config.toml`
+  - `.codex/hooks.json`
+  - `plugins/caveman/...`
+- **Risultato**:
+  - `Caveman` compare nel marketplace locale del progetto
+  - il plugin puo' essere installato dentro Codex quando aperto nella root di `pythonpro`
+  - auto-start attivo su `SessionStart` anche in `pythonpro`
+- **C4**: FK errata `template_piano_finanziario_id` → correggere modello + nuova migrazione
+- **C5**: test deploy fresh su DB vuoto dopo C2-C4
+
+### Step 3 — epic funzionale prioritario
+- **Epic 1: Workflow Documentale Collaboratore** (si aggancia all'Email Agent già fatto)
+  - vedi sezione ROADMAP qui sotto
+
+---
+
+## ROADMAP COMPLETA
+
+### 🔴 Fase 1 — Critici di sicurezza/integrità DB
+
+| ID | Problema | File | Effort |
+|----|----------|------|--------|
+| C1 | Password `admin123` hardcoded | `backend/main.py` | S (1-2h) |
+| C2 | Catena migrazioni Alembic da verificare (`alembic heads`) | `backend/alembic/` | M (2-4h) |
+| C3 | `ensure_runtime_schema_updates()` bypassa Alembic con 250 ALTER TABLE | `backend/main.py` | L (1-2gg) |
+| C4 | FK errata `template_piano_finanziario_id` punta a `contract_templates` | `backend/models.py` | M (4-6h) |
+| C5 | Test deploy fresh su DB vuoto (validazione C2+C3+C4) | CI/CD | M (4-6h) |
+
+### 🟡 Fase 2 — Importanti
+
+| ID | Problema | Effort |
+|----|----------|--------|
+| I1 | 3 sistemi paralleli su `Project` (testo + avviso_id + avviso_pf_id) non sincronizzati | L (2-3gg) |
+| I2 | `progress_percentage` non si aggiorna automaticamente su presenza | M (1g) |
+| I3 | `limit=10000` hardcoded nel report timesheet | S (2-4h) |
+| I4 | Nessun endpoint DELETE per Ordine (soft-delete mancante) | S (1-2h) |
+| I5 | `QueryCache` in-process inutile con multi-worker → rimuovere o migrare su Redis | M (1g) |
+
+### 🟢 Fase 3 — Epic funzionali (ordine consigliato)
+
+**Epic 1 — Workflow Documentale Collaboratore** *(priorità massima — si aggancia all'Email Agent)*
+- Tabella requisiti documentali (per fondo/avviso/ruolo/ente)
+- Servizio checklist: calcola documenti obbligatori per collaboratore
+- Task types dedicati: `missing_required_document`, `expired_required_document`
+- Sezione checklist nel frontend (dettaglio collaboratore)
+- Chiusura automatica task quando email con allegato valido arriva (hook su `EmailInboxItem`)
+- KPI dashboard: pratiche aperte/scadute/risolte
+
+**Epic 2 — Motore Regole e Integrità**
+- Layer `backend/business_rules/` con controlli centralizzati (presenze, assegnazioni, documenti, piani)
+- Constraint DB aggiuntivi (unique, check, locking su punti concorrenti)
+- Test unit + integrazione su casi di conflitto e regressione
+
+**Epic 3 — Rendicontazione Assistita**
+- Motore scostamenti: preventivo vs consuntivo, ore previste vs effettive
+- Alert operativi (costo fuori soglia, ore eccedenti, presenza senza giustificativo)
+- Task agentici di correzione (proposta riallocazione, richiesta documento)
+
+**Epic 4 — Workflow Engine e Canali Outbound**
+- Stati workflow unificati (task/communication/reminder/outcome)
+- Delivery tracking: `queued → sent → delivered → failed → retry_scheduled`
+- **WhatsApp Agent reale** — design spec: `docs/superpowers/specs/` (da scrivere), implementazione da fare
+- Retry policy con backoff, max attempt, escalation operatore
+
+**Epic 5 — Agenti Autonomi Governati**
+- Eventi di dominio standardizzati (`collaborator.created`, `document.uploaded`, ecc.)
+- Policy di autonomia (azioni con/senza approvazione)
+- Telemetria agenti (successo, tempo chiusura, falsi positivi)
+- Agente rendicontazione + agente document intelligence
+
+### Miglioramenti trasversali (quando opportuno)
+- M1: `CORS_ALLOWED_ORIGINS` da env var
+- M2: Pulizia ~23 funzioni CRUD non esposte (decidere: esporre o rimuovere)
+- M3-M4: Unificare campi duplicati su `AgentRun`/`AgentSuggestion`
+- M5: `UniqueConstraint` su `Attendance` a livello DB
+- M6: Collegare `Ordine → Progetto` nel frontend
+- **React Native App** — solo brainstorming fatto, nessuna implementazione
+
+---
+
+## STATO SISTEMA ATTUALE (2026-04-10 sera)
+
+### Container Docker
+| Servizio | Stato |
+|----------|-------|
+| backend | ✅ Up (porta 8001) |
+| frontend | ✅ Up (porta 3001) |
+| db (postgres) | ✅ Up (porta 5434) |
+| redis | ✅ Up (porta 6381) |
+| arq_worker | ✅ Up |
+| backup_scheduler | ✅ Up |
+
+### Branch git in sospeso
+- `feature/email-agent` — worktree in `.worktrees/email-agent`
+- merge su `main` **non ancora chiuso**: il worktree principale contiene gia' modifiche locali sovrapposte, quindi serve consolidamento manuale prima del commit finale
+
+### Test suite
+- `tests/test_email_agent.py`: **17/17 ✅** (AttachmentHandler, InboxRouter, DocumentProcessor, InboxReplyComposer, EmailInboxWorker)
+- suite legacy backend: 100 passed, 2 skipped
+
+---
+
+## Sessione 2026-04-11 — Fix sicurezza bootstrap utenti + ricognizione merge Email Agent
+
+### Fix applicato
+- rimossa la password hardcoded `admin123` da `backend/main.py`
+- introdotte `ADMIN_DEFAULT_PASSWORD` e `OPERATOR_DEFAULT_PASSWORD` lette da environment
+- la creazione automatica degli utenti bootstrap avviene solo se le variabili sono valorizzate
+- aggiornati `.env.example` e `docker-compose.yml` per esporre le nuove env vars
+- verifica eseguita: `python3 -m py_compile backend/main.py` ✅
+
+### Stato reale del merge Email Agent
+- il branch esiste come `feature/email-agent` nella worktree `.worktrees/email-agent`
+- molti file del branch Email Agent sono gia' presenti nel worktree `main` come modifiche locali/untracked
+- un merge diretto adesso rischia conflitti inutili e potenziale sovrascrittura di lavoro locale
+- prima azione corretta nella prossima sessione: confrontare i file gia' presenti su `main`, aggiungerli in modo intenzionale e solo dopo decidere se chiudere con merge o con commit diretto
+
+### Consolidamento completato in questa sessione
+- verificato che gran parte dei file Email Agent nel worktree `main` coincidono gia' byte-per-byte col branch `feature/email-agent`
+- reintegrati nel worktree principale i pezzi mancanti del pacchetto Email Agent:
+  - `EmailInboxItem` in `backend/models.py`
+  - `pdfplumber` in `backend/requirements.txt`
+  - env `GMAIL_IMAP_USER`, `GMAIL_IMAP_APP_PASSWORD`, `INBOX_POLL_INTERVAL_SECONDS`, `MAX_ATTACHMENT_MB` in `docker-compose.yml`
+  - template email `backend/templates/email/richiesta_integrazioni.html` e `.txt`
+- verifica sintattica eseguita con `python3 -m py_compile` sui file principali del pacchetto Email Agent + `backend/main.py` e `backend/models.py` ✅
+
+### Stato residuo
+- il contenuto Email Agent ora e' sostanzialmente consolidato anche nel worktree `main`
+- non e' ancora stato creato un commit finale: il repository resta sporco con molte altre modifiche locali, quindi il prossimo passo corretto e' selezionare lo scope del commit prima di fare `git add/commit`
+
+### Estensione completata nella stessa sessione: agente intake documentale
+- aggiunto `backend/services/document_intake_agent.py`
+- il flusso email ora:
+  - riconosce il tipo documento atteso da subject/nome file o da `documenti_richiesti`
+  - valida il documento via `DocumentProcessor`
+  - estrae dati strutturati dal risultato LLM
+  - aggiorna/crea `DocumentoRichiesto`
+  - sincronizza i campi del collaboratore quando il documento e' valido
+- casi coperti:
+  - `curriculum` -> aggiorna `curriculum_path`, `curriculum_filename`, `curriculum_uploaded_at` e, se mancanti, campi profilo/skills/titolo studio
+  - `documento_identita` -> aggiorna path/file/upload/scadenza e lo stato del documento richiesto
+  - documenti invalidi -> stato `rifiutato` con note automatiche
+  - casi incerti o senza allegato persistito -> `manual_review`
+- `email_inbox_worker.py` salva anche nel payload audit dell'email:
+  - esito validazione
+  - dati estratti
+  - outcome applicativo dell'intake agent
+- test aggiornati: `docker compose exec backend python -m pytest -q /app/tests/test_email_agent.py` -> `20 passed`
+
+### Estensione successiva nella stessa sessione: documenti aziendali / visura camerale
+- `InboxRouter` ora instrada anche `azienda_cliente` usando `email`, `pec`, `referente_email`, `legale_rappresentante_email`
+- `DocumentIntakeAgent` riconosce `visura_camerale` da subject/nome file e, per email aziendali, la tratta come default
+- da `visura camerale` l'agente aggiorna i dati azienda in `aziende_clienti`, inclusi:
+  - `ragione_sociale`
+  - `partita_iva`
+  - `codice_fiscale`
+  - `settore_ateco`
+  - sede legale (`indirizzo`, `citta`, `cap`, `provincia`)
+  - contatti (`pec`, `email`, `telefono`)
+  - dati legale rappresentante
+  - `attivita_erogate` / oggetto sociale
+- `DocumentProcessor` ha ora hint di estrazione specifici per `visura_camerale`, `curriculum`, `documento_identita`
+- test aggiornati di nuovo: `docker compose exec backend python -m pytest -q /app/tests/test_email_agent.py` -> `22 passed`
+
+### Generalizzazione successiva nella stessa sessione: catalogo documentale utile
+- `DocumentIntakeAgent` non e' piu' limitato a pochi casi hardcoded: ora usa un catalogo documenti con alias e hint filename/subject
+- tipologie gia' coperte nel catalogo:
+  - `curriculum`
+  - `documento_identita`
+  - `visura_camerale`
+  - `durc`
+  - `certificato_attribuzione_partita_iva`
+  - `statuto`
+  - `atto_costitutivo`
+  - fallback `documento_generico`
+- per i documenti aziendali non ancora mappati in campi strutturati completi, l'agente salva comunque audit strutturato dentro `note` azienda con prefisso `[doc_type]`, cosi' i dati estratti restano disponibili al gestionale anche prima di aggiungere mapping dedicati
+- `DocumentProcessor` ha ricevuto hint LLM aggiuntivi anche per `durc`, `certificato_attribuzione_partita_iva`, `statuto`, `atto_costitutivo`
+- nuova verifica: `docker compose exec backend python -m pytest -q /app/tests/test_email_agent.py` -> `24 passed`
+
+### Raffinamento finale della sessione: mapping strutturati aziendali ampliati
+- aggiunti mapping strutturati non solo per `visura_camerale`, ma anche per:
+  - `certificato_attribuzione_partita_iva`
+  - `statuto`
+  - `atto_costitutivo`
+  - `durc`
+- ora i documenti aziendali principali aggiornano in modo piu' diretto i campi di `aziende_clienti` invece di finire solo nelle note
+- le `note` restano comunque come audit trail arricchito per i dati estratti non ancora mappati 1:1 su colonne esistenti
+- test finali aggiornati ancora: `docker compose exec backend python -m pytest -q /app/tests/test_email_agent.py` -> `26 passed`
+
+### Consolidamento successivo nella stessa sessione: commit reale su `main` + verifica Alembic
+- creato commit locale intenzionale su `main`: `9a9c1ff` — `Add email inbox intake workflow`
+- il commit include:
+  - worker inbox email
+  - document intake agent
+  - router inbox email
+  - migration `030_add_email_inbox_items`
+  - configurazione IMAP/bootstrap env
+  - test dedicati Email Agent
+- verifica eseguita dopo il commit:
+  - `docker compose exec backend python -m pytest -q /app/tests/test_email_agent.py` -> `26 passed`
+- verifica catena migrazioni:
+  - `docker compose exec backend alembic heads` -> `030 (head)`
+  - `docker compose exec backend alembic current` -> `030 (head)`
+- chiarimento importante:
+  - la chain Alembic locale include gia' i file `e4f5... -> ... -> p6k7... -> 030`
+  - quindi non ci sono multi-head attivi
+  - il vero lavoro pendente lato DB non e' collegare heads, ma finalizzare e committare in modo coerente le migrazioni gia' presenti nel worktree e poi rimuovere il bypass `ensure_runtime_schema_updates()` da `backend/main.py`
+
+### Estensione successiva nella stessa sessione: layer WhatsApp outbound per agenti
+- aggiunto `backend/services/whatsapp_sender.py`
+- il workflow agentico ora supporta invio reale su canale `whatsapp` via provider HTTP configurabile da env
+- integrazione fatta in `backend/agent_workflows.py`:
+  - `approve_whatsapp` / `remind_whatsapp` ora tentano consegna reale
+  - l'esito tecnico viene salvato in `AgentCommunicationDraft.meta_payload`
+- metadata di delivery ora tracciati nel `meta_payload` del draft:
+  - `delivery_channel`
+  - `delivery_provider`
+  - `provider_message_id`
+  - `delivery_status`
+  - `delivery_attempts`
+  - `last_delivery_attempt_at`
+  - `last_delivery_detail`
+- aggiornati `.env.example` e `docker-compose.yml` con:
+  - `ENABLE_WHATSAPP`
+  - `WHATSAPP_PROVIDER`
+  - `WHATSAPP_PROVIDER_URL`
+  - `WHATSAPP_API_TOKEN`
+  - `WHATSAPP_SENDER_ID`
+  - `WHATSAPP_TIMEOUT_SECONDS`
+- test aggiunti sul workflow:
+  - successo `approve_whatsapp` -> suggestion/draft in `sent`
+  - failure provider -> suggestion/draft restano `approved` con audit failure
+- verifica eseguita:
+  - `docker compose exec backend python -m pytest -q /app/tests/test_email_agent.py` -> `28 passed`
+
+### Estensione successiva nella stessa sessione: provider reale Meta WhatsApp Cloud API + webhook
+- `backend/services/whatsapp_sender.py` ora supporta provider `meta`
+- invio Meta implementato verso endpoint Graph API:
+  - `POST /{graph-version}/{phone-number-id}/messages`
+  - payload `messaging_product=whatsapp`, `recipient_type=individual`, `type=text`
+- aggiunto webhook service `backend/services/whatsapp_webhook_service.py`
+- aggiunto router pubblico `backend/routers/whatsapp.py`
+  - `GET /api/v1/whatsapp/webhook` -> verifica webhook Meta con `hub.challenge`
+  - `POST /api/v1/whatsapp/webhook` -> ricezione status delivery + inbound messages
+- il webhook aggiorna i draft WhatsApp trovati tramite `provider_message_id` salvato nel `meta_payload`
+- stati gestiti al momento:
+  - `sent`
+  - `delivered`
+  - `read`
+  - `failed`
+- per `failed` il draft va in `failed` e il suggerimento torna visibile come `approved`
+- per messaggi inbound viene creato audit log e, se il messaggio e' una reply a un outbound noto, il draft mantiene traccia del reply nel `meta_payload`
+- configurazione env aggiunta:
+  - `WHATSAPP_META_PHONE_NUMBER_ID`
+  - `WHATSAPP_META_GRAPH_VERSION`
+  - `WHATSAPP_META_BASE_URL`
+  - `WHATSAPP_META_WEBHOOK_VERIFY_TOKEN`
+- test aggiunti:
+  - sender Meta -> URL/payload Graph API corretti
+  - verifica webhook GET
+  - update stato draft via webhook POST
+- verifica finale eseguita:
+  - `docker compose exec backend python -m pytest -q /app/tests/test_whatsapp_meta.py /app/tests/test_email_agent.py` -> `31 passed`
+
+## Prossimi passi consigliati
+- DB hardening, in ordine:
+  - revisionare e committare la chain migrazioni gia' presente nel worktree (`e4f5...` fino a `p6k7...`)
+  - una volta consolidata la chain, ridurre/rimuovere `ensure_runtime_schema_updates()` da `backend/main.py`
+  - fare test deploy fresh su DB vuoto per validare bootstrap schema + migrazioni
+- WhatsApp Agent reale, prossimi step:
+  - aggiungere validazione firma webhook Meta (`X-Hub-Signature-256`) con app secret
+  - gestire template messages Meta oltre ai messaggi text
+  - introdurre retry scheduler esplicito e stato `retry_scheduled`
+  - salvare eventuali campi delivery dedicati a DB invece di appoggiarsi solo a `meta_payload`
+  - usare il canale WhatsApp nel futuro `document_followup_agent` / `document_requirements_agent`
+- introdurre una tabella dedicata `company_document_records` / `document_intake_records` per storicizzare ogni documento con payload estratto normalizzato, evitando di appoggiarsi solo a `email_inbox_items.llm_result` e `aziende_clienti.note`
+- estendere il catalogo anche ai documenti lato collaboratore/allievo (titoli studio, attestati, certificazioni, contratti firmati, coordinate bancarie, deleghe)
+- aggiungere una UI dedicata nel frontend per vedere:
+  - documenti ricevuti
+  - tipo rilevato
+  - dati estratti
+  - campi DB aggiornati
+  - casi in `manual_review`
+
+---
+
+## Sessione 2026-04-10 (sera) — Email Agent completato + fix backend
+
+### Fix critico backend
+- **Problema**: backend in crash loop all'avvio
+- **Causa**: `schemas.AgentCommunicationDraftCreate` usato in `routers/agents.py:358` ma non definito in `schemas.py`
+- **Fix**: aggiunto `AgentCommunicationDraftCreate(AgentCommunicationDraftBase)` con `run_id` e `suggestion_id` opzionali
+- **File**: `backend/schemas.py`
+
+### Email Agent — implementazione completata
+- Tutti gli 8 task del piano completati
+- File creati/modificati:
+  - `backend/alembic/versions/030_add_email_inbox_items.py` — migrazione applicata ✅
+  - `backend/models.py` — aggiunto `EmailInboxItem`
+  - `backend/services/attachment_handler.py`
+  - `backend/services/inbox_router.py`
+  - `backend/ai_agents/document_processor.py`
+  - `backend/services/inbox_reply_composer.py`
+  - `backend/services/email_inbox_worker.py`
+  - `backend/routers/email_inbox.py`
+  - `backend/schemas.py` — aggiunto `EmailInboxItemOut`, `EmailInboxListResponse`, `EmailInboxStatusResponse`
+  - `backend/main.py` — router registrato + worker avviato in startup
+  - `backend/requirements.txt` — aggiunto `pdfplumber`
+  - `backend/templates/email/richiesta_integrazioni.html/.txt`
+  - `docker-compose.yml` — env vars `GMAIL_IMAP_*`
+- Test: `17/17 ✅`
+- Worker: parte solo se `GMAIL_IMAP_USER` è configurato, altrimenti log "non configurato" e skip
+- Branch: `email-agent` in `.worktrees/email-agent` — **ancora da mergiare**
+
+### Roadmap definita
+- Vedi sezione "ROADMAP COMPLETA" in cima a questo file
+
+---
+
+## Sessione 2026-04-10 (mattina) — Brainstorming nuove integrazioni: Email Agent, WhatsApp Agent, App Mobile
+- Decisioni prese:
+  - i tre sottosistemi vanno sviluppati nell'ordine: Email Agent → WhatsApp Agent → React Native App
+  - Email Agent: Gmail IMAP polling, analisi LLM, risposta automatica, 5 componenti, tabella `email_inbox_items`
+  - WhatsApp Agent: WhatsApp Business API (Meta Cloud), riusa pipeline Email Agent, ancora da progettare
+  - React Native App: app nativa iOS/Android, riusa API backend, ancora da progettare
+- Spec: `docs/superpowers/specs/2026-04-10-email-agent-design.md`
+- Piano: `docs/superpowers/plans/2026-04-10-email-agent.md`
+
+## Sessione 2026-04-09
+
+### Stabilizzazione base test backend legacy
+- Obiettivo della sessione:
+  - verificare e correggere i test backend segnalati nel report di debug come non affidabili
+- File sistemati:
+  - [`backend/tests/test_routers_api_v1.py`](/DATA/progetti/pythonpro/backend/tests/test_routers_api_v1.py)
+  - [`backend/test_main.py`](/DATA/progetti/pythonpro/backend/test_main.py)
+  - [`backend/pyproject.toml`](/DATA/progetti/pythonpro/backend/pyproject.toml)
+- Problemi confermati all'inizio:
+  - i test usavano SQLite su file relativo (`./test_api_v1.db`, `./test.db`) pur dichiarando nei commenti un setup "in memory"
+  - nel container questo portava a failure infrastrutturali o comunque a setup fragile e dipendente dal working directory
+  - parte delle aspettative legacy non era più allineata ai contratti attuali:
+    - path senza prefisso `/api/v1`
+    - status code storici
+    - payload errore letti come `detail` standard FastAPI, mentre il middleware custom serializza spesso anche `error`
+    - email di test su domini come `test.com`, rifiutati dal validatore reale
+  - il delete collaboratore è soft delete, non hard delete
+- Fix applicati:
+  - [`backend/tests/test_routers_api_v1.py`](/DATA/progetti/pythonpro/backend/tests/test_routers_api_v1.py)
+    - rimosso setup globale fragile con DB file relativo
+    - introdotte fixture pytest con database temporaneo per test (`tmp_path`)
+    - isolato `TestClient` per singolo test
+    - aggiornate le email di test a domini accettati dal validatore reale
+  - [`backend/test_main.py`](/DATA/progetti/pythonpro/backend/test_main.py)
+    - stesso refactor verso fixture isolate e DB temporaneo
+    - riallineati i path endpoint a `/api/v1/...`
+    - riallineati status code e shape attesa degli errori
+    - riallineato il flusso di delete collaboratore al comportamento reale di soft delete
+  - [`backend/pyproject.toml`](/DATA/progetti/pythonpro/backend/pyproject.toml)
+    - cache pytest spostata in `/tmp/pythonpro_pytest_cache`
+    - file coverage spostati in `/tmp`
+    - rimosso `--cov-fail-under=85` dai default locali, perché oggi i test legacy esercitano il backend `main.py`/`routers/`/`crud.py`, mentre la coverage configurata punta al package `app/`
+- Verifiche eseguite:
+  - `docker compose exec backend python -m pytest -q /app/tests/test_routers_api_v1.py` -> `22 passed`
+  - `docker compose exec backend python -m pytest -q /app/test_main.py` -> `15 passed`
+- Stato attuale:
+  - due suite backend legacy prima fragili ora sono eseguibili nel container e passano
+  - il problema principale del report sul bootstrap test backend è stato ridotto in modo concreto
+  - durante la stessa sessione sono state stabilizzate progressivamente anche le altre suite legacy singole ancora rimaste
+  - verifica finale aggregata eseguita nel container su questo set:
+    - [`backend/test_main.py`](/DATA/progetti/pythonpro/backend/test_main.py)
+    - [`backend/tests/test_routers_api_v1.py`](/DATA/progetti/pythonpro/backend/tests/test_routers_api_v1.py)
+    - [`backend/test_fiscal_code_validation.py`](/DATA/progetti/pythonpro/backend/test_fiscal_code_validation.py)
+    - [`backend/test_attendance_overlap.py`](/DATA/progetti/pythonpro/backend/test_attendance_overlap.py)
+    - [`backend/tests/test_assignment_overlap.py`](/DATA/progetti/pythonpro/backend/tests/test_assignment_overlap.py)
+    - [`backend/test_assignment_hours.py`](/DATA/progetti/pythonpro/backend/test_assignment_hours.py)
+    - [`backend/test_assignments_features.py`](/DATA/progetti/pythonpro/backend/test_assignments_features.py)
+    - [`backend/test_improvements.py`](/DATA/progetti/pythonpro/backend/test_improvements.py)
+    - [`backend/tests/test_api_in_memory.py`](/DATA/progetti/pythonpro/backend/tests/test_api_in_memory.py)
+    - [`backend/test_upload.py`](/DATA/progetti/pythonpro/backend/test_upload.py)
+    - [`backend/test_upload_existing.py`](/DATA/progetti/pythonpro/backend/test_upload_existing.py)
+  - esito aggregato finale:
+    - `100 passed, 2 skipped`
+- Warning residui noti:
+  - coverage del package `app/` resta a `0%` quando si eseguono queste suite legacy, perché stanno testando il backend storico e non il nuovo albero `app/`
+  - `SAWarning` su `Base.metadata.drop_all(...)` per cicli FK tra alcune tabelle
+  - `SAWarning` in [`backend/ai_agents/data_quality.py`](/DATA/progetti/pythonpro/backend/ai_agents/data_quality.py) su coercizione di subquery in `IN(...)`
+  - `PytestReturnNotNoneWarning` in [`backend/tests/test_api_in_memory.py`](/DATA/progetti/pythonpro/backend/tests/test_api_in_memory.py) per un test che restituisce un valore invece di `None`
+- Decisioni prese:
+  - per i test backend legacy è preferibile usare DB temporaneo per test, non file SQLite relativi al cwd
+  - la suite va riallineata al comportamento applicativo reale, non a contratti storici non più validi
+  - il gate coverage globale non va usato come blocco sui test legacy finché il target misurato resta il package `app` e non il backend legacy realmente esercitato
+  - gli script manuali con `requests` e dipendenza da server esterno sono stati convertiti a test `pytest` con `TestClient`
+- Pendente / prossimi passi:
+  - [ ] Decidere se mantenere due stack backend distinti (`main.py` legacy e package `app/`) oppure convergere su uno solo
+  - [ ] Riallineare la configurazione coverage al codice realmente testato, oppure separare chiaramente coverage legacy vs coverage nuovo package `app`
+  - [ ] Ridurre i warning SQLAlchemy sui cicli FK nel teardown test
+  - [ ] Valutare se pulire il warning `PytestReturnNotNoneWarning` in [`backend/tests/test_api_in_memory.py`](/DATA/progetti/pythonpro/backend/tests/test_api_in_memory.py)
+
+## Sessione 2026-04-08
+
+### Estensione `Aziende Clienti` con sedi operative multiple
+- Nuovo requisito implementato:
+  - oltre alla sede legale, un'azienda cliente può avere più sedi operative
+  - ogni allievo occupato può essere associato a una specifica sede operativa dell'azienda
+- Backend aggiornato:
+  - aggiunto modello `AziendaClienteSedeOperativa` in [`backend/models.py`](/DATA/progetti/pythonpro/backend/models.py)
+  - aggiunta FK `allievi.azienda_sede_operativa_id`
+  - create/update aziende ora sincronizzano anche `sedi_operative`
+  - create/update allievi ora validano che la sede operativa appartenga davvero all'azienda selezionata
+- Schemi API aggiornati in [`backend/schemas.py`](/DATA/progetti/pythonpro/backend/schemas.py):
+  - nuovi schema create/update/output per `sedi_operative`
+  - output `Allievo` e `AllievoReference` estesi con `sede_operativa`
+- CRUD aggiornato in [`backend/crud.py`](/DATA/progetti/pythonpro/backend/crud.py):
+  - eager loading di sedi operative e dati dipendenti associati
+  - validazione coerenza azienda <-> sede operativa per gli allievi occupati
+- Migration DB creata:
+  - [`backend/alembic/versions/p6k7l8m9n0o1_add_azienda_sedi_operative.py`](/DATA/progetti/pythonpro/backend/alembic/versions/p6k7l8m9n0o1_add_azienda_sedi_operative.py)
+- Frontend aggiornato:
+  - [`frontend/src/components/AziendeClientiManager.js`](/DATA/progetti/pythonpro/frontend/src/components/AziendeClientiManager.js)
+    - sezione `Sede legale`
+    - nuova sezione `Sedi operative` con pulsante per aggiungere/rimuovere più sedi operative
+    - tabella dipendenti associati estesa con colonna `Sede operativa`
+  - [`frontend/src/components/AllieviManager.js`](/DATA/progetti/pythonpro/frontend/src/components/AllieviManager.js)
+    - in modalità occupato compare il select `Sede operativa`
+    - la select è filtrata sulle sedi operative dell'azienda scelta
+    - la tabella allievi mostra azienda + sede operativa
+
+### Import Excel massivo per `Allievi` e `Aziende Clienti`
+- Nuovo requisito implementato seguendo il pattern già usato nei collaboratori
+- Backend:
+  - aggiunto endpoint `POST /api/v1/allievi/bulk-import` in [`backend/routers/allievi.py`](/DATA/progetti/pythonpro/backend/routers/allievi.py)
+  - aggiunto endpoint `POST /api/v1/aziende-clienti/bulk-import` in [`backend/routers/aziende_clienti.py`](/DATA/progetti/pythonpro/backend/routers/aziende_clienti.py)
+- Frontend:
+  - aggiunti metodi API in [`frontend/src/services/apiService.js`](/DATA/progetti/pythonpro/frontend/src/services/apiService.js):
+    - `bulkImportAllievi(...)`
+    - `bulkImportAziendeClienti(...)`
+  - nuovo componente [`frontend/src/components/allievi/AllieviBulkImport.js`](/DATA/progetti/pythonpro/frontend/src/components/allievi/AllieviBulkImport.js)
+    - template Excel
+    - preview righe
+    - validazione dati
+    - supporto a `Azienda Cliente` e `Sede Operativa`
+  - nuovo componente [`frontend/src/components/aziende/AziendeBulkImport.js`](/DATA/progetti/pythonpro/frontend/src/components/aziende/AziendeBulkImport.js)
+    - template Excel
+    - preview righe
+    - validazione dati
+    - supporto a più sedi operative nella colonna `Sedi Operative` con formato:
+      - `nome|indirizzo|città|cap|provincia|note`
+      - separatore tra sedi: `;`
+  - pulsante `Importa Excel` aggiunto sia nella maschera `Allievi` sia nella maschera `Aziende Clienti`
+
+### Verifiche eseguite
+- `python3 -m py_compile backend/models.py backend/schemas.py backend/crud.py backend/routers/allievi.py backend/routers/aziende_clienti.py backend/alembic/versions/p6k7l8m9n0o1_add_azienda_sedi_operative.py` -> OK
+- `npm run build` frontend -> OK
+- `docker compose up -d --build backend frontend` -> OK
+- `docker compose exec backend alembic upgrade head` -> OK
+- `docker compose exec backend alembic current` -> `p6k7l8m9n0o1 (head)`
+- Stato servizi:
+  - `pythonpro_backend` -> healthy
+  - `pythonpro_frontend` -> healthy
+- Bundle live frontend attualmente servito: `main.63af81ba.js`
+
+### Decisioni prese
+- Le sedi operative sono una relazione separata e non un campo testo multiplo nella scheda azienda
+- L'allievo occupato salva una FK esplicita verso la sede operativa della propria azienda
+- L'import massivo aziende usa un solo file/riga per azienda, con sedi operative serializzate nella colonna `Sedi Operative`
+- L'import massivo allievi non crea aziende al volo: `Azienda Cliente` e `Sede Operativa` devono già esistere
+
+### Pendente / prossimi passi
+- [ ] Valutare se aggiungere un template Excel scaricabile anche lato backend/static assets invece che generarlo solo nel browser
+- [ ] Valutare import massivo allievi con collegamento progetti tramite nomi/codici progetto
+- [ ] Valutare supporto paginato/completo per il mapping aziende durante import massivo allievi se il numero aziende supera il catalogo caricato nel frontend
+
+### Fix runtime 2026-04-08 su `Documenti Mancanti`, `Preventivi`, `Ordini`, `Catalogo`
+- Problemi verificati via browser/log backend:
+  - `GET /api/v1/documenti-richiesti/?...&limit=1000` -> `422`
+  - `GET /api/v1/consulenti/?limit=300` -> `422`
+  - `GET /api/v1/catalogo/?limit=500&attivo=true` -> `422`
+- Cause confermate:
+  - il frontend stava inviando `limit` oltre i vincoli dichiarati dai router backend
+  - `documenti-richiesti` accetta massimo `500`
+  - `consulenti` accetta massimo `100`
+  - `catalogo` accetta massimo `200`
+- Fix applicati:
+  - [`frontend/src/components/DocumentiMancanti.js`](/DATA/progetti/pythonpro/frontend/src/components/DocumentiMancanti.js)
+    - `limit` abbassato da `1000` a `500`
+  - [`frontend/src/services/apiService.js`](/DATA/progetti/pythonpro/frontend/src/services/apiService.js)
+    - `getConsulenti(...)` ora clamp automatico a `100`
+    - `getProdotti(...)` ora clamp automatico a `200`
+    - in sessione precedente già introdotto clamp anche su:
+      - `getAziendeClienti(...)` -> `100`
+      - `getAllievi(...)` -> `100`
+- Verifiche eseguite:
+  - `npm run build` frontend -> OK
+  - rebuild container frontend -> OK
+  - bundle live finale servito dopo le ultime fix: `main.1264b863.js`
+
+### Audit tecnico approfondito 2026-04-08
+- Audit eseguito su:
+  - stato worktree
+  - build frontend
+  - suite test backend nel container
+  - log runtime backend/frontend
+  - contratti router vs chiamate frontend
+- Problemi reali riscontrati:
+  - la suite backend non e' affidabile oggi:
+    - `docker compose exec backend python -m pytest -q` fallisce in collection
+    - errore: `sqlite3.OperationalError: unable to open database file`
+    - file coinvolto: [`backend/tests/test_routers_api_v1.py`](/DATA/progetti/pythonpro/backend/tests/test_routers_api_v1.py)
+  - i test API legacy sono parzialmente disallineati ai contratti attuali:
+    - diversi test si aspettano ancora liste semplici e/o status code storici
+    - mentre parte dei router e del comportamento applicativo e' cambiato
+  - esiste drift sistemico frontend/backend sui `limit`:
+    - alcuni moduli frontend usano ancora limiti hardcoded alti
+    - il rischio e' ricomparsa di `422` in altri punti se non si centralizza la normalizzazione
+  - l'import massivo `Allievi` oggi mappa le aziende contro il catalogo frontend caricato con `limit: 100`
+    - quindi su installazioni con piu di 100 aziende puo segnalare falsi `azienda non trovata`
+- Decisione operativa:
+  - l'app e' utilizzabile e i servizi sono sani, ma la copertura automatica backend va considerata incompleta/non affidabile finche non viene sistemata la base test
+- Prossimi passi raccomandati:
+  - [ ] Rendere eseguibili i test backend in container/local senza errori su DB e cache path
+  - [ ] Riallineare `backend/tests/test_routers_api_v1.py` ai contratti API correnti
+  - [ ] Centralizzare in modo uniforme i limiti massimi supportati dagli endpoint frontend
+  - [ ] Migliorare l'import `Allievi` per risolvere aziende/sedi operative senza dipendere solo dai primi 100 record caricati in UI
+
+## Sessione 2026-04-07
+
+### Fix `Allievi` su validazione campi opzionali e filtro progetti per azienda
+- Problema verificato sul form `Allievi`:
+  - la `POST /api/v1/allievi/` rispondeva `422` quando campi opzionali come `cap` venivano inviati come stringa vuota
+  - per gli allievi `occupati` il picker progetti mostrava anche progetti non collegati all'azienda selezionata
+- Causa confermata dai log backend:
+  - payload con `cap: ""`
+  - lo schema backend richiede `cap` nullo oppure nel formato `^\d{5}$`
+- Fix applicato in [`frontend/src/components/AllieviManager.js`](/DATA/progetti/pythonpro/frontend/src/components/AllieviManager.js):
+  - normalizzazione dei campi opzionali stringa tramite `blankToNull(...)` prima del salvataggio
+  - `codice_fiscale` e `provincia` normalizzati e upper-case solo se valorizzati
+  - se l'allievo e' `occupato`, i `project_ids` vengono filtrati in base ai `project_ids` dell'azienda selezionata
+  - il menu `Progetti collegati` mostra solo i progetti dell'azienda scelta
+  - se cambia azienda, eventuali progetti non compatibili vengono rimossi automaticamente dal form
+  - il filtro e' applicato anche nel payload finale, non solo nella UI
+- Verifiche eseguite:
+  - `npm run build` frontend -> OK
+  - rebuild container frontend -> OK
+  - bundle live attualmente servito: `main.7c0b3fe2.js`
+- Stato:
+  - il flusso corretto ora e':
+    - allievo occupato -> selezione azienda obbligatoria
+    - progetti disponibili = solo progetti associati a quell'azienda
+    - campi opzionali vuoti inviati come `null`, non come stringhe vuote
+  - se l'azienda selezionata non ha progetti associati, il form `Allievi` lo segnala esplicitamente nella UI
+
+### Estensione `Aziende Clienti` con tabella dipendenti associati
+- Richiesta applicata:
+  - nella maschera di modifica azienda deve essere visibile una tabella con i dipendenti/allievi occupati associati
+- Implementazione frontend in [`frontend/src/components/AziendeClientiManager.js`](/DATA/progetti/pythonpro/frontend/src/components/AziendeClientiManager.js):
+  - in modal `edit` viene letta la lista `allievi` / `allievi_occupati` gia restituita dal backend
+  - aggiunta tabella `Dipendenti associati` con colonne:
+    - nome
+    - contatti
+    - mansione
+    - contratto
+    - CCNL
+    - data assunzione
+    - progetti associati al dipendente
+- Styling dedicato in [`frontend/src/components/AziendeClientiManager.css`](/DATA/progetti/pythonpro/frontend/src/components/AziendeClientiManager.css):
+  - wrapper scrollabile
+  - tabella responsive per il modal azienda
+- Verifiche eseguite:
+  - `npm run build` frontend -> OK
+  - rebuild container frontend -> OK
+  - bundle live attualmente servito: `main.b74bfeda.js`
+
+### Rifinitura UI `Aziende Clienti`
+- Rimossa l'anteprima `Allievi` dalla tabella principale aziende:
+  - i dipendenti associati restano visibili solo entrando nella scheda/modifica azienda
+  - la lista principale torna piu compatta e focalizzata su dati azienda
+- Verifiche eseguite:
+  - `npm run build` frontend -> OK
+  - rebuild container frontend -> OK
+  - bundle live attualmente servito: `main.f7879480.js`
+
+### Estensione modulo `Agenti` con creazione manuale bozze email
+- Esigenza:
+  - testare il flusso `Bozze comunicazione` anche senza attendere la generazione automatica da parte di un agente
+- Backend:
+  - aggiunto endpoint `POST /api/v1/agents/communications` in [`backend/routers/agents.py`](/DATA/progetti/pythonpro/backend/routers/agents.py)
+  - aggiunto schema [`AgentCommunicationDraftCreate`](/DATA/progetti/pythonpro/backend/schemas.py)
+  - il nuovo endpoint crea una bozza manuale in `agent_communication_drafts` con stato iniziale `draft`
+- Frontend:
+  - aggiunto helper API `createAgentCommunication(...)` in [`frontend/src/services/apiService.js`](/DATA/progetti/pythonpro/frontend/src/services/apiService.js)
+  - aggiunto nella pagina [`frontend/src/components/AgentsManager.js`](/DATA/progetti/pythonpro/frontend/src/components/AgentsManager.js) un pannello `Nuova bozza email test`
+  - campi disponibili:
+    - nome agente
+    - tipo destinatario
+    - email destinatario
+    - nome destinatario
+    - oggetto
+    - corpo email
+  - dopo il salvataggio, la bozza appare nella sezione `Bozze comunicazione` e puo essere:
+    - approvata
+    - segnata come inviata
+- Verifiche eseguite:
+  - `python3 -m py_compile backend/routers/agents.py backend/schemas.py` -> OK
+  - `npm run build` frontend -> OK
+  - rebuild backend + frontend -> OK
+  - bundle live attualmente servito: `main.6a7b0cd2.js`
+
+### Rifinitura bozza email test con autocompilazione destinatario
+- Miglioria applicata in [`frontend/src/components/AgentsManager.js`](/DATA/progetti/pythonpro/frontend/src/components/AgentsManager.js):
+  - il pannello `Nuova bozza email test` ora lavora su dati reali del gestionale
+  - si seleziona:
+    - `Tipo destinatario`
+    - `Record destinatario`
+    - `Segnalazione collegata`
+  - per `Collaboratore` e `Azienda cliente` il sistema autocompila:
+    - nome destinatario
+    - email destinatario
+  - se si collega una segnalazione, il sistema precompila:
+    - `Nome agente`
+    - `Oggetto`
+    - `Corpo email`
+  - il testo base usa i `missing_fields` della segnalazione quando presenti
+- Verifiche eseguite:
+  - `npm run build` frontend -> OK
+  - rebuild container frontend -> OK
+  - bundle live attualmente servito: `main.3f440a7d.js`
+
+### Verifica reale workflow invio email agenti
+- Eseguito controllo sul flusso `Invia email` dal modulo `Agenti`
+- Esito verificato:
+  - il messaggio frontend `Workflow aggiornato` non garantisce che la mail sia partita
+  - il backend tenta l'invio reale solo se sono configurate:
+    - `ENABLE_EMAIL=true`
+    - `SMTP_SERVER`
+    - `SMTP_PORT`
+    - eventuali `SMTP_USER` / `SMTP_PASSWORD`
+    - `EMAIL_FROM`
+- Verifica ambiente container `pythonpro_backend`:
+  - nessuna variabile `ENABLE_EMAIL` / `SMTP_*` / `EMAIL_FROM` presente
+  - quindi l'invio email reale non e' abilitato
+- Verifica database sulle bozze recenti:
+  - bozza `id=32`, `suggestion_id=121`, destinatario `domenicocilento1@gmail.com`
+  - `status=approved`
+  - `sent_at=NULL`
+  - `meta_payload.last_delivery_detail = "Invio email non abilitato"`
+  - `delivery_attempts = 2`
+- Conclusione:
+  - il workflow e' stato eseguito
+  - la mail non e' stata inviata realmente
+  - la bozza resta approvata/pronta ma non spedita finche non viene configurato SMTP
+
+### Fix `Aziende Clienti` su fondi interprofessionali
+- Problema verificato nel form `Aziende Clienti`:
+  - il campo periodo fondo usava ancora input `date`
+  - quindi richiedeva anche il giorno, mentre il requisito corretto e' `mese/anno`
+  - in pratica le righe fondo risultavano facili da lasciare incomplete e non venivano salvate correttamente nel payload
+- Correzione applicata in [`frontend/src/components/AziendeClientiManager.js`](/DATA/progetti/pythonpro/frontend/src/components/AziendeClientiManager.js):
+  - `Dal` e `Al` convertiti da `type="date"` a `type="month"`
+  - normalizzazione form su formato `YYYY-MM`
+  - serializzazione payload verso backend su timestamp coerente del primo giorno del mese:
+    - `YYYY-MM-01T00:00:00Z`
+  - visualizzazione del fondo attuale in tabella aggiornata a `YYYY-MM`
+- Correzione collaterale:
+  - caricamento progetti nel manager aziende corretto da chiamata errata `getProjects({}, { limit: 300 })`
+  - sostituito con `getProjects(0, 200)` per evitare query string annidate tipo `limit[limit]=300`
+- Verifiche eseguite:
+  - `npm run build` frontend -> OK
+  - rebuild immagine frontend Docker -> OK
+  - container frontend riallineato
+  - bundle attualmente servito: `main.650d285d.js`
+- Causa reale emersa dopo verifica end-to-end:
+  - il backend salvava correttamente i fondi in `azienda_cliente_fund_memberships`
+  - pero le API `GET /api/v1/aziende-clienti/{id}` e `GET /api/v1/aziende-clienti/` non restituivano `fund_memberships` al frontend
+  - motivo: negli schemi Pydantic mancava il `model_rebuild()` per i forward reference di:
+    - `AziendaClienteFundMembership*`
+    - `AziendaCliente*`
+- Fix backend applicato in [`backend/schemas.py`](/DATA/progetti/pythonpro/backend/schemas.py):
+  - aggiunti `model_rebuild()` finali sugli schemi aziende/fondi
+  - backend riavviato con successo
+- Verifica finale:
+  - `GET /api/v1/aziende-clienti/2` ora restituisce `fund_memberships`
+  - `GET /api/v1/aziende-clienti/?...` ora restituisce `fund_memberships` anche nella lista
+
+### Fix importante aggiornamento automatico avanzamento progetti
+- Problema verificato:
+  - le presenze aggiornano gia `Assignment.completed_hours` in parte del flusso
+  - il progetto non aveva ancora campi persistiti per:
+    - `ore_totali`
+    - `ore_completate`
+    - `progress_percentage`
+  - di conseguenza il progresso progetto non poteva riallinearsi automaticamente su create/update/delete presenza
+
+### Modello e schema estesi
+- In [`backend/models.py`](/DATA/progetti/pythonpro/backend/models.py) aggiunti a `Project`:
+  - `ore_totali`
+  - `ore_completate`
+  - `progress_percentage`
+- In [`backend/schemas.py`](/DATA/progetti/pythonpro/backend/schemas.py) gli stessi campi sono stati esposti in output sullo schema `Project`
+
+### Migration DB
+- Creata [`backend/alembic/versions/i9d0e1f2g3h4_add_project_progress_fields.py`](/DATA/progetti/pythonpro/backend/alembic/versions/i9d0e1f2g3h4_add_project_progress_fields.py)
+- La migration:
+  - aggiunge i 3 campi a `projects`
+  - esegue backfill iniziale:
+    - `ore_totali` = somma `assignments.assigned_hours` attive per progetto
+    - `ore_completate` = somma `attendances.hours` per progetto
+    - `progress_percentage` = `ore_completate / ore_totali * 100`, capped a 100
+
+### Logica CRUD aggiornata
+- In [`backend/crud.py`](/DATA/progetti/pythonpro/backend/crud.py):
+  - introdotta `update_project_progress(db, project_id)`
+  - introdotta `update_assignment_hours(db, assignment_id)`
+  - `update_assignment_progress(...)` mantenuta come alias retrocompatibile
+- Hook di ricalcolo inseriti nei punti corretti:
+  - `create_attendance(...)`
+    - aggiorna progetto
+    - aggiorna assegnazione
+  - `update_attendance(...)`
+    - aggiorna progetto vecchio e nuovo se cambia `project_id`
+    - aggiorna assegnazione vecchia e nuova se cambia `assignment_id`
+  - `delete_attendance(...)`
+    - aggiorna progetto
+    - aggiorna assegnazione
+
+### Script batch
+- Creato [`backend/scripts/recalculate_progress.py`](/DATA/progetti/pythonpro/backend/scripts/recalculate_progress.py)
+- Lo script riallinea:
+  - tutti i progetti
+  - tutte le assegnazioni
+
+### Verifiche eseguite
+- `python3 -m py_compile backend/models.py backend/schemas.py backend/crud.py backend/alembic/versions/i9d0e1f2g3h4_add_project_progress_fields.py backend/scripts/recalculate_progress.py` -> OK
+- `docker compose exec backend alembic upgrade head` -> OK
+- `docker compose exec backend alembic current` -> `i9d0e1f2g3h4 (head)`
+- `docker compose exec backend python /app/scripts/recalculate_progress.py` -> OK
+- Verifica colonne DB su `projects`:
+  - `ore_totali`
+  - `ore_completate`
+  - `progress_percentage`
+- Verifica dati attuali:
+  - `Progetto Test` -> `ore_totali = 155`, `ore_completate = 60`, `progress_percentage = 38.709677...`
+
+### Fix importante consolidamento `Project` su `avviso_pf_id`
+- Analizzata la duplicazione nel dominio progetto:
+  - `ente_erogatore` stringa legacy
+  - `avviso` stringa legacy
+  - `avviso_id` FK verso tabella legacy `avvisi`
+  - `avviso_pf_id` FK verso `avvisi_piani_finanziari`
+  - `template_piano_finanziario_id`
+- Decisione applicata:
+  - `avviso_pf_id` diventa la source of truth per il collegamento economico del progetto
+  - i campi legacy `ente_erogatore`, `avviso`, `avviso_id` restano temporaneamente nel modello ma vengono trattati come campi sincronizzati/compatibility, non come riferimento principale
+
+### Backend allineato
+- In [`backend/crud.py`](/DATA/progetti/pythonpro/backend/crud.py):
+  - `_get_project_financial_template_or_raise(...)` ora usa `TemplatePianoFinanziario` invece del vecchio `ContractTemplate`
+  - introdotta `_resolve_project_financial_refs(...)`:
+    - se arriva `avviso_pf_id`, popola automaticamente:
+      - `template_piano_finanziario_id`
+      - `ente_erogatore`
+      - `avviso`
+      - `avviso_id` legacy se esiste un match coerente
+    - se arriva solo `template_piano_finanziario_id`, prova a risolvere un `avviso_pf` coerente dal codice legacy
+    - in update, se il progetto ha gia `avviso_pf_id`, mantiene il sync anche sui payload parziali
+  - `create_project(...)` e `update_project(...)` usano ora il resolver centralizzato
+  - `_auto_create_piano_from_avviso_pf(...)` e' stato reso idempotente:
+    - non crea duplicati se il piano per quel `progetto_id + avviso_id` esiste gia
+    - popola anche il campo testuale `avviso`
+  - `create_piano_finanziario(...)` ora cerca duplicati usando il riferimento coerente `avviso_id` (FK piano) invece dell'accoppiata legacy `ente_erogatore + avviso`
+- In [`backend/models.py`](/DATA/progetti/pythonpro/backend/models.py):
+  - aggiunte property di lettura:
+    - `resolved_ente_erogatore`
+    - `resolved_avviso`
+  - servono per esporre il valore derivato da `avviso_pf` senza rimuovere subito le colonne legacy dal DB
+
+### Frontend `ProjectManager` riallineato
+- In [`frontend/src/services/apiService.js`](/DATA/progetti/pythonpro/frontend/src/services/apiService.js) aggiunti helper:
+  - `getTemplatePianiFinanziari(...)`
+  - `getAvvisiPianoFinanziario(...)`
+- In [`frontend/src/components/ProjectManager.js`](/DATA/progetti/pythonpro/frontend/src/components/ProjectManager.js):
+  - il flusso e' stato convertito da:
+    - `ente_erogatore` + `avviso_id`
+  - a:
+    - `template_piano_finanziario_id`
+    - `avviso_pf_id`
+  - il wizard delivery ora usa selezione gerarchica:
+    - prima Template Piano Finanziario
+    - poi Avviso Piano filtrato per quel template
+  - `ente_erogatore` e `avviso` restano nel riepilogo UI come valori derivati, non piu come input primari editabili
+  - build frontend riuscita dopo il refactor
+
+### Migrazione dati legacy
+- Creata [`backend/alembic/versions/h8c9d0e1f2g3_migrate_legacy_avviso_to_avviso_pf.py`](/DATA/progetti/pythonpro/backend/alembic/versions/h8c9d0e1f2g3_migrate_legacy_avviso_to_avviso_pf.py)
+- La migration:
+  - prova un backfill best-effort di `projects.avviso_pf_id` da `projects.avviso` -> `avvisi_piani_finanziari.codice_avviso`
+  - sincronizza anche:
+    - `template_piano_finanziario_id`
+    - `ente_erogatore`
+    - `avviso`
+    quando `avviso_pf_id` e' risolto
+- Verifica dati reali:
+  - al momento nel DB esiste un solo `avvisi_piani_finanziari.codice_avviso = FORM-AVV-TEST-01`
+  - i progetti legacy usano codici `2/2022` e `2/2025`
+  - quindi il backfill automatico sui progetti storici attuali non ha trovato match concreti
+  - serve popolazione/coerenza del catalogo `avvisi_piani_finanziari` se si vuole una migrazione completa dei record legacy
+
+### Verifiche eseguite
+- `python3 -m py_compile backend/models.py backend/crud.py backend/alembic/versions/h8c9d0e1f2g3_migrate_legacy_avviso_to_avviso_pf.py` -> OK
+- `docker compose exec backend alembic upgrade head` -> OK
+- `docker compose exec backend alembic current` -> `h8c9d0e1f2g3 (head)`
+- `npm run build` frontend -> OK
+
+### Fix critico FK errata `Project.template_piano_finanziario_id`
+- Problema verificato in [`backend/models.py`](/DATA/progetti/pythonpro/backend/models.py):
+  - `Project.template_piano_finanziario_id` puntava a `contract_templates.id`
+  - `Project.template_piano_finanziario` caricava `ContractTemplate`
+- Questo era errato sul piano di dominio:
+  - `contract_templates` = template HTML/contrattuali
+  - `template_piani_finanziari` = template economici dei piani finanziari
+- Correzione ORM applicata:
+  - `template_piano_finanziario_id` ora usa `ForeignKey("template_piani_finanziari.id", ondelete="SET NULL")`
+  - `template_piano_finanziario` ora usa `relationship("TemplatePianoFinanziario", ...)`
+- Creata migration dedicata [`backend/alembic/versions/f6a7b8c9d0e1_fix_project_template_pf_fk.py`](/DATA/progetti/pythonpro/backend/alembic/versions/f6a7b8c9d0e1_fix_project_template_pf_fk.py)
+- La migration:
+  - rimuove la FK legacy `fk_projects_template_piano_finanziario_id_contract_templates`
+  - sanifica i dati prima del flip della FK
+  - crea la nuova FK `projects_template_piano_finanziario_id_fkey` verso `template_piani_finanziari(id)`
+
+### Verifiche eseguite
+- `python3 -m py_compile backend/models.py backend/alembic/versions/f6a7b8c9d0e1_fix_project_template_pf_fk.py` -> OK
+- `docker compose exec backend alembic upgrade head` -> OK
+- `docker compose exec backend alembic heads` -> `f6a7b8c9d0e1 (head)`
+- Verifica mapper ORM:
+  - `template_piano_finanziario -> TemplatePianoFinanziario`
+- Verifica FK reale su DB:
+  - `projects_template_piano_finanziario_id_fkey`
+  - `FOREIGN KEY (template_piano_finanziario_id) REFERENCES template_piani_finanziari(id) ON DELETE SET NULL`
+- Verifica dati dopo migration:
+  - nessun `template_piano_finanziario_id` rimasto invalido rispetto a `template_piani_finanziari`
+
+### Fix critico doppio vincolo unico su `PianoFinanziario`
+- Problema verificato:
+  - nel modello [`backend/models.py`](/DATA/progetti/pythonpro/backend/models.py) `PianoFinanziario` aveva ancora un indice unico basato su testo:
+    - `(progetto_id, anno, ente_erogatore, avviso)`
+  - sul DB era presente anche l'indice unico basato su FK:
+    - `idx_unique_piano_progetto_anno_ente_avviso_id` su `(progetto_id, anno, ente_erogatore, avviso_id)`
+- Decisione applicata:
+  - tenere un solo vincolo unico basato su FK
+  - semplificato a:
+    - `uq_piano_progetto_anno_avviso` su `(progetto_id, anno, avviso_id)`
+- Correzione ORM:
+  - in [`backend/models.py`](/DATA/progetti/pythonpro/backend/models.py) rimosso il vecchio indice unico su testo
+  - introdotto `UniqueConstraint("progetto_id", "anno", "avviso_id", name="uq_piano_progetto_anno_avviso")`
+- Correzione Alembic:
+  - creata [`backend/alembic/versions/g7b8c9d0e1f2_fix_piano_unique_constraint.py`](/DATA/progetti/pythonpro/backend/alembic/versions/g7b8c9d0e1f2_fix_piano_unique_constraint.py)
+  - la migration:
+    - drop dell'eventuale vincolo legacy su testo
+    - drop di:
+      - `idx_unique_piano_progetto_anno_ente_avviso`
+      - `idx_unique_piano_progetto_anno_ente_avviso_id`
+    - creazione del nuovo unique constraint:
+      - `uq_piano_progetto_anno_avviso`
+
+### Verifiche eseguite
+- verificato assenza di duplicati sul nuovo keyset `(progetto_id, anno, avviso_id)` prima della migration
+- `python3 -m py_compile backend/models.py backend/alembic/versions/g7b8c9d0e1f2_fix_piano_unique_constraint.py` -> OK
+- `docker compose exec backend alembic upgrade head` -> OK
+- verifica finale con inspector:
+  - unique constraints su `piani_finanziari`:
+    - `uq_piano_progetto_anno_avviso`
+  - nessun indice legacy `idx_unique_piano_progetto_anno_ente_avviso*` rimasto
+
+### Fix critico rimozione ALTER TABLE runtime da `backend/main.py`
+- Analizzato il patcher schema runtime in [`backend/main.py`](/DATA/progetti/pythonpro/backend/main.py):
+  - `ensure_runtime_schema_updates()` aggiungeva colonne con `ALTER TABLE ... ADD COLUMN ...`
+  - un blocco separato creava/droppava indici a runtime
+  - era presente anche `models.Base.metadata.create_all(bind=engine)` all'import del modulo
+- Problema confermato:
+  - lo schema DB non era piu riproducibile solo tramite Alembic
+  - l'applicazione poteva mutare il database ad ogni avvio bypassando la catena migration
+- Correzioni applicate:
+  - rimossa completamente `ensure_runtime_schema_updates()`
+  - rimosso il blocco runtime che eseguiva:
+    - `CREATE UNIQUE INDEX IF NOT EXISTS ix_collaborators_partita_iva_unique`
+    - `CREATE UNIQUE INDEX IF NOT EXISTS ix_agenzie_partita_iva_unique`
+    - `CREATE UNIQUE INDEX IF NOT EXISTS ix_agenzie_collaborator_id_unique`
+
+### Fix UX `Aziende Clienti` su fondi storici e progetti collegati
+- In [`frontend/src/components/AziendeClientiManager.js`](/DATA/progetti/pythonpro/frontend/src/components/AziendeClientiManager.js):
+  - la sezione `Progetti collegati` e' stata convertita da `select multiple` a flusso con:
+    - menu a tendina singolo
+    - pulsante `Aggiungi`
+    - lista sottostante dei progetti associati all'azienda
+    - pulsante `Rimuovi` per ogni progetto
+  - questo rende l'assegnazione azienda -> progetto piu leggibile e coerente con la richiesta operativa
+  - lo storico fondi mantiene input `type="month"` ma con range esplicito:
+    - `min="1900-01"`
+    - `max="2100-12"`
+  - scopo: evitare blocchi UI su mesi antecedenti a gennaio 2026 e consentire l'inserimento di periodi storici
+- In [`frontend/src/components/AziendeClientiManager.css`](/DATA/progetti/pythonpro/frontend/src/components/AziendeClientiManager.css):
+  - aggiunti stili per:
+    - picker progetto con select + bottone
+    - elenco dei progetti gia collegati
+    - stato vuoto quando nessun progetto e' ancora associato
+    - adattamento responsive mobile
+- Verifica eseguita:
+  - `npm run build` frontend -> OK
+- Pendenze collegate:
+  - verificare in UI reale che il salvataggio aggiorni correttamente anche le aziende gia esistenti senza cache stale frontend
+
+### Fix definitivo formato mese fondi + caricamento progetti aziende
+- Problema emerso dopo feedback utente:
+  - l'inserimento iscrizione fondo prima di gennaio 2026 risultava ancora bloccante in UI
+  - i progetti collegati all'azienda non erano visibili in modo affidabile dopo la selezione
+- Correzione frontend in [`frontend/src/components/AziendeClientiManager.js`](/DATA/progetti/pythonpro/frontend/src/components/AziendeClientiManager.js):
+  - rimossi gli input nativi `type="month"` per i fondi
+  - sostituiti con input testuali `AAAA-MM`
+  - aggiunta validazione esplicita formato:
+    - regex `YYYY-MM`
+    - mese tra `01` e `12`
+  - questo elimina qualunque limite implicito del month picker del browser su anni storici
+  - la colonna `Progetti` della tabella aziende ora mostra i nomi dei progetti collegati, non solo il conteggio
+- Correzione backend in [`backend/crud.py`](/DATA/progetti/pythonpro/backend/crud.py):
+  - `get_aziende_clienti(...)` ora precarica:
+    - `linked_projects`
+    - `fund_memberships`
+  - `get_azienda_cliente(...)` ora precarica:
+    - `linked_projects`
+    - `fund_memberships`
+    - `agenzia`
+    - `consulente`
+  - scopo: rendere stabile la serializzazione API e far arrivare sempre al frontend i progetti associati
+- Verifiche eseguite:
+  - `python3 -m py_compile backend/crud.py` -> OK
+  - `npm run build` frontend -> OK
+
+### Relazione simmetrica `Progetti <-> Aziende Clienti`
+- Richiesta applicata:
+  - se un'azienda viene associata a un progetto dal lato `Aziende Clienti`, deve comparire nel progetto tra le `aziende coinvolte`
+  - se un'azienda viene associata dal lato `Progetto`, deve comparire nella scheda azienda tra i progetti collegati
+- Correzioni backend:
+  - in [`backend/models.py`](/DATA/progetti/pythonpro/backend/models.py):
+    - `Project` ora espone:
+      - `azienda_links`
+      - `aziende_coinvolte`
+      - property `azienda_ids`
+    - `AziendaClienteProjectLink.project` ora ha `back_populates`
+  - in [`backend/schemas.py`](/DATA/progetti/pythonpro/backend/schemas.py):
+    - aggiunti a `ProjectBase` / `ProjectUpdate`:
+      - `azienda_ids`
+    - aggiunto schema minimo:
+      - `AziendaClienteReference`
+    - `Project` ora espone:
+      - `aziende_coinvolte`
+  - in [`backend/crud.py`](/DATA/progetti/pythonpro/backend/crud.py):
+    - aggiunta `_sync_project_azienda_links(...)`
+    - `create_project(...)` e `update_project(...)` sincronizzano ora i link azienda-progetto anche dal lato progetto
+    - `get_project(...)` e `get_projects(...)` precaricano `aziende_coinvolte`
+- Correzioni frontend:
+  - in [`frontend/src/components/ProjectManager.js`](/DATA/progetti/pythonpro/frontend/src/components/ProjectManager.js):
+    - aggiunta sezione `Aziende coinvolte` nel wizard progetto
+    - flusso con:
+      - menu a tendina azienda
+      - pulsante `Aggiungi azienda`
+      - elenco aziende selezionate con `Rimuovi`
+    - il salvataggio progetto invia `azienda_ids`
+    - in modifica progetto vengono ricaricate le aziende gia associate
+    - le card progetto mostrano ora il campo `Aziende coinvolte`
+  - in [`frontend/src/components/ProjectManager.css`](/DATA/progetti/pythonpro/frontend/src/components/ProjectManager.css):
+    - aggiunti stili per picker/elenco aziende coinvolte
+- Deploy/verifiche:
+  - `python3 -m py_compile backend/models.py backend/schemas.py backend/crud.py backend/routers/projects.py` -> OK
+  - `npm run build` frontend -> OK
+  - `docker compose up -d --build frontend backend` -> OK
+  - frontend live ora serve bundle:
+    - `main.0d870cca.js`
+  - verifica API live:
+    - `GET /api/v1/projects/5` restituisce:
+      - `azienda_ids: [2]`
+      - `aziende_coinvolte: [{ id: 2, ragione_sociale: "Ccccc", ... }]`
+
+### Nuova area `Allievi` con collegamenti a progetti e aziende
+- Richiesta applicata:
+  - aggiunta una maschera dedicata `Allievi` dentro l'area `Persone`
+  - ogni allievo puo avere:
+    - nome
+    - cognome
+    - codice fiscale
+    - luogo e data di nascita
+    - telefono
+    - email
+    - residenza
+    - CAP / citta / provincia
+    - stato occupazionale
+    - azienda collegata se occupato
+    - data assunzione
+    - tipo contratto
+    - CCNL
+    - mansione
+    - livello di inquadramento
+    - note
+  - collegamento simmetrico:
+    - `Allievo <-> Progetto`
+    - `Allievo -> Azienda Cliente` con visibilita lato azienda
+- Correzioni backend:
+  - in [`backend/models.py`](/DATA/progetti/pythonpro/backend/models.py):
+    - aggiunta tabella di relazione `allievo_project`
+    - aggiunto modello `Allievo`
+    - `Project` ora espone:
+      - `allievi_coinvolti`
+      - property `allievo_ids`
+    - `AziendaCliente` ora espone relazione `allievi`
+  - in [`backend/schemas.py`](/DATA/progetti/pythonpro/backend/schemas.py):
+    - aggiunti:
+      - `AllievoReference`
+      - `AllievoBase`
+      - `AllievoCreate`
+      - `AllievoUpdate`
+      - `Allievo`
+    - `Project` ora espone `allievi_coinvolti`
+    - `ProjectBase` / `ProjectUpdate` ora accettano `allievo_ids`
+    - `AziendaCliente` ora serializza anche gli allievi occupati collegati
+  - in [`backend/crud.py`](/DATA/progetti/pythonpro/backend/crud.py):
+    - aggiunti CRUD per allievi:
+      - `get_allievi(...)`
+      - `get_allievo(...)`
+      - `create_allievo(...)`
+      - `update_allievo(...)`
+      - `delete_allievo(...)`
+    - aggiunta sincronizzazione relazioni:
+      - `_sync_allievo_projects(...)`
+      - `_sync_project_allievi(...)`
+    - `get_projects(...)` e `get_project(...)` ora precaricano anche `allievi_coinvolti`
+    - `get_aziende_clienti(...)` e `get_azienda_cliente(...)` precaricano anche `allievi`
+  - nuovo router [`backend/routers/allievi.py`](/DATA/progetti/pythonpro/backend/routers/allievi.py)
+  - registrazione router in [`backend/main.py`](/DATA/progetti/pythonpro/backend/main.py)
+  - nuova migration [`backend/alembic/versions/o5j6k7l8m9n0_add_allievi_and_links.py`](/DATA/progetti/pythonpro/backend/alembic/versions/o5j6k7l8m9n0_add_allievi_and_links.py)
+- Correzioni frontend:
+  - nuova schermata [`frontend/src/components/AllieviManager.js`](/DATA/progetti/pythonpro/frontend/src/components/AllieviManager.js)
+  - nuovi stili [`frontend/src/components/AllieviManager.css`](/DATA/progetti/pythonpro/frontend/src/components/AllieviManager.css)
+  - in [`frontend/src/App.js`](/DATA/progetti/pythonpro/frontend/src/App.js):
+    - aggiunta voce nav `🎓 Allievi`
+    - render nuova sezione
+  - in [`frontend/src/services/apiService.js`](/DATA/progetti/pythonpro/frontend/src/services/apiService.js):
+    - aggiunti endpoint:
+      - `getAllievi`
+      - `getAllievo`
+      - `createAllievo`
+      - `updateAllievo`
+      - `deleteAllievo`
+  - in [`frontend/src/components/ProjectManager.js`](/DATA/progetti/pythonpro/frontend/src/components/ProjectManager.js):
+    - aggiunta sezione `Allievi coinvolti` nel progetto
+    - salvataggio bidirezionale via `allievo_ids`
+    - card progetto aggiornata con elenco allievi collegati
+  - in [`frontend/src/components/AziendeClientiManager.js`](/DATA/progetti/pythonpro/frontend/src/components/AziendeClientiManager.js):
+    - aggiunta colonna `Allievi` nella tabella aziende per visualizzare gli occupati collegati
+- Verifiche eseguite:
+  - `python3 -m py_compile backend/models.py backend/schemas.py backend/crud.py backend/main.py backend/routers/allievi.py backend/alembic/versions/o5j6k7l8m9n0_add_allievi_and_links.py` -> OK
+  - `npm run build` frontend -> OK
+  - `docker compose exec backend alembic upgrade head` -> OK
+  - `docker compose up -d --build frontend backend` -> OK
+  - frontend live bundle:
+    - `main.051e68e2.js`
+  - verifica API live:
+    - `GET /api/v1/allievi/?page=1&limit=5` -> endpoint attivo, lista vuota iniziale
+    - `GET /api/v1/projects/5` espone anche:
+      - `allievo_ids`
+      - `allievi_coinvolti`
+    - `DROP INDEX IF EXISTS idx_unique_piano_progetto_anno`
+    - `DROP INDEX IF EXISTS idx_unique_piano_progetto_anno_fondo`
+    - `DROP INDEX IF EXISTS idx_unique_piano_progetto_anno_fondo_avviso`
+    - `CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_piano_progetto_anno_ente_avviso_id`
+    - `CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_avvisi_codice_ente`
+  - rimosso anche `models.Base.metadata.create_all(bind=engine)` dal bootstrap app
+  - aggiunto log esplicito startup:
+    - `Database schema managed via Alembic only`
+
+### Nuova migration consolidata per il delta runtime
+- Creata [`backend/alembic/versions/e4f5a6b7c8d9_consolidate_runtime_schema_updates.py`](/DATA/progetti/pythonpro/backend/alembic/versions/e4f5a6b7c8d9_consolidate_runtime_schema_updates.py)
+- La migration porta in Alembic il delta rimasto fuori catena e lo applica in modo idempotente su DB gia toccati dal vecchio patcher runtime.
+- Colonne consolidate nella migration:
+  - `assignments.contract_signed_date`
+  - `assignments.edizione_label`
+  - `collaborators.documento_identita_scadenza`
+  - `collaborators.is_agency`
+  - `collaborators.is_consultant`
+  - `collaborators.partita_iva`
+  - `agenzie.partita_iva`
+  - `agenzie.collaborator_id`
+  - `projects.atto_approvazione`
+  - `projects.sede_aziendale_comune`
+  - `projects.sede_aziendale_via`
+  - `projects.sede_aziendale_numero_civico`
+  - `projects.ente_erogatore`
+  - `implementing_entities.legale_rappresentante_*` mancanti
+  - `contract_templates.ambito_template`
+  - `contract_templates.chiave_documento`
+  - `contract_templates.ente_attuatore_id`
+  - `contract_templates.progetto_id`
+  - `piani_finanziari.avviso`
+  - `piani_finanziari_fondimpresa.avviso_id`
+  - `agent_review_actions.reviewed_at`
+  - `agent_review_actions.auto_fix_applied`
+  - `agent_review_actions.result_success`
+  - `agent_review_actions.result_message`
+  - `voci_piano_finanziario.importo_presentato`
+- Indici consolidati nella migration:
+  - `ix_collaborators_partita_iva_unique`
+  - `ix_agenzie_partita_iva_unique`
+  - `ix_agenzie_collaborator_id_unique`
+  - `idx_unique_piano_progetto_anno_ente_avviso_id`
+  - `idx_unique_avvisi_codice_ente`
+- Cleanup legacy incorporato nella stessa migration:
+  - drop condizionale di:
+    - `idx_unique_piano_progetto_anno`
+    - `idx_unique_piano_progetto_anno_fondo`
+    - `idx_unique_piano_progetto_anno_fondo_avviso`
+
+### Bootstrap Alembic su DB vuoto rifinito
+- Il bootstrap in [`backend/alembic/env.py`](/DATA/progetti/pythonpro/backend/alembic/env.py) e' stato ulteriormente corretto:
+  - su DB realmente vuoto crea lo schema da `Base.metadata`
+  - poi posiziona `alembic_version` sul `down_revision` del head corrente
+  - infine lascia eseguire ad Alembic l'ultimo step reale
+- Motivo:
+  - con solo `create_all + stamp head` gli indici introdotti nell'ultima migration non comparivano sui deploy fresh
+  - ora anche i deploy fresh eseguono davvero l'ultimo step Alembic e ricevono indici/cleanup gestiti dalla migration
+
+### Entrypoint backend
+- Verificato che [`backend/entrypoint.sh`](/DATA/progetti/pythonpro/backend/entrypoint.sh) eseguiva gia `alembic upgrade head` prima dell'avvio.
+- Aggiunto log esplicito:
+  - `Database schema is managed via Alembic only`
+
+### Verifiche eseguite
+- `python3 -m py_compile backend/main.py backend/alembic/env.py backend/alembic/versions/e4f5a6b7c8d9_consolidate_runtime_schema_updates.py` -> OK
+- `docker compose exec backend alembic heads` -> `e4f5a6b7c8d9 (head)`
+- `docker compose exec backend alembic upgrade head` su DB esistente -> OK
+- `docker compose restart backend` -> OK
+- `docker compose exec backend curl -fsS http://127.0.0.1:8000/health` -> `{"status":"ok"}`
+- Test fresh deploy su DB temporaneo `test_fresh`:
+  - `alembic upgrade head` -> OK
+  - `alembic current` -> `e4f5a6b7c8d9 (head)`
+  - `SELECT version_num FROM alembic_version` -> `e4f5a6b7c8d9`
+  - confermata presenza colonne fresh:
+    - `collaborators.partita_iva`
+    - `collaborators.is_agency`
+    - `collaborators.is_consultant`
+    - `collaborators.documento_identita_scadenza`
+  - confermata presenza indici fresh:
+    - `ix_collaborators_partita_iva_unique`
+    - `ix_agenzie_partita_iva_unique`
+    - `ix_agenzie_collaborator_id_unique`
+    - `idx_unique_piano_progetto_anno_ente_avviso_id`
+
+### Decisioni prese
+- Il backend non deve piu mutare lo schema DB durante l'import o allo startup applicativo.
+- La fonte di verita' dello schema resta Alembic.
+- Il bootstrap speciale su DB vuoto resta confinato in `alembic/env.py` per gestire la catena legacy non replayable da zero, ma l'ultimo step migration viene comunque eseguito davvero.
+
+### Fix critico catena migrazioni Alembic
+- Verificato stato Alembic reale nel container backend:
+  - `docker compose exec backend alembic heads` -> un solo head: `c2d3e4f5a6b7`
+  - `docker compose exec backend alembic current` -> DB corrente allineato a `c2d3e4f5a6b7`
+  - `docker compose exec backend alembic history --verbose` -> emerso mergepoint artificiale nella catena recente
+- Analizzati i file hash-named segnalati:
+  - `528d59380940_add_piani_finanziari.py`
+  - `a10d08b5e238_add_agent_tables.py`
+  - `b1c2d3e4f5a6_add_agent_workflow_fields.py`
+  - `c2d3e4f5a6b7_add_avviso_pf_id_to_projects.py`
+  - `d3de21183882_add_documenti_richiesti.py`
+- Individuata la causa della non linearita' storica:
+  - `029_piani_fin_complete` partiva da `a10d08b5e238`
+  - `b1c2d3e4f5a6` dichiarava comunque `down_revision = ("a10d08b5e238", "029_piani_fin_complete")`
+  - di fatto risultava un mergepoint superfluo, non necessario perche' `029` e' gia figlia di `a10`
+- Correzione applicata:
+  - in [`backend/alembic/versions/b1c2d3e4f5a6_add_agent_workflow_fields.py`](/DATA/progetti/pythonpro/backend/alembic/versions/b1c2d3e4f5a6_add_agent_workflow_fields.py) `down_revision` e' stato reso lineare:
+    - da `("a10d08b5e238", "029_piani_fin_complete")`
+    - a `"029_piani_fin_complete"`
+  - aggiornato anche l'header `Revises:` dello stesso file per coerenza documentale
+- Esito dopo il fix:
+  - `alembic heads` continua a mostrare un solo head
+  - `alembic history --verbose` ora mostra una sequenza lineare:
+    - `028 -> 528d59380940 -> d3de21183882 -> a10d08b5e238 -> 029_piani_fin_complete -> b1c2d3e4f5a6 -> c2d3e4f5a6b7`
+
+### Fix bootstrap Alembic su DB vuoto
+- Testato `alembic upgrade head` su database temporaneo vuoto `test_fresh`.
+- Problema emerso inizialmente:
+  - la migration `001_add_document_columns.py` parte con `ALTER TABLE collaborators`
+  - su DB realmente vuoto falliva subito con `UndefinedTable`
+  - questo conferma che la chain legacy storica non era autosufficiente da zero e presupponeva schema base gia creato
+- Correzione pragmatica applicata in [`backend/alembic/env.py`](/DATA/progetti/pythonpro/backend/alembic/env.py):
+  - introdotta `_bootstrap_empty_database(connection)`
+  - se il DB e' completamente vuoto:
+    - crea lo schema corrente da `Base.metadata`
+    - crea/aggiorna `alembic_version`
+    - stampa direttamente il DB al current head
+  - se il DB contiene gia tabelle, Alembic continua a eseguire la chain normale senza cambiare comportamento sugli ambienti esistenti
+
+### Verifiche eseguite
+- `docker compose exec backend alembic heads` -> `c2d3e4f5a6b7 (head)`
+- `docker compose exec backend alembic current` -> `c2d3e4f5a6b7 (head)`
+- `docker compose exec backend alembic history --verbose | head -80` -> storia lineare confermata
+- Creato DB temporaneo `test_fresh`
+- `docker compose exec backend bash -lc 'DATABASE_URL=postgresql+psycopg://admin:changeme_in_production@db:5432/test_fresh alembic upgrade head'` -> OK
+- `docker compose exec backend bash -lc 'DATABASE_URL=postgresql+psycopg://admin:changeme_in_production@db:5432/test_fresh alembic current'` -> `c2d3e4f5a6b7 (head)`
+- `SELECT version_num FROM alembic_version` su `test_fresh` -> `c2d3e4f5a6b7`
+- `SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public'` su `test_fresh` -> `38`
+
+### Decisioni prese
+- Non creato un nuovo file Alembic `merge` perche' non serviva: il problema era un mergepoint dichiarato in eccesso, non due branch vivi reali.
+- Per DB vuoto si adotta bootstrap controllato + stamp al head corrente, invece di tentare di ricostruire tutta la storia iniziale con nuove migration massive e retrocompatibilita' rischiosa.
+
+### Pendente residuo
+- [ ] Valutare in futuro la sostituzione del bootstrap `metadata.create_all + stamp` con una vera baseline Alembic iniziale autosufficiente, se si vorra' una storia full-replayable senza fallback
+- [ ] Verificare che eventuali pipeline CI/CD o script di provisioning che assumono replay completo delle migration siano allineati al nuovo bootstrap di `env.py`
 
 ## Sessione 2026-04-06
 
@@ -2627,3 +4067,700 @@ Migration Alembic `015_add_collaborator_fk_to_voci_piano.py`.
   - `document_reminder`
   - `budget_alert`
 - Aggiungere apply-fix reale lato backend per suggerimenti che supportano correzione automatica, oggi ancora simulato
+
+## Sessione 2026-04-07 — Reporting Timesheet paginato
+
+### Backend completato
+- Aggiornato [`backend/routers/reporting.py`](/DATA/progetti/pythonpro/backend/routers/reporting.py):
+  - rimosso l'uso hardcoded di `limit=10000` nell'endpoint `GET /api/v1/reporting/timesheet`
+  - aggiunti parametri `skip` e `limit` con cap massimo `1000`
+  - aggiunto payload paginato con:
+    - `items`
+    - `total`
+    - `skip`
+    - `limit`
+    - `has_more`
+  - mantenuta retrocompatibilità con chiavi legacy:
+    - `presenze`
+    - `period`
+    - `attendances`
+    - `total_hours`
+  - aggiunti endpoint export asincrono:
+    - `POST /api/v1/reporting/timesheet/export`
+    - `GET /api/v1/reporting/timesheet/export/{export_id}`
+- Rifinito l'export backend:
+  - scrittura CSV in `/tmp/exports`
+  - elaborazione a pagine da `1000`
+  - apertura sessione DB esplicita via `SessionLocal()` per il background task
+- Esteso [`backend/crud.py`](/DATA/progetti/pythonpro/backend/crud.py) con helper già usati dal router:
+  - `get_attendances_count(...)`
+  - `get_attendances_total_hours(...)`
+
+### Frontend completato
+- Riscritto [`frontend/src/components/TimesheetReport.js`](/DATA/progetti/pythonpro/frontend/src/components/TimesheetReport.js):
+  - non usa più `useAttendances()` con caricamento totale client-side
+  - usa il report backend paginato
+  - filtri server-side per collaboratore, progetto e intervallo date
+  - selezione `righe per pagina`
+  - controlli `precedente/successiva`
+  - export CSV asincrono con polling lato client
+- Esteso [`frontend/src/services/apiService.js`](/DATA/progetti/pythonpro/frontend/src/services/apiService.js) con:
+  - `startTimesheetExport(...)`
+  - `getTimesheetExport(...)`
+- Aggiornato [`frontend/src/components/TimesheetReport.css`](/DATA/progetti/pythonpro/frontend/src/components/TimesheetReport.css) per:
+  - barra azioni filtri con export
+  - meta paginazione
+  - controlli pagine
+  - stato export
+
+### Verifiche eseguite
+- `python3 -m py_compile backend/routers/reporting.py backend/crud.py` -> OK
+- `npm run build` frontend -> OK
+- tentativo test backend reporting:
+  - `pytest` non disponibile nel PATH locale
+  - `python3 -m pytest` fallisce perché il modulo `pytest` non è installato in questo ambiente
+
+### Stato attuale
+- Il report timesheet non carica più fino a `10000` presenze in un'unica risposta.
+- Il frontend usa ora paginazione vera lato backend, riducendo il rischio OOM su dataset grandi.
+- L'export completo rimane disponibile tramite job asincrono CSV, separato dalla vista interattiva.
+
+### Pendente residuo reale
+- Il riepilogo `per_collaboratore` e `per_progetto` del report timesheet è ancora calcolato sulla pagina corrente, non sull'intero dataset filtrato
+- Altri endpoint di reporting usano ancora pattern `limit=10000` e andrebbero normalizzati con la stessa strategia
+- Valutare test automatici aggiornati per la nuova shape paginata dell'endpoint reporting
+
+## Sessione 2026-04-07 — DELETE ordini
+
+### Backend completato
+- Aggiornato [`backend/routers/ordini.py`](/DATA/progetti/pythonpro/backend/routers/ordini.py):
+  - aggiunto `DELETE /api/v1/ordini/{ordine_id}` per soft delete logico via stato `annullato`
+  - aggiunto `DELETE /api/v1/ordini/{ordine_id}/hard` per eliminazione fisica
+  - aggiunto logging esplicito su annullamento/eliminazione
+- Esteso [`backend/crud.py`](/DATA/progetti/pythonpro/backend/crud.py) con:
+  - `delete_ordine(db, ordine_id) -> bool`
+
+### Frontend completato
+- Aggiornato [`frontend/src/services/apiService.js`](/DATA/progetti/pythonpro/frontend/src/services/apiService.js):
+  - `deleteOrdine(id)`
+  - `hardDeleteOrdine(id)`
+- Aggiornato [`frontend/src/components/OrdiniManager.js`](/DATA/progetti/pythonpro/frontend/src/components/OrdiniManager.js):
+  - il pulsante `Annulla` usa ora `DELETE /ordini/{id}`
+  - conferma utente prima dell'annullamento
+  - ricarica lista e toast di esito dopo soft delete
+
+### Verifiche eseguite
+- `python3 -m py_compile backend/routers/ordini.py backend/crud.py` -> OK
+- `npm run build` frontend -> OK
+
+### Stato attuale
+- Gli ordini errati possono ora essere annullati via API con soft delete coerente sullo stato.
+- Esiste anche endpoint dedicato per hard delete, pronto per eventuale protezione admin lato auth.
+
+### Pendente residuo reale
+- L'endpoint `DELETE /ordini/{id}/hard` non ha ancora guardie autorizzative admin esplicite
+- Mancano test automatici dedicati ai nuovi endpoint DELETE ordini
+
+## Sessione 2026-04-07 — Rimozione cache in-process
+
+### Backend completato
+- Rimossa da [`backend/crud.py`](/DATA/progetti/pythonpro/backend/crud.py) la cache Python in-memory non condivisa tra worker:
+  - eliminata `class QueryCache`
+  - eliminato singleton `query_cache`
+  - eliminati helper:
+    - `get_collaborator_cached(...)`
+    - `invalidate_collaborator_cache(...)`
+- Pulito il flusso aggiornamento collaboratore in [`backend/crud.py`](/DATA/progetti/pythonpro/backend/crud.py):
+  - rimosse le invalidazioni cache dopo `update_collaborator`
+- Aggiornato [`backend/routers/admin.py`](/DATA/progetti/pythonpro/backend/routers/admin.py):
+  - l'endpoint `POST /admin/cache/clear` resta disponibile come endpoint legacy
+  - ora risponde esplicitamente che non esiste piu cache in-process da pulire
+
+### Verifiche eseguite
+- ricerca codice:
+  - nessun riferimento residuo a `query_cache`
+  - nessun riferimento residuo a `get_collaborator_cached`
+  - nessun riferimento residuo a `invalidate_collaborator_cache`
+- `python3 -m py_compile backend/crud.py backend/routers/admin.py` -> OK
+
+### Stato attuale
+- Il backend non usa piu una cache dict locale di processo per i collaboratori.
+- Il comportamento e ora coerente anche in esecuzione multi-worker.
+- Nessuna dipendenza runtime aggiuntiva introdotta: si usa solo query DB diretta.
+
+### Pendente residuo reale
+- Se in futuro servirà caching condiviso, conviene usare il layer Redis già presente nel progetto invece di reintrodurre cache in-process
+
+## Sessione 2026-04-07 — CORS configurabile via env
+
+### Backend completato
+- Aggiornato [`backend/main.py`](/DATA/progetti/pythonpro/backend/main.py):
+  - CORS non usa piu `allow_origins=["*"]`
+  - nuova lettura origini da variabile `CORS_ALLOWED_ORIGINS`
+  - fallback retrocompatibile su `BACKEND_CORS_ORIGINS` se presente
+  - default allineato a PythonPro frontend su `http://localhost:3001`
+  - configurazione middleware resa esplicita:
+    - `allow_credentials=True`
+    - `allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]`
+    - `allow_headers=["Authorization", "Content-Type", "X-Requested-With"]`
+
+### Deploy / configurazione completati
+- Aggiornato [`docker-compose.yml`](/DATA/progetti/pythonpro/docker-compose.yml):
+  - ambiente backend ora espone `CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:3001}`
+- Aggiornato [`/.env.example`](/DATA/progetti/pythonpro/.env.example):
+  - documentata la variabile `CORS_ALLOWED_ORIGINS`
+  - default documentato: `http://localhost:3001`
+
+### Verifiche eseguite
+- `python3 -m py_compile backend/main.py` -> OK
+- `npm run build` frontend -> OK
+
+### Stato attuale
+- Il backend PythonPro non usa piu CORS aperto globale.
+- Le origini consentite sono ora configurabili da environment e coerenti con le porte di default:
+  - frontend `3001`
+  - backend `8001`
+
+### Pendente residuo reale
+- Se l'ambiente di deploy usa host LAN o domini multipli, va popolata `CORS_ALLOWED_ORIGINS` con lista CSV esplicita
+
+## Sessione 2026-04-07 — Esposizione CRUD utili dall'audit coerenza
+
+### Backend completato
+- Dall'audit [`docs/AUDIT_COERENZA.md`](/DATA/progetti/pythonpro/docs/AUDIT_COERENZA.md) sono stati esposti i casi piu chiari e immediatamente utili:
+  - [`backend/routers/collaborators.py`](/DATA/progetti/pythonpro/backend/routers/collaborators.py)
+    - nuovo `GET /api/v1/collaborators/count`
+    - supporta `search` e `is_active`
+    - usa `crud.get_collaborators_count(...)`
+  - [`backend/routers/attendances.py`](/DATA/progetti/pythonpro/backend/routers/attendances.py)
+    - nuovo `GET /api/v1/attendances/summary`
+    - query params `from` e `to`
+    - usa `crud.get_attendances_summary(...)`
+  - [`backend/routers/assignments.py`](/DATA/progetti/pythonpro/backend/routers/assignments.py)
+    - nuovo `PUT /api/v1/assignments/bulk`
+    - usa `crud.bulk_update_assignments(...)`
+  - nuovo router [`backend/routers/stats.py`](/DATA/progetti/pythonpro/backend/routers/stats.py)
+    - nuovo `GET /api/v1/stats/monthly`
+    - usa `crud.get_monthly_stats(...)`
+- Aggiornato [`backend/main.py`](/DATA/progetti/pythonpro/backend/main.py) per registrare il nuovo router `stats`.
+- Aggiornato [`backend/schemas.py`](/DATA/progetti/pythonpro/backend/schemas.py) con:
+  - `AssignmentBulkUpdateItem`
+- Rifinito [`backend/crud.py`](/DATA/progetti/pythonpro/backend/crud.py):
+  - `bulk_update_assignments(...)` non muta piu il payload in ingresso con `pop()`
+
+### Verifiche eseguite
+- `python3 -m py_compile backend/main.py backend/crud.py backend/schemas.py backend/routers/collaborators.py backend/routers/attendances.py backend/routers/assignments.py backend/routers/stats.py` -> OK
+- verificato ordine route statiche prima delle dinamiche:
+  - `/collaborators/count` prima di `/{collaborator_id}`
+  - `/attendances/summary` prima di `/{attendance_id}`
+  - `/assignments/bulk` prima di `/{assignment_id}`
+
+### Stato attuale
+- Le funzioni CRUD gia presenti e utili per conteggi/statistiche/bulk update non sono piu solo codice non esposto.
+- L'audit funzioni non usate non e ancora chiuso del tutto: in questa sessione sono stati coperti solo i casi a basso rischio e con contratto API chiaro.
+
+### Pendente residuo reale
+- Restano da classificare o pubblicare altri helper dell'audit, tra cui:
+  - `get_active_assignments`
+  - `get_implementing_entities_count`
+  - `get_progetto_mansione_ente_count`
+  - `get_aziende_by_consulente`
+  - `get_prezzo_prodotto_in_listino`
+  - `get_voce_by_mansione`
+  - `get_voce_by_assignment`
+- Restano da valutare eventuali rimozioni di funzioni duplicate o wrapper deboli (`get_piano_by_progetto`, `calcola_budget_utilizzato`, ecc.)
+
+## Sessione 2026-04-07 — Rimozione campi legacy Agent*
+
+### Backend completato
+- Aggiornato [`backend/models.py`](/DATA/progetti/pythonpro/backend/models.py):
+  - `AgentRun` non mappa piu la colonna legacy `agent_name`
+  - `AgentRun.agent_type` e ora il solo campo canonico e non nullable
+  - `AgentSuggestion` non mappa piu le colonne legacy `agent_name` e `confidence`
+  - `AgentSuggestion.confidence_score` resta il solo campo persistito per il confidence
+  - aggiunte proprieta di compatibilita:
+    - `AgentRun.agent_name` -> alias di `agent_type`
+    - `AgentSuggestion.agent_name` -> derivato da `run.agent_type`
+    - `AgentSuggestion.confidence` -> alias di `confidence_score`
+- Aggiornato [`backend/agent_workflows.py`](/DATA/progetti/pythonpro/backend/agent_workflows.py):
+  - `run_agent_workflow(...)` usa `agent_type` come parametro canonico
+  - le nuove `AgentRun` vengono create con `agent_type`
+  - le nuove `AgentSuggestion` salvano `confidence_score`
+  - i refresh dei suggerimenti usano `confidence_score`
+  - i filtri data quality usano join su `agent_runs.agent_type` invece del vecchio campo duplicato su `agent_suggestions`
+- Aggiornato [`backend/routers/agents.py`](/DATA/progetti/pythonpro/backend/routers/agents.py):
+  - `POST /api/v1/agents/run` usa `agent_type` lato backend
+  - `GET /api/v1/agents/suggestions/` supporta `agent_type` come filtro canonico
+  - mantenuto `agent_name` come alias query legacy, risolto internamente su `agent_type`
+- Aggiornato [`backend/schemas.py`](/DATA/progetti/pythonpro/backend/schemas.py):
+  - `AgentRunRequest` accetta `agent_type` con alias in input anche da `agent_name`
+  - `AgentRun` espone `agent_name` come computed field compatibile
+  - `AgentSuggestion` espone `confidence_score` come canonico e `confidence` come alias read-only
+  - mantenuto `agent_name` nei suggerimenti come campo di risposta compatibile, alimentato dalle proprieta ORM
+- Aggiunta migration [`backend/alembic/versions/j0e1f2g3h4i5_remove_legacy_agent_fields.py`](/DATA/progetti/pythonpro/backend/alembic/versions/j0e1f2g3h4i5_remove_legacy_agent_fields.py):
+  - migra `agent_runs.agent_type` da `agent_name` se necessario
+  - migra `agent_suggestions.confidence_score` da `confidence` se necessario
+  - rende `agent_runs.agent_type` non nullable
+  - rimuove colonne legacy:
+    - `agent_runs.agent_name`
+    - `agent_suggestions.agent_name`
+    - `agent_suggestions.confidence`
+  - rimuove anche i relativi indici legacy se presenti
+
+### Verifiche eseguite
+- `python3 -m py_compile backend/models.py backend/schemas.py backend/agent_workflows.py backend/routers/agents.py backend/alembic/versions/j0e1f2g3h4i5_remove_legacy_agent_fields.py` -> OK
+- verifica codice:
+  - nessun `agent_name = Column(...)` residuo nei modelli agentici runtime, tranne `AgentCommunicationDraft` che e corretto
+  - nessun `confidence = Column(...)` residuo
+  - nessun nuovo salvataggio agentico usa piu `confidence` legacy
+
+### Stato attuale
+- Il dominio agenti usa ora un solo campo canonico per tipo agente (`agent_type`) e un solo campo canonico per il confidence (`confidence_score`).
+- La compatibilita applicativa e stata mantenuta lato API/ORM per evitare rotture immediate del frontend e dei workflow gia presenti.
+
+### Pendente residuo reale
+- La migration Alembic e stata creata ma non ancora applicata/verificata su DB reale in questa sessione
+- Il frontend agenti usa ancora in piu punti il naming legacy `agent_name`; oggi funziona via compatibilita, ma andrebbe riallineato progressivamente a `agent_type`
+
+## Sessione 2026-04-07 — Solo reviewed_by_user_id per AgentReviewAction
+
+### Backend completato
+- Aggiornato [`backend/models.py`](/DATA/progetti/pythonpro/backend/models.py):
+  - `AgentReviewAction` non mappa piu il campo legacy `reviewed_by`
+  - `reviewed_by_user_id` e ora il solo campo persistito per il reviewer
+  - aggiunta FK verso `users.id` con `ondelete="SET NULL"`
+- Aggiornato [`backend/crud.py`](/DATA/progetti/pythonpro/backend/crud.py):
+  - `create_review_action(...)` usa ora `reviewed_by_user_id`
+- Aggiornato [`backend/routers/agents.py`](/DATA/progetti/pythonpro/backend/routers/agents.py):
+  - payload review e bulk-review usano `reviewed_by_user_id`
+  - `accept` / `reject` non costruiscono piu reviewer testuale fittizio
+  - `apply-fix` registra review action con `reviewed_by_user_id=None`
+- Aggiornato [`backend/schemas.py`](/DATA/progetti/pythonpro/backend/schemas.py):
+  - rimosso `reviewed_by` dagli schema review action
+- Aggiunta migration [`backend/alembic/versions/k1f2g3h4i5j6_remove_reviewed_by_string.py`](/DATA/progetti/pythonpro/backend/alembic/versions/k1f2g3h4i5j6_remove_reviewed_by_string.py):
+  - backfill best-effort di `reviewed_by_user_id` da `reviewed_by` via match su `users.username` o `users.email`
+  - creazione FK `agent_review_actions.reviewed_by_user_id -> users.id` se assente
+  - rimozione indice e colonna legacy `reviewed_by`
+
+### Frontend completato
+- Aggiornato [`frontend/src/components/AgentSuggestionsReview.js`](/DATA/progetti/pythonpro/frontend/src/components/AgentSuggestionsReview.js):
+  - review singola e bulk-review inviano `reviewed_by_user_id`
+  - il log review mostra ora `reviewed_by_user_id`
+
+### Verifiche eseguite
+- `python3 -m py_compile backend/models.py backend/schemas.py backend/crud.py backend/routers/agents.py backend/alembic/versions/k1f2g3h4i5j6_remove_reviewed_by_string.py` -> OK
+- `npm run build` frontend -> OK
+
+### Stato attuale
+- Il dominio `AgentReviewAction` usa ora un solo riferimento utente coerente e referenziale.
+- Il reviewer testuale libero non e piu parte del modello runtime.
+
+### Pendente residuo reale
+- La migration Alembic `k1f2g3h4i5j6` e stata creata ma non ancora applicata/verificata su DB reale in questa sessione
+- Il backfill da `reviewed_by` a `reviewed_by_user_id` e best-effort: i valori legacy non riconducibili a `username`/`email` resteranno `NULL`
+
+## Sessione 2026-04-07 — UNIQUE DB per presenze duplicate
+
+### Backend completato
+- Aggiornato [`backend/models.py`](/DATA/progetti/pythonpro/backend/models.py):
+  - `Attendance` ora dichiara il vincolo:
+    - `uq_attendance_collaborator_project_date_time`
+    - colonne: `collaborator_id`, `project_id`, `date`, `start_time`
+- Aggiunta migration [`backend/alembic/versions/l2g3h4i5j6k7_add_attendance_unique_constraint.py`](/DATA/progetti/pythonpro/backend/alembic/versions/l2g3h4i5j6k7_add_attendance_unique_constraint.py):
+  - elimina prima eventuali duplicati storici tenendo il record con `id` minore
+  - crea poi il vincolo UNIQUE solo se non e gia presente
+  - `downgrade()` rimuove il vincolo in modo difensivo
+
+### Verifiche eseguite
+- `python3 -m py_compile backend/models.py backend/alembic/versions/l2g3h4i5j6k7_add_attendance_unique_constraint.py` -> OK
+- verifica stringa vincolo coerente tra modello e migration -> OK
+
+### Stato attuale
+- Il modello ORM e ora allineato a un vincolo DB che impedisce presenze duplicate sullo stesso collaboratore/progetto/data/orario inizio.
+- La protezione non e piu solo applicativa.
+
+### Pendente residuo reale
+- La migration Alembic `l2g3h4i5j6k7` e stata creata ma non ancora applicata/verificata su DB reale in questa sessione
+- La deduplica storica rimuove i duplicati mantenendo il record con `id` piu basso: se serviranno merge dati piu sofisticati, andranno gestiti separatamente
+
+## Sessione 2026-04-07 — UX piani finanziari senza doppia selezione ente/avviso
+
+### Backend completato
+- Rifinito [`backend/crud.py`](/DATA/progetti/pythonpro/backend/crud.py) in `create_piano_finanziario(...)`:
+  - `ente_erogatore` viene derivato da `project.resolved_ente_erogatore` con fallback legacy
+  - `avviso` viene derivato da `project.resolved_avviso` con fallback legacy
+  - `avviso_id` viene derivato automaticamente da `project.avviso_pf_id` se assente
+  - `template_id` viene derivato automaticamente da:
+    - `project.template_piano_finanziario_id`, oppure
+    - `avviso.template_id` se disponibile
+  - il backend resta quindi robusto anche se il frontend non invia piu ente/avviso/template come campi manuali
+
+### Frontend completato
+- Semplificato [`frontend/src/components/PianiFinanziariManager.js`](/DATA/progetti/pythonpro/frontend/src/components/PianiFinanziariManager.js):
+  - rimossi i dropdown ridondanti per:
+    - ente erogatore
+    - avviso
+    - template piano
+  - aggiunto fetch dettaglio progetto con `getProject(...)` quando si seleziona il progetto
+  - introdotto header read-only con:
+    - ente erogatore derivato dal progetto
+    - avviso derivato dal progetto
+    - nome progetto
+  - la creazione piano usa ora i metadati del progetto come source of truth
+  - il form lascia all'utente solo i campi realmente editabili del piano
+- Puliti gli stati/client catalog non piu necessari nel manager standard:
+  - niente piu caricamento template manuali
+  - niente piu caricamento catalogo avvisi per la creazione standard
+
+### Verifiche eseguite
+- `python3 -m py_compile backend/crud.py backend/routers/piani_finanziari.py` -> OK
+- `npm run build` frontend -> OK
+
+### Stato attuale
+- Nel flusso standard dei piani finanziari l'utente non seleziona piu ente e avviso due volte.
+- Progetto e ora la source of truth per:
+  - ente erogatore
+  - avviso
+  - avviso PF
+  - template piano finanziario
+
+### Pendente residuo reale
+- Il manager standard mostra i metadati progetto in sola lettura, ma il layout CSS del nuovo blocco header puo essere rifinito ulteriormente se serve una resa visiva piu forte
+- Restano da verificare in browser reale i casi con progetti legacy privi di `avviso_pf_id` o `template_piano_finanziario_id`
+
+## Sessione 2026-04-07 — Collegamento automatico assegnazioni -> voci piano
+
+### Backend completato
+- Verificato che il progetto aveva gia una base implementata per il flusso:
+  - [`collega_assegnazione_a_piano(...)`](/DATA/progetti/pythonpro/backend/crud.py)
+  - [`aggiorna_voce_da_presenze(...)`](/DATA/progetti/pythonpro/backend/crud.py)
+  - chiamata automatica da `create_assignment(...)`
+- Rifinito [`backend/crud.py`](/DATA/progetti/pythonpro/backend/crud.py):
+  - `get_piano_by_progetto(...)` ora privilegia il piano attivo piu recente (`bozza`, `approvato`, `in_corso`) e solo in fallback prende l'ultimo piano esistente
+  - `aggiorna_voce_da_presenze(...)` ora accetta sia:
+    - `voce_id`
+    - `assignment_id`
+    così puo essere usata direttamente nei flussi presenze/assegnazioni
+- Riallineati i trigger sulle presenze in [`backend/crud.py`](/DATA/progetti/pythonpro/backend/crud.py):
+  - `create_attendance(...)` aggiorna la voce piano tramite `assignment_id`
+  - `update_attendance(...)` aggiorna:
+    - la vecchia voce se cambia assegnazione
+    - la nuova voce se presente
+  - `delete_attendance(...)` ora aggiorna anche la voce piano collegata dopo la cancellazione, non solo progetto e assegnazione
+
+### Stato attuale
+- Creando un'assegnazione, il backend tenta gia automaticamente di creare o collegare la voce nel piano finanziario del progetto.
+- Registrando, modificando o cancellando presenze, la voce piano collegata all'assegnazione viene ora riallineata in modo consistente per:
+  - ore effettive
+  - importo consuntivo
+  - budget utilizzato del piano
+
+### Verifiche eseguite
+- `python3 -m py_compile backend/crud.py` -> OK
+
+### Pendente residuo reale
+- Il flusso automatico usa la logica esistente di mapping ruolo -> voce/macrovoce; se serviranno regole di business diverse per alcuni ruoli specifici, andranno estese in `_normalize_assignment_role_to_voce(...)` e `_derive_categoria_from_role(...)`
+- Resta da verificare in browser reale e su DB con dati misti che il piano scelto automaticamente sia sempre quello atteso nei progetti con piu piani storici
+
+## Sessione 2026-04-07 — Audit di verifica finale
+
+### Verifiche statiche completate
+- Alembic:
+  - `docker compose exec backend alembic heads` -> un solo head: `l2g3h4i5j6k7`
+- Runtime schema updates:
+  - nessun riferimento residuo a `ensure_runtime_schema_updates` o `ALTER TABLE ... ADD COLUMN` in [`backend/main.py`](/DATA/progetti/pythonpro/backend/main.py)
+- FK template piano:
+  - [`backend/models.py`](/DATA/progetti/pythonpro/backend/models.py) punta correttamente a `template_piani_finanziari.id`
+- UNIQUE piano:
+  - [`backend/models.py`](/DATA/progetti/pythonpro/backend/models.py) usa `uq_piano_progetto_anno_avviso` su `(progetto_id, anno, avviso_id)`
+- Progress automatico:
+  - presenti `update_project_progress(...)` e `update_assignment_hours(...)` in [`backend/crud.py`](/DATA/progetti/pythonpro/backend/crud.py)
+- DELETE ordini:
+  - presenti endpoint soft/hard delete in [`backend/routers/ordini.py`](/DATA/progetti/pythonpro/backend/routers/ordini.py)
+- Cache in-process:
+  - nessuna `QueryCache` residua in [`backend/crud.py`](/DATA/progetti/pythonpro/backend/crud.py)
+- CORS:
+  - [`backend/main.py`](/DATA/progetti/pythonpro/backend/main.py) usa `CORS_ALLOWED_ORIGINS`
+- Piani finanziari:
+  - presenti `collega_assegnazione_a_piano(...)` e `aggiorna_voce_da_presenze(...)`
+
+### Verifiche runtime completate
+- Backend:
+  - `docker compose up -d backend` -> container avviato
+  - `docker compose logs backend --tail=20` -> startup applicazione completato con health DB OK
+  - `docker compose exec backend alembic current` -> `l2g3h4i5j6k7 (head)`
+- Frontend:
+  - `npm run build` -> OK
+- Test:
+  - `docker compose exec backend python -m pytest tests/ -v --tb=short` fallisce per configurazione pytest incompleta nel container (`--cov` richiesto ma plugin coverage non disponibile)
+
+### Fix emerso dall'audit
+- Durante il riavvio backend l'audit ha intercettato una regressione runtime:
+  - [`backend/models.py`](/DATA/progetti/pythonpro/backend/models.py) usava `Optional` senza import
+- Corretto subito:
+  - aggiunto `from typing import Optional` in [`backend/models.py`](/DATA/progetti/pythonpro/backend/models.py)
+- Verifica:
+  - `python3 -m py_compile backend/models.py` -> OK
+  - backend riavviato correttamente dopo il fix
+
+### Criticita residue emerse dall'audit
+- [`backend/routers/reporting.py`](/DATA/progetti/pythonpro/backend/routers/reporting.py):
+  - il fix paginazione e stato applicato al timesheet
+  - restano ancora vari `limit=10000` hardcoded in altri endpoint reporting (`summary` e altri blocchi aggregati)
+- Health host:
+  - il container backend risponde a `/health` nei log interni
+  - `curl http://localhost:8001/health` e `curl http://127.0.0.1:8001/health` dal runner attuale falliscono nonostante `docker compose port backend 8000` mostri `0.0.0.0:8001`
+  - da trattare come anomalia di ambiente/networking del runner finche non verificata fuori da questa sessione
+
+### Stato attuale
+- I fix critici principali risultano applicati e il backend torna ad avviarsi.
+- La catena Alembic e lineare e il DB corrente e all'head `l2g3h4i5j6k7`.
+- Il frontend compila.
+
+### Pendente residuo reale
+- Bonificare i `limit=10000` residui negli altri endpoint di [`backend/routers/reporting.py`](/DATA/progetti/pythonpro/backend/routers/reporting.py)
+- Verificare perche l'health HTTP su host `8001` non e raggiungibile dal runner nonostante il container sia healthy
+- Sistemare il setup test del container backend (plugin pytest-cov / addopts)
+
+## Sessione 2026-04-07 — Audit residui
+
+### R1 ✅ limit=10000 rimossi da reporting.py
+- `get_summary_report`: 3 count hardcoded → `get_collaborators_count`, `get_projects_count`, `get_implementing_entities_count` (SQL COUNT); attendances e assignments → loop paginato chunk 1000
+- `get_collaborator_statistics`: bulk load → loop paginato
+- `get_project_statistics`: bulk load → loop paginato
+- Aggiunta `get_projects_count()` a `crud.py` (mancava)
+- Verifica: `grep -c "limit=10000" backend/routers/reporting.py` → 0 ✅
+
+### R2 ✅ pytest-cov installato nel container
+- `requirements.txt`: aggiunto `pytest-cov>=4.0.0` (mancava; presente solo in `requirements_local.txt`)
+- `pytest.ini` rimosso: era in conflitto con `[tool.pytest.ini_options]` in `pyproject.toml` (pytest.ini aveva priorità e usava `--cov=.` su tutto il progetto)
+- Ora la config attiva è solo `pyproject.toml`: `--cov=app`, `testpaths = ["tests"]`
+- ⚠️ Pendente: `tests/test_routers_api_v1.py` fallisce con `sqlite3.OperationalError: unable to open database file` — problema permessi/path SQLite nel container, da investigare separatamente
+
+### R3 ✅ localhost:8001 raggiungibile
+- Nessun problema strutturale: il problema era temporaneo (container in restart durante il rebuild)
+- `curl localhost:8001/health` → `{"status":"ok"}`, porta `0.0.0.0:8001->8000/tcp`
+
+## Sessione 2026-04-07 — Fix salvataggio progetto / piano finanziario FAPI
+
+### Problema verificato
+- In modifica progetto, il frontend andava in `500` su `PUT /api/v1/projects/5`
+- Dai log backend:
+  - `ValueError: Template piano finanziario non trovato`
+- Il problema non era il template FAPI nuovo in sé:
+  - in `template_piani_finanziari` esiste `id=2` (`Template Standard FAPI`)
+- Il problema era di compatibilità dati/payload legacy:
+  - nel DB esiste ancora il template legacy in `contract_templates` con `ambito_template = piano_finanziario`
+  - per FAPI il legacy template è `id=14`
+  - se il client invia quell'id legacy invece del nuovo `template_piani_finanziari.id`, il backend falliva
+
+### Correzione applicata
+- In [`backend/crud.py`](/DATA/progetti/pythonpro/backend/crud.py):
+  - `_get_project_financial_template_or_raise(...)` ora prova prima il nuovo catalogo `template_piani_finanziari`
+  - se non trova il record, usa `_resolve_legacy_project_financial_template(...)`
+  - il resolver legacy traduce gli id di `contract_templates` con `ambito_template='piano_finanziario'` verso il nuovo `TemplatePianoFinanziario`
+  - la mappatura usa prima `ente_erogatore -> tipo_fondo` (`FAPI`, `FORMAZIENDA`, `FONDIMPRESA`, `FSE`) e come fallback il nome template
+- In [`backend/routers/projects.py`](/DATA/progetti/pythonpro/backend/routers/projects.py):
+  - `update_project(...)` ora converte i `ValueError` in `HTTP 400`
+  - in questo modo un payload incoerente non genera più `500` generico
+
+### Verifiche eseguite
+- `python3 -m py_compile backend/crud.py backend/routers/projects.py` -> OK
+- Test runtime diretto nel container backend:
+  - update progetto `5` con `template_piano_finanziario_id=2` -> OK
+  - update progetto `5` con legacy `template_piano_finanziario_id=14` -> OK
+  - il backend riallinea correttamente a `template_piano_finanziario_id=2`, `ente_erogatore=FAPI`
+
+### Stato / pendente
+- Il blocco specifico sul salvataggio progetto FAPI è corretto lato backend
+- Se il frontend continua a inviare id legacy, ora il backend li assorbe correttamente
+- Resta utile un controllo successivo in UI reale per verificare quale componente stia ancora producendo l'id legacy nel payload
+
+## Sessione 2026-04-07 — Fix selezione avviso progetto senza template preventivo
+
+### Problema verificato
+- Nel form progetto il dropdown "Avviso Piano" dipendeva strettamente dal template selezionato
+- In DB il catalogo nuovo `avvisi_piani_finanziari` contiene ancora solo:
+  - `FORM-AVV-TEST-01`
+- Gli avvisi FAPI reali presenti (`2/2025`, `4/2025`) esistono invece ancora nella tabella legacy `avvisi`
+- Effetto pratico:
+  - se nel progetto non selezionavi prima il template FAPI, non vedevi alcun avviso
+  - anche selezionando il template nuovo, i due avvisi FAPI legacy non comparivano comunque nel dropdown del progetto
+
+### Correzione frontend applicata
+- In [`frontend/src/components/ProjectManager.js`](/DATA/progetti/pythonpro/frontend/src/components/ProjectManager.js):
+  - il form ora carica sia:
+    - `piani-finanziari/avvisi/` (catalogo nuovo)
+    - `avvisi/` (catalogo legacy)
+  - i due cataloghi vengono unificati in un'unica lista di opzioni
+  - l'avviso puo essere scelto anche senza selezionare prima il template
+  - quando possibile, la scelta dell'avviso collega automaticamente il template coerente
+  - gli avvisi legacy sono marcati in UI come `legacy`
+  - il riepilogo e lo stato step usano la nuova selezione unificata
+
+### Correzione backend applicata
+- In [`backend/crud.py`](/DATA/progetti/pythonpro/backend/crud.py):
+  - `_resolve_project_financial_refs(...)` ora gestisce anche il caso:
+    - avviso legacy selezionato
+    - nessun `avviso_pf_id` disponibile nel catalogo nuovo
+  - se arriva un avviso legacy:
+    - mantiene `avviso_id` e `avviso`
+    - prova a inferire `template_piano_finanziario_id` dall'`ente_erogatore`
+    - non azzera piu i dati finanziari solo perche manca l'entry nel nuovo catalogo `avvisi_piani_finanziari`
+
+### Verifiche eseguite
+- `python3 -m py_compile backend/crud.py backend/routers/projects.py` -> OK
+- `npm run build` frontend -> OK
+
+### Stato / pendente
+- Ora nel progetto puoi selezionare l'avviso anche prima del template
+- Gli avvisi FAPI legacy (`2/2025`, `4/2025`) possono essere esposti nel form progetto anche senza essere ancora migrati in `avvisi_piani_finanziari`
+- Pendente strutturale:
+  - completare la migrazione del catalogo nuovo `avvisi_piani_finanziari` per allineare definitivamente progetto, piano finanziario e catalogo avvisi su un solo dominio
+
+## Sessione 2026-04-07 — Verifica runtime bundle frontend obsoleto
+
+### Problema verificato
+- Dopo i fix a `ProjectManager`, il browser continuava a fare chiamate legacy:
+  - `GET /api/v1/contracts?...ambito_template=piano_finanziario`
+  - `GET /api/v1/avvisi/...`
+- Questo indicava che la UI in esecuzione non stava usando l'ultima build del frontend
+- Verifica diretta nel container `pythonpro_frontend`:
+  - presente ancora bundle vecchio `main.1a6a86ff.js` datato `2026-04-06`
+
+### Azione eseguita
+- Rebuild frontend Docker:
+  - `docker compose -f /DATA/progetti/pythonpro/docker-compose.yml build frontend`
+- Recreate container frontend:
+  - `docker compose -f /DATA/progetti/pythonpro/docker-compose.yml up -d --force-recreate frontend`
+
+### Verifica finale
+- Nel container `pythonpro_frontend` ora e' presente:
+  - `main.fcf3a6c7.js` datato `2026-04-07 12:59`
+- Quindi il runtime nginx frontend ora serve la build aggiornata che include il nuovo flusso avviso/template progetto
+
+## Sessione 2026-04-07 — Estensione anagrafica aziende: multi-progetto e storico fondi
+
+### Obiettivo
+- Consentire che una stessa azienda/ente sia collegata a piu progetti
+- Gestire nell'anagrafica azienda lo storico di iscrizione ai fondi interprofessionali
+- Ogni iscrizione fondo deve avere:
+  - `fondo`
+  - `data_inizio` obbligatoria
+  - `data_fine` opzionale se il fondo e' ancora attivo
+
+### Modellazione applicata
+- In [`backend/models.py`](/DATA/progetti/pythonpro/backend/models.py):
+  - aggiunta tabella `implementing_entity_projects`
+    - collega un ente a piu progetti
+    - unique su `(entity_id, project_id)`
+  - aggiunta tabella `implementing_entity_fund_memberships`
+    - storico fondo interprofessionale con:
+      - `fondo`
+      - `data_inizio`
+      - `data_fine`
+      - `note`
+  - mantenuta la FK esistente `projects.ente_attuatore_id` come collegamento principale del progetto
+  - il nuovo collegamento multiplo non rompe il modello corrente, lo estende
+
+### Backend allineato
+- In [`backend/schemas.py`](/DATA/progetti/pythonpro/backend/schemas.py):
+  - `ImplementingEntityCreate/Update` ora supportano:
+    - `project_ids`
+    - `fund_memberships`
+  - aggiunti gli schemi risposta per lo storico fondi
+- In [`backend/crud.py`](/DATA/progetti/pythonpro/backend/crud.py):
+  - introdotta sincronizzazione relazioni progetto multiplo ente
+  - introdotta sincronizzazione storico fondi
+  - validazioni applicate:
+    - progetto referenziato deve esistere
+    - ogni fondo richiede `fondo + data_inizio`
+    - `data_fine >= data_inizio`
+    - una sola iscrizione fondo puo restare aperta senza data finale
+- Creata migration [`backend/alembic/versions/m3h4i5j6k7l8_add_entity_project_links_and_fund_history.py`](/DATA/progetti/pythonpro/backend/alembic/versions/m3h4i5j6k7l8_add_entity_project_links_and_fund_history.py)
+  - crea le due tabelle nuove
+  - backfill iniziale dei collegamenti da `projects.ente_attuatore_id` verso `implementing_entity_projects`
+
+### Frontend allineato
+- In [`frontend/src/components/ImplementingEntityModal.js`](/DATA/progetti/pythonpro/frontend/src/components/ImplementingEntityModal.js):
+  - aggiunta sezione `Progetti`
+    - selezione multipla dei progetti collegati all'azienda
+  - aggiunta sezione `Fondi`
+    - righe dinamiche per storico fondo con periodo `dal/al`
+  - in modifica ente il modal carica il dettaglio completo da `/entities/{id}`
+- In [`frontend/src/components/ImplementingEntitiesList.js`](/DATA/progetti/pythonpro/frontend/src/components/ImplementingEntitiesList.js):
+  - aggiunta visibilità rapida di:
+    - numero progetti collegati
+    - fondo corrente (se presente)
+
+### Verifiche eseguite
+- `python3 -m py_compile backend/models.py backend/schemas.py backend/crud.py backend/alembic/versions/m3h4i5j6k7l8_add_entity_project_links_and_fund_history.py` -> OK
+- `docker compose exec backend alembic upgrade head` -> OK
+- `docker compose exec backend alembic current` -> `m3h4i5j6k7l8 (head)`
+- verifica DB:
+  - tabelle presenti:
+    - `implementing_entity_projects`
+    - `implementing_entity_fund_memberships`
+- `npm run build` frontend -> OK
+
+### Stato
+- L'anagrafica aziende ora supporta:
+  - collegamento a piu progetti
+  - storico fondi interprofessionali con periodo
+- Da verificare in UI reale soltanto il flusso operativo completo di:
+  - creazione ente con piu progetti
+  - modifica ente con storico fondi e una sola iscrizione aperta
+
+## Sessione 2026-04-07 — Correzione dominio: da Enti a Aziende Clienti
+
+### Correzione richiesta
+- La funzionalita' `multi-progetto + storico fondi` non doveva stare in `Enti Attuatori`
+- Va applicata a `Aziende Clienti`
+
+### Riallineamento applicato
+- Rimossa l'estensione funzionale dal dominio `ImplementingEntity`
+- Spostata integralmente sul dominio `AziendaCliente`
+
+### Backend
+- In [`backend/models.py`](/DATA/progetti/pythonpro/backend/models.py):
+  - aggiunte:
+    - `azienda_cliente_projects`
+    - `azienda_cliente_fund_memberships`
+  - rimosso l'uso runtime delle tabelle equivalenti sotto `implementing_entities`
+- In [`backend/schemas.py`](/DATA/progetti/pythonpro/backend/schemas.py):
+  - `AziendaClienteCreate/Update` ora supportano:
+    - `project_ids`
+    - `fund_memberships`
+- In [`backend/crud.py`](/DATA/progetti/pythonpro/backend/crud.py):
+  - salvataggio e update dello storico fondi
+  - salvataggio e update collegamenti multipli azienda-progetto
+- Nuova migration correttiva [`backend/alembic/versions/n4i5j6k7l8m9_move_project_links_and_funds_from_entities_to_aziende.py`](/DATA/progetti/pythonpro/backend/alembic/versions/n4i5j6k7l8m9_move_project_links_and_funds_from_entities_to_aziende.py)
+  - crea:
+    - `azienda_cliente_projects`
+    - `azienda_cliente_fund_memberships`
+  - rimuove:
+    - `implementing_entity_projects`
+    - `implementing_entity_fund_memberships`
+
+### Frontend
+- Ripuliti i componenti enti:
+  - [`frontend/src/components/ImplementingEntityModal.js`](/DATA/progetti/pythonpro/frontend/src/components/ImplementingEntityModal.js)
+  - [`frontend/src/components/ImplementingEntitiesList.js`](/DATA/progetti/pythonpro/frontend/src/components/ImplementingEntitiesList.js)
+- Spostata la UI sul modulo aziende:
+  - [`frontend/src/components/AziendeClientiManager.js`](/DATA/progetti/pythonpro/frontend/src/components/AziendeClientiManager.js)
+  - ora supporta:
+    - selezione multi-progetto
+    - storico fondi con `dal/al`
+    - visualizzazione fondo corrente e numero progetti in tabella
+
+### Verifiche eseguite
+- `python3 -m py_compile backend/models.py backend/schemas.py backend/crud.py backend/alembic/versions/n4i5j6k7l8m9_move_project_links_and_funds_from_entities_to_aziende.py` -> OK
+- `docker compose exec backend alembic upgrade head` -> OK
+- `docker compose exec backend alembic current` -> `n4i5j6k7l8m9 (head)`
+- verifica DB:
+  - presenti:
+    - `azienda_cliente_projects`
+    - `azienda_cliente_fund_memberships`
+- `npm run build` frontend -> OK
+- frontend container aggiornato:
+  - bundle servito `main.2df986e9.js`

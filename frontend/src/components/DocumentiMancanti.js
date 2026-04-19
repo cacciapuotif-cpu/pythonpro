@@ -199,7 +199,7 @@ export default function DocumentiMancanti() {
     setError('');
     try {
       const statesToLoad = ['richiesto', 'scaduto'];
-      const responses = await Promise.all(statesToLoad.map((stato) => getDocumentiRichiesti({ stato, limit: 1000 })));
+      const responses = await Promise.all(statesToLoad.map((stato) => getDocumentiRichiesti({ stato, limit: 500 })));
       const deduped = new Map();
 
       responses.flat().forEach((doc) => {

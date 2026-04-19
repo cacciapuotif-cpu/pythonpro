@@ -1,7 +1,7 @@
 """add_agent_workflow_fields
 
 Revision ID: b1c2d3e4f5a6
-Revises: a10d08b5e238
+Revises: 029_piani_fin_complete
 Create Date: 2026-04-05 18:00:00.000000+00:00
 
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 
 revision = "b1c2d3e4f5a6"
-down_revision = ("a10d08b5e238", "029_piani_fin_complete")
+down_revision = "029_piani_fin_complete"
 branch_labels = None
 depends_on = None
 

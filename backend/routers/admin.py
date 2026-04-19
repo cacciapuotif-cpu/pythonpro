@@ -324,18 +324,9 @@ def export_performance_metrics(
 def clear_application_cache(
     current_user: User = Depends(get_admin_user)
 ):
-    """Pulisci cache applicazione"""
-    try:
-        from crud import query_cache
-        query_cache.clear()
-        logger.info("Application cache cleared by admin")
-        return {
-            "message": "Cache pulita con successo",
-            "timestamp": datetime.now().isoformat()
-        }
-    except Exception as e:
-        logger.error(f"Errore pulizia cache: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
-        )
+    """Endpoint legacy: non esiste piu cache applicativa in-process da pulire."""
+    logger.info("Cache clear requested by admin, but in-process cache is disabled")
+    return {
+        "message": "Nessuna cache in-process attiva da pulire",
+        "timestamp": datetime.now().isoformat()
+    }

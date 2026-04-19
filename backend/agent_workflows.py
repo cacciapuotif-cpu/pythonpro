@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 import models
 from ai_agents import get_agent_definition, run_registered_agent
+from services.whatsapp_sender import send_whatsapp_message
 
 logger = logging.getLogger(__name__)
 
@@ -61,11 +62,11 @@ def _send_email(*, recipient_email: str, subject: str, body: str) -> tuple[bool,
     if not _is_email_enabled():
         return False, "Invio email non abilitato"
 
-    smtp_server = os.getenv("SMTP_SERVER")
+    smtp_server = os.getenv("SMTP_HOST") or os.getenv("SMTP_SERVER")
     smtp_port = int(os.getenv("SMTP_PORT", "0") or "0")
     smtp_user = os.getenv("SMTP_USER")
     smtp_password = os.getenv("SMTP_PASSWORD")
-    email_from = os.getenv("EMAIL_FROM", "no-reply@gestionale.local")
+    email_from = os.getenv("SMTP_FROM") or os.getenv("EMAIL_FROM", "no-reply@gestionale.local")
 
     if not smtp_server or not smtp_port:
         return False, "Configurazione SMTP incompleta"
@@ -91,6 +92,42 @@ def _send_email(*, recipient_email: str, subject: str, body: str) -> tuple[bool,
     except Exception as exc:
         logger.warning("Invio email fallito verso %s: %s", recipient_email, exc)
         return False, str(exc)
+
+
+def _deliver_draft(draft: models.AgentCommunicationDraft) -> tuple[bool, str, dict[str, Any]]:
+    if draft.channel == "email":
+        sent_ok, detail = _send_email(
+            recipient_email=draft.recipient_email,
+            subject=draft.subject,
+            body=draft.body,
+        )
+        return sent_ok, detail, {
+            "delivery_channel": "email",
+            "delivery_provider": "smtp",
+            "provider_message_id": None,
+            "delivery_status": "sent" if sent_ok else "failed",
+        }
+
+    if draft.channel == "whatsapp":
+        result = send_whatsapp_message(
+            recipient_phone=draft.recipient_email,
+            subject=draft.subject,
+            body=draft.body,
+        )
+        return result.ok, result.detail, {
+            "delivery_channel": "whatsapp",
+            "delivery_provider": result.provider,
+            "provider_message_id": result.provider_message_id,
+            "provider_raw_response": result.raw_response,
+            "delivery_status": "sent" if result.ok else "failed",
+        }
+
+    return False, f"Canale non supportato: {draft.channel}", {
+        "delivery_channel": draft.channel,
+        "delivery_provider": None,
+        "provider_message_id": None,
+        "delivery_status": "failed",
+    }
 
 
 def _review_log(
@@ -191,7 +228,7 @@ def _ensure_collaborator_draft(
         return None
 
     collaborator = db.query(models.Collaborator).filter(models.Collaborator.id == suggestion.entity_id).first()
-    if collaborator is None or not collaborator.email:
+    if collaborator is None:
         return None
 
     draft = db.query(models.AgentCommunicationDraft).filter(
@@ -205,6 +242,8 @@ def _ensure_collaborator_draft(
         subject, body = _whatsapp_copy_for_suggestion(suggestion, collaborator)
         recipient_address = collaborator.phone
     else:
+        if not collaborator.email:
+            return None
         subject, body = _draft_copy_for_suggestion(suggestion, collaborator)
         recipient_address = collaborator.email
 
@@ -306,14 +345,14 @@ def _mark_suggestion_resolved(
 def run_agent_workflow(
     db: Session,
     *,
-    agent_name: str,
+    agent_type: str,
     entity_type: Optional[str] = None,
     entity_id: Optional[int] = None,
     requested_by_user_id: Optional[int] = None,
     input_payload: Optional[dict[str, Any]] = None,
     auto_mode: bool = False,
 ) -> models.AgentRun:
-    definition = get_agent_definition(agent_name)
+    definition = get_agent_definition(agent_type)
     if not definition:
         raise ValueError("Agente non supportato")
 
@@ -329,7 +368,7 @@ def run_agent_workflow(
         payload["trigger_mode"] = "automatic"
 
     run = models.AgentRun(
-        agent_name=definition["name"],
+        agent_type=definition["name"],
         status="running",
         entity_type=entity_type,
         entity_id=entity_id,
@@ -341,7 +380,7 @@ def run_agent_workflow(
 
     result = run_registered_agent(
         db,
-        agent_name=agent_name,
+        agent_name=agent_type,
         entity_type=entity_type,
         entity_id=entity_id,
         input_payload=payload,
@@ -349,21 +388,42 @@ def run_agent_workflow(
 
     created_suggestions: list[models.AgentSuggestion] = []
     for item in result.get("suggestions", []):
-        suggestion = models.AgentSuggestion(
-            run_id=run.id,
-            agent_name=definition["name"],
-            entity_type=item["entity_type"],
-            entity_id=item.get("entity_id"),
-            suggestion_type=item["suggestion_type"],
-            severity=item["severity"],
-            status="pending",
-            title=item["title"],
-            description=item["description"],
-            payload=_json_dumps(item.get("payload")),
-            confidence=item.get("confidence"),
-        )
-        db.add(suggestion)
-        db.flush()
+        # Deduplication: reuse any still-open suggestion of the same type for this entity.
+        # In particular, do not recreate a new pending item if the previous request was already sent;
+        # that request should remain hidden until it becomes follow-up_due.
+        existing = None
+        if item.get("entity_id") and item.get("entity_type") and item.get("suggestion_type"):
+            existing = db.query(models.AgentSuggestion).filter(
+                models.AgentSuggestion.entity_type == item["entity_type"],
+                models.AgentSuggestion.entity_id == item["entity_id"],
+                models.AgentSuggestion.suggestion_type == item["suggestion_type"],
+                models.AgentSuggestion.status.in_(tuple(OPEN_SUGGESTION_STATUSES)),
+            ).order_by(models.AgentSuggestion.id.desc()).first()
+
+        if existing:
+            existing.run_id = run.id
+            existing.severity = item["severity"]
+            existing.title = item["title"]
+            existing.description = item["description"]
+            existing.payload = _json_dumps(item.get("payload"))
+            existing.confidence_score = item.get("confidence_score", item.get("confidence"))
+            db.flush()
+            suggestion = existing
+        else:
+            suggestion = models.AgentSuggestion(
+                run_id=run.id,
+                entity_type=item["entity_type"],
+                entity_id=item.get("entity_id"),
+                suggestion_type=item["suggestion_type"],
+                severity=item["severity"],
+                status="pending",
+                title=item["title"],
+                description=item["description"],
+                payload=_json_dumps(item.get("payload")),
+                confidence_score=item.get("confidence_score", item.get("confidence")),
+            )
+            db.add(suggestion)
+            db.flush()
         created_suggestions.append(suggestion)
 
         payload_dict = item.get("payload") or {}
@@ -373,21 +433,32 @@ def run_agent_workflow(
             and payload_dict.get("subject")
             and payload_dict.get("body")
         ):
-            db.add(models.AgentCommunicationDraft(
-                run_id=run.id,
-                suggestion_id=suggestion.id,
-                agent_name=definition["name"],
-                channel="email",
-                recipient_type=payload_dict.get("recipient_type") or item["entity_type"],
-                recipient_id=payload_dict.get("recipient_id"),
-                recipient_email=payload_dict["recipient_email"],
-                recipient_name=payload_dict.get("recipient_name"),
-                subject=payload_dict["subject"],
-                body=payload_dict["body"],
-                status="draft",
-                meta_payload=_json_dumps(payload_dict),
-                created_by_user_id=requested_by_user_id,
-            ))
+            # Reuse editable drafts attached to the current open suggestion.
+            existing_draft = db.query(models.AgentCommunicationDraft).filter(
+                models.AgentCommunicationDraft.suggestion_id == suggestion.id,
+                models.AgentCommunicationDraft.channel == "email",
+                models.AgentCommunicationDraft.status.in_(["draft", "approved", "waiting", "followup_due"]),
+            ).first()
+            if existing_draft:
+                existing_draft.subject = payload_dict["subject"]
+                existing_draft.body = payload_dict["body"]
+                existing_draft.run_id = run.id
+            else:
+                db.add(models.AgentCommunicationDraft(
+                    run_id=run.id,
+                    suggestion_id=suggestion.id,
+                    agent_name=definition["name"],
+                    channel="email",
+                    recipient_type=payload_dict.get("recipient_type") or item["entity_type"],
+                    recipient_id=payload_dict.get("recipient_id"),
+                    recipient_email=payload_dict["recipient_email"],
+                    recipient_name=payload_dict.get("recipient_name"),
+                    subject=payload_dict["subject"],
+                    body=payload_dict["body"],
+                    status="draft",
+                    meta_payload=_json_dumps(payload_dict),
+                    created_by_user_id=requested_by_user_id,
+                ))
 
     summary = result.get("summary", {})
     run.status = "completed"
@@ -402,7 +473,7 @@ def run_agent_workflow(
         old_value=None,
         new_value={
             "run_id": run.id,
-            "agent_name": run.agent_name,
+            "agent_type": run.agent_type,
             "entity_type": run.entity_type,
             "entity_id": run.entity_id,
             "suggestions_count": run.suggestions_count,
@@ -429,7 +500,7 @@ def sync_collaborator_data_quality(
 
     run = run_agent_workflow(
         db,
-        agent_name="data_quality",
+        agent_type="data_quality",
         entity_type="collaborator",
         entity_id=collaborator_id,
         requested_by_user_id=requested_by_user_id,
@@ -438,10 +509,11 @@ def sync_collaborator_data_quality(
     )
 
     open_suggestions = db.query(models.AgentSuggestion).filter(
-        models.AgentSuggestion.agent_name == "data_quality",
         models.AgentSuggestion.entity_type == "collaborator",
         models.AgentSuggestion.entity_id == collaborator_id,
         models.AgentSuggestion.status.in_(tuple(OPEN_SUGGESTION_STATUSES)),
+    ).join(models.AgentRun, models.AgentSuggestion.run_id == models.AgentRun.id).filter(
+        models.AgentRun.agent_type == "data_quality",
     ).all()
 
     latest_suggestions = [item for item in open_suggestions if item.run_id == run.id]
@@ -468,7 +540,7 @@ def sync_collaborator_data_quality(
         suggestion.description = refreshed.description
         suggestion.payload = refreshed.payload
         suggestion.severity = refreshed.severity
-        suggestion.confidence = refreshed.confidence
+        suggestion.confidence_score = refreshed.confidence_score
 
         if suggestion.status == "completed":
             suggestion.status = "pending"
@@ -492,10 +564,11 @@ def sync_collaborator_data_quality(
         )
 
     active_suggestions = db.query(models.AgentSuggestion).filter(
-        models.AgentSuggestion.agent_name == "data_quality",
         models.AgentSuggestion.entity_type == "collaborator",
         models.AgentSuggestion.entity_id == collaborator_id,
         models.AgentSuggestion.status.in_(tuple(OPEN_SUGGESTION_STATUSES)),
+    ).join(models.AgentRun, models.AgentSuggestion.run_id == models.AgentRun.id).filter(
+        models.AgentRun.agent_type == "data_quality",
     ).all()
 
     for suggestion in active_suggestions:
@@ -588,18 +661,12 @@ def apply_workflow_action(
     if normalized_action in {"approve", "remind"}:
         if draft is None:
             raise ValueError(f"Nessuna comunicazione {selected_channel} disponibile per questo suggerimento")
-        sent_ok = False
-        detail = "Bozza pronta per invio manuale"
-        if draft.channel == "email":
-            sent_ok, detail = _send_email(
-                recipient_email=draft.recipient_email,
-                subject=draft.subject,
-                body=draft.body,
-            )
+        sent_ok, detail, delivery_meta = _deliver_draft(draft)
         meta = _parse_json_payload(draft.meta_payload)
         meta["last_delivery_attempt_at"] = datetime.utcnow().isoformat()
         meta["last_delivery_detail"] = detail
         meta["delivery_attempts"] = int(meta.get("delivery_attempts") or 0) + 1
+        meta.update({key: value for key, value in delivery_meta.items() if value is not None})
         draft.meta_payload = _json_dumps(meta)
         draft.reviewed_by_user_id = reviewed_by_user_id
         if sent_ok:

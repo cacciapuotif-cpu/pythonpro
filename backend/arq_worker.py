@@ -68,6 +68,35 @@ async def promote_agent_followups(ctx: dict[str, Any]) -> dict[str, Any]:
         db.close()
 
 
+async def poll_email_inbox(ctx: dict[str, Any]) -> dict[str, Any]:
+    """Worker ARQ: polling IMAP email in arrivo per documenti allegati.
+
+    Runs in the single arq_worker process — no duplication across gunicorn workers.
+    Interval: every 5 minutes (matches INBOX_POLL_INTERVAL_SECONDS default of 300s).
+    """
+    import asyncio
+
+    imap_user = os.getenv("GMAIL_IMAP_USER", "")
+    if not imap_user:
+        logger.debug("poll_email_inbox: GMAIL_IMAP_USER non configurato, skip")
+        return {"status": "skipped", "reason": "no_imap_user"}
+
+    from services.email_inbox_worker import EmailInboxWorker
+
+    worker = EmailInboxWorker()
+    db = SessionLocal()
+    try:
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, worker._run_poll_cycle, db)
+        logger.info("poll_email_inbox: ciclo completato")
+        return {"status": "completed", "processed_at": datetime.utcnow().isoformat()}
+    except Exception as exc:
+        logger.exception("poll_email_inbox: errore: %s", exc)
+        return {"status": "error", "error": str(exc)}
+    finally:
+        db.close()
+
+
 class WorkerSettings:
     functions = [process_entity_change_event, send_outbound_webhook, promote_agent_followups]
     redis_settings = RedisSettings(
@@ -78,5 +107,8 @@ class WorkerSettings:
     )
     cron_jobs = [
         cron(promote_agent_followups, minute={5, 35}),
+        # Email IMAP polling ogni 5 minuti (INBOX_POLL_INTERVAL_SECONDS default=300).
+        # Centralizzato qui per evitare duplicazione su più worker uvicorn.
+        cron(poll_email_inbox, minute={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55}),
     ]
     max_tries = 3

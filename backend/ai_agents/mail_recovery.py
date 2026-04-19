@@ -48,11 +48,15 @@ def _greeting(collaborator: models.Collaborator) -> str:
 def _missing_data_body(collaborator: models.Collaborator, missing_fields: list[str]) -> tuple[str, str]:
     pretty_fields = ", ".join(missing_fields)
     subject = "Aggiornamento dati collaboratore richiesto"
+    pdf_note = ""
+    if any(field in {"curriculum", "documento_identita"} for field in missing_fields):
+        pdf_note = "\n\nSe devi inviare documenti in allegato, ti chiediamo di inviarli solo in formato PDF."
     body = (
         f"Ciao {_greeting(collaborator)},\n\n"
         "per completare la tua anagrafica operativa abbiamo bisogno di un aggiornamento su alcuni dati mancanti.\n\n"
         f"Campi da integrare: {pretty_fields}.\n\n"
-        "Ti chiediamo di rispondere a questa comunicazione inviando le informazioni mancanti o i documenti necessari.\n\n"
+        "Ti chiediamo di rispondere a questa comunicazione inviando le informazioni mancanti o i documenti necessari."
+        f"{pdf_note}\n\n"
         "Grazie."
     )
     return subject, body
@@ -70,8 +74,8 @@ def _document_expiry_body(collaborator: models.Collaborator, days_to_expiry: Opt
     body = (
         f"Ciao {_greeting(collaborator)},\n\n"
         f"il documento di identita associato al tuo profilo {timing}.\n\n"
-        "Per mantenere attiva la documentazione amministrativa ti chiediamo di inviare un documento valido aggiornato, "
-        "indicando anche la relativa data di scadenza se non presente.\n\n"
+        "Per mantenere attiva la documentazione amministrativa ti chiediamo di inviare un documento valido aggiornato "
+        "solo in formato PDF, indicando anche la relativa data di scadenza se non presente.\n\n"
         "Grazie."
     )
     return subject, body
@@ -97,6 +101,7 @@ def run_mail_recovery_agent(db, *, entity_type: Optional[str] = None, entity_id:
     suggestions: list[dict[str, Any]] = []
     llm_config = get_agent_llm_config()
     llm_generated_count = 0
+    use_llm_copy = entity_id is not None
 
     for collaborator in query.all():
         missing_fields = []
@@ -115,15 +120,17 @@ def run_mail_recovery_agent(db, *, entity_type: Optional[str] = None, entity_id:
 
         if missing_fields:
             subject, body = _missing_data_body(collaborator, missing_fields)
-            llm_copy = generate_mail_recovery_copy(
-                collaborator_name=collaborator.full_name,
-                collaborator_email=collaborator.email,
-                context_label="missing_collaborator_data",
-                requested_tone="professionale e operativo",
-                fallback_subject=subject,
-                fallback_body=body,
-                missing_fields=missing_fields,
-            )
+            llm_copy = None
+            if use_llm_copy:
+                llm_copy = generate_mail_recovery_copy(
+                    collaborator_name=collaborator.full_name,
+                    collaborator_email=collaborator.email,
+                    context_label="missing_collaborator_data",
+                    requested_tone="professionale e operativo",
+                    fallback_subject=subject,
+                    fallback_body=body,
+                    missing_fields=missing_fields,
+                )
             if llm_copy:
                 subject = llm_copy.subject
                 body = llm_copy.body
@@ -151,15 +158,17 @@ def run_mail_recovery_agent(db, *, entity_type: Optional[str] = None, entity_id:
             if expiry_date:
                 days_to_expiry = (expiry_date.date() - now.date()).days
             subject, body = _document_expiry_body(collaborator, days_to_expiry)
-            llm_copy = generate_mail_recovery_copy(
-                collaborator_name=collaborator.full_name,
-                collaborator_email=collaborator.email,
-                context_label="identity_document_followup",
-                requested_tone="amministrativo, chiaro e sintetico",
-                fallback_subject=subject,
-                fallback_body=body,
-                days_to_expiry=days_to_expiry,
-            )
+            llm_copy = None
+            if use_llm_copy:
+                llm_copy = generate_mail_recovery_copy(
+                    collaborator_name=collaborator.full_name,
+                    collaborator_email=collaborator.email,
+                    context_label="identity_document_followup",
+                    requested_tone="amministrativo, chiaro e sintetico",
+                    fallback_subject=subject,
+                    fallback_body=body,
+                    days_to_expiry=days_to_expiry,
+                )
             if llm_copy:
                 subject = llm_copy.subject
                 body = llm_copy.body

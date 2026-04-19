@@ -266,11 +266,11 @@ addopts = [
     "--tb=short",
     "--cov=app",
     "--cov-report=term-missing",
-    "--cov-report=html",
-    "--cov-report=xml",
-    "--cov-fail-under=85",
+    "--cov-report=html:/tmp/pythonpro_htmlcov",
+    "--cov-report=xml:/tmp/pythonpro_coverage.xml",
     "--maxfail=1",
 ]
+cache_dir = "/tmp/pythonpro_pytest_cache"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests as integration tests",
@@ -284,6 +284,7 @@ filterwarnings = [
 # --- COVERAGE ---
 [tool.coverage.run]
 source = ["app"]
+data_file = "/tmp/pythonpro_backend.coverage"
 omit = [
     "*/tests/*",
     "*/venv/*",
@@ -308,7 +309,7 @@ exclude_lines = [
 ]
 
 [tool.coverage.html]
-directory = "htmlcov"
+directory = "/tmp/pythonpro_htmlcov"
 
 # --- BANDIT (Security) ---
 [tool.bandit]

@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from datetime import datetime, timedelta
 
-from sqlalchemy import func
+from sqlalchemy import func, select
 
 import models
 from .registry import BaseAgent, AgentRunResult, agent_registry
@@ -37,7 +37,7 @@ class DataQualityAgent(BaseAgent):
 
             if missing_documents:
                 suggestions.append({
-                    "suggestion_type": "missing_data",
+                    "suggestion_type": "missing_identity_document",
                     "priority": "high",
                     "entity_type": "collaborator",
                     "entity_id": collaborator.id,
@@ -59,7 +59,7 @@ class DataQualityAgent(BaseAgent):
 
             if missing_fields:
                 suggestions.append({
-                    "suggestion_type": "missing_data",
+                    "suggestion_type": "missing_profile_fields",
                     "priority": "medium",
                     "entity_type": "collaborator",
                     "entity_id": collaborator.id,
@@ -100,10 +100,9 @@ class DataQualityAgent(BaseAgent):
             })
 
         active_project_ids_subquery = (
-            db.query(models.Assignment.project_id)
+            select(models.Assignment.project_id)
             .filter(models.Assignment.is_active == True)
             .distinct()
-            .subquery()
         )
         orphan_attendances = (
             db.query(models.Attendance)

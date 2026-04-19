@@ -1,11 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  acceptAgentSuggestion,
+  assignEmailInboxItem,
+  downloadEmailInboxAttachment,
+  createAgentCommunication,
   getAgentCommunications,
   getAgentsCatalog,
   getAgentLlmHealth,
   getAgentRuns,
   getAgentSuggestions,
+  getEmailInboxItems,
   getAziendeClienti,
   getCollaborators,
   getProjects,
@@ -25,12 +28,12 @@ const ENTITY_TYPE_LABELS = {
 
 const STATUS_LABELS = {
   pending: 'Pending',
-  waiting: 'In attesa',
-  approved: 'Pronta da inviare',
+  waiting: 'Rimandata',
+  approved: 'Approvata',
   accepted: 'Accettato',
   rejected: 'Rifiutato',
   sent: 'Inviata',
-  followup_due: 'Sollecito da gestire',
+  followup_due: 'Sollecito',
   completed: 'Completata',
   draft: 'Bozza',
   failed: 'Fallita',
@@ -44,50 +47,78 @@ const SEVERITY_LABELS = {
   critical: 'Critica',
 };
 
+const SEVERITY_RANK = {
+  low: 1,
+  medium: 2,
+  high: 3,
+  critical: 4,
+};
+
+const AGENT_ICONS = {
+  mail_recovery: '📧',
+  data_quality: '🔍',
+  document_processor: '📄',
+};
+
 const formatDateTime = (value) => {
-  if (!value) {
-    return '—';
-  }
+  if (!value) return '—';
   try {
-    return new Intl.DateTimeFormat('it-IT', {
-      dateStyle: 'short',
-      timeStyle: 'short',
-    }).format(new Date(value));
+    return new Intl.DateTimeFormat('it-IT', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value));
   } catch {
     return value;
   }
 };
 
 const parsePayload = (value) => {
-  if (!value) {
-    return null;
-  }
-  if (typeof value === 'object') {
-    return value;
-  }
-  try {
-    return JSON.parse(value);
-  } catch {
-    return value;
-  }
+  if (!value) return null;
+  if (typeof value === 'object') return value;
+  try { return JSON.parse(value); } catch { return value; }
 };
 
-const prettyPayload = (value) => {
-  const parsed = parsePayload(value);
-  if (!parsed) {
-    return '';
-  }
-  if (typeof parsed === 'string') {
-    return parsed;
-  }
-  return JSON.stringify(parsed, null, 2);
-};
+function Avatar({ name }) {
+  const letter = (name || '?')[0].toUpperCase();
+  return <span className="am-avatar">{letter}</span>;
+}
+
+function MissingFields({ fields }) {
+  if (!fields || fields.length === 0) return null;
+  return (
+    <div className="am-missing">
+      <span className="am-missing-label">Mancante:</span>
+      {fields.map((f) => <span key={f} className="am-missing-chip">{f}</span>)}
+    </div>
+  );
+}
+
+function EmailPreview({ subject, body, lines = 3 }) {
+  if (!subject && !body) return null;
+  const previewLines = (body || '').split('\n').filter((l) => l.trim()).slice(0, lines).join('\n');
+  return (
+    <div className="am-email-preview">
+      {subject && <div className="am-email-subject">{subject}</div>}
+      {previewLines && <div className="am-email-body">{previewLines}</div>}
+    </div>
+  );
+}
+
+function NoteInput({ id, value, onChange }) {
+  return (
+    <textarea
+      className="am-note"
+      rows="2"
+      placeholder="Nota operatore (opzionale)…"
+      value={value || ''}
+      onChange={(e) => onChange(id, e.target.value)}
+    />
+  );
+}
 
 export default function AgentsManager({ currentUser }) {
   const [catalog, setCatalog] = useState([]);
   const [runs, setRuns] = useState([]);
   const [suggestions, setSuggestions] = useState([]);
   const [communications, setCommunications] = useState([]);
+  const [emailInboxItems, setEmailInboxItems] = useState([]);
   const [llmHealth, setLlmHealth] = useState(null);
   const [projects, setProjects] = useState([]);
   const [collaborators, setCollaborators] = useState([]);
@@ -97,116 +128,141 @@ export default function AgentsManager({ currentUser }) {
   const [actionLoading, setActionLoading] = useState(null);
   const [message, setMessage] = useState(null);
   const [error, setError] = useState(null);
-  const [selectedRunId, setSelectedRunId] = useState('');
   const [notesBySuggestion, setNotesBySuggestion] = useState({});
-  const [form, setForm] = useState({
-    agent_name: '',
-    entity_type: 'global',
-    entity_id: '',
-    limit: 25,
+  const [inboxExpiryByItem, setInboxExpiryByItem] = useState({});
+  const [activeTab, setActiveTab] = useState('inbox');
+  const [runSelections, setRunSelections] = useState({});
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [draftForm, setDraftForm] = useState({
+    agent_name: 'manual_test',
+    recipient_type: 'collaborator',
+    recipient_id: '',
+    suggestion_id: '',
+    recipient_email: '',
+    recipient_name: '',
+    subject: '',
+    body: '',
   });
 
-  const selectedAgent = useMemo(
-    () => catalog.find((item) => item.name === form.agent_name) || null,
-    [catalog, form.agent_name],
-  );
-  const supportedEntityTypes = useMemo(
-    () => selectedAgent?.supported_entity_types || [],
-    [selectedAgent],
-  );
-  const selectableEntityTypes = useMemo(() => {
-    if (!selectedAgent || supportedEntityTypes.length === 0) {
-      return Object.entries(ENTITY_TYPE_LABELS);
-    }
-    return Object.entries(ENTITY_TYPE_LABELS).filter(([value]) => supportedEntityTypes.includes(value));
-  }, [selectedAgent, supportedEntityTypes]);
+  // ── Derived lookup maps ────────────────────────────────────────────────────
+  const collaboratorById = useMemo(() =>
+    collaborators.reduce((acc, c) => {
+      acc[c.id] = `${c.first_name || ''} ${c.last_name || ''}`.trim() || `#${c.id}`;
+      return acc;
+    }, {}),
+  [collaborators]);
 
-  const entityOptions = useMemo(() => {
-    if (form.entity_type === 'project') {
-      return projects.map((item) => ({ id: item.id, label: item.name }));
-    }
-    if (form.entity_type === 'collaborator') {
-      return collaborators.map((item) => ({
-        id: item.id,
-        label: `${item.first_name} ${item.last_name}`.trim(),
-      }));
-    }
-    if (form.entity_type === 'azienda_cliente') {
-      return aziende.map((item) => ({ id: item.id, label: item.ragione_sociale }));
-    }
-    return [];
-  }, [aziende, collaborators, form.entity_type, projects]);
+  const collaboratorEmailById = useMemo(() =>
+    collaborators.reduce((acc, c) => { acc[c.id] = c.email; return acc; }, {}),
+  [collaborators]);
 
-  const filteredSuggestions = useMemo(() => {
-    if (!selectedRunId) {
-      return suggestions;
-    }
-    return suggestions.filter((item) => String(item.run_id) === String(selectedRunId));
-  }, [selectedRunId, suggestions]);
+  // ── Filtered views ─────────────────────────────────────────────────────────
+  const pendingSuggestions = useMemo(() =>
+    suggestions.filter((s) => s.status === 'pending' && !['data_quality', 'mail_recovery'].includes(s.agent_name)),
+  [suggestions]);
 
-  const filteredCommunications = useMemo(() => {
-    if (!selectedRunId) {
-      return communications;
-    }
-    return communications.filter((item) => String(item.run_id) === String(selectedRunId));
-  }, [communications, selectedRunId]);
+  const pendingCommunications = useMemo(() =>
+    communications.filter((c) => ['draft', 'approved', 'followup_due'].includes(c.status)),
+  [communications]);
 
   const operatorQueue = useMemo(() => {
-    const communicationsBySuggestionId = communications.reduce((accumulator, item) => {
-      if (!item.suggestion_id) {
-        return accumulator;
-      }
-      accumulator[item.suggestion_id] = accumulator[item.suggestion_id] || [];
-      accumulator[item.suggestion_id].push(item);
-      return accumulator;
+    const commsBySuggestion = communications.reduce((acc, item) => {
+      if (!item.suggestion_id) return acc;
+      acc[item.suggestion_id] = acc[item.suggestion_id] || [];
+      acc[item.suggestion_id].push(item);
+      return acc;
     }, {});
 
     return suggestions
-      .filter((item) =>
-        item.agent_name === 'data_quality'
-        && item.entity_type === 'collaborator'
-        && ['pending', 'waiting', 'approved', 'sent', 'followup_due'].includes(item.status))
-      .map((item) => ({
-        ...item,
-        communications: communicationsBySuggestionId[item.id] || [],
-      }));
+      .filter((s) =>
+        s.agent_name === 'mail_recovery'
+        && s.entity_type === 'collaborator'
+        && ['pending', 'waiting', 'approved', 'followup_due'].includes(s.status))
+      .map((s) => ({ ...s, communications: commsBySuggestion[s.id] || [] }));
   }, [communications, suggestions]);
 
-  const showToast = useCallback((text, kind = 'success') => {
-    setMessage({ text, kind });
-    setTimeout(() => setMessage(null), 3500);
-  }, []);
+  const groupedOperatorQueue = useMemo(() => {
+    const groups = new Map();
 
+    operatorQueue.forEach((item) => {
+      const payload = parsePayload(item.payload);
+      const recipientName = payload?.recipient_name || collaboratorById[item.entity_id] || `Collaboratore #${item.entity_id}`;
+      const recipientEmail = payload?.recipient_email || collaboratorEmailById[item.entity_id] || '—';
+      const key = item.entity_id || `${recipientEmail}-${recipientName}`;
+      const current = groups.get(key);
+
+      if (!current) {
+        groups.set(key, {
+          key,
+          entityId: item.entity_id,
+          recipientName,
+          recipientEmail,
+          severity: item.severity,
+          items: [item],
+        });
+        return;
+      }
+
+      current.items.push(item);
+      if ((SEVERITY_RANK[item.severity] || 0) > (SEVERITY_RANK[current.severity] || 0)) {
+        current.severity = item.severity;
+      }
+    });
+
+    return Array.from(groups.values());
+  }, [collaboratorById, collaboratorEmailById, operatorQueue]);
+
+  const representedSuggestionIds = useMemo(() => new Set([
+    ...operatorQueue.map((item) => item.id),
+    ...pendingSuggestions.map((item) => item.id),
+  ]), [operatorQueue, pendingSuggestions]);
+
+  const standaloneCommunications = useMemo(() =>
+    pendingCommunications.filter((item) => {
+      if (item.agent_name === 'mail_recovery' && item.suggestion_id) {
+        return false;
+      }
+      return !item.suggestion_id || !representedSuggestionIds.has(item.suggestion_id);
+    }),
+  [pendingCommunications, representedSuggestionIds]);
+
+  const manualReviewItems = useMemo(() =>
+    emailInboxItems.filter((item) => item.processing_status === 'manual_review' && item.attachment_path),
+  [emailInboxItems]);
+
+  const recentInboxItems = useMemo(() =>
+    emailInboxItems.filter((item) => ['valid', 'manual_review', 'invalid'].includes(item.processing_status)),
+  [emailInboxItems]);
+
+  const inboxTotal = manualReviewItems.length + groupedOperatorQueue.length + pendingSuggestions.length + standaloneCommunications.length;
+
+  // ── Data loading ───────────────────────────────────────────────────────────
   const loadReferenceData = useCallback(async () => {
-    const [projectsData, collaboratorsData, aziendeData] = await Promise.all([
+    const [proj, collab, az] = await Promise.all([
       getProjects(0, 200),
       getCollaborators(0, 200),
       getAziendeClienti({ limit: 200 }),
     ]);
-    setProjects(Array.isArray(projectsData) ? projectsData : []);
-    setCollaborators(Array.isArray(collaboratorsData) ? collaboratorsData : []);
-    setAziende(Array.isArray(aziendeData) ? aziendeData : (aziendeData?.items || []));
+    setProjects(Array.isArray(proj) ? proj : []);
+    setCollaborators(Array.isArray(collab) ? collab : []);
+    setAziende(Array.isArray(az) ? az : (az?.items || []));
   }, []);
 
   const loadAgentData = useCallback(async () => {
-    const [catalogData, runsData, suggestionsData, communicationsData, llmHealthData] = await Promise.all([
+    const [cat, runsData, sugg, comms, llm, inbox] = await Promise.all([
       getAgentsCatalog(),
       getAgentRuns({ limit: 50 }),
       getAgentSuggestions({ limit: 100 }),
       getAgentCommunications({ limit: 100 }),
       getAgentLlmHealth(),
+      getEmailInboxItems({ limit: 50 }),
     ]);
-
-    const catalogItems = Array.isArray(catalogData) ? catalogData : [];
-    setCatalog(catalogItems);
+    setCatalog(Array.isArray(cat) ? cat : []);
     setRuns(Array.isArray(runsData) ? runsData : []);
-    setSuggestions(Array.isArray(suggestionsData) ? suggestionsData : []);
-    setCommunications(Array.isArray(communicationsData) ? communicationsData : []);
-    setLlmHealth(llmHealthData || null);
-    setForm((previous) => ({
-      ...previous,
-      agent_name: previous.agent_name || catalogItems[0]?.name || '',
-    }));
+    setSuggestions(Array.isArray(sugg) ? sugg : []);
+    setCommunications(Array.isArray(comms) ? comms : []);
+    setLlmHealth(llm || null);
+    setEmailInboxItems(Array.isArray(inbox?.items) ? inbox.items : []);
   }, []);
 
   const loadAll = useCallback(async () => {
@@ -214,591 +270,838 @@ export default function AgentsManager({ currentUser }) {
     setError(null);
     try {
       await Promise.all([loadReferenceData(), loadAgentData()]);
-    } catch (loadError) {
-      setError(loadError?.response?.data?.detail || 'Errore nel caricamento modulo agenti.');
+    } catch (e) {
+      setError(e?.response?.data?.detail || 'Errore nel caricamento.');
     } finally {
       setLoading(false);
     }
   }, [loadAgentData, loadReferenceData]);
 
-  useEffect(() => {
-    loadAll();
-  }, [loadAll]);
+  useEffect(() => { loadAll(); }, [loadAll]);
 
-  useEffect(() => {
-    if (!selectedAgent || supportedEntityTypes.length === 0) {
-      return;
-    }
-    if (!supportedEntityTypes.includes(form.entity_type)) {
-      setForm((previous) => ({
-        ...previous,
-        entity_type: supportedEntityTypes[0],
-        entity_id: '',
-      }));
-    }
-  }, [form.entity_type, selectedAgent, supportedEntityTypes]);
+  const showToast = useCallback((text, kind = 'success') => {
+    setMessage({ text, kind });
+    setTimeout(() => setMessage(null), 4000);
+  }, []);
 
-  useEffect(() => {
-    if (form.entity_type === 'global') {
-      if (form.entity_id !== '') {
-        setForm((previous) => ({ ...previous, entity_id: '' }));
-      }
-      return;
-    }
-    if (entityOptions.length === 0) {
-      if (form.entity_id !== '') {
-        setForm((previous) => ({ ...previous, entity_id: '' }));
-      }
-      return;
-    }
-    const hasSelectedValue = entityOptions.some((item) => String(item.id) === String(form.entity_id));
-    if (!hasSelectedValue) {
-      setForm((previous) => ({ ...previous, entity_id: String(entityOptions[0].id) }));
-    }
-  }, [entityOptions, form.entity_id, form.entity_type]);
-
-  const handleRunAgent = async () => {
-    if (!form.agent_name) {
-      setError('Seleziona un agente da eseguire.');
-      return;
-    }
-    if (selectedAgent && !supportedEntityTypes.includes(form.entity_type)) {
-      setError('Il tipo entità selezionato non è supportato da questo agente.');
-      return;
-    }
-    if (form.entity_type !== 'global' && !form.entity_id) {
-      setError('Seleziona un record da analizzare.');
-      return;
-    }
-
+  // ── Agent execution ────────────────────────────────────────────────────────
+  const runAgentDirect = useCallback(async (agentName, entityType, entityId) => {
+    if (!agentName) return;
+    const normalizedEntityType = entityType && entityType !== 'global' ? entityType : null;
+    const normalizedEntityId = normalizedEntityType && entityId ? Number(entityId) : null;
     setRunning(true);
     setError(null);
     try {
-      const result = await runAgent({
-        agent_name: form.agent_name,
-        entity_type: form.entity_type,
-        entity_id: form.entity_type === 'global' ? null : Number(form.entity_id),
+      await runAgent({
+        agent_name: agentName,
+        entity_type: normalizedEntityType,
+        entity_id: normalizedEntityId,
         requested_by_user_id: currentUser?.id || null,
-        input_payload: {
-          limit: Number(form.limit) || 25,
-        },
+        input_payload: { limit: 25 },
       });
       await loadAgentData();
-      setSelectedRunId(result?.id ? String(result.id) : '');
-      showToast('Agente eseguito con successo.');
-    } catch (runError) {
-      setError(runError?.response?.data?.detail || 'Esecuzione agente non riuscita.');
+      setActiveTab('inbox');
+      showToast('Analisi completata. Controlla le email proposte qui sotto.');
+    } catch (e) {
+      setError(e?.response?.data?.detail || 'Esecuzione non riuscita.');
     } finally {
       setRunning(false);
     }
-  };
+  }, [currentUser?.id, loadAgentData, showToast]);
 
-  const handleSuggestionReview = async (suggestionId, action) => {
-    setActionLoading(`suggestion-${suggestionId}-${action}`);
+  // ── Review / workflow handlers ─────────────────────────────────────────────
+  const handleNote = useCallback((id, value) => {
+    setNotesBySuggestion((prev) => ({ ...prev, [id]: value }));
+  }, []);
+
+  const handleSuggestionReview = useCallback(async (id, action) => {
+    setActionLoading(`suggestion-${id}-${action}`);
     setError(null);
     try {
       if (action === 'accept') {
-        await acceptAgentSuggestion(suggestionId, {
-          action: 'accepted',
-          notes: notesBySuggestion[suggestionId] || null,
+        await workflowAgentSuggestion(id, {
+          action: 'approve_email',
+          notes: notesBySuggestion[id] || null,
           reviewed_by_user_id: currentUser?.id || null,
         });
       } else {
-        await rejectAgentSuggestion(suggestionId, {
+        await rejectAgentSuggestion(id, {
           action: 'rejected',
-          notes: notesBySuggestion[suggestionId] || null,
+          notes: notesBySuggestion[id] || null,
           reviewed_by_user_id: currentUser?.id || null,
         });
       }
       await loadAgentData();
-      showToast(`Suggerimento ${action === 'accept' ? 'accettato' : 'rifiutato'}.`);
-    } catch (reviewError) {
-      setError(reviewError?.response?.data?.detail || 'Aggiornamento suggerimento non riuscito.');
+      showToast(action === 'accept' ? 'Richiesta inviata.' : 'Suggerimento rifiutato.');
+    } catch (e) {
+      setError(e?.response?.data?.detail || 'Aggiornamento non riuscito.');
     } finally {
       setActionLoading(null);
     }
-  };
+  }, [currentUser?.id, loadAgentData, notesBySuggestion, showToast]);
 
-  const handleCommunicationStatus = async (draftId, status) => {
-    setActionLoading(`communication-${draftId}-${status}`);
+  const handleCommunicationStatus = useCallback(async (id, status) => {
+    setActionLoading(`comm-${id}-${status}`);
     setError(null);
     try {
-      await updateAgentCommunicationStatus(draftId, {
+      await updateAgentCommunicationStatus(id, {
         status,
         reviewed_by_user_id: currentUser?.id || null,
       });
       await loadAgentData();
-      showToast(`Bozza aggiornata a stato "${STATUS_LABELS[status] || status}".`);
-    } catch (updateError) {
-      setError(updateError?.response?.data?.detail || 'Aggiornamento bozza non riuscito.');
+      showToast(status === 'sent' ? 'Email segnata come inviata.' : 'Bozza aggiornata.');
+    } catch (e) {
+      setError(e?.response?.data?.detail || 'Aggiornamento non riuscito.');
     } finally {
       setActionLoading(null);
     }
-  };
+  }, [currentUser?.id, loadAgentData, showToast]);
 
-  const handleWorkflowAction = async (suggestionId, action) => {
-    setActionLoading(`workflow-${suggestionId}-${action}`);
+  const handleWorkflowAction = useCallback(async (id, action) => {
+    setActionLoading(`wf-${id}-${action}`);
     setError(null);
     try {
-      await workflowAgentSuggestion(suggestionId, {
+      await workflowAgentSuggestion(id, {
         action,
-        notes: notesBySuggestion[suggestionId] || null,
+        notes: notesBySuggestion[id] || null,
         reviewed_by_user_id: currentUser?.id || null,
       });
       await loadAgentData();
-      showToast('Workflow aggiornato.');
-    } catch (workflowError) {
-      setError(workflowError?.response?.data?.detail || 'Aggiornamento workflow non riuscito.');
+      showToast('Azione registrata.');
+    } catch (e) {
+      setError(e?.response?.data?.detail || 'Aggiornamento non riuscito.');
     } finally {
       setActionLoading(null);
     }
+  }, [currentUser?.id, loadAgentData, notesBySuggestion, showToast]);
+
+  const handleCreateDraft = useCallback(async () => {
+    if (!draftForm.recipient_email.trim() || !draftForm.subject.trim() || !draftForm.body.trim()) {
+      setError('Compila destinatario email, oggetto e corpo.');
+      return;
+    }
+    setActionLoading('draft-create');
+    setError(null);
+    try {
+      await createAgentCommunication({
+        agent_name: draftForm.agent_name.trim() || 'manual_test',
+        channel: 'email',
+        recipient_type: draftForm.recipient_type,
+        recipient_id: draftForm.recipient_id ? Number(draftForm.recipient_id) : null,
+        recipient_email: draftForm.recipient_email.trim(),
+        recipient_name: draftForm.recipient_name.trim() || null,
+        subject: draftForm.subject.trim(),
+        body: draftForm.body.trim(),
+        status: 'draft',
+        created_by_user_id: currentUser?.id || null,
+        meta_payload: JSON.stringify({ source: 'manual_ui' }),
+      });
+      await loadAgentData();
+      setDraftForm((p) => ({ ...p, recipient_email: '', recipient_name: '', subject: '', body: '' }));
+      showToast('Bozza email creata.');
+    } catch (e) {
+      setError(e?.response?.data?.detail || 'Creazione non riuscita.');
+    } finally {
+      setActionLoading(null);
+    }
+  }, [currentUser?.id, draftForm, loadAgentData, showToast]);
+
+  const handleInboxExpiryChange = useCallback((itemId, value) => {
+    setInboxExpiryByItem((prev) => ({ ...prev, [itemId]: value }));
+  }, []);
+
+  const handleInboxAssignment = useCallback(async (itemId, docType) => {
+    setActionLoading(`inbox-${itemId}-${docType}`);
+    setError(null);
+    try {
+      await assignEmailInboxItem(itemId, {
+        doc_type: docType,
+        expiry_date: docType === 'documento_identita' ? (inboxExpiryByItem[itemId] || null) : null,
+        reviewed_by_user_id: currentUser?.id || null,
+      });
+      await loadAgentData();
+      showToast(docType === 'documento_identita' ? 'Documento identita assegnato al collaboratore.' : 'Curriculum assegnato al collaboratore.');
+    } catch (e) {
+      setError(e?.response?.data?.detail || 'Assegnazione documento non riuscita.');
+    } finally {
+      setActionLoading(null);
+    }
+  }, [currentUser?.id, inboxExpiryByItem, loadAgentData, showToast]);
+
+  const handleInboxPreview = useCallback(async (itemId, attachmentName) => {
+    const previewWindow = window.open('', '_blank');
+    setActionLoading(`inbox-preview-${itemId}`);
+    setError(null);
+    try {
+      const response = await downloadEmailInboxAttachment(itemId);
+      const extension = (attachmentName || '').split('.').pop()?.toLowerCase();
+      const fallbackType = extension === 'pdf'
+        ? 'application/pdf'
+        : ['jpg', 'jpeg'].includes(extension)
+          ? 'image/jpeg'
+          : extension === 'png'
+            ? 'image/png'
+            : 'application/octet-stream';
+      const headerType = response.headers?.['content-type'];
+      const contentType = !headerType || headerType === 'application/octet-stream'
+        ? fallbackType
+        : headerType;
+      const url = window.URL.createObjectURL(new Blob([response.data], { type: contentType }));
+      if (previewWindow) {
+        previewWindow.location.href = url;
+      } else {
+        window.open(url, '_blank', 'noopener,noreferrer');
+      }
+      window.setTimeout(() => window.URL.revokeObjectURL(url), 60000);
+    } catch (e) {
+      if (previewWindow && !previewWindow.closed) previewWindow.close();
+      setError(e?.response?.data?.detail || 'Anteprima allegato non riuscita.');
+    } finally {
+      setActionLoading(null);
+    }
+  }, []);
+
+  const handleInboxDownload = useCallback(async (itemId, attachmentName) => {
+    setActionLoading(`inbox-download-${itemId}`);
+    setError(null);
+    try {
+      const response = await downloadEmailInboxAttachment(itemId);
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', attachmentName || `allegato_${itemId}`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(e?.response?.data?.detail || 'Download allegato non riuscito.');
+    } finally {
+      setActionLoading(null);
+    }
+  }, []);
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  const isLoading = (key) => actionLoading === key;
+  const resolveEntityName = (entityType, entityId) => {
+    if (!entityId) return null;
+    if (entityType === 'collaborator') return collaboratorById[entityId] || `Collaboratore #${entityId}`;
+    if (entityType === 'project') {
+      const p = projects.find((x) => String(x.id) === String(entityId));
+      return p?.name || `Progetto #${entityId}`;
+    }
+    if (entityType === 'azienda_cliente') {
+      const a = aziende.find((x) => String(x.id) === String(entityId));
+      return a?.ragione_sociale || `Azienda #${entityId}`;
+    }
+    return `ID ${entityId}`;
   };
 
-  const totalPendingSuggestions = suggestions.filter((item) => ['pending', 'followup_due'].includes(item.status)).length;
-  const totalDraftCommunications = communications.filter((item) => ['draft', 'approved', 'followup_due'].includes(item.status)).length;
-
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="agents-manager">
-      <div className="agents-hero">
+    <div className="am">
+
+      {/* Top bar */}
+      <div className="am-topbar">
         <div>
-          <span className="agents-eyebrow">AI Workflow</span>
-          <h2>Agenti Operativi</h2>
-          <p>
-            Esegui agenti backend già registrati, controlla le analisi prodotte e gestisci
-            suggerimenti o bozze email senza uscire dal gestionale.
-          </p>
+          <h2 className="am-title">Comunicazioni AI</h2>
+          <p className="am-subtitle">Richieste documenti e comunicazioni automatiche verso collaboratori</p>
         </div>
-        <div className="agents-hero-stats">
-          <div className={`agents-stat-card agents-stat-card-llm ${llmHealth?.reachable ? 'is-ok' : 'is-warn'}`}>
-            <strong>{llmHealth?.provider || 'none'}</strong>
-            <span>{llmHealth?.reachable ? 'LLM raggiungibile' : (llmHealth?.detail || 'LLM non disponibile')}</span>
+        <div className="am-topbar-right">
+          <div className={`am-llm-pill ${llmHealth?.reachable ? 'ok' : 'warn'}`}>
+            <span className="am-llm-dot" />
+            {llmHealth?.reachable ? `AI attiva · ${llmHealth.provider}` : 'AI non disponibile'}
           </div>
-          <div className="agents-stat-card">
-            <strong>{catalog.length}</strong>
-            <span>Agenti registrati</span>
-          </div>
-          <div className="agents-stat-card">
-            <strong>{totalPendingSuggestions}</strong>
-            <span>Suggerimenti pending</span>
-          </div>
-          <div className="agents-stat-card">
-            <strong>{totalDraftCommunications}</strong>
-            <span>Bozze da rivedere</span>
-          </div>
+          <button className="am-btn-ghost" onClick={loadAll} disabled={loading}>
+            {loading ? 'Aggiornamento…' : '↺ Aggiorna'}
+          </button>
         </div>
       </div>
 
-      {message ? (
-        <div className={`agents-toast agents-toast-${message.kind}`}>{message.text}</div>
-      ) : null}
-      {error ? <div className="agents-error">{error}</div> : null}
+      {/* Feedback */}
+      {message && (
+        <div className={`am-toast am-toast-${message.kind}`}>{message.text}</div>
+      )}
+      {error && <div className="am-error">{error}</div>}
 
-      <div className="agents-grid">
-        <section className="agents-panel">
-          <div className="agents-panel-header">
-            <h3>Inbox operatore</h3>
-            <span className="agents-panel-note">{operatorQueue.length} pratiche attive</span>
-          </div>
+      {/* Tabs */}
+      <div className="am-tabs">
+        <button
+          className={`am-tab ${activeTab === 'inbox' ? 'active' : ''}`}
+          onClick={() => setActiveTab('inbox')}
+        >
+          Da gestire
+          {inboxTotal > 0 && <span className="am-tab-badge">{inboxTotal}</span>}
+        </button>
+        <button
+          className={`am-tab ${activeTab === 'run' ? 'active' : ''}`}
+          onClick={() => setActiveTab('run')}
+        >
+          Esegui analisi
+        </button>
+        <button
+          className={`am-tab ${activeTab === 'history' ? 'active' : ''}`}
+          onClick={() => setActiveTab('history')}
+        >
+          Storico
+        </button>
+      </div>
 
-          {operatorQueue.length === 0 ? (
-            <div className="agents-empty">Nessuna pratica automatica aperta sui collaboratori.</div>
+      {/* ── TAB: INBOX ─────────────────────────────────────────────────────── */}
+      {activeTab === 'inbox' && (
+        <div className="am-tab-content">
+          {loading ? (
+            <div className="am-placeholder">Caricamento…</div>
+          ) : inboxTotal === 0 ? (
+            <div className="am-empty-state">
+              <div className="am-empty-icon">✓</div>
+              <h3>Nessuna azione in attesa</h3>
+              <p>Tutti i collaboratori sono in regola, oppure non hai ancora eseguito un'analisi.</p>
+              <button className="am-btn-primary" onClick={() => setActiveTab('run')}>
+                Esegui nuova analisi
+              </button>
+            </div>
           ) : (
-            <div className="agents-stack">
-              {operatorQueue.map((item) => {
-                const payload = parsePayload(item.payload);
-                const missingFields = Array.isArray(payload?.missing_fields) ? payload.missing_fields : [];
-                const emailCommunication = item.communications.find((entry) => entry.channel === 'email') || null;
-                const whatsappCommunication = item.communications.find((entry) => entry.channel === 'whatsapp') || null;
-                const emailAction = item.status === 'followup_due' ? 'remind_email' : 'approve_email';
-                const whatsappAction = item.status === 'followup_due' ? 'remind_whatsapp' : 'approve_whatsapp';
+            <div className="am-inbox">
 
-                return (
-                  <article key={`queue-${item.id}`} className="agents-card">
-                    <div className="agents-card-top">
-                      <div>
-                        <strong>{item.title}</strong>
-                        <div className="agents-meta">
-                          Collaboratore ID {item.entity_id} · Run #{item.run_id}
+              {recentInboxItems.length > 0 && (
+                <section className="am-group">
+                  <h3 className="am-group-title">
+                    <span className="am-group-dot dot-green" />
+                    Documenti ricevuti via email
+                    <span className="am-group-count">{recentInboxItems.length}</span>
+                  </h3>
+                  {recentInboxItems.map((item) => {
+                    const entityName = resolveEntityName(item.entity_type, item.entity_id) || 'Mittente non associato';
+                    const statusText = item.processing_status === 'valid'
+                      ? 'Profilo aggiornato automaticamente'
+                      : item.processing_status === 'manual_review'
+                        ? 'Da revisionare'
+                        : 'Documento non validato';
+                    return (
+                      <article key={`recent-${item.id}`} className="am-card">
+                        <div className="am-card-header">
+                          <div className="am-recipient">
+                            <Avatar name={entityName} />
+                            <div className="am-recipient-info">
+                              <strong>{entityName}</strong>
+                              <span className="am-email-addr">{item.sender_email}</span>
+                            </div>
+                          </div>
+                          <span className={`am-badge status-${item.processing_status === 'valid' ? 'completed' : item.processing_status === 'invalid' ? 'failed' : 'pending'}`}>
+                            {statusText}
+                          </span>
+                        </div>
+                        <div className="am-meta">
+                          Ricevuto {formatDateTime(item.received_at)}
+                          {item.attachment_name ? ` · Allegato: ${item.attachment_name}` : ''}
+                        </div>
+                        {item.subject && (
+                          <div className="am-email-preview">
+                            <div className="am-email-subject">{item.subject}</div>
+                          </div>
+                        )}
+                      </article>
+                    );
+                  })}
+                </section>
+              )}
+
+              {/* Manual review inbox */}
+              {manualReviewItems.length > 0 && (
+                <section className="am-group">
+                  <h3 className="am-group-title">
+                    <span className="am-group-dot dot-blue" />
+                    Documenti ricevuti da revisionare
+                    <span className="am-group-count">{manualReviewItems.length}</span>
+                  </h3>
+                  {manualReviewItems.map((item) => {
+                    const entityName = resolveEntityName(item.entity_type, item.entity_id) || 'Collaboratore non identificato';
+                    const attachmentName = item.attachment_name || 'allegato senza nome';
+                    return (
+                      <article key={item.id} className="am-card">
+                        <div className="am-card-header">
+                          <div className="am-recipient">
+                            <Avatar name={entityName} />
+                            <div className="am-recipient-info">
+                              <strong>{entityName}</strong>
+                              <span className="am-email-addr">{item.sender_email}</span>
+                            </div>
+                          </div>
+                          <div className="am-badges">
+                            <span className="am-badge status-pending">Revisione manuale</span>
+                          </div>
+                        </div>
+
+                        <div className="am-meta">
+                          Ricevuto {formatDateTime(item.received_at)} · Allegato: {attachmentName}
+                        </div>
+
+                        {item.subject && (
+                          <div className="am-email-preview">
+                            <div className="am-email-subject">{item.subject}</div>
+                          </div>
+                        )}
+
+                        <div className="am-note" style={{ marginTop: 12 }}>
+                          <label className="am-note-label" htmlFor={`expiry-${item.id}`}>Scadenza documento identita (opzionale)</label>
+                          <input
+                            id={`expiry-${item.id}`}
+                            type="date"
+                            className="am-note-input"
+                            value={inboxExpiryByItem[item.id] || ''}
+                            onChange={(event) => handleInboxExpiryChange(item.id, event.target.value)}
+                          />
+                        </div>
+
+                        <div className="am-actions">
+                          <button
+                            className="am-btn-ghost-sm"
+                            onClick={() => handleInboxPreview(item.id, attachmentName)}
+                            disabled={!!actionLoading}
+                          >
+                            {isLoading(`inbox-preview-${item.id}`) ? 'Apro…' : 'Anteprima'}
+                          </button>
+                          <button
+                            className="am-btn-ghost-sm"
+                            onClick={() => handleInboxDownload(item.id, attachmentName)}
+                            disabled={!!actionLoading}
+                          >
+                            {isLoading(`inbox-download-${item.id}`) ? 'Scarico…' : 'Scarica'}
+                          </button>
+                          <button
+                            className="am-btn-primary"
+                            onClick={() => handleInboxAssignment(item.id, 'documento_identita')}
+                            disabled={!!actionLoading}
+                          >
+                            {isLoading(`inbox-${item.id}-documento_identita`) ? 'Assegno…' : 'Assegna come documento identita'}
+                          </button>
+                          <button
+                            className="am-btn-primary"
+                            onClick={() => handleInboxAssignment(item.id, 'curriculum')}
+                            disabled={!!actionLoading}
+                          >
+                            {isLoading(`inbox-${item.id}-curriculum`) ? 'Assegno…' : 'Assegna come curriculum'}
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </section>
+              )}
+
+              {/* Operator queue */}
+              {groupedOperatorQueue.length > 0 && (
+                <section className="am-group">
+                  <h3 className="am-group-title">
+                    <span className="am-group-dot dot-orange" />
+                    Collaboratori da contattare
+                    <span className="am-group-count">{groupedOperatorQueue.length}</span>
+                  </h3>
+                  {groupedOperatorQueue.map((group) => (
+                    <article key={group.key} className={`am-card severity-${group.severity}`}>
+                      <div className="am-card-header">
+                        <div className="am-recipient">
+                          <Avatar name={group.recipientName} />
+                          <div className="am-recipient-info">
+                            <strong>{group.recipientName}</strong>
+                            <span className="am-email-addr">{group.recipientEmail}</span>
+                          </div>
+                        </div>
+                        <div className="am-badges">
+                          <span className={`am-badge severity-${group.severity}`}>
+                            {SEVERITY_LABELS[group.severity] || group.severity}
+                          </span>
+                          {group.items.length > 1 && (
+                            <span className="am-badge status-pending">{group.items.length} richieste</span>
+                          )}
                         </div>
                       </div>
-                      <div className="agents-chip-row">
-                        <span className={`agents-badge agents-severity-${item.severity}`}>{SEVERITY_LABELS[item.severity] || item.severity}</span>
-                        <span className={`agents-badge agents-status-${item.status}`}>{STATUS_LABELS[item.status] || item.status}</span>
+
+                      {group.items.map((item) => {
+                        const payload = parsePayload(item.payload);
+                        const missingFields = Array.isArray(payload?.missing_fields) ? payload.missing_fields : [];
+                        const emailComm = item.communications.find((c) => c.channel === 'email');
+                        const isFollowup = item.status === 'followup_due';
+                        const emailAction = isFollowup ? 'remind_email' : 'approve_email';
+
+                        return (
+                          <div key={item.id} className="am-subcard">
+                            <div className="am-badges" style={{ marginBottom: '8px' }}>
+                              <span className={`am-badge severity-${item.severity}`}>
+                                {item.title}
+                              </span>
+                              {isFollowup && (
+                                <span className="am-badge status-followup">Sollecito</span>
+                              )}
+                            </div>
+
+                            <MissingFields fields={missingFields} />
+
+                            {emailComm && (
+                              <EmailPreview subject={emailComm.subject} body={emailComm.body} />
+                            )}
+
+                            <NoteInput id={item.id} value={notesBySuggestion[item.id]} onChange={handleNote} />
+
+                            <div className="am-actions">
+                              <button
+                                className="am-btn-ghost-sm"
+                                onClick={() => handleWorkflowAction(item.id, 'wait')}
+                                disabled={!!actionLoading}
+                              >
+                                Rimanda
+                              </button>
+                              <button
+                                className="am-btn-ghost-sm"
+                                onClick={() => handleWorkflowAction(item.id, 'close')}
+                                disabled={!!actionLoading}
+                              >
+                                Chiudi senza inviare
+                              </button>
+                              {emailComm && (
+                                <button
+                                  className="am-btn-primary"
+                                  onClick={() => handleWorkflowAction(item.id, emailAction)}
+                                  disabled={!!actionLoading}
+                                >
+                                  {isLoading(`wf-${item.id}-${emailAction}`)
+                                    ? 'Invio…'
+                                    : isFollowup ? '📧 Invia sollecito ora' : '📧 Invia richiesta ora'}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </article>
+                  ))}
+                </section>
+              )}
+
+              {/* Pending suggestions */}
+              {pendingSuggestions.length > 0 && (
+                <section className="am-group">
+                  <h3 className="am-group-title">
+                    <span className="am-group-dot dot-blue" />
+                    Proposte generiche — da verificare
+                    <span className="am-group-count">{pendingSuggestions.length}</span>
+                  </h3>
+                  {pendingSuggestions.map((item) => {
+                    const payload = parsePayload(item.payload);
+                    const missingFields = Array.isArray(payload?.missing_fields) ? payload.missing_fields : [];
+                    const recipientName = payload?.recipient_name || collaboratorById[item.entity_id] || `Collaboratore #${item.entity_id}`;
+                    const recipientEmail = payload?.recipient_email || collaboratorEmailById[item.entity_id] || '—';
+                    const subject = payload?.subject || item.title || '';
+                    const body = payload?.body || '';
+
+                    return (
+                      <article key={item.id} className={`am-card severity-${item.severity}`}>
+                        <div className="am-card-header">
+                          <div className="am-recipient">
+                            <Avatar name={recipientName} />
+                            <div className="am-recipient-info">
+                              <strong>{recipientName}</strong>
+                              <span className="am-email-addr">{recipientEmail}</span>
+                            </div>
+                          </div>
+                          <span className={`am-badge severity-${item.severity}`}>
+                            {SEVERITY_LABELS[item.severity] || item.severity}
+                          </span>
+                        </div>
+
+                        <MissingFields fields={missingFields} />
+                        <EmailPreview subject={subject} body={body} lines={4} />
+
+                        <NoteInput id={item.id} value={notesBySuggestion[item.id]} onChange={handleNote} />
+
+                        <div className="am-actions">
+                          <button
+                            className="am-btn-ghost-sm danger"
+                            onClick={() => handleWorkflowAction(item.id, 'close')}
+                            disabled={!!actionLoading}
+                          >
+                            {isLoading(`wf-${item.id}-close`) ? 'Chiusura…' : 'Chiudi senza inviare'}
+                          </button>
+                          <button
+                            className="am-btn-primary"
+                            onClick={() => handleWorkflowAction(item.id, 'approve_email')}
+                            disabled={!!actionLoading}
+                          >
+                            {isLoading(`wf-${item.id}-approve_email`) ? 'Invio in corso…' : '📧 Invia richiesta ora'}
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </section>
+              )}
+
+              {/* Draft communications */}
+              {standaloneCommunications.length > 0 && (
+                <section className="am-group">
+                  <h3 className="am-group-title">
+                    <span className="am-group-dot dot-green" />
+                    Bozze email pronte — conferma invio
+                    <span className="am-group-count">{standaloneCommunications.length}</span>
+                  </h3>
+                  {standaloneCommunications.map((item) => (
+                    <article key={item.id} className="am-card">
+                      <div className="am-card-header">
+                        <div className="am-recipient">
+                          <Avatar name={item.recipient_name || item.recipient_email} />
+                          <div className="am-recipient-info">
+                            <strong>{item.recipient_name || item.recipient_email}</strong>
+                            <span className="am-email-addr">{item.recipient_email}</span>
+                          </div>
+                        </div>
+                        <span className={`am-badge status-${item.status}`}>
+                          {STATUS_LABELS[item.status] || item.status}
+                        </span>
                       </div>
+
+                      <EmailPreview subject={item.subject} body={item.body} lines={4} />
+
+                      <div className="am-actions">
+                        <button
+                          className="am-btn-ghost-sm"
+                          onClick={() => handleCommunicationStatus(item.id, 'approved')}
+                          disabled={!!actionLoading}
+                        >
+                          Segna come approvata
+                        </button>
+                        <button
+                          className="am-btn-primary"
+                          onClick={() => {
+                            if (item.suggestion_id) {
+                              handleWorkflowAction(item.suggestion_id, 'approve_email');
+                            } else {
+                              handleCommunicationStatus(item.id, 'sent');
+                            }
+                          }}
+                          disabled={!!actionLoading}
+                        >
+                          {isLoading(`comm-${item.id}-sent`) ? 'Invio…' : '📧 Invia email ora'}
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+                </section>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── TAB: ESEGUI ANALISI ────────────────────────────────────────────── */}
+      {activeTab === 'run' && (
+        <div className="am-tab-content">
+          {catalog.length === 0 ? (
+            <div className="am-placeholder">Nessun agente disponibile.</div>
+          ) : (
+            <div className="am-agents-grid">
+              {catalog.map((agent) => {
+                const icon = AGENT_ICONS[agent.name] || '🤖';
+                const supportsCollaborator = agent.supported_entity_types?.includes('collaborator');
+                const sel = runSelections[agent.name] || {};
+
+                return (
+                  <div key={agent.name} className="am-agent-card">
+                    <div className="am-agent-icon">{icon}</div>
+                    <h3 className="am-agent-name">{agent.label}</h3>
+                    <p className="am-agent-desc">{agent.description || 'Analisi automatica'}</p>
+
+                    <div className="am-agent-chips">
+                      {(agent.supported_entity_types || []).map((t) => (
+                        <span key={t} className="am-chip">
+                          {ENTITY_TYPE_LABELS[t] || t}
+                        </span>
+                      ))}
                     </div>
 
-                    <p className="agents-description">{item.description}</p>
-                    {missingFields.length > 0 ? (
-                      <div className="agents-meta">Campi mancanti: <strong>{missingFields.join(', ')}</strong></div>
-                    ) : null}
-                    {emailCommunication ? (
-                      <div className="agents-meta">
-                        Email: {STATUS_LABELS[emailCommunication.status] || emailCommunication.status}
-                        {emailCommunication.sent_at ? ` · Ultimo invio ${formatDateTime(emailCommunication.sent_at)}` : ''}
+                    {supportsCollaborator ? (
+                      <div className="am-agent-form">
+                        <label className="am-field">
+                          <span>Collaboratore</span>
+                          <select
+                            value={sel.entity_id || ''}
+                            onChange={(e) => setRunSelections((p) => ({
+                              ...p,
+                              [agent.name]: { entity_id: e.target.value },
+                            }))}
+                          >
+                            <option value="">Tutti i collaboratori</option>
+                            {collaborators.map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.first_name} {c.last_name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <button
+                          className="am-btn-primary am-btn-full"
+                          onClick={() => {
+                            const entityId = sel.entity_id || null;
+                            runAgentDirect(
+                              agent.name,
+                              entityId ? 'collaborator' : 'global',
+                              entityId,
+                            );
+                          }}
+                          disabled={running || loading}
+                        >
+                          {running ? 'Analisi in corso…' : sel.entity_id
+                            ? `Analizza ${collaboratorById[sel.entity_id] || 'selezionato'}`
+                            : 'Analizza tutti'}
+                        </button>
                       </div>
-                    ) : null}
-                    {whatsappCommunication ? (
-                      <div className="agents-meta">
-                        WhatsApp: {STATUS_LABELS[whatsappCommunication.status] || whatsappCommunication.status}
-                        {whatsappCommunication.sent_at ? ` · Ultimo invio ${formatDateTime(whatsappCommunication.sent_at)}` : ''}
-                      </div>
-                    ) : null}
+                    ) : (
+                      <button
+                        className="am-btn-primary am-btn-full"
+                        onClick={() => runAgentDirect(agent.name, 'global', null)}
+                        disabled={running || loading}
+                      >
+                        {running ? 'Analisi in corso…' : 'Avvia analisi'}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
-                    <textarea
-                      className="agents-notes"
-                      rows="3"
-                      placeholder="Note operatore"
-                      value={notesBySuggestion[item.id] || ''}
-                      onChange={(event) => setNotesBySuggestion((previous) => ({
-                        ...previous,
-                        [item.id]: event.target.value,
-                      }))}
+          {/* Advanced: manual draft creation */}
+          <div className="am-advanced">
+            <button
+              className="am-advanced-toggle"
+              onClick={() => setShowAdvanced((v) => !v)}
+            >
+              {showAdvanced ? '▾' : '▸'} Crea bozza manuale
+            </button>
+            {showAdvanced && (
+              <div className="am-advanced-body">
+                <div className="am-form-grid">
+                  <label className="am-field">
+                    <span>Tipo destinatario</span>
+                    <select
+                      value={draftForm.recipient_type}
+                      onChange={(e) => setDraftForm((p) => ({ ...p, recipient_type: e.target.value, recipient_id: '', recipient_email: '', recipient_name: '' }))}
+                    >
+                      {Object.entries(ENTITY_TYPE_LABELS).map(([v, l]) => (
+                        <option key={v} value={v}>{l}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="am-field">
+                    <span>Destinatario</span>
+                    {draftForm.recipient_type === 'collaborator' ? (
+                      <select
+                        value={draftForm.recipient_id}
+                        onChange={(e) => {
+                          const c = collaborators.find((x) => String(x.id) === e.target.value);
+                          setDraftForm((p) => ({
+                            ...p,
+                            recipient_id: e.target.value,
+                            recipient_name: c ? `${c.first_name} ${c.last_name}`.trim() : p.recipient_name,
+                            recipient_email: c?.email || p.recipient_email,
+                          }));
+                        }}
+                      >
+                        <option value="">Seleziona collaboratore</option>
+                        {collaborators.map((c) => (
+                          <option key={c.id} value={c.id}>{c.first_name} {c.last_name}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        value={draftForm.recipient_email}
+                        onChange={(e) => setDraftForm((p) => ({ ...p, recipient_email: e.target.value }))}
+                        placeholder="email@destinatario.it"
+                        type="email"
+                      />
+                    )}
+                  </label>
+                  <label className="am-field am-field-full">
+                    <span>Oggetto</span>
+                    <input
+                      value={draftForm.subject}
+                      onChange={(e) => setDraftForm((p) => ({ ...p, subject: e.target.value }))}
+                      placeholder="Oggetto dell'email…"
                     />
+                  </label>
+                  <label className="am-field am-field-full">
+                    <span>Corpo email</span>
+                    <textarea
+                      className="am-note"
+                      rows="5"
+                      value={draftForm.body}
+                      onChange={(e) => setDraftForm((p) => ({ ...p, body: e.target.value }))}
+                      placeholder="Testo dell'email…"
+                    />
+                  </label>
+                </div>
+                <div className="am-actions">
+                  <button
+                    className="am-btn-primary"
+                    onClick={handleCreateDraft}
+                    disabled={isLoading('draft-create')}
+                  >
+                    {isLoading('draft-create') ? 'Creazione…' : 'Crea bozza'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
-                    <div className="agents-actions">
-                      <button
-                        type="button"
-                        className="btn-secondary"
-                        onClick={() => handleWorkflowAction(item.id, 'wait')}
-                        disabled={actionLoading === `workflow-${item.id}-wait`}
-                      >
-                        {actionLoading === `workflow-${item.id}-wait` ? 'Attendi...' : 'Metti in attesa'}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-secondary"
-                        onClick={() => handleWorkflowAction(item.id, 'close')}
-                        disabled={actionLoading === `workflow-${item.id}-close`}
-                      >
-                        {actionLoading === `workflow-${item.id}-close` ? 'Attendi...' : 'Chiudi'}
-                      </button>
-                      {emailCommunication ? (
-                        <button
-                          type="button"
-                          className="btn-primary"
-                          onClick={() => handleWorkflowAction(item.id, emailAction)}
-                          disabled={actionLoading === `workflow-${item.id}-${emailAction}`}
-                        >
-                          {actionLoading === `workflow-${item.id}-${emailAction}`
-                            ? 'Attendi...'
-                            : item.status === 'followup_due' ? 'Sollecito email' : 'Invia email'}
-                        </button>
-                      ) : null}
-                      {whatsappCommunication ? (
-                        <button
-                          type="button"
-                          className="btn-primary"
-                          onClick={() => handleWorkflowAction(item.id, whatsappAction)}
-                          disabled={actionLoading === `workflow-${item.id}-${whatsappAction}`}
-                        >
-                          {actionLoading === `workflow-${item.id}-${whatsappAction}`
-                            ? 'Attendi...'
-                            : item.status === 'followup_due' ? 'Sollecito WhatsApp' : 'Prepara WhatsApp'}
-                        </button>
-                      ) : null}
+      {/* ── TAB: STORICO ──────────────────────────────────────────────────── */}
+      {activeTab === 'history' && (
+        <div className="am-tab-content">
+          {runs.length === 0 ? (
+            <div className="am-empty-state">
+              <div className="am-empty-icon">📋</div>
+              <h3>Nessuna analisi eseguita</h3>
+              <p>Vai su "Esegui analisi" per avviare la prima analisi.</p>
+            </div>
+          ) : (
+            <div className="am-history-list">
+              {runs.map((item) => {
+                const entityName = resolveEntityName(item.entity_type, item.entity_id);
+                return (
+                  <article key={item.id} className="am-history-card">
+                    <div className="am-history-header">
+                      <div>
+                        <strong className="am-history-agent">
+                          {AGENT_ICONS[item.agent_name] || '🤖'} {item.agent_name}
+                        </strong>
+                        <span className="am-history-target">
+                          {entityName || ENTITY_TYPE_LABELS[item.entity_type] || 'Globale'}
+                        </span>
+                      </div>
+                      <div className="am-history-right">
+                        <span className={`am-badge status-${item.status}`}>
+                          {STATUS_LABELS[item.status] || item.status}
+                        </span>
+                        <span className="am-meta">{formatDateTime(item.started_at)}</span>
+                      </div>
                     </div>
+                    <div className="am-meta">
+                      {item.suggestions_count || 0} email proposte · Completata {formatDateTime(item.completed_at)}
+                    </div>
+                    {item.error_message && (
+                      <div className="am-inline-error">{item.error_message}</div>
+                    )}
                   </article>
                 );
               })}
             </div>
           )}
-        </section>
+        </div>
+      )}
 
-        <section className="agents-panel">
-          <div className="agents-panel-header">
-            <h3>Esegui agente</h3>
-            <button type="button" className="btn-secondary" onClick={loadAll} disabled={loading}>
-              Aggiorna dati
-            </button>
-          </div>
-
-          <div className="agents-form-grid">
-            <label className="agents-field">
-              <span>Agente</span>
-              <select
-                value={form.agent_name}
-                onChange={(event) => setForm((previous) => ({
-                  ...previous,
-                  agent_name: event.target.value,
-                  entity_id: '',
-                }))}
-              >
-                <option value="">Seleziona agente</option>
-                {catalog.map((item) => (
-                  <option key={item.name} value={item.name}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="agents-field">
-              <span>Tipo entità</span>
-              <select
-                value={form.entity_type}
-                onChange={(event) => setForm((previous) => ({
-                  ...previous,
-                  entity_type: event.target.value,
-                  entity_id: '',
-                }))}
-              >
-                {selectableEntityTypes.map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="agents-field">
-              <span>Record</span>
-              {form.entity_type === 'global' ? (
-                <input value="Analisi trasversale" disabled />
-              ) : (
-                <select
-                  value={form.entity_id}
-                  onChange={(event) => setForm((previous) => ({ ...previous, entity_id: event.target.value }))}
-                >
-                  <option value="">Seleziona record</option>
-                  {entityOptions.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.label}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </label>
-
-            <label className="agents-field">
-              <span>Limite risultati</span>
-              <input
-                type="number"
-                min="1"
-                max="100"
-                value={form.limit}
-                onChange={(event) => setForm((previous) => ({ ...previous, limit: event.target.value }))}
-              />
-            </label>
-          </div>
-
-          {selectedAgent ? (
-            <div className="agents-definition">
-              <div className="agents-definition-title">{selectedAgent.label}</div>
-              <p>{selectedAgent.description}</p>
-              <div className="agents-chip-row">
-                {selectedAgent.supported_entity_types.map((item) => (
-                  <span key={item} className="agents-chip">
-                    {ENTITY_TYPE_LABELS[item] || item}
-                  </span>
-                ))}
-              </div>
-            </div>
-          ) : null}
-
-          <div className="agents-actions">
-            <button type="button" className="btn-primary" onClick={handleRunAgent} disabled={running || loading}>
-              {running ? 'Esecuzione in corso...' : 'Esegui agente'}
-            </button>
-          </div>
-        </section>
-
-        <section className="agents-panel">
-          <div className="agents-panel-header">
-            <h3>Run recenti</h3>
-            <select
-              className="agents-run-filter"
-              value={selectedRunId}
-              onChange={(event) => setSelectedRunId(event.target.value)}
-            >
-              <option value="">Tutti i run</option>
-              {runs.map((item) => (
-                <option key={item.id} value={item.id}>
-                  #{item.id} · {item.agent_name} · {formatDateTime(item.started_at)}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {loading ? (
-            <div className="agents-empty">Caricamento dati agenti…</div>
-          ) : runs.length === 0 ? (
-            <div className="agents-empty">Nessun run registrato.</div>
-          ) : (
-            <div className="agents-stack">
-              {runs.map((item) => (
-                <article key={item.id} className="agents-card">
-                  <div className="agents-card-top">
-                    <div>
-                      <strong>#{item.id} · {item.agent_name}</strong>
-                      <div className="agents-meta">
-                        {ENTITY_TYPE_LABELS[item.entity_type] || item.entity_type || '—'}
-                        {item.entity_id ? ` · ID ${item.entity_id}` : ''}
-                      </div>
-                    </div>
-                    <span className={`agents-badge agents-status-${item.status}`}>{STATUS_LABELS[item.status] || item.status}</span>
-                  </div>
-                  <div className="agents-meta">
-                    Avviato {formatDateTime(item.started_at)} · Completato {formatDateTime(item.completed_at)}
-                  </div>
-                  <div className="agents-meta">
-                    Suggerimenti prodotti: <strong>{item.suggestions_count}</strong>
-                  </div>
-                  {item.error_message ? <div className="agents-inline-error">{item.error_message}</div> : null}
-                  {item.result_summary ? (
-                    <pre className="agents-code-block">{prettyPayload(item.result_summary)}</pre>
-                  ) : null}
-                </article>
-              ))}
-            </div>
-          )}
-        </section>
-      </div>
-
-      <div className="agents-grid agents-grid-bottom">
-        <section className="agents-panel">
-          <div className="agents-panel-header">
-            <h3>Suggerimenti</h3>
-            <span className="agents-panel-note">{filteredSuggestions.length} elementi</span>
-          </div>
-
-          {filteredSuggestions.length === 0 ? (
-            <div className="agents-empty">Nessun suggerimento disponibile per il filtro corrente.</div>
-          ) : (
-            <div className="agents-stack">
-              {filteredSuggestions.map((item) => (
-                <article key={item.id} className="agents-card">
-                  <div className="agents-card-top">
-                    <div>
-                      <strong>{item.title}</strong>
-                      <div className="agents-meta">
-                        Run #{item.run_id} · {ENTITY_TYPE_LABELS[item.entity_type] || item.entity_type}
-                        {item.entity_id ? ` · ID ${item.entity_id}` : ''}
-                      </div>
-                    </div>
-                    <div className="agents-chip-row">
-                      <span className={`agents-badge agents-severity-${item.severity}`}>{SEVERITY_LABELS[item.severity] || item.severity}</span>
-                      <span className={`agents-badge agents-status-${item.status}`}>{STATUS_LABELS[item.status] || item.status}</span>
-                    </div>
-                  </div>
-
-                  <p className="agents-description">{item.description}</p>
-
-                  {item.payload ? (
-                    <pre className="agents-code-block">{prettyPayload(item.payload)}</pre>
-                  ) : null}
-
-                  {item.status === 'pending' ? (
-                    <>
-                      <textarea
-                        className="agents-notes"
-                        rows="3"
-                        placeholder="Note revisione opzionali"
-                        value={notesBySuggestion[item.id] || ''}
-                        onChange={(event) => setNotesBySuggestion((previous) => ({
-                          ...previous,
-                          [item.id]: event.target.value,
-                        }))}
-                      />
-                      <div className="agents-actions">
-                        <button
-                          type="button"
-                          className="btn-secondary"
-                          onClick={() => handleSuggestionReview(item.id, 'reject')}
-                          disabled={actionLoading === `suggestion-${item.id}-reject`}
-                        >
-                          {actionLoading === `suggestion-${item.id}-reject` ? 'Attendi...' : 'Rifiuta'}
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-primary"
-                          onClick={() => handleSuggestionReview(item.id, 'accept')}
-                          disabled={actionLoading === `suggestion-${item.id}-accept`}
-                        >
-                          {actionLoading === `suggestion-${item.id}-accept` ? 'Attendi...' : 'Accetta'}
-                        </button>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="agents-meta">
-                      Revisionato {formatDateTime(item.reviewed_at)}
-                    </div>
-                  )}
-                </article>
-              ))}
-            </div>
-          )}
-        </section>
-
-        <section className="agents-panel">
-          <div className="agents-panel-header">
-            <h3>Bozze comunicazione</h3>
-            <span className="agents-panel-note">{filteredCommunications.length} elementi</span>
-          </div>
-
-          {filteredCommunications.length === 0 ? (
-            <div className="agents-empty">Nessuna bozza comunicazione disponibile.</div>
-          ) : (
-            <div className="agents-stack">
-              {filteredCommunications.map((item) => (
-                <article key={item.id} className="agents-card">
-                  <div className="agents-card-top">
-                    <div>
-                      <strong>{item.subject}</strong>
-                      <div className="agents-meta">
-                        {item.recipient_name || item.recipient_email}
-                        {item.recipient_id ? ` · ID ${item.recipient_id}` : ''}
-                        {item.channel ? ` · ${item.channel}` : ''}
-                      </div>
-                    </div>
-                    <span className={`agents-badge agents-status-${item.status}`}>{STATUS_LABELS[item.status] || item.status}</span>
-                  </div>
-
-                  <div className="agents-meta">
-                    Run #{item.run_id || '—'} · Creata {formatDateTime(item.created_at)}
-                  </div>
-
-                  <div className="agents-mail-preview">
-                    <div><strong>A:</strong> {item.recipient_email}</div>
-                    <pre className="agents-code-block">{item.body}</pre>
-                  </div>
-
-                  {item.meta_payload ? (
-                    <details className="agents-details">
-                      <summary>Meta payload</summary>
-                      <pre className="agents-code-block">{prettyPayload(item.meta_payload)}</pre>
-                    </details>
-                  ) : null}
-
-                  <div className="agents-actions">
-                    <button
-                      type="button"
-                      className="btn-secondary"
-                      onClick={() => handleCommunicationStatus(item.id, 'approved')}
-                      disabled={actionLoading === `communication-${item.id}-approved`}
-                    >
-                      {actionLoading === `communication-${item.id}-approved` ? 'Attendi...' : 'Approva'}
-                    </button>
-                    <button
-                      type="button"
-                      className="btn-primary"
-                      onClick={() => handleCommunicationStatus(item.id, 'sent')}
-                      disabled={actionLoading === `communication-${item.id}-sent`}
-                    >
-                      {actionLoading === `communication-${item.id}-sent` ? 'Attendi...' : 'Segna inviata'}
-                    </button>
-                  </div>
-                </article>
-              ))}
-            </div>
-          )}
-        </section>
-      </div>
-
-      <div className="agents-footer-note">
-        Utente sessione: <strong>{currentUser?.full_name || currentUser?.username || 'admin'}</strong>. Le azioni frontend
-        {currentUser?.id
-          ? ` registrano lo stato operativo degli agenti con audit utente attivo (ID ${currentUser.id}).`
-          : ' registrano lo stato operativo degli agenti, ma non hanno ancora un `user_id` numerico disponibile in sessione.'}
+      <div className="am-footer">
+        Utente: <strong>{currentUser?.full_name || currentUser?.username || 'admin'}</strong>
       </div>
     </div>
   );

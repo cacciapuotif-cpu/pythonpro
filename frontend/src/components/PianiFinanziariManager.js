@@ -2,22 +2,14 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   createPianoFinanziario,
   exportPianoFinanziarioExcel,
-  getContractTemplates,
-  getAvvisi,
   getPianiFinanziari,
   getPianoFinanziario,
+  getProject,
   getProjects,
   getRiepilogoPianoFinanziario,
   updateVociPianoFinanziario,
 } from '../services/apiService';
 import './PianiFinanziariManager.css';
-
-const STANDARD_FONDI = [
-  { value: 'Formazienda', label: 'Formazienda', defaultAvviso: '' },
-  { value: 'FAPI', label: 'FAPI', defaultAvviso: '' },
-  { value: 'Regione Campania', label: 'Regione Campania', defaultAvviso: '' },
-  { value: 'Altro', label: 'Altro', defaultAvviso: '' },
-];
 
 const MACROVOCE_LIMITS = { A: 20, B: 50, C: 30, D: null };
 const MACROVOCE_LABELS = {
@@ -200,10 +192,8 @@ export default function PianiFinanziariManager({ forcedProjectId = '', forcedEnt
   const [projects, setProjects] = useState([]);
   const [plans, setPlans] = useState([]);
   const [selectedProjectId, setSelectedProjectId] = useState('');
+  const [selectedProjectDetail, setSelectedProjectDetail] = useState(null);
   const [selectedPianoId, setSelectedPianoId] = useState('');
-  const [selectedTemplateId, setSelectedTemplateId] = useState('');
-  const [financialTemplates, setFinancialTemplates] = useState([]);
-  const [avvisiCatalogo, setAvvisiCatalogo] = useState([]);
   const [anno, setAnno] = useState(new Date().getFullYear());
   const [enteErogatore, setEnteErogatore] = useState('Formazienda');
   const [avviso, setAvviso] = useState('');
@@ -221,51 +211,25 @@ export default function PianiFinanziariManager({ forcedProjectId = '', forcedEnt
     () => projects.find((project) => String(project.id) === String(selectedProjectId)),
     [projects, selectedProjectId],
   );
-
-  const selectedEnteConfig = useMemo(
-    () => STANDARD_FONDI.find((item) => item.value === enteErogatore) || STANDARD_FONDI[0],
-    [enteErogatore],
+  const activeProject = selectedProjectDetail || selectedProject || null;
+  const projectDerivedEnte = useMemo(
+    () => (activeProject?.resolved_ente_erogatore || activeProject?.ente_erogatore || forcedEnte || '').trim(),
+    [activeProject, forcedEnte],
   );
-  const selectedTemplate = useMemo(
-    () => financialTemplates.find((template) => String(template.id) === String(selectedTemplateId)),
-    [financialTemplates, selectedTemplateId],
+  const projectDerivedAvviso = useMemo(
+    () => (activeProject?.resolved_avviso || activeProject?.avviso || '').trim(),
+    [activeProject],
   );
-  const linkedAvvisiByTemplate = useMemo(
-    () => (Array.isArray(avvisiCatalogo) ? avvisiCatalogo : []).reduce((accumulator, avvisoItem) => {
-      if (!avvisoItem?.template_id) {
-        return accumulator;
-      }
-      const key = String(avvisoItem.template_id);
-      accumulator[key] = accumulator[key] || [];
-      accumulator[key].push(avvisoItem);
-      return accumulator;
-    }, {}),
-    [avvisiCatalogo],
+  const projectDerivedTemplateId = useMemo(
+    () => activeProject?.template_piano_finanziario_id ? String(activeProject.template_piano_finanziario_id) : '',
+    [activeProject],
   );
-  const getTemplateLinkedAvvisi = useCallback(
-    (template) => linkedAvvisiByTemplate[String(template?.id || '')] || [],
-    [linkedAvvisiByTemplate],
+  const projectDerivedAvvisoPfId = useMemo(
+    () => activeProject?.avviso_pf_id || null,
+    [activeProject],
   );
-  const getTemplateAvvisoCodes = useCallback(
-    (template) => {
-      const linkedCodes = getTemplateLinkedAvvisi(template).map((item) => item.codice).filter(Boolean);
-      if (linkedCodes.length > 0) {
-        return linkedCodes;
-      }
-      return template?.avviso ? [template.avviso] : [];
-    },
-    [getTemplateLinkedAvvisi],
-  );
-  const selectedTemplateAvvisoCodes = useMemo(
-    () => getTemplateAvvisoCodes(selectedTemplate),
-    [getTemplateAvvisoCodes, selectedTemplate],
-  );
-  const selectableAvvisi = useMemo(() => {
-    if (selectedTemplate && getTemplateLinkedAvvisi(selectedTemplate).length > 0) {
-      return getTemplateLinkedAvvisi(selectedTemplate);
-    }
-    return avvisiCatalogo.filter((a) => normalizeText(a.ente_erogatore) === normalizeText(enteErogatore));
-  }, [selectedTemplate, getTemplateLinkedAvvisi, avvisiCatalogo, enteErogatore]);
+  const effectiveEnteErogatore = selectedPianoId ? enteErogatore : projectDerivedEnte;
+  const effectiveAvviso = selectedPianoId ? avviso : projectDerivedAvviso;
 
   const clientSummary = useMemo(() => computeClientSummary(rows), [rows]);
 
@@ -282,29 +246,6 @@ export default function PianiFinanziariManager({ forcedProjectId = '', forcedEnt
   const loadPlans = useCallback(async (projectId) => {
     const data = await getPianiFinanziari(projectId ? { progetto_id: projectId, limit: 50 } : { limit: 100 });
     setPlans(Array.isArray(data) ? data : []);
-  }, []);
-
-  const loadFinancialTemplates = useCallback(async (projectId, selectedEnte) => {
-    if (!projectId) {
-      setFinancialTemplates([]);
-      return;
-    }
-
-    const project = projects.find((item) => String(item.id) === String(projectId));
-    const enteRif = (selectedEnte || project?.ente_erogatore || '').trim();
-    const data = await getContractTemplates({
-      ambito_template: 'piano_finanziario',
-      progetto_id: projectId,
-      ente_erogatore: enteRif || undefined,
-      is_active: true,
-      limit: 100,
-    });
-    setFinancialTemplates(Array.isArray(data) ? data : []);
-  }, [projects]);
-
-  const loadAvvisi = useCallback(async () => {
-    const data = await getAvvisi({ active_only: true, limit: 1000 });
-    setAvvisiCatalogo(Array.isArray(data) ? data : []);
   }, []);
 
   const loadPiano = useCallback(async (pianoId) => {
@@ -326,7 +267,6 @@ export default function PianiFinanziariManager({ forcedProjectId = '', forcedEnt
       setRows(buildRowsFromPiano(detail));
       setServerSummary(riepilogo);
       setSelectedProjectId(String(detail.progetto_id));
-      setSelectedTemplateId(detail.template_id ? String(detail.template_id) : '');
       setEnteErogatore(detail.ente_erogatore || 'Formazienda');
       setAvviso(detail.avviso || '');
     } catch (loadError) {
@@ -337,39 +277,9 @@ export default function PianiFinanziariManager({ forcedProjectId = '', forcedEnt
   }, []);
 
   useEffect(() => {
-    if (selectedPianoId) {
-      return;
-    }
-
-    const projectEnte = String(selectedProject?.ente_erogatore || '').trim().toUpperCase();
-    if (projectEnte) {
-      setEnteErogatore(selectedProject.ente_erogatore);
-    }
-  }, [selectedPianoId, selectedProject]);
-
-  useEffect(() => {
-    if (selectedPianoId) {
-      return;
-    }
-
-    if (selectedProject?.avviso) {
-      setAvviso((current) => current || selectedProject.avviso);
-      return;
-    }
-
-    if (selectedTemplateAvvisoCodes.length > 0) {
-      setAvviso(selectedTemplateAvvisoCodes[0]);
-      return;
-    }
-
-    setAvviso((current) => current || selectedEnteConfig.defaultAvviso);
-  }, [selectedPianoId, selectedEnteConfig, selectedProject, selectedTemplateAvvisoCodes]);
-
-  useEffect(() => {
     loadProjects();
     loadPlans();
-    loadAvvisi();
-  }, [loadProjects, loadPlans, loadAvvisi]);
+  }, [loadProjects, loadPlans]);
 
   useEffect(() => {
     const match = window.location.pathname.match(/^\/piani-finanziari\/(\d+)/);
@@ -394,45 +304,39 @@ export default function PianiFinanziariManager({ forcedProjectId = '', forcedEnt
 
   useEffect(() => {
     if (!selectedProjectId) {
+      setSelectedProjectDetail(null);
+      return;
+    }
+
+    let active = true;
+    getProject(selectedProjectId)
+      .then((detail) => {
+        if (active) {
+          setSelectedProjectDetail(detail);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setSelectedProjectDetail(null);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [selectedProjectId]);
+
+  useEffect(() => {
+    if (!selectedProjectId) {
       setPlans([]);
       setPiano(null);
       setRows([]);
-      setFinancialTemplates([]);
-      setSelectedTemplateId('');
       return;
     }
 
     loadPlans(selectedProjectId)
       .catch(() => setError('Errore nel caricamento dei piani finanziari del progetto.'));
-    loadFinancialTemplates(selectedProjectId, enteErogatore)
-      .catch(() => setError('Errore nel caricamento dei template piano finanziario.'));
-  }, [selectedProjectId, enteErogatore, loadPlans, loadFinancialTemplates]);
-
-  useEffect(() => {
-    if (selectedPianoId) {
-      return;
-    }
-
-    if (selectedProject?.template_piano_finanziario_id) {
-      setSelectedTemplateId(String(selectedProject.template_piano_finanziario_id));
-      return;
-    }
-
-    if (!financialTemplates.length) {
-      setSelectedTemplateId('');
-      return;
-    }
-
-    const normalizedSelectedAvviso = normalizeText(avviso);
-    const exactTemplate = financialTemplates.find((template) =>
-      getTemplateAvvisoCodes(template).some((code) => normalizeText(code) === normalizedSelectedAvviso)
-    );
-    const fallbackTemplate = financialTemplates[0];
-    const nextTemplateId = exactTemplate?.id || fallbackTemplate?.id || '';
-    if (String(selectedTemplateId) !== String(nextTemplateId)) {
-      setSelectedTemplateId(String(nextTemplateId));
-    }
-  }, [selectedPianoId, financialTemplates, avviso, selectedProject, selectedTemplateId, getTemplateAvvisoCodes]);
+  }, [selectedProjectId, loadPlans]);
 
   useEffect(() => {
     if (!forcedProjectId) {
@@ -485,17 +389,15 @@ export default function PianiFinanziariManager({ forcedProjectId = '', forcedEnt
       const dataFine = projectEnd && !Number.isNaN(projectEnd.getTime()) && projectEnd > dataInizio
         ? projectEnd
         : fallbackEnd;
-      const pianoNomeParts = ['Piano Finanziario', selectedProject?.name, enteErogatore, avviso ? `Avviso ${avviso}` : '']
+      const pianoNomeParts = ['Piano Finanziario', activeProject?.name, effectiveEnteErogatore, effectiveAvviso ? `Avviso ${effectiveAvviso}` : '']
         .filter(Boolean);
       const detail = await createPianoFinanziario({
         progetto_id: Number(selectedProjectId),
-        template_id: selectedTemplateId ? Number(selectedTemplateId) : null,
-        avviso_id: selectableAvvisi.find((item) => normalizeText(item.codice) === normalizeText(avviso))?.id || null,
+        template_id: projectDerivedTemplateId ? Number(projectDerivedTemplateId) : null,
+        avviso_id: projectDerivedAvvisoPfId,
         nome: pianoNomeParts.join(' - '),
         anno: Number(anno),
-        ente_erogatore: enteErogatore,
-        avviso: avviso || null,
-        tipo_fondo: mapEnteToTipoFondo(enteErogatore),
+        tipo_fondo: mapEnteToTipoFondo(effectiveEnteErogatore),
         budget_totale: 0,
         budget_approvato: 0,
         budget_utilizzato: 0,
@@ -510,7 +412,7 @@ export default function PianiFinanziariManager({ forcedProjectId = '', forcedEnt
       });
       await loadPlans(selectedProjectId);
       setSelectedPianoId(String(detail.id));
-      showMessage(`Piano finanziario ${detail.ente_erogatore} creato con il template base.`);
+      showMessage(`Piano finanziario ${detail.ente_erogatore} creato dal progetto selezionato.`);
     } catch (createError) {
       setError(createError?.response?.data?.detail || 'Errore nella creazione del piano finanziario.');
     } finally {
@@ -620,7 +522,7 @@ export default function PianiFinanziariManager({ forcedProjectId = '', forcedEnt
       {!embedded && (
         <div className="page-header">
           <div>
-            <span className="page-eyebrow">{enteErogatore}{avviso ? ` · Avviso ${avviso}` : ''}</span>
+            <span className="page-eyebrow">{effectiveEnteErogatore}{effectiveAvviso ? ` · Avviso ${effectiveAvviso}` : ''}</span>
             <h2>Piani Finanziari Standard</h2>
             <p>Ogni piano ha un solo ente erogatore di riferimento. Qui gestisci i piani standard; Fondimpresa resta su un modulo dedicato.</p>
           </div>
@@ -638,7 +540,7 @@ export default function PianiFinanziariManager({ forcedProjectId = '', forcedEnt
       {embedded && (
         <div className="page-header">
           <div>
-            <span className="page-eyebrow">{enteErogatore}{avviso ? ` · Avviso ${avviso}` : ''}</span>
+            <span className="page-eyebrow">{effectiveEnteErogatore}{effectiveAvviso ? ` · Avviso ${effectiveAvviso}` : ''}</span>
             <h2>Piano Finanziario</h2>
             <p>Layout standard attivato dall'ente erogatore del progetto selezionato.</p>
           </div>
@@ -655,6 +557,18 @@ export default function PianiFinanziariManager({ forcedProjectId = '', forcedEnt
 
       {message && <div className={`banner ${message.kind}`}>{message.text}</div>}
       {error && <div className="banner error">{error}</div>}
+
+      {activeProject && (
+        <div className="toolbar-card project-readonly-card">
+          <div className="project-readonly-eyebrow">
+            {(effectiveEnteErogatore || 'ENTE NON IMPOSTATO').toUpperCase()}
+            {effectiveAvviso ? ` · AVVISO ${effectiveAvviso}` : ''}
+          </div>
+          <div className="project-readonly-title">
+            Piano per: {activeProject.name}
+          </div>
+        </div>
+      )}
 
       <div className="toolbar-card">
         <div className="toolbar-grid">
@@ -680,63 +594,6 @@ export default function PianiFinanziariManager({ forcedProjectId = '', forcedEnt
             </label>
           )}
 
-          {!embedded && !forcedEnte && (
-            <label>
-              <span>Ente Erogatore</span>
-              <select value={enteErogatore} onChange={(event) => {
-                const nextEnte = event.target.value;
-                setEnteErogatore(nextEnte);
-                setSelectedPianoId('');
-                setAvviso('');
-              }}>
-                {STANDARD_FONDI.map((item) => (
-                  <option key={item.value} value={item.value}>{item.label}</option>
-                ))}
-              </select>
-            </label>
-          )}
-
-          {!embedded && (
-            <label>
-              <span>Avviso</span>
-              <select value={avviso} onChange={(event) => setAvviso(event.target.value)}>
-                <option value="">Seleziona avviso</option>
-                {selectableAvvisi.map((a) => (
-                  <option key={a.id} value={a.codice}>{a.codice}</option>
-                ))}
-              </select>
-            </label>
-          )}
-
-          {!embedded && (
-          <label>
-            <span>Template piano</span>
-            <select
-              value={selectedTemplateId}
-              onChange={(event) => {
-                const nextTemplateId = event.target.value;
-                setSelectedTemplateId(nextTemplateId);
-                const nextTemplate = financialTemplates.find((template) => String(template.id) === String(nextTemplateId));
-                if (nextTemplate) {
-                  setEnteErogatore(nextTemplate.ente_erogatore || enteErogatore);
-                  const linkedCodes = getTemplateAvvisoCodes(nextTemplate);
-                  setAvviso(linkedCodes[0] || '');
-                }
-              }}
-              disabled={!selectedProjectId}
-            >
-              <option value="">Template automatico / nessuno</option>
-              {financialTemplates.map((template) => (
-                <option key={template.id} value={template.id}>
-                  {template.nome_template}
-                  {template.ente_erogatore ? ` · ${template.ente_erogatore}` : ''}
-                  {getTemplateAvvisoCodes(template).length > 0 ? ` · Avvisi ${getTemplateAvvisoCodes(template).join(', ')}` : ''}
-                </option>
-              ))}
-            </select>
-          </label>
-          )}
-
           {!embedded && (
             <label>
               <span>Piano esistente</span>
@@ -755,7 +612,7 @@ export default function PianiFinanziariManager({ forcedProjectId = '', forcedEnt
             <button className="btn-primary" onClick={handleCreatePlan} disabled={!selectedProjectId || creating}>
               {creating ? 'Creazione...' : 'Crea Piano Base'}
             </button>
-            <small>Un piano = un ente erogatore. Genera le righe standard A, B, C, D per {enteErogatore} e abilita l’inserimento di docenza e tutor per edizione.</small>
+            <small>Ente, avviso e template vengono derivati automaticamente dal progetto. Tu compili solo i dati del piano.</small>
           </div>
         </div>
       </div>
@@ -801,7 +658,7 @@ export default function PianiFinanziariManager({ forcedProjectId = '', forcedEnt
         <div className="empty-state">
           <div>💼</div>
           <h3>Nessun piano finanziario attivo</h3>
-          <p>Seleziona un progetto e crea un piano base {enteErogatore} per iniziare a compilare le macrovoci standard.</p>
+          <p>Seleziona un progetto e crea il piano base per iniziare a compilare le macrovoci standard.</p>
         </div>
       ) : (
         <div className="table-shell">

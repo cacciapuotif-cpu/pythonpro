@@ -1,15 +1,23 @@
-"""
-Test upload documenti usando un collaboratore esistente
-"""
-
-import requests
 import io
 
-BASE_URL = "http://localhost:8000"
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import Column, Integer, Table, create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
-def create_test_pdf():
-    """Crea un PDF minimale per test"""
-    pdf_content = b"""%PDF-1.4
+from database import Base, get_db
+from main import app
+import file_upload
+import models  # noqa: F401
+
+
+if "users" not in Base.metadata.tables:
+    Table("users", Base.metadata, Column("id", Integer, primary_key=True))
+
+
+def create_test_pdf_bytes() -> bytes:
+    return b"""%PDF-1.4
 1 0 obj
 << /Type /Catalog /Pages 2 0 R >>
 endobj
@@ -46,149 +54,109 @@ startxref
 423
 %%EOF
 """
-    return io.BytesIO(pdf_content)
 
-def test_upload():
-    print("="  * 60)
-    print("TEST UPLOAD DOCUMENTI")
-    print("=" * 60)
-    print()
 
-    # 1. Ottieni primo collaboratore
-    print("1. Recupero collaboratore esistente...")
-    response = requests.get(f"{BASE_URL}/collaborators/")
-    if response.status_code != 200:
-        print(f"   ERRORE: {response.status_code}")
-        return False
-
-    collaborators = response.json()
-    if not collaborators:
-        print("   ERRORE: Nessun collaboratore trovato")
-        return False
-
-    collaborator = collaborators[0]
-    collaborator_id = collaborator["id"]
-    print(f"   OK - Uso collaboratore ID {collaborator_id}: {collaborator['first_name']} {collaborator['last_name']}")
-    print()
-
-    # 2. Upload documento identita
-    print("2. Upload documento identita...")
-    pdf_file = create_test_pdf()
-    files = {"file": ("documento_test.pdf", pdf_file, "application/pdf")}
-
-    response = requests.post(
-        f"{BASE_URL}/collaborators/{collaborator_id}/upload-documento",
-        files=files
+@pytest.fixture(scope="function")
+def db_session():
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
     )
+    TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-    if response.status_code != 200:
-        print(f"   ERRORE: {response.status_code}")
-        print(f"   {response.text}")
-        return False
+    Base.metadata.create_all(bind=engine)
+    session = TestingSessionLocal()
 
-    result = response.json()
-    print(f"   OK - Documento caricato: {result['filename']}")
-    print()
-
-    # 3. Upload curriculum
-    print("3. Upload curriculum...")
-    pdf_file = create_test_pdf()
-    files = {"file": ("curriculum_test.pdf", pdf_file, "application/pdf")}
-
-    response = requests.post(
-        f"{BASE_URL}/collaborators/{collaborator_id}/upload-curriculum",
-        files=files
-    )
-
-    if response.status_code != 200:
-        print(f"   ERRORE: {response.status_code}")
-        print(f"   {response.text}")
-        return False
-
-    result = response.json()
-    print(f"   OK - Curriculum caricato: {result['filename']}")
-    print()
-
-    # 4. Verifica collaboratore aggiornato
-    print("4. Verifica dati aggiornati...")
-    response = requests.get(f"{BASE_URL}/collaborators/{collaborator_id}")
-    collaborator = response.json()
-
-    doc_filename = collaborator.get('documento_identita_filename')
-    cv_filename = collaborator.get('curriculum_filename')
-
-    print(f"   Documento identita: {doc_filename}")
-    print(f"   Curriculum: {cv_filename}")
-
-    if not doc_filename or not cv_filename:
-        print("   ERRORE - Documenti non salvati nel database")
-        return False
-
-    print()
-
-    # 5. Test download documento
-    print("5. Test download documento...")
-    response = requests.get(
-        f"{BASE_URL}/collaborators/{collaborator_id}/download-documento"
-    )
-
-    if response.status_code != 200:
-        print(f"   ERRORE: {response.status_code}")
-        return False
-
-    print(f"   OK - Download riuscito ({len(response.content)} bytes)")
-    print()
-
-    # 6. Test download curriculum
-    print("6. Test download curriculum...")
-    response = requests.get(
-        f"{BASE_URL}/collaborators/{collaborator_id}/download-curriculum"
-    )
-
-    if response.status_code != 200:
-        print(f"   ERRORE: {response.status_code}")
-        return False
-
-    print(f"   OK - Download riuscito ({len(response.content)} bytes)")
-    print()
-
-    # 7. Test eliminazione
-    print("7. Test eliminazione documento...")
-    response = requests.delete(
-        f"{BASE_URL}/collaborators/{collaborator_id}/delete-documento"
-    )
-
-    if response.status_code != 200:
-        print(f"   ERRORE: {response.status_code}")
-        return False
-
-    print(f"   OK - Documento eliminato")
-    print()
-
-    # 8. Verifica eliminazione
-    print("8. Verifica eliminazione...")
-    response = requests.get(f"{BASE_URL}/collaborators/{collaborator_id}")
-    collaborator = response.json()
-
-    if collaborator.get('documento_identita_filename'):
-        print(f"   ERRORE - Documento ancora nel database")
-        return False
-
-    print(f"   OK - Documento rimosso dal database")
-    print()
-
-    print("=" * 60)
-    print("TUTTI I TEST PASSATI!")
-    print("=" * 60)
-
-    return True
-
-if __name__ == "__main__":
     try:
-        success = test_upload()
-        exit(0 if success else 1)
-    except Exception as e:
-        print(f"\nERRORE: {e}")
-        import traceback
-        traceback.print_exc()
-        exit(1)
+        yield session
+    finally:
+        session.close()
+        Base.metadata.drop_all(bind=engine)
+        engine.dispose()
+
+
+@pytest.fixture(scope="function")
+def isolated_uploads(tmp_path, monkeypatch):
+    upload_dir = tmp_path / "uploads"
+    monkeypatch.setattr(file_upload, "UPLOAD_DIR", upload_dir)
+    monkeypatch.setattr(file_upload, "DOCUMENTS_DIR", upload_dir / "documents")
+    monkeypatch.setattr(file_upload, "CURRICULUM_DIR", upload_dir / "curriculum")
+    monkeypatch.setattr(file_upload, "ENTITY_LOGOS_DIR", upload_dir / "entity_logos")
+    file_upload.setup_upload_directories()
+    return upload_dir
+
+
+@pytest.fixture(scope="function")
+def client(db_session, isolated_uploads):
+    def override_get_db():
+        try:
+            yield db_session
+        finally:
+            pass
+
+    app.dependency_overrides[get_db] = override_get_db
+
+    with TestClient(app) as test_client:
+        yield test_client
+
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def existing_collaborator(client):
+    collaborator_data = {
+        "first_name": "Existing",
+        "last_name": "User",
+        "email": "existing.upload@gmail.com",
+        "phone": "333-999-1111",
+        "position": "Developer",
+        "fiscal_code": "XSTUSR80A01H501Z",
+    }
+    response = client.post("/api/v1/collaborators/", json=collaborator_data)
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def test_upload_existing_collaborator_workflow(client, existing_collaborator):
+    collaborator_id = existing_collaborator["id"]
+
+    files = {
+        "file": ("documento_test.pdf", io.BytesIO(create_test_pdf_bytes()), "application/pdf")
+    }
+    response = client.post(f"/api/v1/collaborators/{collaborator_id}/upload-documento", files=files)
+    assert response.status_code == 200, response.text
+    assert response.json()["filename"] == "documento_test.pdf"
+
+    files = {
+        "file": ("curriculum_test.pdf", io.BytesIO(create_test_pdf_bytes()), "application/pdf")
+    }
+    response = client.post(f"/api/v1/collaborators/{collaborator_id}/upload-curriculum", files=files)
+    assert response.status_code == 200, response.text
+    assert response.json()["filename"] == "curriculum_test.pdf"
+
+    response = client.get(f"/api/v1/collaborators/{collaborator_id}")
+    assert response.status_code == 200
+    collaborator = response.json()
+    assert collaborator["documento_identita_filename"] == "documento_test.pdf"
+    assert collaborator["curriculum_filename"] == "curriculum_test.pdf"
+
+    response = client.get(f"/api/v1/collaborators/{collaborator_id}/download-documento")
+    assert response.status_code == 200
+    assert response.content.startswith(b"%PDF-1.4")
+
+    response = client.get(f"/api/v1/collaborators/{collaborator_id}/download-curriculum")
+    assert response.status_code == 200
+    assert response.content.startswith(b"%PDF-1.4")
+
+    response = client.delete(f"/api/v1/collaborators/{collaborator_id}/delete-documento")
+    assert response.status_code == 200
+
+    response = client.delete(f"/api/v1/collaborators/{collaborator_id}/delete-curriculum")
+    assert response.status_code == 200
+
+    response = client.get(f"/api/v1/collaborators/{collaborator_id}")
+    assert response.status_code == 200
+    collaborator = response.json()
+    assert collaborator["documento_identita_filename"] is None
+    assert collaborator["curriculum_filename"] is None

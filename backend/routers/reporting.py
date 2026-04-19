@@ -3,18 +3,87 @@ Router per generazione report e statistiche
 Gestisce timesheet, KPI e report aggregati
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, BackgroundTasks
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime, date
+from pydantic import BaseModel
 import logging
+import csv
+import os
+import uuid
 
 import crud
 import schemas
-from database import get_db
+from database import SessionLocal, get_db
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/reporting", tags=["Reporting"])
+EXPORTS_DIR = "/tmp/exports"
+
+
+class TimesheetExportFilters(BaseModel):
+    from_date: Optional[date] = None
+    to_date: Optional[date] = None
+    collaborator_id: Optional[int] = None
+    project_id: Optional[int] = None
+
+
+def _build_timesheet_range(from_date: Optional[date], to_date: Optional[date]):
+    start_dt = datetime.combine(from_date, datetime.min.time()) if from_date else None
+    end_dt = datetime.combine(to_date, datetime.max.time()) if to_date else None
+    return start_dt, end_dt
+
+
+def _generate_timesheet_export_file(filters: TimesheetExportFilters, export_id: str) -> str:
+    os.makedirs(EXPORTS_DIR, exist_ok=True)
+    file_path = os.path.join(EXPORTS_DIR, f"{export_id}.csv")
+    start_dt, end_dt = _build_timesheet_range(filters.from_date, filters.to_date)
+
+    db = SessionLocal()
+    try:
+        with open(file_path, "w", newline="", encoding="utf-8") as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(["attendance_id", "date", "collaborator", "project", "start_time", "end_time", "hours", "notes"])
+
+            skip = 0
+            page_size = 1000
+            while True:
+                attendances = crud.get_attendances(
+                    db,
+                    skip=skip,
+                    limit=page_size,
+                    collaborator_id=filters.collaborator_id,
+                    project_id=filters.project_id,
+                    start_date=start_dt,
+                    end_date=end_dt,
+                    include_details=True,
+                )
+                if not attendances:
+                    break
+
+                for attendance in attendances:
+                    collaborator = attendance.collaborator
+                    project = attendance.project
+                    writer.writerow([
+                        attendance.id,
+                        attendance.date.isoformat() if attendance.date else "",
+                        f"{collaborator.first_name} {collaborator.last_name}" if collaborator else "",
+                        project.name if project else "",
+                        attendance.start_time.isoformat() if attendance.start_time else "",
+                        attendance.end_time.isoformat() if attendance.end_time else "",
+                        float(attendance.hours or 0.0),
+                        attendance.notes or "",
+                    ])
+
+                if len(attendances) < page_size:
+                    break
+                skip += page_size
+    finally:
+        db.close()
+
+    return file_path
 
 
 def _serialize_template_documento(template):
@@ -39,6 +108,8 @@ def get_timesheet_report(
     collaborator_id: Optional[int] = Query(None, description="ID collaboratore specifico"),
     project_id: Optional[int] = Query(None, description="ID progetto specifico"),
     chiave_documento: Optional[str] = Query(None, description="Chiave template timesheet da usare (es. timesheet_mensile)"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db)
 ):
     """
@@ -59,15 +130,29 @@ def get_timesheet_report(
     - Totale generale
     """
     try:
-        # Recupera presenze con filtri
+        start_dt, end_dt = _build_timesheet_range(from_date, to_date)
         attendances = crud.get_attendances(
             db,
-            skip=0,
-            limit=10000,  # Limite alto per report completi
+            skip=skip,
+            limit=limit,
             collaborator_id=collaborator_id,
             project_id=project_id,
-            start_date=datetime.combine(from_date, datetime.min.time()) if from_date else None,
-            end_date=datetime.combine(to_date, datetime.max.time()) if to_date else None
+            start_date=start_dt,
+            end_date=end_dt
+        )
+        total = crud.get_attendances_count(
+            db,
+            collaborator_id=collaborator_id,
+            project_id=project_id,
+            start_date=start_dt,
+            end_date=end_dt,
+        )
+        total_hours = crud.get_attendances_total_hours(
+            db,
+            collaborator_id=collaborator_id,
+            project_id=project_id,
+            start_date=start_dt,
+            end_date=end_dt,
         )
 
         progetto = crud.get_project(db, project_id) if project_id else None
@@ -88,14 +173,22 @@ def get_timesheet_report(
                 "to": to_date.isoformat() if to_date else None
             },
             "template_documento": _serialize_template_documento(template_timesheet),
+            "items": [],
             "presenze": [],
+            "total": total,
+            "skip": skip,
+            "limit": limit,
+            "has_more": skip + limit < total,
             "totali": {
-                "ore_totali": 0,
-                "numero_presenze": len(attendances),
+                "ore_totali": total_hours,
+                "numero_presenze": total,
                 "per_collaboratore": {},
                 "per_progetto": {}
             }
         }
+        report_data["period"] = report_data["periodo"]
+        report_data["attendances"] = []
+        report_data["total_hours"] = report_data["totali"]["ore_totali"]
 
         # Elabora presenze
         for attendance in attendances:
@@ -117,11 +210,12 @@ def get_timesheet_report(
                 "note": attendance.notes
             }
 
+            report_data["items"].append(presenza_data)
             report_data["presenze"].append(presenza_data)
+            report_data["attendances"].append(presenza_data)
 
             # Aggiorna totali
             ore = float(attendance.hours) if attendance.hours else 0
-            report_data["totali"]["ore_totali"] += ore
 
             # Totali per collaboratore
             if collaboratore:
@@ -148,6 +242,7 @@ def get_timesheet_report(
         # Converti dict in list per JSON response
         report_data["totali"]["per_collaboratore"] = list(report_data["totali"]["per_collaboratore"].values())
         report_data["totali"]["per_progetto"] = list(report_data["totali"]["per_progetto"].values())
+        report_data["total_hours"] = report_data["totali"]["ore_totali"]
 
         logger.info(f"Generated timesheet report: {len(attendances)} attendances")
         return report_data
@@ -158,6 +253,24 @@ def get_timesheet_report(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Errore nella generazione del report: {str(e)}"
         )
+
+
+@router.post("/timesheet/export")
+def export_timesheet_async(
+    filters: TimesheetExportFilters,
+    background_tasks: BackgroundTasks,
+):
+    export_id = str(uuid.uuid4())
+    background_tasks.add_task(_generate_timesheet_export_file, filters, export_id)
+    return {"export_id": export_id, "status": "processing"}
+
+
+@router.get("/timesheet/export/{export_id}")
+def get_timesheet_export(export_id: str):
+    file_path = os.path.join(EXPORTS_DIR, f"{export_id}.csv")
+    if os.path.exists(file_path):
+        return FileResponse(file_path, media_type="text/csv", filename=f"timesheet-{export_id}.csv")
+    return {"export_id": export_id, "status": "processing"}
 
 
 @router.get("/summary")
@@ -186,73 +299,49 @@ def get_summary_report(
     - Distribuzione contratti per tipo
     """
     try:
-        # KPI base
-        total_collaborators = len(crud.get_collaborators(db, skip=0, limit=10000))
-        total_projects = len(crud.get_projects(db, skip=0, limit=10000))
-        total_entities = len(crud.get_implementing_entities(db, skip=0, limit=10000))
+        # KPI base - count queries, no bulk load
+        total_collaborators = crud.get_collaborators_count(db)
+        total_projects = crud.get_projects_count(db)
+        total_entities = crud.get_implementing_entities_count(db)
 
-        # Presenze nel periodo
-        attendances = crud.get_attendances(
-            db,
-            skip=0,
-            limit=10000,
-            start_date=datetime.combine(from_date, datetime.min.time()) if from_date else None,
-            end_date=datetime.combine(to_date, datetime.max.time()) if to_date else None
-        )
+        # Aggregate attendances in pages to avoid OOM
+        start_dt = datetime.combine(from_date, datetime.min.time()) if from_date else None
+        end_dt = datetime.combine(to_date, datetime.max.time()) if to_date else None
 
-        total_hours = sum(
-            float(att.hours) if att.hours else 0
-            for att in attendances
-        )
+        total_hours = 0.0
+        total_attendances_count = 0
+        project_hours: dict = {}
+        collaborator_hours: dict = {}
+        _page_size = 1000
+        _skip = 0
+        while True:
+            _page = crud.get_attendances(db, skip=_skip, limit=_page_size, start_date=start_dt, end_date=end_dt)
+            if not _page:
+                break
+            for att in _page:
+                ore = float(att.hours) if att.hours else 0
+                total_hours += ore
+                total_attendances_count += 1
+                project_hours[att.project_id] = project_hours.get(att.project_id, 0) + ore
+                collaborator_hours[att.collaborator_id] = collaborator_hours.get(att.collaborator_id, 0) + ore
+            if len(_page) < _page_size:
+                break
+            _skip += _page_size
 
         # Calcola medie
         avg_hours_per_collaborator = total_hours / total_collaborators if total_collaborators > 0 else 0
         avg_hours_per_project = total_hours / total_projects if total_projects > 0 else 0
 
         # Analisi progetti più attivi
-        project_hours = {}
-        for att in attendances:
-            project_id = att.project_id
-            ore = float(att.hours) if att.hours else 0
-            if project_id not in project_hours:
-                project_hours[project_id] = ore
-            else:
-                project_hours[project_id] += ore
-
-        top_projects = sorted(
-            project_hours.items(),
-            key=lambda x: x[1],
-            reverse=True
-        )[:5]
-
         top_projects_details = []
-        for proj_id, hours in top_projects:
+        for proj_id, hours in sorted(project_hours.items(), key=lambda x: x[1], reverse=True)[:5]:
             progetto = crud.get_project(db, proj_id)
             if progetto:
-                top_projects_details.append({
-                    "id": progetto.id,
-                    "nome": progetto.name,
-                    "ore_totali": hours
-                })
+                top_projects_details.append({"id": progetto.id, "nome": progetto.name, "ore_totali": hours})
 
         # Analisi collaboratori più attivi
-        collaborator_hours = {}
-        for att in attendances:
-            collab_id = att.collaborator_id
-            ore = float(att.hours) if att.hours else 0
-            if collab_id not in collaborator_hours:
-                collaborator_hours[collab_id] = ore
-            else:
-                collaborator_hours[collab_id] += ore
-
-        top_collaborators = sorted(
-            collaborator_hours.items(),
-            key=lambda x: x[1],
-            reverse=True
-        )[:5]
-
         top_collaborators_details = []
-        for collab_id, hours in top_collaborators:
+        for collab_id, hours in sorted(collaborator_hours.items(), key=lambda x: x[1], reverse=True)[:5]:
             collaboratore = crud.get_collaborator(db, collab_id)
             if collaboratore:
                 top_collaborators_details.append({
@@ -261,14 +350,19 @@ def get_summary_report(
                     "ore_totali": hours
                 })
 
-        # Distribuzione contratti per tipo
-        assignments = crud.get_assignments(db, skip=0, limit=10000)
-        contract_distribution = {}
-        for assignment in assignments:
-            contract_type = assignment.contract_type or "Non specificato"
-            if contract_type not in contract_distribution:
-                contract_distribution[contract_type] = 0
-            contract_distribution[contract_type] += 1
+        # Distribuzione contratti per tipo - paginated
+        contract_distribution: dict = {}
+        _skip = 0
+        while True:
+            _page = crud.get_assignments(db, skip=_skip, limit=1000)
+            if not _page:
+                break
+            for assignment in _page:
+                contract_type = assignment.contract_type or "Non specificato"
+                contract_distribution[contract_type] = contract_distribution.get(contract_type, 0) + 1
+            if len(_page) < 1000:
+                break
+            _skip += 1000
 
         summary_data = {
             "periodo": {
@@ -280,7 +374,7 @@ def get_summary_report(
                 "totale_progetti": total_projects,
                 "totale_enti_attuatori": total_entities,
                 "totale_ore_lavorate": round(total_hours, 2),
-                "totale_presenze": len(attendances),
+                "totale_presenze": total_attendances_count,
                 "media_ore_per_collaboratore": round(avg_hours_per_collaborator, 2),
                 "media_ore_per_progetto": round(avg_hours_per_project, 2)
             },
@@ -328,27 +422,29 @@ def get_collaborator_statistics(
                 detail="Collaboratore non trovato"
             )
 
-        # Recupera presenze
-        attendances = crud.get_attendances(
-            db,
-            skip=0,
-            limit=10000,
-            collaborator_id=collaborator_id,
-            start_date=datetime.combine(from_date, datetime.min.time()) if from_date else None,
-            end_date=datetime.combine(to_date, datetime.max.time()) if to_date else None
-        )
-
-        total_hours = sum(float(att.hours_worked) if att.hours_worked else 0 for att in attendances)
-
-        # Ore per progetto
-        project_hours = {}
-        for att in attendances:
-            proj_id = att.project_id
-            ore = float(att.hours_worked) if att.hours_worked else 0
-            if proj_id not in project_hours:
-                project_hours[proj_id] = ore
-            else:
-                project_hours[proj_id] += ore
+        # Recupera presenze - paginated to avoid OOM
+        _start_dt = datetime.combine(from_date, datetime.min.time()) if from_date else None
+        _end_dt = datetime.combine(to_date, datetime.max.time()) if to_date else None
+        total_hours = 0.0
+        total_attendances_count = 0
+        project_hours: dict = {}
+        giorni_set: set = set()
+        _page_size = 1000
+        _skip = 0
+        while True:
+            _page = crud.get_attendances(db, skip=_skip, limit=_page_size, collaborator_id=collaborator_id, start_date=_start_dt, end_date=_end_dt)
+            if not _page:
+                break
+            for att in _page:
+                ore = float(att.hours_worked) if att.hours_worked else 0
+                total_hours += ore
+                total_attendances_count += 1
+                project_hours[att.project_id] = project_hours.get(att.project_id, 0) + ore
+                if att.date:
+                    giorni_set.add(att.date)
+            if len(_page) < _page_size:
+                break
+            _skip += _page_size
 
         projects_details = []
         for proj_id, hours in project_hours.items():
@@ -361,7 +457,7 @@ def get_collaborator_statistics(
                 })
 
         # Calcola media giornaliera
-        num_giorni = len(set(att.date for att in attendances if att.date))
+        num_giorni = len(giorni_set)
         media_ore_giornaliere = total_hours / num_giorni if num_giorni > 0 else 0
 
         # Assegnazioni attive
@@ -379,7 +475,7 @@ def get_collaborator_statistics(
             },
             "statistiche": {
                 "totale_ore_lavorate": round(total_hours, 2),
-                "numero_presenze": len(attendances),
+                "numero_presenze": total_attendances_count,
                 "numero_progetti": len(project_hours),
                 "numero_assegnazioni_attive": len(assignments),
                 "media_ore_giornaliere": round(media_ore_giornaliere, 2)
@@ -424,27 +520,26 @@ def get_project_statistics(
                 detail="Progetto non trovato"
             )
 
-        # Recupera presenze
-        attendances = crud.get_attendances(
-            db,
-            skip=0,
-            limit=10000,
-            project_id=project_id,
-            start_date=datetime.combine(from_date, datetime.min.time()) if from_date else None,
-            end_date=datetime.combine(to_date, datetime.max.time()) if to_date else None
-        )
-
-        total_hours = sum(float(att.hours_worked) if att.hours_worked else 0 for att in attendances)
-
-        # Ore per collaboratore
-        collaborator_hours = {}
-        for att in attendances:
-            collab_id = att.collaborator_id
-            ore = float(att.hours_worked) if att.hours_worked else 0
-            if collab_id not in collaborator_hours:
-                collaborator_hours[collab_id] = ore
-            else:
-                collaborator_hours[collab_id] += ore
+        # Recupera presenze - paginated to avoid OOM
+        _start_dt = datetime.combine(from_date, datetime.min.time()) if from_date else None
+        _end_dt = datetime.combine(to_date, datetime.max.time()) if to_date else None
+        total_hours = 0.0
+        total_attendances_count = 0
+        collaborator_hours: dict = {}
+        _page_size = 1000
+        _skip = 0
+        while True:
+            _page = crud.get_attendances(db, skip=_skip, limit=_page_size, project_id=project_id, start_date=_start_dt, end_date=_end_dt)
+            if not _page:
+                break
+            for att in _page:
+                ore = float(att.hours_worked) if att.hours_worked else 0
+                total_hours += ore
+                total_attendances_count += 1
+                collaborator_hours[att.collaborator_id] = collaborator_hours.get(att.collaborator_id, 0) + ore
+            if len(_page) < _page_size:
+                break
+            _skip += _page_size
 
         collaborators_details = []
         for collab_id, hours in collaborator_hours.items():
@@ -481,7 +576,7 @@ def get_project_statistics(
             "statistiche": {
                 "totale_ore_lavorate": round(total_hours, 2),
                 "totale_ore_previste": round(total_assigned_hours, 2),
-                "numero_presenze": len(attendances),
+                "numero_presenze": total_attendances_count,
                 "numero_collaboratori": len(collaborator_hours),
                 "numero_assegnazioni": len(assignments),
                 "percentuale_completamento": round(percentuale_completamento, 2)

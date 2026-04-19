@@ -79,6 +79,7 @@ from routers import (
     agenzie,
     consulenti,
     aziende_clienti,
+    allievi,
     catalogo,
     listini,
     preventivi,
@@ -89,6 +90,7 @@ from routers import (
     avvisi,
     agents,
     email_inbox,
+    whatsapp,
 )
 
 # CREIAMO LE TABELLE NEL DATABASE
@@ -337,10 +339,12 @@ async def general_exception_handler(request: Request, exc: Exception):
 # CONFIGURAZIONE CORS E MIDDLEWARE
 # ========================================
 
+_cors_origins_raw = os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:3001")
+_cors_origins = [o.strip() for o in _cors_origins_raw.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
+    allow_origins=_cors_origins,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -379,6 +383,7 @@ app.include_router(admin.router)
 app.include_router(agenzie.router)
 app.include_router(consulenti.router)
 app.include_router(aziende_clienti.router)
+app.include_router(allievi.router)
 
 # Router Blocco 3 — Catalogo + Listini
 app.include_router(catalogo.router)
@@ -395,18 +400,13 @@ app.include_router(documenti_richiesti.router)
 app.include_router(avvisi.router)
 app.include_router(agents.router)
 app.include_router(email_inbox.router)
+app.include_router(whatsapp.router)
 
 
 # ========================================
 # ENDPOINTS CROSS-RESOURCE
 # Questi endpoint collegano più risorse e rimangono nel main
 # ========================================
-
-@app.post("/test-post")
-def test_post_endpoint(data: dict):
-    """TEST ENDPOINT - verifica che POST funzioni"""
-    return {"received": data, "status": "OK"}
-
 
 @app.get("/collaborators-with-projects/", response_model=List[schemas.CollaboratorWithProjects], response_model_by_alias=False)
 def read_collaborators_with_projects(
@@ -585,12 +585,9 @@ async def startup_event():
     except Exception as e:
         logger.error(f"Database health check error: {e}")
 
-    # Avvia worker IMAP email in arrivo (se configurato)
-    try:
-        from services.email_inbox_worker import start_email_inbox_worker
-        start_email_inbox_worker()
-    except Exception as e:
-        logger.error(f"Error starting email inbox worker: {e}")
+    # NOTA: EmailInboxWorker (IMAP polling) è stato spostato in arq_worker.py
+    # come cron job (poll_email_inbox ogni 5 min). Avviarlo qui causerebbe
+    # un thread per ogni processo uvicorn → elaborazione duplicata delle email.
 
 
 @app.on_event("shutdown")

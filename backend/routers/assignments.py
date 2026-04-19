@@ -271,6 +271,20 @@ def read_assignments(
     return assignments
 
 
+@router.put("/bulk")
+def update_assignments_bulk(
+    assignment_updates: List[schemas.AssignmentBulkUpdateItem],
+    db: Session = Depends(get_db)
+):
+    """AGGIORNA PIU ASSEGNAZIONI IN BULK."""
+    payload = [item.model_dump(exclude_unset=True) for item in assignment_updates]
+    crud.bulk_update_assignments(db, payload)
+    return {
+        "updated": len(payload),
+        "message": "Assegnazioni aggiornate con successo",
+    }
+
+
 @router.get("/{assignment_id}", response_model=schemas.Assignment)
 def read_assignment(
     assignment_id: int,

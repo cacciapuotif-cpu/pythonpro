@@ -99,6 +99,39 @@ const useDocumentUpload = (showSuccess, showError, refreshCollaborators) => {
     }
   };
 
+  const previewDocumento = async (collaboratorId, filename) => {
+    const previewWindow = window.open('', '_blank');
+    try {
+      const response = await apiService.downloadDocumentoIdentita(collaboratorId);
+      const extension = (filename || '').split('.').pop()?.toLowerCase();
+      const fallbackType = extension === 'pdf'
+        ? 'application/pdf'
+        : ['jpg', 'jpeg'].includes(extension)
+          ? 'image/jpeg'
+          : extension === 'png'
+            ? 'image/png'
+            : 'application/octet-stream';
+      const headerType = response.headers?.['content-type'];
+      const contentType = !headerType || headerType === 'application/octet-stream'
+        ? fallbackType
+        : headerType;
+      const blob = new Blob([response.data], { type: contentType });
+      const url = window.URL.createObjectURL(blob);
+      if (previewWindow) {
+        previewWindow.location.href = url;
+      } else {
+        window.open(url, '_blank', 'noopener,noreferrer');
+      }
+      window.setTimeout(() => window.URL.revokeObjectURL(url), 60000);
+    } catch (err) {
+      if (previewWindow && !previewWindow.closed) {
+        previewWindow.close();
+      }
+      console.error('Errore anteprima documento:', err);
+      showError('Errore nell’anteprima del documento');
+    }
+  };
+
   // Download Curriculum
   const downloadCurriculum = async (collaboratorId, filename) => {
     try {
@@ -121,6 +154,35 @@ const useDocumentUpload = (showSuccess, showError, refreshCollaborators) => {
     } catch (err) {
       console.error('Errore download curriculum:', err);
       showError('Errore nel download del curriculum');
+    }
+  };
+
+  const previewCurriculum = async (collaboratorId, filename) => {
+    const previewWindow = window.open('', '_blank');
+    try {
+      const response = await apiService.downloadCurriculum(collaboratorId);
+      const extension = (filename || '').split('.').pop()?.toLowerCase();
+      const fallbackType = extension === 'pdf'
+        ? 'application/pdf'
+        : 'application/octet-stream';
+      const headerType = response.headers?.['content-type'];
+      const contentType = !headerType || headerType === 'application/octet-stream'
+        ? fallbackType
+        : headerType;
+      const blob = new Blob([response.data], { type: contentType });
+      const url = window.URL.createObjectURL(blob);
+      if (previewWindow) {
+        previewWindow.location.href = url;
+      } else {
+        window.open(url, '_blank', 'noopener,noreferrer');
+      }
+      window.setTimeout(() => window.URL.revokeObjectURL(url), 60000);
+    } catch (err) {
+      if (previewWindow && !previewWindow.closed) {
+        previewWindow.close();
+      }
+      console.error('Errore anteprima curriculum:', err);
+      showError('Errore nell’anteprima del curriculum');
     }
   };
 
@@ -154,7 +216,9 @@ const useDocumentUpload = (showSuccess, showError, refreshCollaborators) => {
     uploadDocumento,
     uploadCurriculum,
     downloadDocumento,
+    previewDocumento,
     downloadCurriculum,
+    previewCurriculum,
     deleteDocumento,
     deleteCurriculum
   };

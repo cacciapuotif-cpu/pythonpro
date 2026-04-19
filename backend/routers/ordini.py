@@ -2,12 +2,14 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from typing import Optional, List
+import logging
 
 import crud
 import schemas
 from database import get_db
 
 router = APIRouter(prefix="/api/v1/ordini", tags=["ordini"])
+logger = logging.getLogger(__name__)
 
 
 @router.get("/stati", response_model=List[str])
@@ -46,3 +48,31 @@ def update_ordine(ordine_id: int, data: schemas.OrdineUpdate, db: Session = Depe
     if not obj:
         raise HTTPException(status_code=404, detail="Ordine non trovato")
     return obj
+
+
+@router.delete("/{ordine_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_ordine(ordine_id: int, db: Session = Depends(get_db)):
+    """
+    Elimina logicamente un ordine annullandolo.
+    """
+    ordine = crud.get_ordine(db, ordine_id)
+    if not ordine:
+        raise HTTPException(status_code=404, detail="Ordine non trovato")
+
+    crud.update_ordine(db, ordine_id, schemas.OrdineUpdate(stato="annullato"))
+    logger.info("Ordine %s annullato", ordine_id)
+    return None
+
+
+@router.delete("/{ordine_id}/hard", status_code=status.HTTP_204_NO_CONTENT)
+def hard_delete_ordine(ordine_id: int, db: Session = Depends(get_db)):
+    """
+    Elimina fisicamente un ordine.
+    """
+    ordine = crud.get_ordine(db, ordine_id)
+    if not ordine:
+        raise HTTPException(status_code=404, detail="Ordine non trovato")
+
+    crud.delete_ordine(db, ordine_id)
+    logger.info("Ordine %s eliminato permanentemente", ordine_id)
+    return None

@@ -22,14 +22,14 @@ logger = logging.getLogger(__name__)
 
 class SuggestionReviewPayload(BaseModel):
     action: str
-    reviewed_by: str
+    reviewed_by_user_id: Optional[int] = None
     notes: Optional[str] = None
 
 
 class BulkReviewPayload(BaseModel):
     suggestion_ids: List[int]
     action: str
-    reviewed_by: str
+    reviewed_by_user_id: Optional[int] = None
     notes: Optional[str] = None
 
 
@@ -69,6 +69,13 @@ def _map_action_to_status(action: str) -> str:
         "deferred": "expired",
     }
     return mapping[action]
+
+
+def _normalize_accept_workflow_action(action: Optional[str]) -> str:
+    normalized = (action or "").strip().lower()
+    if normalized in {"", "accept", "accepted", "approve", "approved"}:
+        return "approve_email"
+    return normalized
 
 
 @router.get("/")
@@ -130,11 +137,17 @@ def get_llm_health():
 
 @router.post("/run", response_model=schemas.AgentRun)
 def run_agent_via_workflow(payload: schemas.AgentRunRequest, db: Session = Depends(get_db)):
+    normalized_entity_type = payload.entity_type
+    if normalized_entity_type:
+        normalized_entity_type = normalized_entity_type.strip().lower()
+    if normalized_entity_type in {"", "global", "all"}:
+        normalized_entity_type = None
+
     try:
         run = run_agent_workflow(
             db,
-            agent_name=payload.agent_name,
-            entity_type=payload.entity_type,
+            agent_type=payload.agent_name,
+            entity_type=normalized_entity_type,
             entity_id=payload.entity_id,
             requested_by_user_id=payload.requested_by_user_id,
             input_payload=payload.input_payload,
@@ -194,6 +207,7 @@ def get_run_detail(run_id: int, db: Session = Depends(get_db)):
 
 @router.get("/suggestions/", response_model=List[schemas.AgentSuggestion])
 def list_suggestions(
+    agent_type: Optional[str] = None,
     agent_name: Optional[str] = None,
     status: Optional[str] = None,
     priority: Optional[str] = None,
@@ -204,8 +218,10 @@ def list_suggestions(
 ):
     try:
         query = _suggestion_query(db, include_review_actions=False)
-        if agent_name:
-            query = query.filter(models.AgentSuggestion.agent_name == agent_name)
+        effective_agent_type = agent_type or agent_name
+        if effective_agent_type:
+            query = query.join(models.AgentRun, models.AgentSuggestion.run_id == models.AgentRun.id)
+            query = query.filter(models.AgentRun.agent_type == effective_agent_type)
         if status:
             query = query.filter(models.AgentSuggestion.status == status)
         if entity_type:
@@ -245,7 +261,7 @@ def review_suggestion(
         db=db,
         suggestion_id=suggestion_id,
         action=normalized_action,
-        reviewed_by=payload.reviewed_by,
+        reviewed_by_user_id=payload.reviewed_by_user_id,
         notes=payload.notes,
         auto_fix_applied=False,
         result_success=None,
@@ -261,12 +277,16 @@ def accept_suggestion(
     payload: schemas.AgentWorkflowActionRequest,
     db: Session = Depends(get_db),
 ):
-    review_payload = SuggestionReviewPayload(
-        action="approved",
-        reviewed_by=str(payload.reviewed_by_user_id or "system"),
-        notes=payload.notes,
-    )
-    return review_suggestion(suggestion_id, review_payload, db)
+    try:
+        return apply_workflow_action(
+            db,
+            suggestion_id=suggestion_id,
+            action=_normalize_accept_workflow_action(payload.action),
+            reviewed_by_user_id=payload.reviewed_by_user_id,
+            notes=payload.notes,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.post("/suggestions/{suggestion_id}/reject", response_model=schemas.AgentSuggestionWithDetails)
@@ -277,7 +297,7 @@ def reject_suggestion(
 ):
     review_payload = SuggestionReviewPayload(
         action="rejected",
-        reviewed_by=str(payload.reviewed_by_user_id or "system"),
+        reviewed_by_user_id=payload.reviewed_by_user_id,
         notes=payload.notes,
     )
     return review_suggestion(suggestion_id, review_payload, db)
@@ -321,7 +341,7 @@ def apply_suggestion_fix(suggestion_id: int, db: Session = Depends(get_db)):
         db=db,
         suggestion_id=suggestion_id,
         action="implemented",
-        reviewed_by="system",
+        reviewed_by_user_id=None,
         notes="Applicazione auto-fix",
         auto_fix_applied=True,
         result_success=True,
@@ -348,6 +368,32 @@ def list_communications(
     if status:
         query = query.filter(models.AgentCommunicationDraft.status == status)
     return query.order_by(models.AgentCommunicationDraft.id.desc()).offset(skip).limit(limit).all()
+
+
+@router.post("/communications", response_model=schemas.AgentCommunicationDraft)
+def create_communication_draft(
+    payload: schemas.AgentCommunicationDraftCreate,
+    db: Session = Depends(get_db),
+):
+    draft = models.AgentCommunicationDraft(
+        run_id=payload.run_id,
+        suggestion_id=payload.suggestion_id,
+        agent_name=payload.agent_name.strip(),
+        channel=(payload.channel or "email").strip().lower(),
+        recipient_type=payload.recipient_type.strip(),
+        recipient_id=payload.recipient_id,
+        recipient_email=payload.recipient_email.strip(),
+        recipient_name=payload.recipient_name.strip() if payload.recipient_name else None,
+        subject=payload.subject.strip(),
+        body=payload.body.strip(),
+        status=(payload.status or "draft").strip().lower(),
+        meta_payload=payload.meta_payload,
+        created_by_user_id=payload.created_by_user_id,
+    )
+    db.add(draft)
+    db.commit()
+    db.refresh(draft)
+    return draft
 
 
 @router.post("/communications/{draft_id}/status", response_model=schemas.AgentCommunicationDraft)
@@ -384,7 +430,7 @@ def bulk_review_suggestions(payload: BulkReviewPayload, db: Session = Depends(ge
             db=db,
             suggestion_id=suggestion_id,
             action=normalized_action,
-            reviewed_by=payload.reviewed_by,
+            reviewed_by_user_id=payload.reviewed_by_user_id,
             notes=payload.notes,
             auto_fix_applied=False,
             result_success=None,

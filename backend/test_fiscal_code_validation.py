@@ -11,6 +11,8 @@ Questo previene data corruption e garantisce l'integrità dei dati.
 """
 
 import pytest
+import uuid
+import string
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -89,16 +91,19 @@ def clean_db():
 @pytest.fixture
 def sample_collaborator_data():
     """Dati di esempio per un collaboratore valido"""
+    unique = uuid.uuid4().hex[:8]
+    codice_catastale_num = 100 + (uuid.uuid4().int % 900)
+    controllo = string.ascii_uppercase[uuid.uuid4().int % 26]
     return {
         "first_name": "Mario",
         "last_name": "Rossi",
-        "email": "mario.rossi@example.com",
-        "fiscal_code": "RSSMRA80A01H501Z",
+        "email": f"mario.rossi.{unique}@gmail.com",
+        "fiscal_code": f"RSSMRA80A01H{codice_catastale_num}{controllo}",
         "phone": "333-123-4567",
         "position": "Sviluppatore",
         "birthplace": "Roma",
-        "birth_date": "1980-01-01T00:00:00Z",
-        "gender": "maschio",
+        "birth_date": "1980-01-01T00:00:00",
+        "gender": "M",
         "city": "Roma",
         "address": "Via Roma 1",
         "education": "laurea"
@@ -113,7 +118,7 @@ def test_create_collaborator_success(sample_collaborator_data):
     """
     TEST 1: Verifica che la creazione di un collaboratore valido funzioni
     """
-    response = client.post("/collaborators/", json=sample_collaborator_data)
+    response = client.post("/api/v1/collaborators/", json=sample_collaborator_data)
 
     assert response.status_code == 200, f"Errore: {response.json()}"
     data = response.json()
@@ -135,16 +140,16 @@ def test_create_collaborator_duplicate_fiscal_code(sample_collaborator_data):
     - Secondo inserimento (stesso CF): ERRORE 409 con messaggio chiaro
     """
     # PRIMO INSERIMENTO - deve funzionare
-    response1 = client.post("/collaborators/", json=sample_collaborator_data)
+    response1 = client.post("/api/v1/collaborators/", json=sample_collaborator_data)
     assert response1.status_code == 200, "Primo inserimento fallito"
 
     # SECONDO INSERIMENTO - stesso CF, email diversa - deve fallire
     duplicate_data = sample_collaborator_data.copy()
-    duplicate_data["email"] = "altro.email@example.com"  # Email diversa
+    duplicate_data["email"] = "altro.email@gmail.com"  # Email diversa
     duplicate_data["first_name"] = "Luigi"  # Nome diverso
     # Ma stesso CF!
 
-    response2 = client.post("/collaborators/", json=duplicate_data)
+    response2 = client.post("/api/v1/collaborators/", json=duplicate_data)
 
     # Verifica errore 409 (Conflict)
     assert response2.status_code == 409, f"Atteso 409, ricevuto {response2.status_code}. Response: {response2.json()}"
@@ -167,15 +172,15 @@ def test_create_collaborator_duplicate_fiscal_code_case_insensitive(sample_colla
     - "RSSMRA80A01H501Z" e "rssmra80a01h501z" sono considerati duplicati
     """
     # PRIMO INSERIMENTO - CF uppercase
-    response1 = client.post("/collaborators/", json=sample_collaborator_data)
+    response1 = client.post("/api/v1/collaborators/", json=sample_collaborator_data)
     assert response1.status_code == 200
 
     # SECONDO INSERIMENTO - CF lowercase (ma stesso CF)
     duplicate_data = sample_collaborator_data.copy()
-    duplicate_data["email"] = "altro@example.com"
+    duplicate_data["email"] = "altro@gmail.com"
     duplicate_data["fiscal_code"] = sample_collaborator_data["fiscal_code"].lower()
 
-    response2 = client.post("/collaborators/", json=duplicate_data)
+    response2 = client.post("/api/v1/collaborators/", json=duplicate_data)
 
     # Deve fallire anche con lowercase
     assert response2.status_code == 409, "Case-insensitive check fallito"
@@ -192,22 +197,23 @@ def test_update_collaborator_duplicate_fiscal_code():
     TEST 4: Verifica che non sia possibile aggiornare un collaboratore
     con un CF già usato da un altro collaboratore
     """
+    unique = uuid.uuid4().hex[:6]
     # Crea due collaboratori
     collab1_data = {
         "first_name": "Mario",
         "last_name": "Rossi",
-        "email": "mario@example.com",
-        "fiscal_code": "RSSMRA80A01H501Z",
+        "email": f"mario.{unique}@gmail.com",
+        "fiscal_code": "RSSMRA80A01H777Z",
     }
     collab2_data = {
         "first_name": "Luigi",
         "last_name": "Verdi",
-        "email": "luigi@example.com",
-        "fiscal_code": "VRDLGU85B02F205X",
+        "email": f"luigi.{unique}@gmail.com",
+        "fiscal_code": "VRDLGU85B02F888X",
     }
 
-    resp1 = client.post("/collaborators/", json=collab1_data)
-    resp2 = client.post("/collaborators/", json=collab2_data)
+    resp1 = client.post("/api/v1/collaborators/", json=collab1_data)
+    resp2 = client.post("/api/v1/collaborators/", json=collab2_data)
 
     assert resp1.status_code == 200
     assert resp2.status_code == 200
@@ -217,13 +223,13 @@ def test_update_collaborator_duplicate_fiscal_code():
 
     # Prova ad aggiornare collab2 con il CF di collab1
     update_data = {"fiscal_code": collab1_data["fiscal_code"]}
-    response = client.put(f"/collaborators/{collab2_id}", json=update_data)
+    response = client.put(f"/api/v1/collaborators/{collab2_id}", json=update_data)
 
     # Deve fallire con 409
     assert response.status_code == 409, f"Atteso 409, ricevuto {response.status_code}"
 
     # Verifica messaggio d'errore
-    error_detail = response.json().get("detail", "")
+    error_detail = response.json().get("detail", response.json().get("error", ""))
     assert "codice fiscale" in error_detail.lower()
 
     print("✅ TEST 4 PASSED: Update con CF duplicato correttamente bloccato")
@@ -240,14 +246,15 @@ def test_create_collaborator_missing_fiscal_code():
     data = {
         "first_name": "Test",
         "last_name": "User",
-        "email": "test@example.com",
+        "email": "test.user@gmail.com",
         # fiscal_code mancante!
     }
 
-    response = client.post("/collaborators/", json=data)
+    response = client.post("/api/v1/collaborators/", json=data)
 
-    # Deve fallire con errore di validazione (422)
-    assert response.status_code == 422, f"Atteso 422, ricevuto {response.status_code}"
+    # Nel router legacy questo caso viene trasformato in 400 durante il cast
+    # verso schemas.CollaboratorCreate
+    assert response.status_code in [400, 422], f"Atteso 400/422, ricevuto {response.status_code}"
 
     print("✅ TEST 5 PASSED: CF obbligatorio correttamente validato")
 
@@ -259,11 +266,11 @@ def test_create_collaborator_invalid_fiscal_code_length():
     data = {
         "first_name": "Test",
         "last_name": "User",
-        "email": "test@example.com",
+        "email": "test.user@gmail.com",
         "fiscal_code": "TROPPOBREVE",  # Meno di 16 caratteri
     }
 
-    response = client.post("/collaborators/", json=data)
+    response = client.post("/api/v1/collaborators/", json=data)
 
     # Può fallire con 422 (validazione Pydantic) o 400 (validazione SQLAlchemy)
     assert response.status_code in [400, 422], f"Atteso 400/422, ricevuto {response.status_code}"

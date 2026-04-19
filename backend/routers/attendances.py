@@ -3,7 +3,7 @@ Router per gestione presenze
 Gestisce registrazione ore lavorate con validazioni avanzate
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime
@@ -77,6 +77,32 @@ def read_attendances(
         end_date=end_date
     )
     return attendances
+
+
+@router.get("/summary")
+def read_attendances_summary(
+    from_date: datetime = Query(..., alias="from"),
+    to_date: datetime = Query(..., alias="to"),
+    db: Session = Depends(get_db)
+):
+    """OTTIENI STATISTICHE AGGREGATE DELLE PRESENZE PER COLLABORATORE/PROGETTO."""
+    summary = crud.get_attendances_summary(db, start_date=from_date, end_date=to_date)
+    items = [
+        {
+            "collaborator_id": row.collaborator_id,
+            "project_id": row.project_id,
+            "total_hours": float(row.total_hours or 0.0),
+            "total_sessions": int(row.total_sessions or 0),
+            "avg_hours_per_session": float(row.avg_hours_per_session or 0.0),
+        }
+        for row in summary
+    ]
+    return {
+        "from": from_date.isoformat(),
+        "to": to_date.isoformat(),
+        "items": items,
+        "total": len(items),
+    }
 
 
 @router.get("/{attendance_id}", response_model=schemas.Attendance, response_model_by_alias=False)

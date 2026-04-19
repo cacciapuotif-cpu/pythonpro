@@ -1,117 +1,90 @@
 /**
  * COMPONENTE TIMESHEET REPORT
  *
- * Visualizza un report completo delle ore lavorate:
- * - Tutte le presenze in formato tabellare
- * - Filtri per collaboratore, progetto, periodo
- * - Totali ore per collaboratore e progetto
- * - Statistiche aggregate
+ * Visualizza il report paginato delle ore lavorate:
+ * - Filtri per collaboratore, progetto e periodo
+ * - Statistiche aggregate lato backend
+ * - Tabella presenze paginata
+ * - Export asincrono CSV per dataset grandi
  */
 
-import React, { useState } from 'react';
-import { useAttendances, useCollaborators, useProjects } from '../hooks/useEntity';
+import React, { useEffect, useState } from 'react';
+import { useCollaborators, useProjects } from '../hooks/useEntity';
+import apiService from '../services/apiService';
 import './TimesheetReport.css';
 
-const TimesheetReport = () => {
-  // ==========================================
-  // CONTEXT E HOOKS
-  // ==========================================
+const DEFAULT_PAGE_SIZE = 100;
+const PAGE_SIZE_OPTIONS = [50, 100, 250, 500, 1000];
 
-  // Carica dati dal Context con caching automatico
-  const { data: attendances, loading: loadingAttendances, error: errorAttendances } = useAttendances();
+const TimesheetReport = () => {
   const { data: collaborators, loading: loadingCollaborators } = useCollaborators();
   const { data: projects, loading: loadingProjects } = useProjects();
 
-  // Stati UI - filtri locali per la vista
   const [filters, setFilters] = useState({
     collaborator_id: '',
     project_id: '',
     start_date: '',
     end_date: '',
   });
-
-  // Combina gli stati di loading
-  const loading = loadingAttendances || loadingCollaborators || loadingProjects;
-  const error = errorAttendances;
-
-  // ==========================================
-  // FILTRI E CALCOLI
-  // ==========================================
-
-  // Filtra le presenze in base ai filtri selezionati
-  const filteredAttendances = attendances.filter(att => {
-    // Filtro collaboratore
-    if (filters.collaborator_id && att.collaborator_id !== parseInt(filters.collaborator_id)) {
-      return false;
-    }
-
-    // Filtro progetto
-    if (filters.project_id && att.project_id !== parseInt(filters.project_id)) {
-      return false;
-    }
-
-    // Filtro data inizio
-    if (filters.start_date) {
-      const attDate = new Date(att.date);
-      const startDate = new Date(filters.start_date);
-      if (attDate < startDate) return false;
-    }
-
-    // Filtro data fine
-    if (filters.end_date) {
-      const attDate = new Date(att.date);
-      const endDate = new Date(filters.end_date);
-      if (attDate > endDate) return false;
-    }
-
-    return true;
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [report, setReport] = useState(null);
+  const [loadingReport, setLoadingReport] = useState(true);
+  const [error, setError] = useState(null);
+  const [exportState, setExportState] = useState({
+    loading: false,
+    message: '',
   });
 
-  // Calcola totale ore
-  const totalHours = filteredAttendances.reduce((sum, att) => sum + (att.hours || 0), 0);
+  const loading = loadingCollaborators || loadingProjects || loadingReport;
 
-  // Raggruppa per collaboratore
-  const hoursByCollaborator = filteredAttendances.reduce((acc, att) => {
-    const id = att.collaborator_id;
-    if (!acc[id]) {
-      acc[id] = {
-        collaborator: collaborators.find(c => c.id === id),
-        hours: 0,
-        count: 0
-      };
-    }
-    acc[id].hours += att.hours || 0;
-    acc[id].count += 1;
-    return acc;
-  }, {});
+  useEffect(() => {
+    let active = true;
 
-  // Raggruppa per progetto
-  const hoursByProject = filteredAttendances.reduce((acc, att) => {
-    const id = att.project_id;
-    if (!acc[id]) {
-      acc[id] = {
-        project: projects.find(p => p.id === id),
-        hours: 0,
-        count: 0
-      };
-    }
-    acc[id].hours += att.hours || 0;
-    acc[id].count += 1;
-    return acc;
-  }, {});
+    const loadReport = async () => {
+      setLoadingReport(true);
+      setError(null);
+      try {
+        const data = await apiService.getTimesheetReport({
+          collaborator_id: filters.collaborator_id || undefined,
+          project_id: filters.project_id || undefined,
+          from: filters.start_date || undefined,
+          to: filters.end_date || undefined,
+          skip: page * pageSize,
+          limit: pageSize,
+        });
 
-  // ==========================================
-  // GESTIONE FILTRI
-  // ==========================================
+        if (active) {
+          setReport(data);
+        }
+      } catch (loadError) {
+        if (active) {
+          setError(loadError);
+        }
+      } finally {
+        if (active) {
+          setLoadingReport(false);
+        }
+      }
+    };
+
+    loadReport();
+
+    return () => {
+      active = false;
+    };
+  }, [filters, page, pageSize]);
 
   const handleFilterChange = (field, value) => {
+    setPage(0);
     setFilters(prev => ({
       ...prev,
-      [field]: value
+      [field]: value,
     }));
   };
 
   const resetFilters = () => {
+    setPage(0);
     setFilters({
       collaborator_id: '',
       project_id: '',
@@ -120,9 +93,60 @@ const TimesheetReport = () => {
     });
   };
 
-  // ==========================================
-  // HELPER FUNCTIONS
-  // ==========================================
+  const handlePageSizeChange = (value) => {
+    setPage(0);
+    setPageSize(parseInt(value, 10));
+  };
+
+  const pollExportUntilReady = async (exportId) => {
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      const result = await apiService.getTimesheetExport(exportId);
+      if (result?.status === 'ready' && result.blob) {
+        const url = window.URL.createObjectURL(result.blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = result.filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+        return true;
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+
+    return false;
+  };
+
+  const handleExport = async () => {
+    setExportState({
+      loading: true,
+      message: 'Export in preparazione...',
+    });
+
+    try {
+      const result = await apiService.startTimesheetExport({
+        collaborator_id: filters.collaborator_id ? parseInt(filters.collaborator_id, 10) : null,
+        project_id: filters.project_id ? parseInt(filters.project_id, 10) : null,
+        from_date: filters.start_date || null,
+        to_date: filters.end_date || null,
+      });
+
+      const ready = await pollExportUntilReady(result.export_id);
+      setExportState({
+        loading: false,
+        message: ready
+          ? 'Export completato.'
+          : 'Export ancora in elaborazione. Riprova tra qualche secondo.',
+      });
+    } catch (exportError) {
+      setExportState({
+        loading: false,
+        message: exportError?.message || 'Errore durante l\'export.',
+      });
+    }
+  };
 
   const formatDate = (dateString) => {
     if (!dateString) return 'N/D';
@@ -130,32 +154,22 @@ const TimesheetReport = () => {
     return date.toLocaleDateString('it-IT', {
       day: '2-digit',
       month: '2-digit',
-      year: 'numeric'
+      year: 'numeric',
     });
   };
 
-  const formatTime = (timeString) => {
-    if (!timeString) return 'N/D';
-    const date = new Date(timeString);
-    return date.toLocaleTimeString('it-IT', {
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
+  const formatHours = (value) => `${Number(value || 0).toFixed(1)}h`;
 
-  const getCollaboratorName = (id) => {
-    const collab = collaborators.find(c => c.id === id);
-    return collab ? `${collab.first_name} ${collab.last_name}` : 'N/D';
+  const items = report?.items || [];
+  const totals = report?.totali || {
+    ore_totali: 0,
+    numero_presenze: 0,
+    per_collaboratore: [],
+    per_progetto: [],
   };
-
-  const getProjectName = (id) => {
-    const project = projects.find(p => p.id === id);
-    return project ? project.name : 'N/D';
-  };
-
-  // ==========================================
-  // RENDER
-  // ==========================================
+  const total = report?.total || 0;
+  const currentPage = total === 0 ? 0 : page + 1;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   if (loading) {
     return (
@@ -170,23 +184,20 @@ const TimesheetReport = () => {
 
   return (
     <div className="timesheet-report">
-      {/* HEADER */}
       <div className="timesheet-header">
         <div className="header-title">
           <h2>⏱️ Timesheet Report</h2>
-          <p>Report completo delle ore lavorate</p>
+          <p>Report paginato delle ore lavorate</p>
         </div>
       </div>
 
-      {/* MESSAGGI ERRORE */}
       {error && (
         <div className="alert alert-error">
           <span className="alert-icon">⚠️</span>
-          {error.message || 'Errore nel caricamento dei dati'}
+          {error.message || 'Errore nel caricamento del report'}
         </div>
       )}
 
-      {/* FILTRI */}
       <div className="timesheet-filters">
         <div className="filters-grid">
           <div className="filter-group">
@@ -236,21 +247,47 @@ const TimesheetReport = () => {
               onChange={(e) => handleFilterChange('end_date', e.target.value)}
             />
           </div>
+
+          <div className="filter-group">
+            <label>📄 Righe per pagina</label>
+            <select
+              value={pageSize}
+              onChange={(e) => handlePageSizeChange(e.target.value)}
+            >
+              {PAGE_SIZE_OPTIONS.map(option => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
         <div className="filter-actions">
           <button className="btn-secondary" onClick={resetFilters}>
             🔄 Resetta Filtri
           </button>
+          <button
+            className="btn-secondary"
+            onClick={handleExport}
+            disabled={exportState.loading}
+          >
+            {exportState.loading ? '⏳ Export...' : '⬇️ Export CSV'}
+          </button>
         </div>
+
+        {exportState.message && (
+          <div className="timesheet-export-status">
+            {exportState.message}
+          </div>
+        )}
       </div>
 
-      {/* STATISTICHE RIEPILOGATIVE */}
       <div className="timesheet-stats">
         <div className="stat-card">
           <div className="stat-icon">⏱️</div>
           <div className="stat-content">
-            <div className="stat-value">{totalHours.toFixed(1)}</div>
+            <div className="stat-value">{Number(totals.ore_totali || 0).toFixed(1)}</div>
             <div className="stat-label">Ore Totali</div>
           </div>
         </div>
@@ -258,33 +295,37 @@ const TimesheetReport = () => {
         <div className="stat-card">
           <div className="stat-icon">📋</div>
           <div className="stat-content">
-            <div className="stat-value">{filteredAttendances.length}</div>
-            <div className="stat-label">Presenze</div>
+            <div className="stat-value">{total}</div>
+            <div className="stat-label">Presenze Totali</div>
           </div>
         </div>
 
         <div className="stat-card">
           <div className="stat-icon">👥</div>
           <div className="stat-content">
-            <div className="stat-value">{Object.keys(hoursByCollaborator).length}</div>
-            <div className="stat-label">Collaboratori</div>
+            <div className="stat-value">{totals.per_collaboratore.length}</div>
+            <div className="stat-label">Collaboratori in Pagina</div>
           </div>
         </div>
 
         <div className="stat-card">
           <div className="stat-icon">📁</div>
           <div className="stat-content">
-            <div className="stat-value">{Object.keys(hoursByProject).length}</div>
-            <div className="stat-label">Progetti</div>
+            <div className="stat-value">{totals.per_progetto.length}</div>
+            <div className="stat-label">Progetti in Pagina</div>
           </div>
         </div>
       </div>
 
-      {/* TABELLA PRESENZE */}
       <div className="timesheet-section">
-        <h3>📋 Dettaglio Presenze</h3>
+        <div className="timesheet-section-header">
+          <h3>📋 Dettaglio Presenze</h3>
+          <div className="timesheet-pagination-meta">
+            Pagina {currentPage} di {totalPages} • {items.length} righe mostrate su {total}
+          </div>
+        </div>
 
-        {filteredAttendances.length === 0 ? (
+        {items.length === 0 ? (
           <div className="empty-state">
             <div className="empty-icon">📋</div>
             <h4>Nessuna presenza trovata</h4>
@@ -298,32 +339,28 @@ const TimesheetReport = () => {
                   <th>Data</th>
                   <th>Collaboratore</th>
                   <th>Progetto</th>
-                  <th>Ora Inizio</th>
-                  <th>Ora Fine</th>
                   <th>Ore</th>
                   <th>Note</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredAttendances.map(att => (
+                {items.map(att => (
                   <tr key={att.id}>
-                    <td>{formatDate(att.date)}</td>
-                    <td>{getCollaboratorName(att.collaborator_id)}</td>
-                    <td>{getProjectName(att.project_id)}</td>
-                    <td>{formatTime(att.start_time)}</td>
-                    <td>{formatTime(att.end_time)}</td>
+                    <td>{formatDate(att.data)}</td>
+                    <td>{att.collaboratore?.nome_completo || 'N/D'}</td>
+                    <td>{att.progetto?.nome || 'N/D'}</td>
                     <td className="hours-cell">
-                      <span className="hours-badge">{att.hours?.toFixed(1)}h</span>
+                      <span className="hours-badge">{formatHours(att.ore_lavorate)}</span>
                     </td>
-                    <td className="notes-cell">{att.notes || '-'}</td>
+                    <td className="notes-cell">{att.note || '-'}</td>
                   </tr>
                 ))}
               </tbody>
               <tfoot>
                 <tr>
-                  <td colSpan="5" className="total-label">Totale Ore</td>
+                  <td colSpan="3" className="total-label">Totale Ore Filtrate</td>
                   <td className="hours-cell">
-                    <span className="hours-badge total">{totalHours.toFixed(1)}h</span>
+                    <span className="hours-badge total">{formatHours(totals.ore_totali)}</span>
                   </td>
                   <td></td>
                 </tr>
@@ -331,30 +368,38 @@ const TimesheetReport = () => {
             </table>
           </div>
         )}
+
+        <div className="timesheet-pagination">
+          <button
+            className="btn-secondary"
+            onClick={() => setPage(prev => Math.max(0, prev - 1))}
+            disabled={page === 0}
+          >
+            ← Precedente
+          </button>
+          <button
+            className="btn-secondary"
+            onClick={() => setPage(prev => prev + 1)}
+            disabled={!report?.has_more}
+          >
+            Successiva →
+          </button>
+        </div>
       </div>
 
-      {/* RIEPILOGO PER COLLABORATORE */}
-      {Object.keys(hoursByCollaborator).length > 0 && (
+      {totals.per_collaboratore.length > 0 && (
         <div className="timesheet-section">
-          <h3>👥 Riepilogo per Collaboratore</h3>
+          <h3>👥 Riepilogo Collaboratori</h3>
           <div className="summary-grid">
-            {Object.values(hoursByCollaborator).map((item, index) => (
-              <div key={index} className="summary-card">
+            {totals.per_collaboratore.map((item) => (
+              <div key={item.id} className="summary-card">
                 <div className="summary-header">
-                  <span className="summary-name">
-                    {item.collaborator
-                      ? `${item.collaborator.first_name} ${item.collaborator.last_name}`
-                      : 'N/D'}
-                  </span>
+                  <span className="summary-name">{item.nome}</span>
                 </div>
                 <div className="summary-stats">
                   <div className="summary-stat">
-                    <span className="summary-label">Ore Totali</span>
-                    <span className="summary-value">{item.hours.toFixed(1)}h</span>
-                  </div>
-                  <div className="summary-stat">
-                    <span className="summary-label">Presenze</span>
-                    <span className="summary-value">{item.count}</span>
+                    <span className="summary-label">Ore in pagina</span>
+                    <span className="summary-value">{Number(item.ore_totali || 0).toFixed(1)}h</span>
                   </div>
                 </div>
               </div>
@@ -363,26 +408,19 @@ const TimesheetReport = () => {
         </div>
       )}
 
-      {/* RIEPILOGO PER PROGETTO */}
-      {Object.keys(hoursByProject).length > 0 && (
+      {totals.per_progetto.length > 0 && (
         <div className="timesheet-section">
-          <h3>📁 Riepilogo per Progetto</h3>
+          <h3>📁 Riepilogo Progetti</h3>
           <div className="summary-grid">
-            {Object.values(hoursByProject).map((item, index) => (
-              <div key={index} className="summary-card">
+            {totals.per_progetto.map((item) => (
+              <div key={item.id} className="summary-card">
                 <div className="summary-header">
-                  <span className="summary-name">
-                    {item.project ? item.project.name : 'N/D'}
-                  </span>
+                  <span className="summary-name">{item.nome}</span>
                 </div>
                 <div className="summary-stats">
                   <div className="summary-stat">
-                    <span className="summary-label">Ore Totali</span>
-                    <span className="summary-value">{item.hours.toFixed(1)}h</span>
-                  </div>
-                  <div className="summary-stat">
-                    <span className="summary-label">Presenze</span>
-                    <span className="summary-value">{item.count}</span>
+                    <span className="summary-label">Ore in pagina</span>
+                    <span className="summary-value">{Number(item.ore_totali || 0).toFixed(1)}h</span>
                   </div>
                 </div>
               </div>

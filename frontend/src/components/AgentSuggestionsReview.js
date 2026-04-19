@@ -230,7 +230,7 @@ export default function AgentSuggestionsReview({ currentUser = null }) {
     try {
       await reviewAgentSuggestion(suggestionId, {
         action,
-        reviewed_by: currentUser?.username || currentUser?.email || 'operator',
+        reviewed_by_user_id: currentUser?.id || null,
         notes: notes || undefined,
       });
       setMessage(`Suggerimento ${action === 'reject' ? 'rifiutato' : 'approvato'} con successo.`);
@@ -274,7 +274,7 @@ export default function AgentSuggestionsReview({ currentUser = null }) {
       await bulkReviewAgentSuggestions({
         suggestion_ids: selectedIds,
         action,
-        reviewed_by: currentUser?.username || currentUser?.email || 'operator',
+        reviewed_by_user_id: currentUser?.id || null,
         notes: null,
       });
       setMessage(`Suggerimenti selezionati ${action === 'reject' ? 'rifiutati' : 'approvati'} con successo.`);
@@ -506,7 +506,7 @@ export default function AgentSuggestionsReview({ currentUser = null }) {
                       <div className="agents-meta">
                         {action.action} · {formatDateTime(action.created_at)}
                       </div>
-                      <p>Reviewed by: {action.reviewed_by ?? action.reviewed_by_user_id ?? '—'}</p>
+                      <p>Reviewed by user ID: {action.reviewed_by_user_id ?? '—'}</p>
                       <p>Note: {action.notes || '—'}</p>
                     </article>
                   ))

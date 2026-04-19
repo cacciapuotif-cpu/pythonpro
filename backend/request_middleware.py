@@ -252,25 +252,25 @@ def setup_middleware(app):
 
     # Middleware in ordine di esecuzione (ultimo aggiunto = primo eseguito)
 
-    # TUTTI I MIDDLEWARE DISABILITATI TEMPORANEAMENTE PER DEBUG
-    # Uno di questi sta causando il timeout delle POST requests
+    # NOTA: l'ordine qui è inverso all'ordine di esecuzione.
+    # L'ultimo middleware aggiunto viene eseguito per primo.
 
-    # Compressione disabilitata - causa problemi con ERR_CONTENT_DECODING_FAILED
-    # app.add_middleware(ResponseCompressionMiddleware)
+    # DISABILITATI (causa nota):
+    # - ResponseCompressionMiddleware: causa ERR_CONTENT_DECODING_FAILED nel browser
+    # - DatabaseHealthMiddleware: chiama check_db_health() sincrona nell'event loop
+    #   async → blocca tutte le POST ogni check_interval secondi.
+    #   Per riabilitare, wrappare _check_database_health con run_in_executor.
 
-    # 1. Headers di sicurezza
-    # app.add_middleware(SecurityHeadersMiddleware)
+    # 1. Tracking richieste (eseguito per primo perché aggiunto per ultimo)
+    app.add_middleware(RequestTrackingMiddleware, enable_detailed_logging=False)
 
-    # 2. Controllo salute database
-    # app.add_middleware(DatabaseHealthMiddleware, check_interval=30)
+    # 2. Rate limiting (120 req/min per IP — in-memory, per-process)
+    app.add_middleware(RateLimitingMiddleware, requests_per_minute=120)
 
-    # 3. Validazione richieste
-    # app.add_middleware(RequestValidationMiddleware)
+    # 3. Validazione richieste (dimensione body, Content-Type)
+    app.add_middleware(RequestValidationMiddleware)
 
-    # 4. Rate limiting - disabilitato in development per evitare blocchi
-    # app.add_middleware(RateLimitingMiddleware, requests_per_minute=120)
+    # 4. Security headers (X-Frame-Options, CSP, HSTS, ecc.)
+    app.add_middleware(SecurityHeadersMiddleware)
 
-    # 5. Tracking richieste (primo)
-    # app.add_middleware(RequestTrackingMiddleware, enable_detailed_logging=True)
-
-    logger.info("All middleware DISABLED for debugging")
+    logger.info("Middleware attivi: SecurityHeaders, RequestValidation, RateLimiting, RequestTracking")

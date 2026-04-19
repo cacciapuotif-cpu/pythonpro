@@ -137,3 +137,52 @@ def delete_azienda_cliente(azienda_id: int, db: Session = Depends(get_db)):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Impossibile eliminare: esistono preventivi o ordini collegati a questa azienda. Eliminali prima."
         )
+
+
+@router.post("/bulk-import")
+def bulk_import_aziende_clienti(
+    aziende: List[schemas.AziendaClienteCreate],
+    db: Session = Depends(get_db),
+):
+    success_count = 0
+    error_count = 0
+    errors = []
+    created_ids = []
+
+    for index, azienda_data in enumerate(aziende):
+        try:
+            if azienda_data.partita_iva:
+                piva_conflict = crud.find_partita_iva_conflict(
+                    db,
+                    azienda_data.partita_iva,
+                    entity_type="azienda_cliente",
+                )
+                if piva_conflict:
+                    error_count += 1
+                    errors.append({
+                        "index": index + 1,
+                        "name": azienda_data.ragione_sociale,
+                        "error": piva_conflict["message"],
+                    })
+                    continue
+
+            result = crud.create_azienda_cliente(db, azienda_data)
+            created_ids.append(result.id)
+            success_count += 1
+        except Exception as exc:
+            db.rollback()
+            error_count += 1
+            errors.append({
+                "index": index + 1,
+                "name": azienda_data.ragione_sociale,
+                "error": str(exc),
+            })
+
+    return {
+        "success_count": success_count,
+        "error_count": error_count,
+        "total": len(aziende),
+        "errors": errors,
+        "created_ids": created_ids,
+        "message": f"Importazione completata: {success_count} su {len(aziende)} aziende importate con successo",
+    }

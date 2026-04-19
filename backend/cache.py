@@ -282,8 +282,19 @@ class CacheManager:
         del self._memory_cache[lru_key]
 
 # Istanza globale
+def _build_redis_url() -> str:
+    """Costruisce REDIS_URL da variabili componenti se non fornita direttamente."""
+    if os.getenv('REDIS_URL'):
+        return os.getenv('REDIS_URL')
+    host = os.getenv('REDIS_HOST', 'localhost')
+    port = os.getenv('REDIS_PORT', '6379')
+    password = os.getenv('REDIS_PASSWORD')
+    if password:
+        return f"redis://:{password}@{host}:{port}/0"
+    return f"redis://{host}:{port}/0"
+
 cache_manager = CacheManager(
-    redis_url=os.getenv('REDIS_URL'),
+    redis_url=_build_redis_url(),
     default_ttl=int(os.getenv('CACHE_TTL', '3600'))
 )
 

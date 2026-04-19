@@ -188,7 +188,12 @@ class Project(Base):
     sede_aziendale_numero_civico = Column(String(20))
     ente_erogatore = Column(String(100), nullable=True, index=True)
     avviso = Column(String(100), nullable=True, index=True)
-    avviso_id = Column(Integer, ForeignKey("avvisi.id", ondelete="SET NULL"), nullable=True, index=True)
+    avviso_id = Column(
+        Integer,
+        ForeignKey("avvisi.id", ondelete="SET NULL", use_alter=True),
+        nullable=True,
+        index=True,
+    )
     avviso_pf_id = Column(Integer, ForeignKey("avvisi_piani_finanziari.id", ondelete="SET NULL"), nullable=True, index=True)
     template_piano_finanziario_id = Column(Integer, ForeignKey("template_piani_finanziari.id", ondelete="SET NULL"), nullable=True, index=True)
 
@@ -272,7 +277,12 @@ class Avviso(Base):
     codice = Column(String(50), nullable=False)
     ente_erogatore = Column(String(100), nullable=False, index=True)
     descrizione = Column(String(200), nullable=True)
-    template_id = Column(Integer, ForeignKey("contract_templates.id", ondelete="SET NULL"), nullable=True, index=True)
+    template_id = Column(
+        Integer,
+        ForeignKey("contract_templates.id", ondelete="SET NULL", use_alter=True),
+        nullable=True,
+        index=True,
+    )
     is_active = Column(Boolean, nullable=False, default=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

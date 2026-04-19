@@ -87,6 +87,7 @@ if command -v alembic >/dev/null 2>&1; then
 
     if alembic upgrade head; then
         log "Migrations completed successfully"
+        log "Database schema is managed via Alembic only"
     else
         log_error "Migrations failed. Check database connection and migration files."
         exit 1

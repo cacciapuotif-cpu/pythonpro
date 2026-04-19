@@ -15,8 +15,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 from datetime import datetime
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, Column, Integer
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 from database import Base
 import models
 import crud
@@ -24,8 +25,18 @@ import schemas
 
 # Database SQLite in memoria per i test
 TEST_DATABASE_URL = "sqlite:///:memory:"
-engine = create_engine(TEST_DATABASE_URL, connect_args={"check_same_thread": False})
+engine = create_engine(
+    TEST_DATABASE_URL,
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool,
+)
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+
+if "users" not in Base.metadata.tables:
+    from sqlalchemy import Table
+
+    Table("users", Base.metadata, Column("id", Integer, primary_key=True))
 
 
 @pytest.fixture
@@ -37,7 +48,7 @@ def db_with_data():
     collaborator = models.Collaborator(
         first_name="Mario",
         last_name="Rossi",
-        email="mario.rossi@test.com",
+        email="mario.rossi@gmail.com",
         fiscal_code="RSSMRA80A01H501U",
         phone="3331234567",
         position="Formatore",

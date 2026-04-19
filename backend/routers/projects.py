@@ -86,10 +86,17 @@ def update_project(
     db: Session = Depends(get_db)
 ):
     """AGGIORNA UN PROGETTO ESISTENTE"""
-    db_project = crud.update_project(db, project_id, project)
-    if db_project is None:
-        raise HTTPException(status_code=404, detail="Progetto non trovato")
-    return db_project
+    try:
+        db_project = crud.update_project(db, project_id, project)
+        if db_project is None:
+            raise HTTPException(status_code=404, detail="Progetto non trovato")
+        return db_project
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception:
+        db.rollback()
+        raise
 
 
 @router.delete("/{project_id}")

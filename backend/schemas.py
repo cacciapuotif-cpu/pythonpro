@@ -1483,6 +1483,8 @@ class AllievoOut(AllievoBase):
 
     model_config = ConfigDict(from_attributes=True)
 
+Allievo = AllievoOut  # alias usato dal router allievi.py
+
 
 # ─────────────────────────────────────────────
 # BLOCCO 3 — CATALOGO + LISTINI
@@ -2002,3 +2004,16 @@ class EmailInboxStatusResponse(BaseModel):
     running: bool
     last_poll_at: Optional[str] = None
     last_error: Optional[str] = None
+
+
+class EmailInboxAssignPayload(BaseModel):
+    doc_type: str
+    reviewed_by_user_id: Optional[int] = None
+    expiry_date: Optional[datetime] = None
+
+
+class EmailInboxAssignResponse(BaseModel):
+    item: EmailInboxItemOut
+    collaborator_updated_fields: List[str] = Field(default_factory=list)
+    resolved_suggestion_ids: List[int] = Field(default_factory=list)
+    documento_richiesto_id: Optional[int] = None

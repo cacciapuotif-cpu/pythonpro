@@ -731,6 +731,7 @@ const CollaboratorManager = ({ currentUser }) => {
               onSubmit={handleFormSubmit}
               onCancel={closeForm}
               isLoading={loading || documentUploadHandlers.uploadingDocumento || documentUploadHandlers.uploadingCurriculum}
+              documentActions={documentUploadHandlers}
             />
           </div>
         </div>

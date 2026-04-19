@@ -89,6 +89,7 @@ const CollaboratorForm = ({
   onSubmit,
   onCancel,
   isLoading = false,
+  documentActions = null,
 }) => {
   const [documentoIdentitaFile, setDocumentoIdentitaFile] = useState(null);
   const [curriculumFile, setCurriculumFile] = useState(null);
@@ -209,6 +210,8 @@ const CollaboratorForm = ({
 
     return { tone: 'warning', label: 'Curriculum non ancora caricato' };
   }, [curriculumFile, values.curriculum_filename]);
+
+  const canManageExistingFiles = Boolean(initialData?.id && documentActions);
 
   const agencyRequirementMissing = Boolean(values.is_agency) && !asTrimmedString(values.partita_iva);
 
@@ -723,6 +726,24 @@ const CollaboratorForm = ({
                       accept=".pdf,.jpg,.jpeg,.png"
                       onChange={(event) => setDocumentoIdentitaFile(event.target.files?.[0] || null)}
                     />
+                    {canManageExistingFiles && values.documento_identita_filename && (
+                      <div className="wizard-file-actions">
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          onClick={() => documentActions.previewDocumento(initialData.id, values.documento_identita_filename)}
+                        >
+                          Anteprima
+                        </button>
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          onClick={() => documentActions.downloadDocumento(initialData.id, values.documento_identita_filename)}
+                        >
+                          Scarica
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   <div className="wizard-file-card">
@@ -740,6 +761,24 @@ const CollaboratorForm = ({
                       accept=".pdf,.doc,.docx"
                       onChange={(event) => setCurriculumFile(event.target.files?.[0] || null)}
                     />
+                    {canManageExistingFiles && values.curriculum_filename && (
+                      <div className="wizard-file-actions">
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          onClick={() => documentActions.previewCurriculum(initialData.id, values.curriculum_filename)}
+                        >
+                          Anteprima
+                        </button>
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          onClick={() => documentActions.downloadCurriculum(initialData.id, values.curriculum_filename)}
+                        >
+                          Scarica
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

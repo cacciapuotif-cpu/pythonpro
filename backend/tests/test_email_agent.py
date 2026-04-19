@@ -46,6 +46,15 @@ class TestAttachmentHandler:
         assert "collaborator" in saved_path
         assert "42" in saved_path
 
+    def test_rejects_image_attachment_even_if_jpeg(self, tmp_path):
+        from services.attachment_handler import AttachmentHandler
+        handler = AttachmentHandler(upload_base_dir=tmp_path)
+        msg = self._make_email_with_attachment("documento.jpg", b"fake-image", mime_type="image/jpeg")
+
+        result = handler.extract_and_save(msg, entity_type="collaborator", entity_id=1)
+
+        assert result is None
+
     def test_rejects_unknown_mime_type(self, tmp_path):
         from services.attachment_handler import AttachmentHandler
         handler = AttachmentHandler(upload_base_dir=tmp_path)
@@ -257,7 +266,6 @@ class TestInboxReplyComposer:
         from services.inbox_reply_composer import InboxReplyComposer
         mock_sender = MagicMock()
         mock_sender.send_template_email.return_value = True
-
         composer = InboxReplyComposer(email_sender=mock_sender)
         sent = composer.send_reply(
             to="mario@example.com",
@@ -288,6 +296,149 @@ class TestInboxReplyComposer:
         )
 
         assert sent is False
+
+
+# ===========================================================
+# Agent workflow WhatsApp delivery
+# ===========================================================
+
+class TestAgentWorkflowWhatsApp:
+
+    def _make_db(self):
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import Session
+
+        from auth import User
+        from database import Base
+        import models
+
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(
+            engine,
+            tables=[
+                models.Collaborator.__table__,
+                User.__table__,
+                models.AgentRun.__table__,
+                models.AgentSuggestion.__table__,
+                models.AgentCommunicationDraft.__table__,
+                models.AgentReviewAction.__table__,
+                models.AuditLog.__table__,
+            ],
+        )
+        db = Session(engine)
+
+        collaborator = models.Collaborator(
+            first_name="Mario",
+            last_name="Rossi",
+            email="mario.rossi@example.com",
+            phone="+393331112233",
+            fiscal_code="RSSMRA80A01H501Z",
+            address="Via Roma 1",
+            city="Roma",
+        )
+        db.add(collaborator)
+        db.flush()
+
+        run = models.AgentRun(
+            agent_type="mail_recovery",
+            status="completed",
+        )
+        db.add(run)
+        db.flush()
+
+        suggestion = models.AgentSuggestion(
+            run_id=run.id,
+            entity_type="collaborator",
+            entity_id=collaborator.id,
+            suggestion_type="missing_curriculum",
+            severity="medium",
+            status="pending",
+            title="Richiedi curriculum",
+            description="Serve il curriculum aggiornato",
+            payload=json.dumps({"missing_fields": ["curriculum"]}),
+            confidence_score=0.95,
+        )
+        db.add(suggestion)
+        db.flush()
+
+        draft = models.AgentCommunicationDraft(
+            run_id=run.id,
+            suggestion_id=suggestion.id,
+            agent_name="mail_recovery",
+            channel="whatsapp",
+            recipient_type="collaborator",
+            recipient_id=collaborator.id,
+            recipient_email=collaborator.phone,
+            recipient_name=collaborator.full_name,
+            subject="Richiesta curriculum",
+            body="Ciao Mario, inviaci il curriculum aggiornato.",
+            status="draft",
+        )
+        db.add(draft)
+        db.commit()
+        return db, suggestion.id, draft.id
+
+    def test_approve_whatsapp_marks_sent_and_tracks_provider_metadata(self):
+        from agent_workflows import apply_workflow_action
+
+        db, suggestion_id, draft_id = self._make_db()
+
+        with patch("agent_workflows.send_whatsapp_message") as mocked_sender:
+            mocked_sender.return_value.ok = True
+            mocked_sender.return_value.detail = "ok"
+            mocked_sender.return_value.provider = "generic"
+            mocked_sender.return_value.provider_message_id = "wamid.123"
+            mocked_sender.return_value.raw_response = '{"message_id":"wamid.123"}'
+
+            suggestion = apply_workflow_action(
+                db,
+                suggestion_id=suggestion_id,
+                action="approve_whatsapp",
+                reviewed_by_user_id=7,
+                notes=None,
+            )
+
+        draft = db.query(__import__("models").AgentCommunicationDraft).filter_by(id=draft_id).first()
+        meta = json.loads(draft.meta_payload)
+
+        assert suggestion.status == "sent"
+        assert draft.status == "sent"
+        assert draft.sent_at is not None
+        assert meta["delivery_channel"] == "whatsapp"
+        assert meta["delivery_provider"] == "generic"
+        assert meta["provider_message_id"] == "wamid.123"
+        assert meta["delivery_status"] == "sent"
+        assert meta["delivery_attempts"] == 1
+
+    def test_approve_whatsapp_keeps_approved_when_delivery_fails(self):
+        from agent_workflows import apply_workflow_action
+
+        db, suggestion_id, draft_id = self._make_db()
+
+        with patch("agent_workflows.send_whatsapp_message") as mocked_sender:
+            mocked_sender.return_value.ok = False
+            mocked_sender.return_value.detail = "provider unavailable"
+            mocked_sender.return_value.provider = "generic"
+            mocked_sender.return_value.provider_message_id = None
+            mocked_sender.return_value.raw_response = None
+
+            suggestion = apply_workflow_action(
+                db,
+                suggestion_id=suggestion_id,
+                action="approve_whatsapp",
+                reviewed_by_user_id=7,
+                notes=None,
+            )
+
+        draft = db.query(__import__("models").AgentCommunicationDraft).filter_by(id=draft_id).first()
+        meta = json.loads(draft.meta_payload)
+
+        assert suggestion.status == "approved"
+        assert draft.status == "approved"
+        assert draft.sent_at is None
+        assert meta["delivery_channel"] == "whatsapp"
+        assert meta["delivery_status"] == "failed"
+        assert meta["last_delivery_detail"] == "provider unavailable"
 
 
 # ===========================================================

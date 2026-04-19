@@ -258,7 +258,7 @@ async def delete_file(filepath: str) -> bool:
         True se eliminato, False se non trovato
     """
     try:
-        full_path = UPLOAD_DIR / filepath
+        full_path = _normalize_stored_path(filepath)
         if full_path.exists():
             full_path.unlink()
             logger.info(f"File deleted: {full_path}")
@@ -284,7 +284,7 @@ def get_file_path(relative_path: str) -> Path:
     Raises:
         HTTPException: Se file non esiste
     """
-    full_path = UPLOAD_DIR / relative_path
+    full_path = _normalize_stored_path(relative_path)
 
     if not full_path.exists():
         raise HTTPException(status_code=404, detail="File non trovato")
@@ -297,6 +297,24 @@ def get_file_path(relative_path: str) -> Path:
         raise HTTPException(status_code=403, detail="Accesso negato")
 
     return full_path
+
+
+def _normalize_stored_path(stored_path: str) -> Path:
+    """
+    Normalizza i path salvati nel DB.
+
+    Compatibilita':
+    - upload storici/app: `documents/...`, `curriculum/...`
+    - allegati email: `uploads/email_inbox/...`
+    """
+    candidate = Path(stored_path)
+    if candidate.is_absolute():
+        return candidate
+
+    parts = candidate.parts
+    if parts and parts[0] == UPLOAD_DIR.name:
+        return candidate
+    return UPLOAD_DIR / candidate
 
 
 # =================================================================

@@ -3,7 +3,6 @@ from sqlalchemy import and_, or_, desc, asc, func, text, select
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from typing import List, Optional, Dict, Any, Union
 from datetime import datetime, timedelta, date
-from functools import lru_cache
 from collections import defaultdict
 import json
 import re
@@ -32,63 +31,6 @@ logger = logging.getLogger(__name__)
 
 # Thread pool per operazioni asincrone
 executor = ThreadPoolExecutor(max_workers=4)
-
-# Cache avanzata per query frequenti
-class QueryCache:
-    def __init__(self, max_size: int = 256, ttl_seconds: int = 300):
-        self.cache = {}
-        self.timestamps = {}
-        self.max_size = max_size
-        self.ttl_seconds = ttl_seconds
-
-    def get(self, key: str):
-        if key in self.cache:
-            if (datetime.now() - self.timestamps[key]).seconds < self.ttl_seconds:
-                return self.cache[key]
-            else:
-                del self.cache[key]
-                del self.timestamps[key]
-        return None
-
-    def set(self, key: str, value):
-        if len(self.cache) >= self.max_size:
-            oldest_key = min(self.timestamps.keys(), key=lambda k: self.timestamps[k])
-            del self.cache[oldest_key]
-            del self.timestamps[oldest_key]
-
-        self.cache[key] = value
-        self.timestamps[key] = datetime.now()
-
-    def clear(self):
-        self.cache.clear()
-        self.timestamps.clear()
-
-query_cache = QueryCache()
-
-# Cache avanzata per query frequenti
-def get_collaborator_cached(db: Session, collaborator_id: int):
-    cache_key = f"collaborator_{collaborator_id}"
-    cached_result = query_cache.get(cache_key)
-
-    if cached_result is not None:
-        return cached_result
-
-    result = db.query(models.Collaborator).filter(
-        models.Collaborator.id == collaborator_id,
-        models.Collaborator.is_active == True
-    ).first()
-
-    if result:
-        query_cache.set(cache_key, result)
-
-    return result
-
-# Funzione per invalidare cache
-def invalidate_collaborator_cache(collaborator_id: int):
-    cache_key = f"collaborator_{collaborator_id}"
-    if cache_key in query_cache.cache:
-        del query_cache.cache[cache_key]
-        del query_cache.timestamps[cache_key]
 
 def get_collaborator(db: Session, collaborator_id: int):
     return db.query(models.Collaborator).filter(
@@ -437,10 +379,6 @@ def update_collaborator(db: Session, collaborator_id: int, collaborator: schemas
         db.commit()
         db.refresh(db_collaborator)
 
-        # Invalidate cache
-        invalidate_collaborator_cache(collaborator_id)
-        query_cache.clear()
-
         logger.info(f"Collaborator updated successfully: {collaborator_id}")
         return db_collaborator
 
@@ -623,14 +561,91 @@ def sync_consultants_from_collaborators(db: Session):
 
 def get_project(db: Session, project_id: int):
     return db.query(models.Project).options(
-        joinedload(models.Project.avviso_rel)
+        joinedload(models.Project.avviso_rel),
+        selectinload(models.Project.aziende_coinvolte),
+        selectinload(models.Project.allievi_coinvolti),
     ).filter(models.Project.id == project_id).first()
 
 def get_projects(db: Session, skip: int = 0, limit: int = 100, is_active: Optional[bool] = True):
-    query = db.query(models.Project).options(joinedload(models.Project.avviso_rel))
+    query = db.query(models.Project).options(
+        joinedload(models.Project.avviso_rel),
+        selectinload(models.Project.aziende_coinvolte),
+        selectinload(models.Project.allievi_coinvolti),
+    )
     if is_active is not None:
         query = query.filter(models.Project.is_active == is_active)
     return query.offset(skip).limit(limit).all()
+
+
+def get_projects_count(db: Session, is_active: Optional[bool] = True):
+    query = db.query(func.count(models.Project.id))
+    if is_active is not None:
+        query = query.filter(models.Project.is_active == is_active)
+    return query.scalar()
+
+
+def _sync_project_azienda_links(
+    db: Session,
+    db_project: models.Project,
+    azienda_ids: List[int],
+):
+    unique_azienda_ids = []
+    seen_ids = set()
+    for azienda_id in azienda_ids or []:
+        normalized_id = int(azienda_id)
+        if normalized_id in seen_ids:
+            continue
+        seen_ids.add(normalized_id)
+        unique_azienda_ids.append(normalized_id)
+
+    if unique_azienda_ids:
+        existing_aziende = db.query(models.AziendaCliente.id).filter(
+            models.AziendaCliente.id.in_(unique_azienda_ids)
+        ).all()
+        existing_azienda_ids = {row[0] for row in existing_aziende}
+        missing_ids = sorted(set(unique_azienda_ids) - existing_azienda_ids)
+        if missing_ids:
+            raise ValueError(f"Aziende clienti non trovate: {', '.join(str(item) for item in missing_ids)}")
+
+    current_links = {link.azienda_cliente_id: link for link in list(db_project.azienda_links)}
+    for azienda_id, link in current_links.items():
+        if azienda_id not in unique_azienda_ids:
+            db.delete(link)
+
+    for azienda_id in unique_azienda_ids:
+        if azienda_id not in current_links:
+            db.add(models.AziendaClienteProjectLink(
+                azienda_cliente_id=azienda_id,
+                project_id=db_project.id,
+            ))
+
+
+def _sync_project_allievi(
+    db: Session,
+    db_project: models.Project,
+    allievo_ids: List[int],
+):
+    unique_allievo_ids = []
+    seen_ids = set()
+    for allievo_id in allievo_ids or []:
+        normalized_id = int(allievo_id)
+        if normalized_id in seen_ids:
+            continue
+        seen_ids.add(normalized_id)
+        unique_allievo_ids.append(normalized_id)
+
+    if unique_allievo_ids:
+        allievi = db.query(models.Allievo).filter(
+            models.Allievo.id.in_(unique_allievo_ids),
+            models.Allievo.attivo.is_(True)
+        ).all()
+        existing_ids = {item.id for item in allievi}
+        missing_ids = sorted(set(unique_allievo_ids) - existing_ids)
+        if missing_ids:
+            raise ValueError(f"Allievi non trovati: {', '.join(str(item) for item in missing_ids)}")
+        db_project.allievi_coinvolti = sorted(allievi, key=lambda item: unique_allievo_ids.index(item.id))
+    else:
+        db_project.allievi_coinvolti = []
 
 
 def get_project_full_context(db: Session, project_id: int) -> Optional[schemas.ProjectFullContext]:
@@ -731,64 +746,209 @@ def get_project_full_context(db: Session, project_id: int) -> Optional[schemas.P
     )
 
 def _get_project_financial_template_or_raise(db: Session, template_id: int):
-    template = db.query(models.ContractTemplate).filter(
-        models.ContractTemplate.id == template_id
+    template = db.query(models.TemplatePianoFinanziario).filter(
+        models.TemplatePianoFinanziario.id == template_id
     ).first()
+    if not template:
+        template = _resolve_legacy_project_financial_template(db, template_id)
     if not template:
         raise ValueError("Template piano finanziario non trovato")
     if not template.is_active:
         raise ValueError("Il template piano finanziario selezionato è disattivato")
-    if template.ambito_template != "piano_finanziario":
-        raise ValueError("Il template selezionato non è un template piano finanziario")
-    if not _normalize_optional_text(template.ente_erogatore):
-        raise ValueError("Il template piano finanziario selezionato non ha ente erogatore valorizzato")
     return template
 
 
-def _apply_project_financial_template(db: Session, payload: Dict[str, Any], template_id: Optional[int]):
-    if template_id is None:
-        payload["template_piano_finanziario_id"] = None
-        return payload
+def _resolve_legacy_project_financial_template(
+    db: Session,
+    legacy_template_id: int,
+) -> Optional[models.TemplatePianoFinanziario]:
+    """
+    Compatibilita' per payload legacy che inviano ancora l'id di contract_templates
+    con ambito_template='piano_finanziario' al posto di template_piani_finanziari.id.
+    """
+    legacy_template = db.query(models.ContractTemplate).filter(
+        models.ContractTemplate.id == legacy_template_id,
+        models.ContractTemplate.ambito_template == "piano_finanziario",
+        models.ContractTemplate.is_active == True,
+    ).first()
+    if not legacy_template:
+        return None
 
-    template = _get_project_financial_template_or_raise(db, template_id)
-    ente_erogatore = _normalize_optional_text(template.ente_erogatore)
-    selected_avviso = None
-    requested_avviso_id = payload.get("avviso_id")
-    requested_avviso_code = _normalize_optional_text(payload.get("avviso"))
+    normalized_ente = _normalize_optional_text(legacy_template.ente_erogatore)
+    tipo_fondo_by_ente = {
+        "formazienda": "formazienda",
+        "fapi": "fapi",
+        "fondimpresa": "fondimpresa",
+        "fse": "fse",
+    }
+    tipo_fondo = tipo_fondo_by_ente.get((normalized_ente or "").lower())
+    if tipo_fondo:
+        matched = db.query(models.TemplatePianoFinanziario).filter(
+            func.lower(models.TemplatePianoFinanziario.tipo_fondo) == tipo_fondo,
+            models.TemplatePianoFinanziario.is_active == True,
+        ).order_by(models.TemplatePianoFinanziario.id.asc()).first()
+        if matched:
+            return matched
 
-    if requested_avviso_id is not None:
-        selected_avviso = db.query(models.Avviso).filter(
-            models.Avviso.id == requested_avviso_id,
-            models.Avviso.template_id == template.id,
+    normalized_name = _normalize_optional_text(legacy_template.nome_template)
+    if normalized_name:
+        return db.query(models.TemplatePianoFinanziario).filter(
+            func.lower(models.TemplatePianoFinanziario.nome) == normalized_name.lower(),
+            models.TemplatePianoFinanziario.is_active == True,
+        ).order_by(models.TemplatePianoFinanziario.id.asc()).first()
+
+    return None
+
+
+def _format_project_ente_from_template(template: Optional[models.TemplatePianoFinanziario]) -> Optional[str]:
+    if not template or not template.tipo_fondo:
+        return None
+    mapping = {
+        "formazienda": "FORMAZIENDA",
+        "fapi": "FAPI",
+        "fondimpresa": "FONDIMPRESA",
+        "fse": "FSE",
+    }
+    normalized = _normalize_optional_text(template.tipo_fondo)
+    return mapping.get(normalized, template.tipo_fondo.upper())
+
+
+def _get_project_financial_template_by_ente(
+    db: Session,
+    ente_erogatore: Optional[str],
+) -> Optional[models.TemplatePianoFinanziario]:
+    normalized_ente = _normalize_optional_text(ente_erogatore)
+    if not normalized_ente:
+        return None
+    tipo_fondo_by_ente = {
+        "formazienda": "formazienda",
+        "fapi": "fapi",
+        "fondimpresa": "fondimpresa",
+        "fse": "fse",
+    }
+    tipo_fondo = tipo_fondo_by_ente.get(normalized_ente.lower())
+    if not tipo_fondo:
+        return None
+    return db.query(models.TemplatePianoFinanziario).filter(
+        func.lower(models.TemplatePianoFinanziario.tipo_fondo) == tipo_fondo,
+        models.TemplatePianoFinanziario.is_active == True,
+    ).order_by(models.TemplatePianoFinanziario.id.asc()).first()
+
+
+def _match_legacy_avviso_for_project(
+    db: Session,
+    avviso_pf: Optional[models.AvvisoPianoFinanziario],
+    ente_erogatore: Optional[str],
+) -> Optional[models.Avviso]:
+    if not avviso_pf:
+        return None
+    query = db.query(models.Avviso).filter(
+        models.Avviso.codice == avviso_pf.codice_avviso,
+        models.Avviso.is_active == True,
+    )
+    normalized_ente = _normalize_optional_text(ente_erogatore)
+    if normalized_ente:
+        query = query.filter(models.Avviso.ente_erogatore.ilike(normalized_ente))
+    return query.order_by(models.Avviso.id.desc()).first()
+
+
+def _resolve_project_financial_refs(
+    db: Session,
+    payload: Dict[str, Any],
+    current_project: Optional[models.Project] = None,
+) -> Dict[str, Any]:
+    avviso_pf_marker = payload.get("avviso_pf_id") if "avviso_pf_id" in payload else None
+    template_marker = payload.get("template_piano_finanziario_id") if "template_piano_finanziario_id" in payload else None
+    legacy_avviso_id_marker = payload.get("avviso_id") if "avviso_id" in payload else None
+    legacy_avviso_code = _normalize_optional_text(payload.get("avviso"))
+
+    avviso_pf = None
+    template = None
+    legacy_avviso = None
+
+    if avviso_pf_marker:
+        avviso_pf = db.query(models.AvvisoPianoFinanziario).filter(
+            models.AvvisoPianoFinanziario.id == avviso_pf_marker,
+            models.AvvisoPianoFinanziario.is_active == True,
+        ).first()
+        if not avviso_pf:
+            raise ValueError("Avviso piano finanziario non trovato")
+        template = avviso_pf.template
+    elif template_marker:
+        template = _get_project_financial_template_or_raise(db, template_marker)
+        if legacy_avviso_code:
+            avviso_pf = db.query(models.AvvisoPianoFinanziario).filter(
+                models.AvvisoPianoFinanziario.template_id == template.id,
+                models.AvvisoPianoFinanziario.codice_avviso.ilike(legacy_avviso_code),
+                models.AvvisoPianoFinanziario.is_active == True,
+            ).order_by(models.AvvisoPianoFinanziario.id.desc()).first()
+    elif current_project and current_project.avviso_pf_id:
+        avviso_pf = db.query(models.AvvisoPianoFinanziario).filter(
+            models.AvvisoPianoFinanziario.id == current_project.avviso_pf_id
+        ).first()
+        template = avviso_pf.template if avviso_pf else None
+
+    if legacy_avviso_id_marker:
+        legacy_avviso = db.query(models.Avviso).filter(
+            models.Avviso.id == legacy_avviso_id_marker,
             models.Avviso.is_active == True,
         ).first()
-
-    if selected_avviso is None and requested_avviso_code:
-        selected_avviso = db.query(models.Avviso).filter(
-            models.Avviso.codice == requested_avviso_code,
-            models.Avviso.template_id == template.id,
+    elif legacy_avviso_code:
+        legacy_avviso_query = db.query(models.Avviso).filter(
+            models.Avviso.codice == legacy_avviso_code,
             models.Avviso.is_active == True,
-        ).order_by(models.Avviso.id.desc()).first()
+        )
+        if template:
+            template_ente = _format_project_ente_from_template(template)
+            if template_ente:
+                legacy_avviso_query = legacy_avviso_query.filter(
+                    models.Avviso.ente_erogatore.ilike(template_ente)
+                )
+        legacy_avviso = legacy_avviso_query.order_by(models.Avviso.id.desc()).first()
 
-    linked_avviso = selected_avviso or db.query(models.Avviso).filter(
-        models.Avviso.template_id == template.id,
-        models.Avviso.is_active == True,
-    ).order_by(models.Avviso.id.desc()).first()
-    avviso = _normalize_optional_text(linked_avviso.codice if linked_avviso else template.avviso)
-    payload["template_piano_finanziario_id"] = template.id
-    payload["ente_erogatore"] = ente_erogatore
-    payload["avviso"] = avviso
-    payload["avviso_id"] = linked_avviso.id if linked_avviso else payload.get("avviso_id")
+    if avviso_pf and not template:
+        template = avviso_pf.template
+    if legacy_avviso and not template:
+        template = _get_project_financial_template_by_ente(db, legacy_avviso.ente_erogatore)
+
+    if template:
+        payload["template_piano_finanziario_id"] = template.id
+
+    if avviso_pf is not None:
+        payload["avviso_pf_id"] = avviso_pf.id
+        ente_erogatore = _format_project_ente_from_template(template)
+        payload["ente_erogatore"] = ente_erogatore
+        payload["avviso"] = avviso_pf.codice_avviso
+        legacy_avviso = _match_legacy_avviso_for_project(db, avviso_pf, ente_erogatore)
+        payload["avviso_id"] = legacy_avviso.id if legacy_avviso else None
+    elif legacy_avviso is not None:
+        payload["avviso_pf_id"] = None
+        payload["avviso_id"] = legacy_avviso.id
+        payload["avviso"] = legacy_avviso.codice
+        if template:
+            payload["ente_erogatore"] = _format_project_ente_from_template(template)
+        else:
+            payload["ente_erogatore"] = legacy_avviso.ente_erogatore
+    elif template_marker is not None or avviso_pf_marker is not None:
+        payload["avviso_pf_id"] = None
+        payload["avviso_id"] = None
+        payload["avviso"] = None
+        if template:
+            payload["ente_erogatore"] = _format_project_ente_from_template(template)
+
     return payload
 
 def create_project(db: Session, project: schemas.ProjectCreateExtended):
     payload = project.dict()
+    azienda_ids = payload.pop("azienda_ids", [])
+    allievo_ids = payload.pop("allievo_ids", [])
+    payload = _resolve_project_financial_refs(db, payload)
     avviso_pf_id = payload.get("avviso_pf_id")
-    template_id = payload.get("template_piano_finanziario_id")
-    payload = _apply_project_financial_template(db, payload, template_id)
     db_project = models.Project(**payload)
     db.add(db_project)
     db.flush()
+    _sync_project_azienda_links(db, db_project, azienda_ids)
+    _sync_project_allievi(db, db_project, allievo_ids)
 
     if avviso_pf_id:
         _auto_create_piano_from_avviso_pf(db, db_project, avviso_pf_id)
@@ -810,6 +970,13 @@ def _auto_create_piano_from_avviso_pf(db: Session, project: models.Project, avvi
     if not template:
         return None
 
+    existing = db.query(models.PianoFinanziario).filter(
+        models.PianoFinanziario.progetto_id == project.id,
+        models.PianoFinanziario.avviso_id == avviso.id,
+    ).first()
+    if existing:
+        return existing
+
     now = datetime.now()
     data_inizio = project.start_date or now
     data_fine = project.end_date or now.replace(year=now.year + 1)
@@ -829,7 +996,8 @@ def _auto_create_piano_from_avviso_pf(db: Session, project: models.Project, avvi
         data_inizio=data_inizio,
         data_fine=data_fine,
         stato="bozza",
-        ente_erogatore=project.ente_erogatore or template.tipo_fondo,
+        ente_erogatore=project.ente_erogatore or _format_project_ente_from_template(template) or template.tipo_fondo,
+        avviso=avviso.codice_avviso,
         anno=data_inizio.year,
     )
     db.add(piano)
@@ -844,12 +1012,17 @@ def update_project(db: Session, project_id: int, project: schemas.ProjectUpdateE
     db_project = db.query(models.Project).filter(models.Project.id == project_id).first()
     if db_project:
         update_data = project.dict(exclude_unset=True)
-        if "template_piano_finanziario_id" in update_data:
-            update_data = _apply_project_financial_template(db, update_data, update_data.get("template_piano_finanziario_id"))
-        elif db_project.template_piano_finanziario_id:
-            update_data = _apply_project_financial_template(db, update_data, db_project.template_piano_finanziario_id)
+        azienda_ids = update_data.pop("azienda_ids", None)
+        allievo_ids = update_data.pop("allievo_ids", None)
+        update_data = _resolve_project_financial_refs(db, update_data, current_project=db_project)
         for key, value in update_data.items():
             setattr(db_project, key, value)
+        if azienda_ids is not None:
+            _sync_project_azienda_links(db, db_project, azienda_ids)
+        if allievo_ids is not None:
+            _sync_project_allievi(db, db_project, allievo_ids)
+        if update_data.get("avviso_pf_id"):
+            _auto_create_piano_from_avviso_pf(db, db_project, update_data["avviso_pf_id"])
         db.commit()
         db.refresh(db_project)
     return db_project
@@ -976,6 +1149,54 @@ def get_attendances(db: Session, skip: int = 0, limit: int = 100,
     query = query.order_by(desc(models.Attendance.date), desc(models.Attendance.start_time))
 
     return query.offset(skip).limit(limit).all()
+
+
+def get_attendances_count(
+    db: Session,
+    collaborator_id: Optional[int] = None,
+    project_id: Optional[int] = None,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+) -> int:
+    query = db.query(func.count(models.Attendance.id))
+
+    if collaborator_id:
+        query = query.filter(models.Attendance.collaborator_id == collaborator_id)
+    if project_id:
+        query = query.filter(models.Attendance.project_id == project_id)
+
+    if start_date and end_date:
+        query = query.filter(models.Attendance.date.between(start_date, end_date))
+    elif start_date:
+        query = query.filter(models.Attendance.date >= start_date)
+    elif end_date:
+        query = query.filter(models.Attendance.date <= end_date)
+
+    return int(query.scalar() or 0)
+
+
+def get_attendances_total_hours(
+    db: Session,
+    collaborator_id: Optional[int] = None,
+    project_id: Optional[int] = None,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+) -> float:
+    query = db.query(func.coalesce(func.sum(models.Attendance.hours), 0.0))
+
+    if collaborator_id:
+        query = query.filter(models.Attendance.collaborator_id == collaborator_id)
+    if project_id:
+        query = query.filter(models.Attendance.project_id == project_id)
+
+    if start_date and end_date:
+        query = query.filter(models.Attendance.date.between(start_date, end_date))
+    elif start_date:
+        query = query.filter(models.Attendance.date >= start_date)
+    elif end_date:
+        query = query.filter(models.Attendance.date <= end_date)
+
+    return float(query.scalar() or 0.0)
 
 def get_attendances_summary(db: Session, start_date: datetime, end_date: datetime):
     """Ottieni statistiche aggregate delle presenze"""
@@ -1419,13 +1640,13 @@ def create_attendance(db: Session, attendance: schemas.AttendanceCreate):
         db.commit()
         db.refresh(db_attendance)
 
+        update_project_progress(db, db_attendance.project_id)
+
         # Aggiorna statistiche dell'assegnazione se presente
         if db_attendance.assignment_id:
-            update_assignment_progress(db, db_attendance.assignment_id)
+            update_assignment_hours(db, db_attendance.assignment_id)
             try:
-                voce = get_voce_by_assignment(db, db_attendance.assignment_id)
-                if voce:
-                    aggiorna_voce_da_presenze(db, voce.id)
+                aggiorna_voce_da_presenze(db, assignment_id=db_attendance.assignment_id)
             except Exception as exc:
                 logger.warning(f"Impossibile aggiornare voce piano da presenza {db_attendance.id}: {exc}")
 
@@ -1436,8 +1657,43 @@ def create_attendance(db: Session, attendance: schemas.AttendanceCreate):
         logger.error(f"Error creating attendance: {e}")
         raise
 
-def update_assignment_progress(db: Session, assignment_id: int):
-    """Aggiorna il progresso dell'assegnazione basato sulle ore effettivamente lavorate"""
+def update_project_progress(db: Session, project_id: int):
+    """Ricalcola ore completate e percentuale progresso del progetto."""
+    try:
+        project = db.query(models.Project).filter(models.Project.id == project_id).first()
+        if not project:
+            return None
+
+        total_hours = db.query(func.sum(models.Attendance.hours)).filter(
+            models.Attendance.project_id == project_id
+        ).scalar() or 0.0
+
+        total_assigned_hours = db.query(func.sum(models.Assignment.assigned_hours)).filter(
+            models.Assignment.project_id == project_id,
+            models.Assignment.is_active == True,
+        ).scalar() or 0.0
+
+        project.ore_totali = float(total_assigned_hours)
+        project.ore_completate = float(total_hours)
+        if total_assigned_hours > 0:
+            project.progress_percentage = min(100.0, (float(total_hours) / float(total_assigned_hours)) * 100.0)
+        else:
+            project.progress_percentage = 0.0
+
+        db.commit()
+        logger.info(
+            f"Project {project_id} progress updated: ore_totali={project.ore_totali}, "
+            f"ore_completate={project.ore_completate}, progress={project.progress_percentage:.2f}%"
+        )
+        return project
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error updating project progress for project {project_id}: {e}")
+        raise
+
+
+def update_assignment_hours(db: Session, assignment_id: int):
+    """Ricalcola ore completate dell'assegnazione."""
     try:
         assignment = db.query(models.Assignment).filter(
             models.Assignment.id == assignment_id,
@@ -1445,22 +1701,35 @@ def update_assignment_progress(db: Session, assignment_id: int):
         ).first()
 
         if assignment:
-            # Somma SOLO le ore delle presenze collegate a questa specifica assegnazione
             total_hours = db.query(func.sum(models.Attendance.hours)).filter(
                 models.Attendance.assignment_id == assignment_id
-            ).scalar() or 0
+            ).scalar() or 0.0
 
             assignment.completed_hours = total_hours
-            assignment.progress_percentage = min(100, (total_hours / assignment.assigned_hours) * 100)
+            if assignment.assigned_hours and assignment.assigned_hours > 0:
+                assignment.progress_percentage = min(100.0, (float(total_hours) / float(assignment.assigned_hours)) * 100.0)
+            else:
+                assignment.progress_percentage = 0.0
             db.commit()
-            logger.info(f"Updated assignment {assignment_id}: {total_hours}h completed out of {assignment.assigned_hours}h")
+            logger.info(
+                f"Updated assignment {assignment_id}: {total_hours}h completed out of {assignment.assigned_hours}h"
+            )
+        return assignment
     except Exception as e:
-        logger.error(f"Error updating assignment progress: {e}")
+        db.rollback()
+        logger.error(f"Error updating assignment hours: {e}")
+        raise
+
+
+def update_assignment_progress(db: Session, assignment_id: int):
+    """Backward-compatible alias for legacy callers."""
+    return update_assignment_hours(db, assignment_id)
 
 def update_attendance(db: Session, attendance_id: int, attendance: schemas.AttendanceUpdate):
     db_attendance = db.query(models.Attendance).filter(models.Attendance.id == attendance_id).first()
     if db_attendance:
         old_assignment_id = db_attendance.assignment_id
+        old_project_id = db_attendance.project_id
         old_hours = db_attendance.hours
         update_data = attendance.dict(exclude_unset=True)
 
@@ -1589,23 +1858,23 @@ def update_attendance(db: Session, attendance_id: int, attendance: schemas.Atten
         db.commit()
         db.refresh(db_attendance)
 
+        if old_project_id != db_attendance.project_id:
+            update_project_progress(db, old_project_id)
+        update_project_progress(db, db_attendance.project_id)
+
         # Aggiorna statistiche della vecchia assegnazione se è cambiata
         if old_assignment_id and old_assignment_id != db_attendance.assignment_id:
-            update_assignment_progress(db, old_assignment_id)
+            update_assignment_hours(db, old_assignment_id)
             try:
-                old_voce = get_voce_by_assignment(db, old_assignment_id)
-                if old_voce:
-                    aggiorna_voce_da_presenze(db, old_voce.id)
+                aggiorna_voce_da_presenze(db, assignment_id=old_assignment_id)
             except Exception as exc:
                 logger.warning(f"Impossibile riallineare la vecchia voce piano dell'assegnazione {old_assignment_id}: {exc}")
 
         # Aggiorna statistiche della nuova assegnazione
         if db_attendance.assignment_id:
-            update_assignment_progress(db, db_attendance.assignment_id)
+            update_assignment_hours(db, db_attendance.assignment_id)
             try:
-                voce = get_voce_by_assignment(db, db_attendance.assignment_id)
-                if voce:
-                    aggiorna_voce_da_presenze(db, voce.id)
+                aggiorna_voce_da_presenze(db, assignment_id=db_attendance.assignment_id)
             except Exception as exc:
                 logger.warning(f"Impossibile aggiornare la voce piano per l'assegnazione {db_attendance.assignment_id}: {exc}")
 
@@ -1614,13 +1883,20 @@ def update_attendance(db: Session, attendance_id: int, attendance: schemas.Atten
 def delete_attendance(db: Session, attendance_id: int):
     db_attendance = db.query(models.Attendance).filter(models.Attendance.id == attendance_id).first()
     if db_attendance:
+        project_id = db_attendance.project_id
         assignment_id = db_attendance.assignment_id
         db.delete(db_attendance)
         db.commit()
 
+        update_project_progress(db, project_id)
+
         # Aggiorna statistiche dell'assegnazione dopo la cancellazione
         if assignment_id:
-            update_assignment_progress(db, assignment_id)
+            update_assignment_hours(db, assignment_id)
+            try:
+                aggiorna_voce_da_presenze(db, assignment_id=assignment_id)
+            except Exception as exc:
+                logger.warning(f"Impossibile riallineare la voce piano dopo cancellazione presenza per assegnazione {assignment_id}: {exc}")
 
     return db_attendance
 
@@ -1719,10 +1995,17 @@ def bulk_update_assignments(db: Session, assignment_updates: List[Dict[str, Any]
     """Aggiornamento bulk per performance"""
     try:
         for update in assignment_updates:
-            assignment_id = update.pop('id')
+            assignment_id = update["id"]
+            fields_to_update = {
+                key: value
+                for key, value in update.items()
+                if key != "id"
+            }
+            if not fields_to_update:
+                continue
             db.query(models.Assignment).filter(
                 models.Assignment.id == assignment_id
-            ).update(update)
+            ).update(fields_to_update)
 
         db.commit()
         logger.info(f"Bulk updated {len(assignment_updates)} assignments")
@@ -1939,6 +2222,7 @@ def get_implementing_entities_count(
         )
 
     return query.count()
+
 
 def create_implementing_entity(db: Session, entity: schemas.ImplementingEntityCreate):
     """
@@ -3026,7 +3310,13 @@ def get_aziende_clienti(db: Session, search: str = None, citta: str = None,
                         consulente_id: int = None, agenzia_id: int = None, attivo: bool = None,
                         page: int = 1, limit: int = 20,
                         sort_by: str = "ragione_sociale", order: str = "asc"):
-    q = db.query(models.AziendaCliente)
+    q = db.query(models.AziendaCliente).options(
+        selectinload(models.AziendaCliente.linked_projects),
+        selectinload(models.AziendaCliente.fund_memberships),
+        selectinload(models.AziendaCliente.sedi_operative),
+        selectinload(models.AziendaCliente.allievi).selectinload(models.Allievo.projects),
+        selectinload(models.AziendaCliente.allievi).joinedload(models.Allievo.sede_operativa),
+    )
     if attivo is not None:
         q = q.filter(models.AziendaCliente.attivo == attivo)
     if agenzia_id:
@@ -3051,12 +3341,211 @@ def get_aziende_clienti(db: Session, search: str = None, citta: str = None,
 
 
 def get_azienda_cliente(db: Session, azienda_id: int):
-    return db.query(models.AziendaCliente).filter(models.AziendaCliente.id == azienda_id).first()
+    return db.query(models.AziendaCliente).options(
+        selectinload(models.AziendaCliente.linked_projects),
+        selectinload(models.AziendaCliente.fund_memberships),
+        selectinload(models.AziendaCliente.sedi_operative),
+        selectinload(models.AziendaCliente.allievi).selectinload(models.Allievo.projects),
+        selectinload(models.AziendaCliente.allievi).joinedload(models.Allievo.sede_operativa),
+        joinedload(models.AziendaCliente.agenzia),
+        joinedload(models.AziendaCliente.consulente),
+    ).filter(models.AziendaCliente.id == azienda_id).first()
+
+
+def _sync_azienda_cliente_project_links(
+    db: Session,
+    db_obj: models.AziendaCliente,
+    project_ids: List[int],
+):
+    unique_project_ids = []
+    seen_ids = set()
+    for project_id in project_ids or []:
+        normalized_id = int(project_id)
+        if normalized_id in seen_ids:
+            continue
+        seen_ids.add(normalized_id)
+        unique_project_ids.append(normalized_id)
+
+    if unique_project_ids:
+        existing_projects = db.query(models.Project.id).filter(
+            models.Project.id.in_(unique_project_ids)
+        ).all()
+        existing_project_ids = {row[0] for row in existing_projects}
+        missing_ids = sorted(set(unique_project_ids) - existing_project_ids)
+        if missing_ids:
+            raise ValueError(f"Progetti non trovati: {', '.join(str(item) for item in missing_ids)}")
+
+    current_links = {link.project_id: link for link in list(db_obj.project_links)}
+    for project_id, link in current_links.items():
+        if project_id not in unique_project_ids:
+            db.delete(link)
+
+    for project_id in unique_project_ids:
+        if project_id not in current_links:
+            db.add(models.AziendaClienteProjectLink(
+                azienda_cliente_id=db_obj.id,
+                project_id=project_id,
+            ))
+
+
+def _sync_azienda_cliente_fund_memberships(
+    db: Session,
+    db_obj: models.AziendaCliente,
+    memberships: List[Dict[str, Any]],
+):
+    normalized_items = []
+    open_periods = 0
+    for item in memberships or []:
+        row = dict(item)
+        fondo = _normalize_optional_text(row.get("fondo"))
+        data_inizio = row.get("data_inizio")
+        data_fine = row.get("data_fine")
+        note = _normalize_optional_text(row.get("note"))
+
+        if not fondo or not data_inizio:
+            raise ValueError("Ogni iscrizione fondo richiede fondo e data iniziale")
+        if data_fine and data_fine < data_inizio:
+            raise ValueError("La data fine del fondo non può essere precedente alla data iniziale")
+        if data_fine is None:
+            open_periods += 1
+
+        normalized_items.append({
+            "id": row.get("id"),
+            "fondo": fondo,
+            "data_inizio": data_inizio,
+            "data_fine": data_fine,
+            "note": note,
+        })
+
+    if open_periods > 1:
+        raise ValueError("Può esistere una sola iscrizione fondo senza data finale")
+
+    existing_by_id = {membership.id: membership for membership in list(db_obj.fund_memberships)}
+    retained_ids = set()
+
+    for item in normalized_items:
+        membership_id = item.get("id")
+        if membership_id and membership_id in existing_by_id:
+            db_membership = existing_by_id[membership_id]
+            db_membership.fondo = item["fondo"]
+            db_membership.data_inizio = item["data_inizio"]
+            db_membership.data_fine = item["data_fine"]
+            db_membership.note = item["note"]
+            retained_ids.add(membership_id)
+        else:
+            db.add(models.AziendaClienteFundMembership(
+                azienda_cliente_id=db_obj.id,
+                fondo=item["fondo"],
+                data_inizio=item["data_inizio"],
+                data_fine=item["data_fine"],
+                note=item["note"],
+            ))
+
+    for membership_id, membership in existing_by_id.items():
+        if membership_id not in retained_ids:
+            db.delete(membership)
+
+
+def _sync_azienda_cliente_sedi_operative(
+    db: Session,
+    db_obj: models.AziendaCliente,
+    sedi_operative: List[Dict[str, Any]],
+):
+    normalized_items = []
+    seen_names = set()
+
+    for item in sedi_operative or []:
+        row = dict(item)
+        nome = _normalize_optional_text(row.get("nome"))
+        indirizzo = _normalize_optional_text(row.get("indirizzo"))
+        citta = _normalize_optional_text(row.get("citta"))
+        cap = _normalize_optional_text(row.get("cap"))
+        provincia = _normalize_optional_text(row.get("provincia"))
+        note = _normalize_optional_text(row.get("note"))
+
+        if not any([nome, indirizzo, citta, cap, provincia, note]):
+            continue
+        if not nome:
+            raise ValueError("Ogni sede operativa richiede almeno un nome identificativo")
+
+        normalized_name = nome.casefold()
+        if normalized_name in seen_names:
+            raise ValueError(f"Sede operativa duplicata: {nome}")
+        seen_names.add(normalized_name)
+
+        normalized_items.append({
+            "id": row.get("id"),
+            "nome": nome,
+            "indirizzo": indirizzo,
+            "citta": citta,
+            "cap": cap,
+            "provincia": provincia.upper() if provincia else None,
+            "note": note,
+        })
+
+    existing_by_id = {sede.id: sede for sede in list(db_obj.sedi_operative)}
+    retained_ids = set()
+
+    for item in normalized_items:
+        sede_id = item.get("id")
+        if sede_id and sede_id in existing_by_id:
+            db_sede = existing_by_id[sede_id]
+            db_sede.nome = item["nome"]
+            db_sede.indirizzo = item["indirizzo"]
+            db_sede.citta = item["citta"]
+            db_sede.cap = item["cap"]
+            db_sede.provincia = item["provincia"]
+            db_sede.note = item["note"]
+            retained_ids.add(sede_id)
+        else:
+            db.add(models.AziendaClienteSedeOperativa(
+                azienda_cliente_id=db_obj.id,
+                nome=item["nome"],
+                indirizzo=item["indirizzo"],
+                citta=item["citta"],
+                cap=item["cap"],
+                provincia=item["provincia"],
+                note=item["note"],
+            ))
+
+    for sede_id, sede in existing_by_id.items():
+        if sede_id not in retained_ids:
+            for allievo in list(sede.allievi):
+                allievo.azienda_sede_operativa_id = None
+            db.delete(sede)
+
+
+def _validate_allievo_sede_operativa(
+    db: Session,
+    azienda_cliente_id: Optional[int],
+    sede_operativa_id: Optional[int],
+):
+    if not sede_operativa_id:
+        return None
+    if not azienda_cliente_id:
+        raise ValueError("Se specifichi una sede operativa devi indicare anche l'azienda")
+
+    sede = db.query(models.AziendaClienteSedeOperativa).filter(
+        models.AziendaClienteSedeOperativa.id == int(sede_operativa_id)
+    ).first()
+    if not sede:
+        raise ValueError("Sede operativa non trovata")
+    if sede.azienda_cliente_id != int(azienda_cliente_id):
+        raise ValueError("La sede operativa selezionata non appartiene all'azienda indicata")
+    return sede.id
 
 
 def create_azienda_cliente(db: Session, azienda: schemas.AziendaClienteCreate):
-    db_obj = models.AziendaCliente(**azienda.model_dump())
+    payload = azienda.model_dump()
+    project_ids = payload.pop("project_ids", [])
+    sedi_operative = payload.pop("sedi_operative", [])
+    fund_memberships = payload.pop("fund_memberships", [])
+    db_obj = models.AziendaCliente(**payload)
     db.add(db_obj)
+    db.flush()
+    _sync_azienda_cliente_project_links(db, db_obj, project_ids)
+    _sync_azienda_cliente_sedi_operative(db, db_obj, sedi_operative)
+    _sync_azienda_cliente_fund_memberships(db, db_obj, fund_memberships)
     db.commit()
     db.refresh(db_obj)
     return db_obj
@@ -3067,8 +3556,17 @@ def update_azienda_cliente(db: Session, azienda_id: int, azienda: schemas.Aziend
     if not db_obj:
         return None
     data = azienda.model_dump(exclude_unset=True)
+    project_ids = data.pop("project_ids", None)
+    sedi_operative = data.pop("sedi_operative", None)
+    fund_memberships = data.pop("fund_memberships", None)
     for k, v in data.items():
         setattr(db_obj, k, v)
+    if project_ids is not None:
+        _sync_azienda_cliente_project_links(db, db_obj, project_ids)
+    if sedi_operative is not None:
+        _sync_azienda_cliente_sedi_operative(db, db_obj, sedi_operative)
+    if fund_memberships is not None:
+        _sync_azienda_cliente_fund_memberships(db, db_obj, fund_memberships)
     db.commit()
     db.refresh(db_obj)
     return db_obj
@@ -3076,6 +3574,146 @@ def update_azienda_cliente(db: Session, azienda_id: int, azienda: schemas.Aziend
 
 def delete_azienda_cliente(db: Session, azienda_id: int):
     db_obj = get_azienda_cliente(db, azienda_id)
+    if db_obj:
+        db_obj.attivo = False
+        db.commit()
+    return db_obj
+
+
+def _sync_allievo_projects(
+    db: Session,
+    db_obj: models.Allievo,
+    project_ids: List[int],
+):
+    unique_project_ids = []
+    seen_ids = set()
+    for project_id in project_ids or []:
+        normalized_id = int(project_id)
+        if normalized_id in seen_ids:
+            continue
+        seen_ids.add(normalized_id)
+        unique_project_ids.append(normalized_id)
+
+    if unique_project_ids:
+        projects = db.query(models.Project).filter(
+            models.Project.id.in_(unique_project_ids),
+            models.Project.is_active.is_(True)
+        ).all()
+        existing_ids = {item.id for item in projects}
+        missing_ids = sorted(set(unique_project_ids) - existing_ids)
+        if missing_ids:
+            raise ValueError(f"Progetti non trovati: {', '.join(str(item) for item in missing_ids)}")
+        db_obj.projects = sorted(projects, key=lambda item: unique_project_ids.index(item.id))
+    else:
+        db_obj.projects = []
+
+
+def get_allievi(
+    db: Session,
+    search: Optional[str] = None,
+    azienda_cliente_id: Optional[int] = None,
+    project_id: Optional[int] = None,
+    occupato: Optional[bool] = None,
+    page: int = 1,
+    limit: int = 20,
+):
+    q = db.query(models.Allievo).options(
+        joinedload(models.Allievo.azienda_cliente),
+        joinedload(models.Allievo.sede_operativa),
+        selectinload(models.Allievo.projects),
+    )
+    q = q.filter(models.Allievo.attivo.is_(True))
+
+    if occupato is not None:
+        q = q.filter(models.Allievo.occupato == occupato)
+    if azienda_cliente_id:
+        q = q.filter(models.Allievo.azienda_cliente_id == azienda_cliente_id)
+    if project_id:
+        q = q.join(models.Allievo.projects).filter(models.Project.id == project_id)
+    if search:
+        term = f"%{search}%"
+        q = q.filter(
+            models.Allievo.nome.ilike(term) |
+            models.Allievo.cognome.ilike(term) |
+            models.Allievo.email.ilike(term) |
+            models.Allievo.codice_fiscale.ilike(term)
+        )
+
+    total = q.count()
+    pages = max(1, -(-total // limit))
+    items = q.order_by(models.Allievo.cognome.asc(), models.Allievo.nome.asc()).offset((page - 1) * limit).limit(limit).all()
+    return items, total, pages
+
+
+def get_allievo(db: Session, allievo_id: int):
+    return db.query(models.Allievo).options(
+        joinedload(models.Allievo.azienda_cliente),
+        joinedload(models.Allievo.sede_operativa),
+        selectinload(models.Allievo.projects),
+    ).filter(models.Allievo.id == allievo_id).first()
+
+
+def create_allievo(db: Session, allievo: schemas.AllievoCreate):
+    payload = allievo.model_dump()
+    project_ids = payload.pop("project_ids", [])
+    if not payload.get("occupato"):
+        payload["azienda_cliente_id"] = None
+        payload["azienda_sede_operativa_id"] = None
+        payload["data_assunzione"] = None
+        payload["tipo_contratto"] = None
+        payload["ccnl"] = None
+        payload["mansione"] = None
+        payload["livello_inquadramento"] = None
+    else:
+        if not payload.get("azienda_cliente_id"):
+            raise ValueError("Se l'allievo è occupato devi indicare l'azienda")
+        payload["azienda_sede_operativa_id"] = _validate_allievo_sede_operativa(
+            db,
+            payload.get("azienda_cliente_id"),
+            payload.get("azienda_sede_operativa_id"),
+        )
+    db_obj = models.Allievo(**payload)
+    db.add(db_obj)
+    db.flush()
+    _sync_allievo_projects(db, db_obj, project_ids)
+    db.commit()
+    db.refresh(db_obj)
+    return get_allievo(db, db_obj.id)
+
+
+def update_allievo(db: Session, allievo_id: int, allievo: schemas.AllievoUpdate):
+    db_obj = get_allievo(db, allievo_id)
+    if not db_obj:
+        return None
+    data = allievo.model_dump(exclude_unset=True)
+    project_ids = data.pop("project_ids", None)
+    for key, value in data.items():
+        setattr(db_obj, key, value)
+    if "occupato" in data and not data.get("occupato"):
+        db_obj.azienda_cliente_id = None
+        db_obj.azienda_sede_operativa_id = None
+        db_obj.data_assunzione = None
+        db_obj.tipo_contratto = None
+        db_obj.ccnl = None
+        db_obj.mansione = None
+        db_obj.livello_inquadramento = None
+    elif db_obj.occupato:
+        if not db_obj.azienda_cliente_id:
+            raise ValueError("Se l'allievo è occupato devi indicare l'azienda")
+        db_obj.azienda_sede_operativa_id = _validate_allievo_sede_operativa(
+            db,
+            db_obj.azienda_cliente_id,
+            db_obj.azienda_sede_operativa_id,
+        )
+    if project_ids is not None:
+        _sync_allievo_projects(db, db_obj, project_ids)
+    db.commit()
+    db.refresh(db_obj)
+    return get_allievo(db, db_obj.id)
+
+
+def delete_allievo(db: Session, allievo_id: int):
+    db_obj = get_allievo(db, allievo_id)
     if db_obj:
         db_obj.attivo = False
         db.commit()
@@ -3538,9 +4176,21 @@ def get_piano_finanziario(db: Session, piano_id: int):
 
 
 def get_piano_by_progetto(db: Session, progetto_id: int):
+    piano_attivo = db.query(models.PianoFinanziario).filter(
+        models.PianoFinanziario.progetto_id == progetto_id,
+        models.PianoFinanziario.stato.in_(("bozza", "approvato", "in_corso")),
+    ).order_by(
+        desc(models.PianoFinanziario.anno),
+        desc(models.PianoFinanziario.created_at),
+        desc(models.PianoFinanziario.id),
+    ).first()
+    if piano_attivo:
+        return piano_attivo
+
     return db.query(models.PianoFinanziario).filter(
         models.PianoFinanziario.progetto_id == progetto_id
     ).order_by(
+        desc(models.PianoFinanziario.anno),
         desc(models.PianoFinanziario.created_at),
         desc(models.PianoFinanziario.id),
     ).first()
@@ -3598,19 +4248,27 @@ def create_piano_finanziario(db: Session, piano: schemas.PianoFinanziarioCreate)
     if not progetto:
         raise ValueError("Progetto non trovato")
     payload = piano.model_dump()
-    normalized_ente = ((getattr(progetto, "ente_erogatore", None) or "Formazienda").strip() or "Formazienda")
-    normalized_avviso = ((getattr(progetto, "avviso", None) or "").strip())
+    normalized_ente = ((getattr(progetto, "resolved_ente_erogatore", None) or getattr(progetto, "ente_erogatore", None) or "Formazienda").strip() or "Formazienda")
+    normalized_avviso = ((getattr(progetto, "resolved_avviso", None) or getattr(progetto, "avviso", None) or "").strip())
+    project_avviso_pf_id = getattr(progetto, "avviso_pf_id", None)
+    project_template_id = getattr(progetto, "template_piano_finanziario_id", None)
     derived_anno = (
         getattr(piano, "data_inizio", None).year
         if getattr(piano, "data_inizio", None) is not None
         else datetime.now().year
     )
-    existing = db.query(models.PianoFinanziario).filter(
+    if payload.get("avviso_id") is None and project_avviso_pf_id is not None:
+        payload["avviso_id"] = project_avviso_pf_id
+
+    existing_query = db.query(models.PianoFinanziario).filter(
         models.PianoFinanziario.progetto_id == piano.progetto_id,
         models.PianoFinanziario.anno == derived_anno,
-        models.PianoFinanziario.ente_erogatore == normalized_ente,
-        models.PianoFinanziario.avviso == normalized_avviso,
-    ).first()
+    )
+    if payload.get("avviso_id") is not None:
+        existing_query = existing_query.filter(models.PianoFinanziario.avviso_id == payload["avviso_id"])
+    else:
+        existing_query = existing_query.filter(models.PianoFinanziario.avviso_id.is_(None))
+    existing = existing_query.first()
     if existing:
         suffix = f" / avviso {normalized_avviso}" if normalized_avviso else ""
         raise ValueError(
@@ -3625,7 +4283,10 @@ def create_piano_finanziario(db: Session, piano: schemas.PianoFinanziarioCreate)
     payload["budget_utilizzato"] = float(payload.get("budget_utilizzato") or 0.0)
     payload["budget_rimanente"] = float(payload.get("budget_totale") or 0.0) - payload["budget_utilizzato"]
     payload["legacy_avviso_id"] = getattr(progetto, "avviso_id", None)
-    payload["legacy_template_id"] = getattr(progetto, "template_piano_finanziario_id", None)
+    payload["legacy_template_id"] = project_template_id
+
+    if payload.get("template_id") is None and project_template_id is not None:
+        payload["template_id"] = project_template_id
 
     if payload.get("template_id") is None and payload.get("tipo_fondo"):
         template = get_template_by_tipo_fondo(db, payload["tipo_fondo"])
@@ -3638,6 +4299,10 @@ def create_piano_finanziario(db: Session, piano: schemas.PianoFinanziarioCreate)
             raise ValueError("Avviso piano finanziario non trovato")
         if payload.get("template_id") and avviso.template_id != payload["template_id"]:
             raise ValueError("L'avviso selezionato non appartiene al template indicato")
+        payload["avviso"] = avviso.codice_avviso
+        if payload.get("template_id") is None and avviso.template_id is not None:
+            payload["template_id"] = avviso.template_id
+        payload["ente_erogatore"] = normalized_ente or _format_project_ente_from_template(avviso.template)
 
     db_obj = models.PianoFinanziario(**payload)
     db.add(db_obj)
@@ -3933,8 +4598,16 @@ def collega_assegnazione_a_piano(db: Session, assignment_id: int):
     return voce
 
 
-def aggiorna_voce_da_presenze(db: Session, voce_id: int):
-    db_voce = get_voce_piano(db, voce_id)
+def aggiorna_voce_da_presenze(
+    db: Session,
+    voce_id: Optional[int] = None,
+    assignment_id: Optional[int] = None,
+):
+    db_voce = None
+    if voce_id is not None:
+        db_voce = get_voce_piano(db, voce_id)
+    elif assignment_id is not None:
+        db_voce = get_voce_by_assignment(db, assignment_id)
     if not db_voce:
         return None
     db_voce.aggiorna_da_presenze(db)
@@ -5165,6 +5838,15 @@ def update_ordine(db: Session, ordine_id: int, data: schemas.OrdineUpdate):
     return get_ordine(db, ordine_id)
 
 
+def delete_ordine(db: Session, ordine_id: int) -> bool:
+    db_obj = db.query(models.Ordine).filter(models.Ordine.id == ordine_id).first()
+    if not db_obj:
+        return False
+    db.delete(db_obj)
+    db.commit()
+    return True
+
+
 # ── Sistema Agenti CRUD ──────────────────────
 
 def create_agent_run(
@@ -5369,7 +6051,7 @@ def create_review_action(
     db: Session,
     suggestion_id: int,
     action: str,
-    reviewed_by,
+    reviewed_by_user_id: Optional[int] = None,
     notes: Optional[str] = None,
     auto_fix_applied: bool = False,
     result_success: Optional[bool] = None,
@@ -5378,7 +6060,7 @@ def create_review_action(
     db_obj = models.AgentReviewAction(
         suggestion_id=suggestion_id,
         action=action,
-        reviewed_by=str(reviewed_by),
+        reviewed_by_user_id=reviewed_by_user_id,
         notes=notes,
         auto_fix_applied=auto_fix_applied,
         result_success=result_success,

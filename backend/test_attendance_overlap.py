@@ -10,8 +10,9 @@ Un collaboratore può essere presente UNA SOLA VOLTA in un determinato orario.
 
 import pytest
 from datetime import datetime, timedelta
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, Column, Integer
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 from database import Base
 import models
 import crud
@@ -19,8 +20,19 @@ import schemas
 
 # Setup database di test in memoria
 TEST_DATABASE_URL = "sqlite:///:memory:"
-engine = create_engine(TEST_DATABASE_URL, connect_args={"check_same_thread": False})
+engine = create_engine(
+    TEST_DATABASE_URL,
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool,
+)
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+
+if "users" not in Base.metadata.tables:
+    # Placeholder minimo per FK legacy presenti in metadata ma irrilevanti per questi test.
+    from sqlalchemy import Table
+
+    Table("users", Base.metadata, Column("id", Integer, primary_key=True))
 
 def setup_test_db():
     """Crea database di test e dati iniziali"""
@@ -31,7 +43,7 @@ def setup_test_db():
     collaborator = models.Collaborator(
         first_name="Mario",
         last_name="Rossi",
-        email="mario.rossi@test.com",
+        email="mario.rossi@gmail.com",
         fiscal_code="RSSMRA80A01H501U",
         phone="1234567890",
         position="Sviluppatore"

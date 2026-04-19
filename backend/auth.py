@@ -24,7 +24,14 @@ from datetime import timezone
 logger = logging.getLogger(__name__)
 
 # Configurazione JWT
-SECRET_KEY = os.getenv("SECRET_KEY", "your-super-secret-key-change-in-production")
+_secret_key = os.getenv("SECRET_KEY")
+_insecure_defaults = {"your-super-secret-key-change-in-production", "changeme_secret_key_super_sicura", ""}
+if not _secret_key or _secret_key in _insecure_defaults:
+    raise RuntimeError(
+        "SECRET_KEY non configurata o usa un valore di default insicuro. "
+        "Imposta SECRET_KEY nel file .env con una stringa casuale di almeno 32 caratteri."
+    )
+SECRET_KEY = _secret_key
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 REFRESH_TOKEN_EXPIRE_DAYS = 7
@@ -34,12 +41,14 @@ try:
     redis_client = redis.Redis(
         host=os.getenv("REDIS_HOST", "localhost"),
         port=int(os.getenv("REDIS_PORT", 6379)),
+        password=os.getenv("REDIS_PASSWORD") or None,
         db=0,
         decode_responses=True
     )
-except:
+    redis_client.ping()  # Verifica connessione subito
+except redis.RedisError as _redis_err:
     redis_client = None
-    logger.warning("Redis non disponibile - usando fallback in memoria")
+    logger.warning("Redis non disponibile (%s) - usando fallback in memoria", _redis_err)
 
 # Fallback in-memory per rate limiting se Redis non disponibile
 _memory_store = {}
@@ -91,6 +100,7 @@ ROLE_PERMISSIONS: Dict[UserRole, List[Permission]] = {
 class User(Base):
     """Modello utente per autenticazione"""
     __tablename__ = "users"
+    __table_args__ = {"extend_existing": True}
 
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(50), unique=True, index=True, nullable=False)
@@ -115,6 +125,7 @@ class User(Base):
 class LoginAttempt(Base):
     """Log dei tentativi di login per sicurezza"""
     __tablename__ = "login_attempts"
+    __table_args__ = {"extend_existing": True}
 
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(50), index=True)

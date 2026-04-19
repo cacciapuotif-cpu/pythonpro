@@ -107,6 +107,8 @@
 .filter-actions {
   display: flex;
   justify-content: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .btn-secondary {
@@ -124,6 +126,18 @@
 .btn-secondary:hover {
   background-color: #d5dbdb;
   transform: translateY(-1px);
+}
+
+.btn-secondary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.timesheet-export-status {
+  margin-top: 16px;
+  color: #2c3e50;
+  font-size: 0.95em;
 }
 
 /* ==========================================
@@ -208,6 +222,25 @@
   border-bottom: 2px solid #ecf0f1;
 }
 
+.timesheet-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.timesheet-section-header h3 {
+  margin-bottom: 0;
+  flex: 1;
+}
+
+.timesheet-pagination-meta {
+  color: #7f8c8d;
+  font-size: 0.95em;
+  white-space: nowrap;
+}
+
 /* ==========================================
    TABELLA
    ========================================== */
@@ -290,6 +323,14 @@
   text-align: right;
   color: #2c3e50;
   font-size: 1.1em;
+}
+
+.timesheet-pagination {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 20px;
+  flex-wrap: wrap;
 }
 
 /* ==========================================
@@ -423,6 +464,15 @@
 
   .timesheet-stats {
     grid-template-columns: 1fr;
+  }
+
+  .timesheet-section-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .timesheet-pagination-meta {
+    white-space: normal;
   }
 
   .stat-card {

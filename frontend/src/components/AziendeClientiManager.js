@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   getAziendeClienti, createAziendaCliente, updateAziendaCliente, deleteAziendaCliente,
-  getConsulenti, getAgenzie
+  getConsulenti, getAgenzie, getAziendaCliente, getProjects, bulkImportAziendeClienti
 } from '../services/apiService';
+import AziendeBulkImport from './aziende/AziendeBulkImport';
 import './AziendeClientiManager.css';
 
 const normalizePartitaIva = (value = '') => value.replace(/\s+/g, '').replace(/^IT/i, '');
@@ -31,6 +32,94 @@ const blankToNull = (value) => {
   return trimmed ? trimmed : null;
 };
 
+const toMonthValue = (value) => {
+  if (!value) return '';
+  return `${value}`.slice(0, 7);
+};
+
+const monthToTimestamp = (value) => {
+  if (!value) return null;
+  return `${value}-01T00:00:00Z`;
+};
+
+const isValidMonthValue = (value = '') => /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
+
+const projectLabel = (project = {}) => {
+  const primaryName = project.name || project.titolo || project.nome || `Progetto #${project.id}`;
+  return project.status ? `${primaryName} · ${project.status}` : primaryName;
+};
+
+const sedeOperativaLabel = (sede = {}) => {
+  const details = [sede.citta, sede.provincia].filter(Boolean).join(' ');
+  return details ? `${sede.nome} · ${details}` : sede.nome || 'Sede operativa';
+};
+
+const mapAziendaToForm = (az = {}) => ({
+  ragione_sociale: az.ragione_sociale || '',
+  partita_iva: az.partita_iva || '',
+  codice_fiscale: az.codice_fiscale || '',
+  settore_ateco: az.settore_ateco || '',
+  attivita_erogate: az.attivita_erogate || '',
+  indirizzo: az.indirizzo || '',
+  citta: az.citta || '',
+  cap: az.cap || '',
+  provincia: az.provincia || '',
+  email: az.email || '',
+  pec: az.pec || '',
+  telefono: az.telefono || '',
+  sito_web: az.sito_web || '',
+  linkedin_url: az.linkedin_url || '',
+  facebook_url: az.facebook_url || '',
+  instagram_url: az.instagram_url || '',
+  legale_rappresentante_nome: az.legale_rappresentante_nome || '',
+  legale_rappresentante_cognome: az.legale_rappresentante_cognome || '',
+  legale_rappresentante_codice_fiscale: az.legale_rappresentante_codice_fiscale || '',
+  legale_rappresentante_email: az.legale_rappresentante_email || '',
+  legale_rappresentante_telefono: az.legale_rappresentante_telefono || '',
+  legale_rappresentante_indirizzo: az.legale_rappresentante_indirizzo || '',
+  legale_rappresentante_linkedin: az.legale_rappresentante_linkedin || '',
+  legale_rappresentante_facebook: az.legale_rappresentante_facebook || '',
+  legale_rappresentante_instagram: az.legale_rappresentante_instagram || '',
+  legale_rappresentante_tiktok: az.legale_rappresentante_tiktok || '',
+  referente_nome: az.referente_nome || '',
+  referente_cognome: az.referente_cognome || '',
+  referente_ruolo: az.referente_ruolo || '',
+  referente_email: az.referente_email || '',
+  referente_telefono: az.referente_telefono || '',
+  referente_indirizzo: az.referente_indirizzo || '',
+  referente_luogo_nascita: az.referente_luogo_nascita || '',
+  referente_data_nascita: az.referente_data_nascita ? `${az.referente_data_nascita}`.slice(0, 10) : '',
+  referente_linkedin: az.referente_linkedin || '',
+  referente_facebook: az.referente_facebook || '',
+  referente_instagram: az.referente_instagram || '',
+  referente_tiktok: az.referente_tiktok || '',
+  agenzia_id: az.agenzia_id || '',
+  consulente_id: az.consulente_id || '',
+  note: az.note || '',
+  attivo: az.attivo ?? true,
+  project_ids: Array.isArray(az.project_ids) ? az.project_ids.map((id) => Number(id)) : [],
+  sedi_operative: Array.isArray(az.sedi_operative)
+    ? az.sedi_operative.map((sede) => ({
+        id: sede.id,
+        nome: sede.nome || '',
+        indirizzo: sede.indirizzo || '',
+        citta: sede.citta || '',
+        cap: sede.cap || '',
+        provincia: sede.provincia || '',
+        note: sede.note || '',
+      }))
+    : [],
+  fund_memberships: Array.isArray(az.fund_memberships)
+    ? az.fund_memberships.map((membership) => ({
+        id: membership.id,
+        fondo: membership.fondo || '',
+        data_inizio: toMonthValue(membership.data_inizio),
+        data_fine: toMonthValue(membership.data_fine),
+        note: membership.note || '',
+      }))
+    : [],
+});
+
 const EMPTY_FORM = {
   ragione_sociale: '', partita_iva: '', codice_fiscale: '', settore_ateco: '', attivita_erogate: '',
   indirizzo: '', citta: '', cap: '', provincia: '',
@@ -41,7 +130,8 @@ const EMPTY_FORM = {
   referente_nome: '', referente_cognome: '', referente_ruolo: '', referente_email: '', referente_telefono: '', referente_indirizzo: '',
   referente_luogo_nascita: '', referente_data_nascita: '',
   referente_linkedin: '', referente_facebook: '', referente_instagram: '', referente_tiktok: '',
-  agenzia_id: '', consulente_id: '', note: '', attivo: true
+  agenzia_id: '', consulente_id: '', note: '', attivo: true,
+  project_ids: [], sedi_operative: [], fund_memberships: []
 };
 
 export default function AziendeClientiManager({ currentUser }) {
@@ -57,16 +147,22 @@ export default function AziendeClientiManager({ currentUser }) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [formErrors, setFormErrors] = useState({});
+  const [projectOptions, setProjectOptions] = useState([]);
+  const [projectToAdd, setProjectToAdd] = useState('');
+  const [showBulkImport, setShowBulkImport] = useState(false);
+  const [bulkImporting, setBulkImporting] = useState(false);
   const searchTimer = useRef(null);
 
   const loadCommercialOptions = useCallback(async () => {
     try {
-      const [agenzieData, consulentiData] = await Promise.all([
+      const [agenzieData, consulentiData, projectsData] = await Promise.all([
         getAgenzie({ limit: 100 }),
         getConsulenti({ limit: 100, attivo: true }),
+        getProjects(0, 200),
       ]);
       setAgenzie(agenzieData.items || agenzieData || []);
       setConsulenti(consulentiData.items || []);
+      setProjectOptions(projectsData.items || projectsData || []);
     } catch {
       // Mantieni la UI operativa anche se i cataloghi commerciali falliscono
     }
@@ -124,39 +220,22 @@ export default function AziendeClientiManager({ currentUser }) {
   const openCreate = () => {
     setForm(EMPTY_FORM);
     setFormErrors({});
+    setProjectToAdd('');
     setModal({ mode: 'create' });
   };
 
-  const openEdit = (az) => {
-    setForm({
-      ragione_sociale: az.ragione_sociale, partita_iva: az.partita_iva || '',
-      codice_fiscale: az.codice_fiscale || '', settore_ateco: az.settore_ateco || '', attivita_erogate: az.attivita_erogate || '',
-      indirizzo: az.indirizzo || '', citta: az.citta || '', cap: az.cap || '',
-      provincia: az.provincia || '', email: az.email || '', pec: az.pec || '',
-      telefono: az.telefono || '', sito_web: az.sito_web || '', linkedin_url: az.linkedin_url || '',
-      facebook_url: az.facebook_url || '', instagram_url: az.instagram_url || '',
-      legale_rappresentante_nome: az.legale_rappresentante_nome || '',
-      legale_rappresentante_cognome: az.legale_rappresentante_cognome || '',
-      legale_rappresentante_codice_fiscale: az.legale_rappresentante_codice_fiscale || '',
-      legale_rappresentante_email: az.legale_rappresentante_email || '',
-      legale_rappresentante_telefono: az.legale_rappresentante_telefono || '',
-      legale_rappresentante_indirizzo: az.legale_rappresentante_indirizzo || '',
-      legale_rappresentante_linkedin: az.legale_rappresentante_linkedin || '',
-      legale_rappresentante_facebook: az.legale_rappresentante_facebook || '',
-      legale_rappresentante_instagram: az.legale_rappresentante_instagram || '',
-      legale_rappresentante_tiktok: az.legale_rappresentante_tiktok || '',
-      referente_nome: az.referente_nome || '', referente_cognome: az.referente_cognome || '', referente_ruolo: az.referente_ruolo || '',
-      referente_email: az.referente_email || '', referente_telefono: az.referente_telefono || '',
-      referente_indirizzo: az.referente_indirizzo || '',
-      referente_luogo_nascita: az.referente_luogo_nascita || '',
-      referente_data_nascita: az.referente_data_nascita ? `${az.referente_data_nascita}`.slice(0, 10) : '',
-      referente_linkedin: az.referente_linkedin || '', referente_facebook: az.referente_facebook || '',
-      referente_instagram: az.referente_instagram || '', referente_tiktok: az.referente_tiktok || '',
-      agenzia_id: az.agenzia_id || '', consulente_id: az.consulente_id || '',
-      note: az.note || '', attivo: az.attivo
-    });
+  const openEdit = async (az) => {
+    try {
+      const detail = await getAziendaCliente(az.id);
+      setForm(mapAziendaToForm(detail));
+      setProjectToAdd('');
+      setModal({ mode: 'edit', data: detail });
+    } catch {
+      setForm(mapAziendaToForm(az));
+      setProjectToAdd('');
+      setModal({ mode: 'edit', data: az });
+    }
     setFormErrors({});
-    setModal({ mode: 'edit', data: az });
   };
 
   const validateForm = () => {
@@ -179,6 +258,30 @@ export default function AziendeClientiManager({ currentUser }) {
       errs.referente_email = 'Email referente non valida';
     if (form.legale_rappresentante_email && !/^[^@]+@[^@]+\.[^@]+$/.test(form.legale_rappresentante_email))
       errs.legale_rappresentante_email = 'Email legale rappresentante non valida';
+    form.sedi_operative.forEach((sede, index) => {
+      if (!sede) return;
+      const hasAnyValue = [sede.nome, sede.indirizzo, sede.citta, sede.cap, sede.provincia, sede.note].some((value) => value && `${value}`.trim());
+      if (!hasAnyValue) return;
+      if (!sede.nome?.trim()) errs[`sede_${index}_nome`] = 'Il nome della sede operativa è obbligatorio';
+      if (sede.cap && !/^\d{5}$/.test(sede.cap)) errs[`sede_${index}_cap`] = 'CAP: 5 cifre';
+      if (sede.provincia && !/^[A-Za-z]{2}$/.test(sede.provincia)) errs[`sede_${index}_provincia`] = 'Sigla 2 lettere (es: NA)';
+    });
+    const openMemberships = form.fund_memberships.filter((membership) => membership && !membership.data_fine).length;
+    if (openMemberships > 1)
+      errs.fund_memberships = 'Può esistere una sola iscrizione fondo senza data finale';
+    form.fund_memberships.forEach((membership, index) => {
+      if (!membership) return;
+      if ((membership.fondo || membership.data_inizio || membership.data_fine || membership.note) && !membership.fondo?.trim())
+        errs[`fund_${index}_fondo`] = 'Il fondo è obbligatorio';
+      if ((membership.fondo || membership.data_inizio || membership.data_fine || membership.note) && !membership.data_inizio)
+        errs[`fund_${index}_data_inizio`] = 'La data iniziale è obbligatoria';
+      if (membership.data_inizio && !isValidMonthValue(membership.data_inizio))
+        errs[`fund_${index}_data_inizio`] = 'Usa il formato AAAA-MM';
+      if (membership.data_fine && !isValidMonthValue(membership.data_fine))
+        errs[`fund_${index}_data_fine`] = 'Usa il formato AAAA-MM';
+      if (membership.data_inizio && membership.data_fine && membership.data_fine < membership.data_inizio)
+        errs[`fund_${index}_data_fine`] = 'La data finale non può precedere quella iniziale';
+    });
     setFormErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -229,6 +332,27 @@ export default function AziendeClientiManager({ currentUser }) {
       referente_tiktok: blankToNull(form.referente_tiktok),
       provincia: form.provincia ? form.provincia.toUpperCase() : null,
       note: blankToNull(form.note),
+      project_ids: Array.isArray(form.project_ids) ? form.project_ids : [],
+      sedi_operative: (form.sedi_operative || [])
+        .filter((sede) => sede && [sede.nome, sede.indirizzo, sede.citta, sede.cap, sede.provincia, sede.note].some((value) => value && `${value}`.trim()))
+        .map((sede) => ({
+          ...(sede.id ? { id: sede.id } : {}),
+          nome: sede.nome.trim(),
+          indirizzo: blankToNull(sede.indirizzo),
+          citta: blankToNull(sede.citta),
+          cap: blankToNull(sede.cap),
+          provincia: sede.provincia ? sede.provincia.toUpperCase() : null,
+          note: blankToNull(sede.note),
+        })),
+      fund_memberships: (form.fund_memberships || [])
+        .filter((membership) => membership && (membership.fondo || membership.data_inizio || membership.data_fine || membership.note))
+        .map((membership) => ({
+          ...(membership.id ? { id: membership.id } : {}),
+          fondo: membership.fondo,
+          data_inizio: monthToTimestamp(membership.data_inizio),
+          data_fine: monthToTimestamp(membership.data_fine),
+          note: membership.note || null,
+        })),
     };
     try {
       if (modal.mode === 'create') {
@@ -270,10 +394,105 @@ export default function AziendeClientiManager({ currentUser }) {
     }
   };
 
+  const handleBulkImport = async (rows) => {
+    setBulkImporting(true);
+    try {
+      const result = await bulkImportAziendeClienti(rows);
+      await load();
+      if (result.success_count > 0) {
+        showToast(`Importazione completata: ${result.success_count} aziende su ${result.total}`);
+      }
+      if (result.error_count > 0) {
+        const details = result.errors.slice(0, 5).map((item) => `• ${item.name}: ${item.error}`).join('\n');
+        showToast(`${result.error_count} aziende non importate:\n${details}${result.errors.length > 5 ? '\n… altri errori' : ''}`, 'error');
+      }
+      if (result.error_count === 0) {
+        setShowBulkImport(false);
+      }
+    } catch (e) {
+      showToast(e?.response?.data?.detail || 'Errore durante l’importazione massiva', 'error');
+    } finally {
+      setBulkImporting(false);
+    }
+  };
+
   const field = (key) => ({
     value: form[key],
     onChange: (e) => setForm(f => ({ ...f, [key]: e.target.value })),
   });
+
+  const handleAddProject = () => {
+    const selectedId = Number(projectToAdd);
+    if (!selectedId) return;
+
+    setForm((prev) => {
+      if (prev.project_ids.includes(selectedId)) return prev;
+      return {
+        ...prev,
+        project_ids: [...prev.project_ids, selectedId],
+      };
+    });
+    setProjectToAdd('');
+  };
+
+  const handleRemoveProject = (projectIdToRemove) => {
+    setForm((prev) => ({
+      ...prev,
+      project_ids: prev.project_ids.filter((projectId) => projectId !== projectIdToRemove),
+    }));
+  };
+
+  const handleFundMembershipChange = (index, fieldName, value) => {
+    setForm((prev) => ({
+      ...prev,
+      fund_memberships: prev.fund_memberships.map((membership, membershipIndex) =>
+        membershipIndex === index ? { ...membership, [fieldName]: value } : membership
+      ),
+    }));
+  };
+
+  const handleSedeOperativaChange = (index, fieldName, value) => {
+    setForm((prev) => ({
+      ...prev,
+      sedi_operative: prev.sedi_operative.map((sede, sedeIndex) =>
+        sedeIndex === index ? { ...sede, [fieldName]: value } : sede
+      ),
+    }));
+  };
+
+  const addSedeOperativaRow = () => {
+    setForm((prev) => ({
+      ...prev,
+      sedi_operative: [
+        ...prev.sedi_operative,
+        { nome: '', indirizzo: '', citta: '', cap: '', provincia: '', note: '' },
+      ],
+    }));
+  };
+
+  const removeSedeOperativaRow = (index) => {
+    setForm((prev) => ({
+      ...prev,
+      sedi_operative: prev.sedi_operative.filter((_, sedeIndex) => sedeIndex !== index),
+    }));
+  };
+
+  const addFundMembershipRow = () => {
+    setForm((prev) => ({
+      ...prev,
+      fund_memberships: [
+        ...prev.fund_memberships,
+        { fondo: '', data_inizio: '', data_fine: '', note: '' },
+      ],
+    }));
+  };
+
+  const removeFundMembershipRow = (index) => {
+    setForm((prev) => ({
+      ...prev,
+      fund_memberships: prev.fund_memberships.filter((_, membershipIndex) => membershipIndex !== index),
+    }));
+  };
 
   const consulenteNome = (id) => {
     const c = consulenti.find(x => x.id === id);
@@ -299,6 +518,20 @@ export default function AziendeClientiManager({ currentUser }) {
     return <span className="sort-icon active">{filters.order === 'asc' ? '↑' : '↓'}</span>;
   };
 
+  const selectedProjectOptions = form.project_ids
+    .map((projectId) => projectOptions.find((project) => Number(project.id) === Number(projectId)))
+    .filter(Boolean);
+
+  const availableProjectOptions = projectOptions.filter(
+    (project) => !form.project_ids.includes(Number(project.id))
+  );
+
+  const associatedEmployees = modal?.mode === 'edit'
+    ? (Array.isArray(modal.data?.allievi)
+      ? modal.data.allievi
+      : (Array.isArray(modal.data?.allievi_occupati) ? modal.data.allievi_occupati : []))
+    : [];
+
   return (
     <div className="aziende-clienti-manager">
       <div className="aziende-header">
@@ -306,8 +539,21 @@ export default function AziendeClientiManager({ currentUser }) {
           <h2>Aziende Clienti</h2>
           <span className="count-badge">{result.total} aziende</span>
         </div>
-        <button className="btn-primary" onClick={openCreate}>+ Nuova Azienda</button>
+        <div style={{ display: 'flex', gap: '12px' }}>
+          <button className="btn-secondary" onClick={() => setShowBulkImport((prev) => !prev)} disabled={bulkImporting}>
+            {showBulkImport ? 'Chiudi Import Excel' : 'Importa Excel'}
+          </button>
+          <button className="btn-primary" onClick={openCreate}>+ Nuova Azienda</button>
+        </div>
       </div>
+
+      {showBulkImport && (
+        <AziendeBulkImport
+          onImport={handleBulkImport}
+          onClose={() => setShowBulkImport(false)}
+          isLoading={bulkImporting}
+        />
+      )}
 
       {success && <div className="toast toast-success">{success}</div>}
       {error && <div className="toast toast-error">{error}</div>}
@@ -363,6 +609,8 @@ export default function AziendeClientiManager({ currentUser }) {
                   <th className="sortable" onClick={() => toggleSort('citta')}>
                     Città <SortIcon col="citta" />
                   </th>
+                  <th>Fondo attuale</th>
+                  <th>Progetti</th>
                   <th>Referente</th>
                   <th>Agenzia</th>
                   <th>Consulente</th>
@@ -372,9 +620,16 @@ export default function AziendeClientiManager({ currentUser }) {
               </thead>
               <tbody>
                 {result.items.length === 0 && (
-                  <tr><td colSpan={8} className="empty-cell">Nessuna azienda trovata.</td></tr>
+                  <tr><td colSpan={10} className="empty-cell">Nessuna azienda trovata.</td></tr>
                 )}
-                {result.items.map(az => (
+                {result.items.map(az => {
+                  const currentFundMembership = Array.isArray(az.fund_memberships)
+                    ? az.fund_memberships.find((membership) => !membership.data_fine) || az.fund_memberships[0]
+                    : null;
+                  const linkedProjectNames = Array.isArray(az.linked_projects)
+                    ? az.linked_projects.map((project) => project.name || project.titolo || project.nome || `Progetto #${project.id}`)
+                    : [];
+                  return (
                   <tr key={az.id} className={!az.attivo ? 'row-inactive' : ''}>
                     <td>
                       <strong>{az.ragione_sociale}</strong>
@@ -384,6 +639,24 @@ export default function AziendeClientiManager({ currentUser }) {
                     <td>
                       {az.citta || '—'}
                       {az.provincia && <span className="provincia-badge"> ({az.provincia})</span>}
+                    </td>
+                    <td>
+                          {currentFundMembership ? (
+                        <>
+                          <div>{currentFundMembership.fondo}</div>
+                          {currentFundMembership.data_inizio && <div className="sub-text">dal {toMonthValue(currentFundMembership.data_inizio)}</div>}
+                        </>
+                      ) : '—'}
+                    </td>
+                    <td>
+                      {linkedProjectNames.length > 0 ? (
+                        <>
+                          <div>{linkedProjectNames[0]}</div>
+                          {linkedProjectNames.slice(1).map((projectName) => (
+                            <div key={projectName} className="sub-text">{projectName}</div>
+                          ))}
+                        </>
+                      ) : '—'}
                     </td>
                     <td>
                       <div>{[az.referente_nome, az.referente_cognome].filter(Boolean).join(' ') || '—'}</div>
@@ -407,7 +680,7 @@ export default function AziendeClientiManager({ currentUser }) {
                       )}
                     </td>
                   </tr>
-                ))}
+                )})}
               </tbody>
             </table>
           </div>
@@ -481,7 +754,7 @@ export default function AziendeClientiManager({ currentUser }) {
 
                 <div className="aziende-modal-section-grid">
                   <fieldset className="form-section">
-                    <legend>Sede</legend>
+                    <legend>Sede legale</legend>
                     <div className="aziende-form-grid">
                       <div className="form-group aziende-col-span-2">
                         <label>Indirizzo</label>
@@ -500,6 +773,89 @@ export default function AziendeClientiManager({ currentUser }) {
                         <label>Provincia</label>
                         <input {...field('provincia')} placeholder="NA" maxLength={2} style={{ textTransform: 'uppercase' }} />
                         {formErrors.provincia && <span className="field-error">{formErrors.provincia}</span>}
+                      </div>
+                    </div>
+                  </fieldset>
+
+                  <fieldset className="form-section">
+                    <legend>Sedi operative</legend>
+                    <div className="aziende-form-grid">
+                      <div className="form-group aziende-col-span-2">
+                        <small className="help-text">
+                          Aggiungi una o più sedi operative distinte dalla sede legale. Gli allievi occupati potranno essere associati a una di queste sedi.
+                        </small>
+                      </div>
+
+                      {form.sedi_operative.map((sede, index) => (
+                        <div key={sede.id || `sede-${index}`} className="aziende-col-span-2" style={{ border: '1px solid #e5e7eb', borderRadius: '12px', padding: '16px', marginBottom: '12px' }}>
+                          <div className="aziende-form-grid">
+                            <div className={`form-group ${formErrors[`sede_${index}_nome`] ? 'has-error' : ''}`}>
+                              <label>Nome sede</label>
+                              <input
+                                value={sede.nome || ''}
+                                onChange={(e) => handleSedeOperativaChange(index, 'nome', e.target.value)}
+                                placeholder="Es. Sede Napoli Centro"
+                              />
+                              {formErrors[`sede_${index}_nome`] && <span className="field-error">{formErrors[`sede_${index}_nome`]}</span>}
+                            </div>
+                            <div className="form-group aziende-col-span-2">
+                              <label>Indirizzo</label>
+                              <input
+                                value={sede.indirizzo || ''}
+                                onChange={(e) => handleSedeOperativaChange(index, 'indirizzo', e.target.value)}
+                                placeholder="Via, numero civico"
+                              />
+                            </div>
+                            <div className="form-group">
+                              <label>Città</label>
+                              <input
+                                value={sede.citta || ''}
+                                onChange={(e) => handleSedeOperativaChange(index, 'citta', e.target.value)}
+                                placeholder="Città"
+                              />
+                            </div>
+                            <div className={`form-group ${formErrors[`sede_${index}_cap`] ? 'has-error' : ''}`}>
+                              <label>CAP</label>
+                              <input
+                                value={sede.cap || ''}
+                                onChange={(e) => handleSedeOperativaChange(index, 'cap', e.target.value)}
+                                placeholder="00000"
+                                maxLength={5}
+                              />
+                              {formErrors[`sede_${index}_cap`] && <span className="field-error">{formErrors[`sede_${index}_cap`]}</span>}
+                            </div>
+                            <div className={`form-group ${formErrors[`sede_${index}_provincia`] ? 'has-error' : ''}`}>
+                              <label>Provincia</label>
+                              <input
+                                value={sede.provincia || ''}
+                                onChange={(e) => handleSedeOperativaChange(index, 'provincia', e.target.value)}
+                                placeholder="NA"
+                                maxLength={2}
+                                style={{ textTransform: 'uppercase' }}
+                              />
+                              {formErrors[`sede_${index}_provincia`] && <span className="field-error">{formErrors[`sede_${index}_provincia`]}</span>}
+                            </div>
+                            <div className="form-group aziende-col-span-2">
+                              <label>Note</label>
+                              <input
+                                value={sede.note || ''}
+                                onChange={(e) => handleSedeOperativaChange(index, 'note', e.target.value)}
+                                placeholder="Orari, reparto, riferimento locale..."
+                              />
+                            </div>
+                            <div className="form-group aziende-col-span-2">
+                              <button type="button" className="btn-sm btn-danger" onClick={() => removeSedeOperativaRow(index)}>
+                                Rimuovi sede operativa
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+
+                      <div className="form-group aziende-col-span-2">
+                        <button type="button" className="btn-sm btn-secondary" onClick={addSedeOperativaRow}>
+                          + Aggiungi sede operativa
+                        </button>
                       </div>
                     </div>
                   </fieldset>
@@ -644,7 +1000,194 @@ export default function AziendeClientiManager({ currentUser }) {
                 </fieldset>
 
                 <fieldset className="form-section">
+                  <legend>Progetti collegati</legend>
+                  <div className="aziende-form-grid">
+                    <div className="form-group aziende-col-span-2">
+                      <label>Associa l'azienda a un progetto</label>
+                      <div className="azienda-project-picker">
+                        <select
+                          value={projectToAdd}
+                          onChange={(e) => setProjectToAdd(e.target.value)}
+                        >
+                          <option value="">Seleziona un progetto</option>
+                          {availableProjectOptions.map((project) => (
+                            <option key={project.id} value={project.id}>
+                              {projectLabel(project)}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          className="btn-sm btn-secondary"
+                          onClick={handleAddProject}
+                          disabled={!projectToAdd}
+                        >
+                          Aggiungi
+                        </button>
+                      </div>
+                      <small className="help-text">
+                        Seleziona un progetto dal menu a tendina e aggiungilo all'elenco sottostante.
+                      </small>
+                      <div className="azienda-project-list">
+                        {selectedProjectOptions.length > 0 ? (
+                          selectedProjectOptions.map((project) => (
+                            <div key={project.id} className="azienda-project-item">
+                              <div>
+                                <strong>{project.name || project.titolo || project.nome || `Progetto #${project.id}`}</strong>
+                                {project.status && <div className="sub-text">Stato: {project.status}</div>}
+                              </div>
+                              <button
+                                type="button"
+                                className="btn-sm btn-danger"
+                                onClick={() => handleRemoveProject(Number(project.id))}
+                              >
+                                Rimuovi
+                              </button>
+                            </div>
+                          ))
+                        ) : (
+                          <div className="azienda-project-empty">
+                            Nessun progetto associato. I progetti scelti compariranno qui sotto.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </fieldset>
+
+                <fieldset className="form-section">
+                  <legend>Storico fondi interprofessionali</legend>
+                  <div className="aziende-form-grid">
+                    <div className="form-group aziende-col-span-2">
+                      <small className="help-text">
+                        Indica fondo e periodo di iscrizione. La data finale è opzionale se il fondo è ancora attivo.
+                      </small>
+                      {formErrors.fund_memberships && <span className="field-error">{formErrors.fund_memberships}</span>}
+                    </div>
+
+                    {form.fund_memberships.map((membership, index) => (
+                      <div key={membership.id || `fund-${index}`} className="aziende-col-span-2" style={{ border: '1px solid #e5e7eb', borderRadius: '12px', padding: '16px', marginBottom: '12px' }}>
+                        <div className="aziende-form-grid">
+                          <div className={`form-group ${formErrors[`fund_${index}_fondo`] ? 'has-error' : ''}`}>
+                            <label>Fondo</label>
+                            <input
+                              value={membership.fondo || ''}
+                              onChange={(e) => handleFundMembershipChange(index, 'fondo', e.target.value)}
+                              placeholder="es. FONDIMPRESA, FONARCOM, FAPI"
+                            />
+                            {formErrors[`fund_${index}_fondo`] && <span className="field-error">{formErrors[`fund_${index}_fondo`]}</span>}
+                          </div>
+                          <div className={`form-group ${formErrors[`fund_${index}_data_inizio`] ? 'has-error' : ''}`}>
+                            <label>Dal</label>
+                            <input
+                              type="text"
+                              value={membership.data_inizio || ''}
+                              inputMode="numeric"
+                              placeholder="AAAA-MM"
+                              pattern="\d{4}-(0[1-9]|1[0-2])"
+                              onChange={(e) => handleFundMembershipChange(index, 'data_inizio', e.target.value)}
+                            />
+                            {formErrors[`fund_${index}_data_inizio`] && <span className="field-error">{formErrors[`fund_${index}_data_inizio`]}</span>}
+                          </div>
+                          <div className={`form-group ${formErrors[`fund_${index}_data_fine`] ? 'has-error' : ''}`}>
+                            <label>Al</label>
+                            <input
+                              type="text"
+                              value={membership.data_fine || ''}
+                              inputMode="numeric"
+                              placeholder="AAAA-MM"
+                              pattern="\d{4}-(0[1-9]|1[0-2])"
+                              onChange={(e) => handleFundMembershipChange(index, 'data_fine', e.target.value)}
+                            />
+                            {formErrors[`fund_${index}_data_fine`] && <span className="field-error">{formErrors[`fund_${index}_data_fine`]}</span>}
+                          </div>
+                          <div className="form-group aziende-col-span-2">
+                            <label>Note</label>
+                            <input
+                              value={membership.note || ''}
+                              onChange={(e) => handleFundMembershipChange(index, 'note', e.target.value)}
+                              placeholder="Eventuali note su adesione o cessazione"
+                            />
+                          </div>
+                          <div className="form-group aziende-col-span-2">
+                            <button type="button" className="btn-sm btn-danger" onClick={() => removeFundMembershipRow(index)}>
+                              Rimuovi iscrizione
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+
+                    <div className="form-group aziende-col-span-2">
+                      <button type="button" className="btn-sm btn-secondary" onClick={addFundMembershipRow}>
+                        + Aggiungi fondo
+                      </button>
+                    </div>
+                  </div>
+                </fieldset>
+
+                <fieldset className="form-section">
                   <legend>Gestione</legend>
+                  {modal.mode === 'edit' && (
+                    <>
+                      <div className="form-group aziende-col-span-2">
+                        <label>Dipendenti associati</label>
+                        {associatedEmployees.length > 0 ? (
+                          <div className="azienda-dipendenti-table-wrap">
+                            <table className="azienda-dipendenti-table">
+                              <thead>
+                                <tr>
+                                  <th>Nome</th>
+                                  <th>Sede operativa</th>
+                                  <th>Contatti</th>
+                                  <th>Mansione</th>
+                                  <th>Contratto</th>
+                                  <th>CCNL</th>
+                                  <th>Assunzione</th>
+                                  <th>Progetti</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {associatedEmployees.map((allievo) => {
+                                  const employeeProjects = Array.isArray(allievo.projects) ? allievo.projects : [];
+                                  return (
+                                    <tr key={allievo.id}>
+                                      <td>
+                                        <strong>{allievo.nome} {allievo.cognome}</strong>
+                                        {allievo.codice_fiscale && <div className="sub-text">{allievo.codice_fiscale}</div>}
+                                      </td>
+                                      <td>{allievo.sede_operativa ? sedeOperativaLabel(allievo.sede_operativa) : '—'}</td>
+                                      <td>
+                                        <div>{allievo.telefono || '—'}</div>
+                                        {allievo.email && <div className="sub-text">{allievo.email}</div>}
+                                      </td>
+                                      <td>{allievo.mansione || '—'}</td>
+                                      <td>{allievo.tipo_contratto || '—'}</td>
+                                      <td>{allievo.ccnl || '—'}</td>
+                                      <td>{allievo.data_assunzione ? new Date(allievo.data_assunzione).toLocaleDateString('it-IT') : '—'}</td>
+                                      <td>
+                                        {employeeProjects.length > 0 ? (
+                                          employeeProjects.map((project) => (
+                                            <div key={project.id} className="sub-text">
+                                              {project.name || project.titolo || project.nome || `Progetto #${project.id}`}
+                                            </div>
+                                          ))
+                                        ) : '—'}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        ) : (
+                          <div className="azienda-project-empty">
+                            Nessun dipendente associato a questa azienda.
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
                   <div className="aziende-form-grid aziende-form-grid-management">
                     <div className="form-group">
                       <label>Agenzia di riferimento</label>
