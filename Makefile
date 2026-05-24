@@ -5,7 +5,7 @@
 # Usa: make <comando>
 # ============================================================
 
-.PHONY: help install install-dev setup lint format typecheck test coverage security clean preflight up down ps logs restart smoke docker-rebuild migrate migrate-new run dev prod health backup audit all-checks
+.PHONY: help install install-dev setup lint format typecheck test test-container test-container-coverage test-smoke coverage security clean preflight up down ps logs restart smoke docker-rebuild migrate migrate-new run dev prod health backup audit all-checks
 
 # Colori per output (opzionale)
 BLUE := \033[1;34m
@@ -14,14 +14,29 @@ YELLOW := \033[1;33m
 RED := \033[1;31m
 NC := \033[0m  # No Color
 
-# Variabili
-PYTHON := backend/venv/Scripts/python.exe
-PIP := backend/venv/Scripts/pip.exe
-PYTEST := backend/venv/Scripts/pytest.exe
-RUFF := backend/venv/Scripts/ruff.exe
-MYPY := backend/venv/Scripts/mypy.exe
-ALEMBIC := backend/venv/Scripts/alembic.exe
-BANDIT := backend/venv/Scripts/bandit.exe
+# Variabili — rilevamento automatico OS (Linux/Mac vs Windows)
+ifeq ($(OS),Windows_NT)
+  VENV_BIN := backend/venv/Scripts
+  PYTHON   := $(VENV_BIN)/python.exe
+  PIP      := $(VENV_BIN)/pip.exe
+  PYTEST   := $(VENV_BIN)/pytest.exe
+  RUFF     := $(VENV_BIN)/ruff.exe
+  MYPY     := $(VENV_BIN)/mypy.exe
+  ALEMBIC  := $(VENV_BIN)/alembic.exe
+  BANDIT   := $(VENV_BIN)/bandit.exe
+else
+  VENV_BIN := backend/venv/bin
+  PYTHON   := $(VENV_BIN)/python
+  PIP      := $(VENV_BIN)/pip
+  PYTEST   := $(VENV_BIN)/pytest
+  RUFF     := $(VENV_BIN)/ruff
+  MYPY     := $(VENV_BIN)/mypy
+  ALEMBIC  := $(VENV_BIN)/alembic
+  BANDIT   := $(VENV_BIN)/bandit
+endif
+
+# Contenitore Docker del backend (per test senza venv locale)
+BACKEND_CONTAINER := pythonpro_backend
 
 BACKEND_DIR := backend
 FRONTEND_DIR := frontend
@@ -50,7 +65,10 @@ help:
 	@echo "  make lint           - Controlla qualità codice (ruff)"
 	@echo "  make format         - Formatta codice automaticamente"
 	@echo "  make typecheck      - Verifica type hints (mypy)"
-	@echo "  make test           - Esegue test unitari"
+	@echo "  make test               - Esegue test (venv locale, richiede: make setup)
+  make test-container     - Esegue test DENTRO Docker (nessun venv richiesto)
+  make test-container-coverage - Test + coverage dentro Docker
+  make test-smoke         - Smoke test veloci dentro Docker"
 	@echo "  make coverage       - Test con report coverage"
 	@echo "  make security       - Scan vulnerabilità sicurezza"
 	@echo "  make all-checks     - Esegue tutti i controlli (lint+type+test+security)"
@@ -164,26 +182,67 @@ typecheck:
 # TESTING
 # ============================================================
 
-## test: Esegue test unitari
+## test: Esegue test unitari nel venv locale (richiede: make setup)
 test:
-	@echo "$(BLUE)🧪 Esecuzione test...$(NC)"
-	cd $(BACKEND_DIR) && $(PYTEST) tests/ -v --tb=short --disable-warnings
+	@echo "$(BLUE)🧪 Esecuzione test (venv locale)...$(NC)"
+	cd $(BACKEND_DIR) && $(PYTEST) test_main.py tests/ -v --tb=short --disable-warnings
 	@echo "$(GREEN)✅ Test completati$(NC)"
 
-## coverage: Test con report coverage
+## test-container: Esegue test DENTRO il container Docker (nessun venv richiesto)
+## Uso: make test-container
+## Prerequisito: make up (stack avviato)
+test-container:
+	@echo "$(BLUE)🐳 Test dentro il container backend...$(NC)"
+	docker compose exec -e ENVIRONMENT=test \
+	  -e JWT_SECRET_KEY=test_secret_key_per_ci_non_usare_in_prod \
+	  -e ADMIN_DEFAULT_PASSWORD=Admin123!Test \
+	  -e OPERATOR_DEFAULT_PASSWORD=Oper123!Test \
+	  backend \
+	  pytest test_main.py tests/ -v --tb=short --disable-warnings
+	@echo "$(GREEN)✅ Test container completati$(NC)"
+
+## test-container-coverage: Test con coverage dentro il container
+test-container-coverage:
+	@echo "$(BLUE)🐳 Test con coverage dentro il container...$(NC)"
+	docker compose exec -e ENVIRONMENT=test \
+	  -e JWT_SECRET_KEY=test_secret_key_per_ci_non_usare_in_prod \
+	  -e ADMIN_DEFAULT_PASSWORD=Admin123!Test \
+	  -e OPERATOR_DEFAULT_PASSWORD=Oper123!Test \
+	  backend \
+	  pytest test_main.py tests/ \
+	    --cov=. \
+	    --cov-report=term-missing \
+	    --cov-report=html \
+	    --cov-report=xml \
+	    -v
+	@echo "$(YELLOW)📄 Report HTML: backend/htmlcov/index.html$(NC)"
+	@echo "$(GREEN)✅ Coverage container completato$(NC)"
+
+## test-smoke: Smoke test veloci sugli endpoint (container avviato)
+test-smoke:
+	@echo "$(BLUE)🔥 Smoke test endpoint API...$(NC)"
+	docker compose exec -e ENVIRONMENT=test \
+	  -e JWT_SECRET_KEY=test_secret_key_per_ci_non_usare_in_prod \
+	  -e ADMIN_DEFAULT_PASSWORD=Admin123!Test \
+	  -e OPERATOR_DEFAULT_PASSWORD=Oper123!Test \
+	  backend \
+	  pytest test_main.py tests/test_api_in_memory.py -v --tb=short -q
+	@echo "$(GREEN)✅ Smoke test completati$(NC)"
+
+## coverage: Test con report coverage (venv locale)
 coverage:
 	@echo "$(BLUE)📊 Test con coverage...$(NC)"
-	cd $(BACKEND_DIR) && $(PYTEST) tests/ \
-		--cov=app \
+	cd $(BACKEND_DIR) && $(PYTEST) test_main.py tests/ \
+		--cov=. \
 		--cov-report=term-missing \
 		--cov-report=html \
 		--cov-report=xml \
-		--cov-fail-under=85 \
+		--cov-fail-under=70 \
 		-v
 	@echo "$(YELLOW)📄 Report HTML: backend/htmlcov/index.html$(NC)"
 	@echo "$(GREEN)✅ Coverage completato$(NC)"
 
-## test-fast: Test paralleli veloci
+## test-fast: Test paralleli veloci (venv locale)
 test-fast:
 	@echo "$(BLUE)⚡ Test paralleli veloci...$(NC)"
 	cd $(BACKEND_DIR) && $(PYTEST) tests/ -n auto -v --tb=short

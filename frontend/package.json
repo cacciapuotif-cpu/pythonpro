@@ -10,7 +10,7 @@
     "@testing-library/jest-dom": "^5.16.4",
     "@testing-library/react": "^13.3.0",
     "@testing-library/user-event": "^13.5.0",
-    "axios": "^1.6.0",
+    "axios": "^1.9.0",
     "date-fns": "^2.30.0",
     "framer-motion": "^10.16.4",
     "lodash.debounce": "^4.0.8",
@@ -25,7 +25,7 @@
     "react-intersection-observer": "^9.5.2",
     "react-modal": "^3.16.1",
     "react-query": "^3.39.3",
-    "react-router-dom": "^6.8.1",
+    "react-router-dom": "^6.31.0",
     "react-scripts": "5.0.1",
     "react-select": "^5.7.2",
     "react-virtualized": "^9.22.5",
@@ -47,6 +47,14 @@
       "react-app",
       "react-app/jest"
     ]
+  },
+  "overrides": {
+    "follow-redirects": "^1.15.9",
+    "brace-expansion": "^2.0.2",
+    "glob": "^10.4.5",
+    "flatted": "^3.3.2",
+    "fast-uri": "^3.2.0",
+    "@babel/plugin-transform-modules-systemjs": "^7.26.0"
   },
   "browserslist": {
     "production": [
