@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import logging
 import os
@@ -18,6 +20,20 @@ def verify_meta_webhook(*, mode: Optional[str], verify_token: Optional[str], cha
     if mode == "subscribe" and verify_token == expected and challenge is not None:
         return challenge
     return None
+
+
+def verify_hub_signature(body: bytes, signature_header: str) -> bool:
+    """Verify Meta X-Hub-Signature-256 HMAC. Returns True if valid or if secret not configured."""
+    app_secret = (os.getenv("WHATSAPP_META_APP_SECRET", "") or "").strip()
+    if not app_secret:
+        logger.warning("WHATSAPP_META_APP_SECRET not set — skipping webhook signature check")
+        return True
+    if not signature_header.startswith("sha256="):
+        return False
+    expected_sig = "sha256=" + hmac.new(
+        app_secret.encode(), body, hashlib.sha256
+    ).hexdigest()
+    return hmac.compare_digest(expected_sig, signature_header)
 
 
 def process_meta_webhook(db, payload: dict[str, Any]) -> dict[str, Any]:
@@ -100,10 +116,10 @@ def _apply_status_update(db, status_item: dict[str, Any], metadata: dict[str, An
         draft.status = "failed"
         if draft.suggestion is not None:
             draft.suggestion.status = "approved"
-            draft.suggestion.reviewed_at = datetime.utcnow()
+            draft.suggestion.reviewed_at = datetime.now(timezone.utc)
 
     draft.meta_payload = json.dumps({key: value for key, value in meta.items() if value is not None}, default=str)
-    draft.updated_at = datetime.utcnow()
+    draft.updated_at = datetime.now(timezone.utc)
 
     _append_audit_log(
         db,

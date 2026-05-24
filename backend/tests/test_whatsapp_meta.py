@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import sys
 from pathlib import Path
@@ -215,3 +217,58 @@ class TestMetaWebhookRouter:
         assert meta["conversation_origin_type"] == "utility"
         assert meta["meta_phone_number_id"] == "106540352242922"
         db.close()
+
+
+class TestWebhookSignatureVerification:
+    """Test X-Hub-Signature-256 HMAC verification on POST /webhook."""
+
+    _SECRET = "test_app_secret_for_hmac_verification"
+    _PAYLOAD = json.dumps({"object": "whatsapp_business_account", "entry": []}).encode()
+
+    def _make_sig(self, body: bytes, secret: str) -> str:
+        return "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+
+    def test_valid_signature_accepted(self, whatsapp_client, monkeypatch):
+        client, _ = whatsapp_client
+        monkeypatch.setenv("WHATSAPP_META_APP_SECRET", self._SECRET)
+        sig = self._make_sig(self._PAYLOAD, self._SECRET)
+        response = client.post(
+            "/api/v1/whatsapp/webhook",
+            content=self._PAYLOAD,
+            headers={"Content-Type": "application/json", "X-Hub-Signature-256": sig},
+        )
+        assert response.status_code == 200
+
+    def test_missing_signature_rejected(self, whatsapp_client, monkeypatch):
+        client, _ = whatsapp_client
+        monkeypatch.setenv("WHATSAPP_META_APP_SECRET", self._SECRET)
+        response = client.post(
+            "/api/v1/whatsapp/webhook",
+            content=self._PAYLOAD,
+            headers={"Content-Type": "application/json"},
+        )
+        assert response.status_code == 403
+
+    def test_invalid_signature_rejected(self, whatsapp_client, monkeypatch):
+        client, _ = whatsapp_client
+        monkeypatch.setenv("WHATSAPP_META_APP_SECRET", self._SECRET)
+        response = client.post(
+            "/api/v1/whatsapp/webhook",
+            content=self._PAYLOAD,
+            headers={
+                "Content-Type": "application/json",
+                "X-Hub-Signature-256": "sha256=deadbeefdeadbeefdeadbeefdeadbeef",
+            },
+        )
+        assert response.status_code == 403
+
+    def test_no_secret_configured_passes_through(self, whatsapp_client, monkeypatch):
+        """When WHATSAPP_META_APP_SECRET is unset, webhook is accepted (backward compat)."""
+        client, _ = whatsapp_client
+        monkeypatch.delenv("WHATSAPP_META_APP_SECRET", raising=False)
+        response = client.post(
+            "/api/v1/whatsapp/webhook",
+            content=self._PAYLOAD,
+            headers={"Content-Type": "application/json"},
+        )
+        assert response.status_code == 200
