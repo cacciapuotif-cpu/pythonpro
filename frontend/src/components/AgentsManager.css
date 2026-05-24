@@ -744,3 +744,217 @@
     padding: 8px 14px;
   }
 }
+
+/* ── Kanban agenti ───────────────────────────────────────────────────────── */
+.am-kanban-summary {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 14px;
+  color: #4f6579;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.am-kanban {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(230px, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+
+.am-kanban-column {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: rgba(255, 255, 255, 0.58);
+  border: 1px solid rgba(22, 50, 79, 0.08);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.am-kanban-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 30px;
+}
+
+.am-kanban-badge {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  line-height: 1.1;
+  white-space: normal;
+}
+
+.am-kanban-badge.blue { background: #e6f0ff; color: #185abc; }
+.am-kanban-badge.yellow { background: #fff5cf; color: #8a5b00; }
+.am-kanban-badge.orange { background: #ffe8d4; color: #9a4d00; }
+.am-kanban-badge.green { background: #dcf5ea; color: #176b45; }
+
+.am-kanban-card {
+  border-radius: 8px;
+  padding: 14px;
+  box-shadow: none;
+}
+
+.am-card-text {
+  margin: 0;
+  color: #4f6579;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.am-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.am-chip {
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: rgba(22, 50, 79, 0.08);
+  color: #40576d;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.am-empty-column {
+  padding: 16px 10px;
+  text-align: center;
+  color: #7a90a0;
+  font-size: 0.88rem;
+  border: 1px dashed rgba(22, 50, 79, 0.16);
+  border-radius: 8px;
+}
+
+.am-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: #4f6579;
+  font-weight: 700;
+}
+
+.am-field input,
+.am-archive-filters input {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid rgba(22, 50, 79, 0.18);
+  border-radius: 8px;
+  padding: 7px 9px;
+  font: inherit;
+  color: #16324f;
+  background: #fff;
+}
+
+.am-followup-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid rgba(22, 50, 79, 0.1);
+  border-radius: 8px;
+  background: rgba(245, 248, 251, 0.8);
+}
+
+.am-small-label {
+  color: #4f6579;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.am-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #354c61;
+  font-size: 0.86rem;
+}
+
+.am-check input {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+
+.am-archive {
+  margin-top: 18px;
+  border-top: 1px solid rgba(22, 50, 79, 0.1);
+  padding-top: 14px;
+}
+
+.am-archive-toggle {
+  width: 100%;
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid rgba(22, 50, 79, 0.12);
+  border-radius: 8px;
+  background: #fff;
+  color: #16324f;
+  padding: 0 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.am-archive-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.am-archive-filters {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) 170px;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.am-archive-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) minmax(160px, 2fr) 150px;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid rgba(22, 50, 79, 0.08);
+  border-radius: 8px;
+  background: #fff;
+  color: #40576d;
+  font-size: 0.88rem;
+}
+
+.am-archive-row strong {
+  color: #16324f;
+}
+
+@media (max-width: 1180px) {
+  .am-kanban {
+    grid-template-columns: repeat(2, minmax(240px, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .am-topbar,
+  .am-topbar-right,
+  .am-kanban-summary {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .am-kanban,
+  .am-archive-filters,
+  .am-archive-row {
+    grid-template-columns: 1fr;
+  }
+}

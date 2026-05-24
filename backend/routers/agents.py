@@ -10,13 +10,14 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 import crud
 import models
 import schemas
-from agent_workflows import apply_workflow_action, run_agent_workflow
+from agent_workflows import AgentWorkflowExecutionError, apply_workflow_action, run_agent_workflow
 from ai_agents import list_agent_definitions
 from ai_agents.llm import probe_agent_llm_health
 from ai_agents.registry import agent_registry
 from database import get_db
 
 router = APIRouter(prefix="/api/v1/agents", tags=["Agents"])
+suggestion_actions_router = APIRouter(prefix="/api/v1/agent-suggestions", tags=["Agent Suggestions"])
 logger = logging.getLogger(__name__)
 
 
@@ -36,6 +37,11 @@ class BulkReviewPayload(BaseModel):
 class CommunicationStatusPayload(BaseModel):
     status: str
     reviewed_by_user_id: Optional[int] = None
+
+
+class SendEmailPayload(BaseModel):
+    reviewed_by_user_id: Optional[int] = None
+    notes: Optional[str] = None
 
 
 def _run_query(db: Session):
@@ -154,15 +160,26 @@ def run_agent_via_workflow(payload: schemas.AgentRunRequest, db: Session = Depen
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    except AgentWorkflowExecutionError as exc:
+        raise HTTPException(status_code=500, detail=f"Esecuzione agente fallita: {exc}")
     return crud.get_agent_run(db, run.id)
 
 
 @router.post("/{agent_type}/run", response_model=schemas.AgentRun)
 def run_agent_manually(agent_type: str, db: Session = Depends(get_db)):
     try:
-        run = agent_registry.run_agent(db, agent_type=agent_type, triggered_by="manual")
+        run = run_agent_workflow(
+            db,
+            agent_type=agent_type,
+            entity_type=None,
+            entity_id=None,
+            requested_by_user_id=None,
+            input_payload={},
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+    except AgentWorkflowExecutionError as exc:
+        raise HTTPException(status_code=500, detail=f"Esecuzione agente fallita: {exc}")
     return crud.get_agent_run(db, run.id)
 
 
@@ -414,6 +431,26 @@ def update_communication_status(
     db.commit()
     db.refresh(draft)
     return draft
+
+
+@suggestion_actions_router.post("/{suggestion_id}/send-email", response_model=schemas.AgentSuggestionWithDetails)
+def send_suggestion_email(
+    suggestion_id: int,
+    payload: SendEmailPayload,
+    db: Session = Depends(get_db),
+):
+    try:
+        return apply_workflow_action(
+            db,
+            suggestion_id=suggestion_id,
+            action="approve_email",
+            reviewed_by_user_id=payload.reviewed_by_user_id,
+            notes=payload.notes,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except AgentWorkflowExecutionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.post("/suggestions/bulk-review", response_model=List[schemas.AgentSuggestion])

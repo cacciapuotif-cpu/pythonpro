@@ -10,7 +10,8 @@ import logging
 
 from auth import (
     authenticate_user, SecurityUtils, get_current_user, User,
-    ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_DAYS
+    ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_DAYS,
+    rate_limit,
 )
 from database import get_db
 
@@ -19,6 +20,7 @@ router = APIRouter(prefix="/api/v1/auth", tags=["Authentication"])
 
 
 @router.post("/login")
+@rate_limit(max_requests=5, window_seconds=300)
 async def login(
     request: Request,
     username: str = Form(...),
@@ -72,6 +74,7 @@ def get_me(current_user: User = Depends(get_current_user)):
 
 
 @router.post("/refresh")
+@rate_limit(max_requests=20, window_seconds=300)
 def refresh_token(
     refresh_token: str = Form(...),
     db: Session = Depends(get_db)

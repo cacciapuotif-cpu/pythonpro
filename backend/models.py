@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Table, Text, Float, Index, Boolean, UniqueConstraint, text, event
+from sqlalchemy import Column, Integer, String, DateTime, Date, ForeignKey, Table, Text, Float, Index, Boolean, UniqueConstraint, JSON, text, event
 from sqlalchemy.orm import relationship, validates, foreign
 from sqlalchemy.sql import func
 from sqlalchemy.ext.hybrid import hybrid_property
@@ -17,12 +17,19 @@ collaborator_project = Table(
     Column('project_id', Integer, ForeignKey('projects.id', ondelete="CASCADE"), primary_key=True)
 )
 
-allievo_project = Table(
-    'allievo_project',
-    Base.metadata,
-    Column('allievo_id', Integer, ForeignKey('allievi.id', ondelete="CASCADE"), primary_key=True),
-    Column('project_id', Integer, ForeignKey('projects.id', ondelete="CASCADE"), primary_key=True)
-)
+class AllievoProject(Base):
+    __tablename__ = 'allievo_project'
+
+    allievo_id = Column(Integer, ForeignKey('allievi.id', ondelete="CASCADE"), primary_key=True)
+    project_id = Column(Integer, ForeignKey('projects.id', ondelete="CASCADE"), primary_key=True)
+    id = Column(Integer, nullable=True)
+    ore_frequentate = Column(Float, default=0.0, nullable=True)
+    stato = Column(String(30), default='iscritto', nullable=True)
+    attestato_emesso = Column(Boolean, default=False, nullable=True)
+    note = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=True)
+
+allievo_project = AllievoProject.__table__
 
 class Collaborator(Base):
     __tablename__ = "collaborators"
@@ -181,7 +188,8 @@ class Project(Base):
     start_date = Column(DateTime, index=True)
     end_date = Column(DateTime, index=True)
     status = Column(String(20), default="active", index=True)
-    cup = Column(String(15), index=True)
+    cup = Column(String(50), index=True)
+    id_piano_esterno = Column(String(50), nullable=True, index=True)
     atto_approvazione = Column(String(255))
     sede_aziendale_comune = Column(String(100))
     sede_aziendale_via = Column(String(200))
@@ -194,11 +202,18 @@ class Project(Base):
         nullable=True,
         index=True,
     )
-    avviso_pf_id = Column(Integer, ForeignKey("avvisi_piani_finanziari.id", ondelete="SET NULL"), nullable=True, index=True)
-    template_piano_finanziario_id = Column(Integer, ForeignKey("template_piani_finanziari.id", ondelete="SET NULL"), nullable=True, index=True)
-
     # FK verso ImplementingEntity (Ente Attuatore)
     ente_attuatore_id = Column(Integer, ForeignKey("implementing_entities.id", ondelete="SET NULL"), nullable=True, index=True)
+
+    # Campi FAPI
+    codice_fapi = Column(String(30), unique=True, nullable=True, index=True)
+    delibera_numero = Column(String(20), nullable=True)
+    delibera_data = Column(Date, nullable=True)
+    data_approvazione = Column(Date, nullable=True)
+    costo_totale = Column(Float, nullable=True)
+    contributo_ente = Column(Float, nullable=True)
+    cofinanziamento = Column(Float, nullable=True)
+    convenzione_file_path = Column(String(500), nullable=True)
 
     # Campi per performance
     priority = Column(Integer, default=1, index=True)
@@ -219,11 +234,8 @@ class Project(Base):
     azienda_links = relationship("AziendaClienteProjectLink", back_populates="project", lazy="select")
     aziende_coinvolte = relationship("AziendaCliente", secondary="azienda_cliente_projects", lazy="select", viewonly=True)
     ente_attuatore = relationship("ImplementingEntity", back_populates="projects", lazy="select")
-    template_piano_finanziario = relationship("TemplatePianoFinanziario", foreign_keys=[template_piano_finanziario_id], lazy="select")
     avviso_rel = relationship("Avviso", back_populates="projects", lazy="select")
-    avviso_pf = relationship("AvvisoPianoFinanziario", foreign_keys="Project.avviso_pf_id", back_populates="progetti", lazy="select")
     piani_finanziari = relationship("PianoFinanziario", back_populates="progetto", lazy="select", cascade="all, delete-orphan")
-    piani_fondimpresa = relationship("PianoFinanziarioFondimpresa", back_populates="progetto", lazy="select", cascade="all, delete-orphan")
 
     # Proprietà calcolate
     @hybrid_property
@@ -241,21 +253,10 @@ class Project(Base):
 
     @property
     def resolved_ente_erogatore(self):
-        if self.avviso_pf and self.avviso_pf.template:
-            tipo_fondo = (self.avviso_pf.template.tipo_fondo or "").strip().lower()
-            mapping = {
-                "formazienda": "FORMAZIENDA",
-                "fapi": "FAPI",
-                "fondimpresa": "FONDIMPRESA",
-                "fse": "FSE",
-            }
-            return mapping.get(tipo_fondo, (self.avviso_pf.template.tipo_fondo or "").upper() or None)
         return self.ente_erogatore
 
     @property
     def resolved_avviso(self):
-        if self.avviso_pf:
-            return self.avviso_pf.codice_avviso
         return self.avviso
 
     @property
@@ -295,115 +296,10 @@ class Avviso(Base):
         lazy="select",
         viewonly=True,
     )
-    piani_fondimpresa = relationship("PianoFinanziarioFondimpresa", back_populates="avviso_rel", lazy="select")
 
     __table_args__ = (
         Index("idx_unique_avvisi_codice_ente", "codice", "ente_erogatore", unique=True),
     )
-
-
-class TemplatePianoFinanziario(Base):
-    """
-    Template dedicato ai piani finanziari della formazione finanziata.
-    Mantiene separato il dominio dei template economici da quello dei contratti.
-    """
-    __tablename__ = "template_piani_finanziari"
-
-    id = Column(Integer, primary_key=True, index=True)
-    codice = Column(String(50), unique=True, nullable=False)
-    nome = Column(String(200), nullable=False)
-    tipo_fondo = Column(String(50), nullable=False, index=True)
-    versione = Column(String(20), default="1.0")
-    descrizione = Column(Text)
-    note_compilazione = Column(Text)
-    categorie_spesa = Column(Text)
-    percentuale_max_docenza = Column(Float, default=100.0)
-    percentuale_max_coordinamento = Column(Float, default=15.0)
-    percentuale_max_materiali = Column(Float, default=20.0)
-    ore_minime_corso = Column(Integer, default=8)
-    ore_massime_corso = Column(Integer, default=200)
-    is_active = Column(Boolean, default=True, index=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-
-    avvisi = relationship("AvvisoPianoFinanziario", back_populates="template", lazy="select", cascade="all, delete-orphan")
-    piani = relationship("PianoFinanziario", back_populates="template", lazy="select")
-
-    @validates("tipo_fondo")
-    def validate_tipo_fondo(self, key, valore):
-        tipi_validi = ["formazienda", "fapi", "fondimpresa", "fse", "altro"]
-        if valore not in tipi_validi:
-            raise ValueError(f"tipo_fondo deve essere uno di: {tipi_validi}")
-        return valore
-
-    __table_args__ = (
-        Index("idx_template_piano_tipo_fondo", "tipo_fondo"),
-        Index("idx_template_piano_active", "is_active"),
-    )
-
-    def __repr__(self):
-        return f"<TemplatePianoFinanziario {self.codice} ({self.tipo_fondo})>"
-
-
-class AvvisoPianoFinanziario(Base):
-    """
-    Avviso/bando associato a un template di piano finanziario.
-    Ogni template può avere molteplici avvisi nel tempo.
-    """
-    __tablename__ = "avvisi_piani_finanziari"
-
-    id = Column(Integer, primary_key=True, index=True)
-    template_id = Column(Integer, ForeignKey("template_piani_finanziari.id", ondelete="CASCADE"), nullable=False, index=True)
-    codice_avviso = Column(String(100), unique=True, nullable=False)
-    titolo = Column(String(300), nullable=False)
-    descrizione = Column(Text)
-    data_apertura = Column(DateTime(timezone=True), nullable=False)
-    data_chiusura = Column(DateTime(timezone=True), nullable=False)
-    data_rendicontazione = Column(DateTime(timezone=True))
-    budget_totale_avviso = Column(Float)
-    budget_max_progetto = Column(Float)
-    budget_min_progetto = Column(Float)
-    ore_minime = Column(Integer)
-    ore_massime = Column(Integer)
-    partecipanti_min = Column(Integer)
-    partecipanti_max = Column(Integer)
-    costo_ora_formazione_max = Column(Float)
-    costo_ora_docenza_max = Column(Float)
-    costo_ora_tutoraggio_max = Column(Float)
-    costo_ora_coordinamento_max = Column(Float)
-    documenti_richiesti = Column(Text)
-    stato = Column(String(20), default="aperto", index=True)
-    is_active = Column(Boolean, default=True, index=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-
-    template = relationship("TemplatePianoFinanziario", back_populates="avvisi", lazy="joined")
-    piani = relationship("PianoFinanziario", back_populates="avviso_piano", lazy="select")
-    progetti = relationship("Project", foreign_keys="Project.avviso_pf_id", back_populates="avviso_pf", lazy="select")
-
-    @validates("stato")
-    def validate_stato(self, key, valore):
-        stati_validi = ["bozza", "aperto", "chiuso", "rendicontato"]
-        if valore not in stati_validi:
-            raise ValueError(f"stato deve essere uno di: {stati_validi}")
-        return valore
-
-    __table_args__ = (
-        Index("idx_avviso_piano_template", "template_id"),
-        Index("idx_avviso_piano_stato", "stato"),
-        Index("idx_avviso_piano_date", "data_apertura", "data_chiusura"),
-    )
-
-    def __repr__(self):
-        return f"<AvvisoPianoFinanziario {self.codice_avviso}>"
-
-    @property
-    def is_open(self):
-        from datetime import datetime
-
-        now = datetime.now()
-        return self.data_apertura <= now <= self.data_chiusura and self.stato == "aperto"
-
 
 class Attendance(Base):
     __tablename__ = "attendances"
@@ -468,7 +364,10 @@ class Assignment(Base):
     project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
 
     # Informazioni dell'assegnazione
-    role = Column(String(50), nullable=False, index=True)
+    role = Column(String(300), nullable=False, index=True)
+    modulo_formativo_id = Column(Integer, ForeignKey("moduli_formativi.id", ondelete="SET NULL"), nullable=True, index=True)
+    materia = Column(String(200), nullable=True)
+    modalita_erogazione = Column(String(30), nullable=True, index=True)
     assigned_hours = Column(Float, nullable=False)
     start_date = Column(DateTime, nullable=False, index=True)
     end_date = Column(DateTime, nullable=False, index=True)
@@ -488,6 +387,7 @@ class Assignment(Base):
     # Relazioni
     collaborator = relationship("Collaborator", back_populates="assignments")
     project = relationship("Project", back_populates="assignments")
+    modulo_formativo = relationship("ModuloFormativo", lazy="select")
 
     # Proprietà calcolate
     @hybrid_property
@@ -844,8 +744,6 @@ class PianoFinanziario(Base):
     progetto_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
     legacy_template_id = Column(Integer, nullable=True)
     legacy_avviso_id = Column(Integer, nullable=True)
-    template_id = Column(Integer, ForeignKey("template_piani_finanziari.id", ondelete="SET NULL"), nullable=True, index=True)
-    avviso_id = Column(Integer, ForeignKey("avvisi_piani_finanziari.id", ondelete="SET NULL"), nullable=True, index=True)
     anno = Column(Integer, nullable=False, index=True)
     ente_erogatore = Column(String(100), nullable=False, default="Formazienda")
     avviso = Column(String(100), nullable=False, default="")
@@ -880,8 +778,6 @@ class PianoFinanziario(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     progetto = relationship("Project", back_populates="piani_finanziari", lazy="joined")
-    template = relationship("TemplatePianoFinanziario", back_populates="piani", lazy="joined")
-    avviso_piano = relationship("AvvisoPianoFinanziario", back_populates="piani", lazy="joined")
     voci = relationship("VocePianoFinanziario", back_populates="piano", lazy="select", cascade="all, delete-orphan")
 
     @validates('tipo_fondo')
@@ -899,11 +795,10 @@ class PianoFinanziario(Base):
         return valore
 
     __table_args__ = (
-        UniqueConstraint("progetto_id", "anno", "avviso_id", name="uq_piano_progetto_anno_avviso"),
+        UniqueConstraint("progetto_id", "anno", "codice_piano", name="uq_piano_progetto_anno_codice"),
         Index("idx_piano_progetto_stato", "progetto_id", "stato"),
         Index("idx_piano_fondo_stato", "tipo_fondo", "stato"),
         Index("idx_piano_date", "data_inizio", "data_fine"),
-        Index("idx_piano_template_avviso", "template_id", "avviso_id"),
     )
 
     def __repr__(self):
@@ -928,6 +823,7 @@ class VocePianoFinanziario(Base):
     piano_id = Column(Integer, ForeignKey("piani_finanziari.id", ondelete="CASCADE"), nullable=False, index=True)
     collaborator_id = Column(Integer, ForeignKey("collaborators.id", ondelete="SET NULL"), nullable=True, index=True)
     assignment_id = Column(Integer, ForeignKey("assignments.id", ondelete="SET NULL"), nullable=True, index=True)
+    modulo_formativo_id = Column(Integer, ForeignKey("moduli_formativi.id", ondelete="SET NULL"), nullable=True, index=True)
     macrovoce = Column(String(1), nullable=False, index=True)
     voce_codice = Column(String(10), nullable=False, index=True)
     categoria = Column(String(100), nullable=True, index=True)
@@ -955,6 +851,7 @@ class VocePianoFinanziario(Base):
     piano = relationship("PianoFinanziario", back_populates="voci", lazy="select")
     collaborator = relationship("Collaborator", foreign_keys=[collaborator_id], lazy="select")
     assignment = relationship("Assignment", backref="voci_piano", lazy="select")
+    modulo_formativo = relationship("ModuloFormativo", lazy="select")
 
     # Alias italiano per compatibilità con l'interfaccia richiesta
     @property
@@ -1015,6 +912,7 @@ class VocePianoFinanziario(Base):
         Index("idx_voci_piano_categoria", "piano_id", "categoria"),
         Index("idx_voci_piano_assignment", "assignment_id"),
         Index("idx_voci_piano_mansione", "mansione_riferimento"),
+        Index("idx_voci_piano_modulo", "modulo_formativo_id"),
     )
 
     def __repr__(self):
@@ -1036,145 +934,6 @@ class VocePianoFinanziario(Base):
         self.importo_presentato = self.importo_consuntivo
         if self.importo_consuntivo > 0 and self.stato == "previsto":
             self.stato = "in_corso"
-
-
-class PianoFinanziarioFondimpresa(Base):
-    __tablename__ = "piani_finanziari_fondimpresa"
-
-    id = Column(Integer, primary_key=True, index=True)
-    progetto_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
-    avviso_id = Column(Integer, ForeignKey("avvisi.id", ondelete="SET NULL"), nullable=True, index=True)
-    anno = Column(Integer, nullable=False, index=True)
-    ente_erogatore = Column(String(100), nullable=False, default="Fondimpresa")
-    tipo_conto = Column(String(50), nullable=False, default="conto_formazione")
-    totale_preventivo = Column(Float, nullable=False, default=0.0)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-
-    progetto = relationship("Project", back_populates="piani_fondimpresa", lazy="joined")
-    avviso_rel = relationship("Avviso", back_populates="piani_fondimpresa", lazy="joined")
-    voci = relationship("VoceFondimpresa", back_populates="piano", lazy="select", cascade="all, delete-orphan")
-    dettaglio_budget = relationship("DettaglioBudgetFondimpresa", back_populates="piano", uselist=False, lazy="select", cascade="all, delete-orphan")
-
-    __table_args__ = (
-        Index("idx_unique_piano_fondimpresa_progetto_anno", "progetto_id", "anno", unique=True),
-    )
-
-
-class VoceFondimpresa(Base):
-    __tablename__ = "voci_fondimpresa"
-
-    id = Column(Integer, primary_key=True, index=True)
-    piano_id = Column(Integer, ForeignKey("piani_finanziari_fondimpresa.id", ondelete="CASCADE"), nullable=False, index=True)
-    sezione = Column(String(1), nullable=False, index=True)
-    voce_codice = Column(String(20), nullable=False, index=True)
-    descrizione = Column(String(255), nullable=False)
-    note_temporali = Column(Text)
-    totale_voce = Column(Float, nullable=False, default=0.0)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-
-    piano = relationship("PianoFinanziarioFondimpresa", back_populates="voci", lazy="select")
-    righe_nominativo = relationship("RigaNominativoFondimpresa", back_populates="voce", lazy="select", cascade="all, delete-orphan")
-    documenti = relationship("DocumentoFondimpresa", back_populates="voce", lazy="select", cascade="all, delete-orphan")
-
-    __table_args__ = (
-        Index("idx_voci_fondimpresa_sezione", "piano_id", "sezione"),
-        Index("idx_voci_fondimpresa_codice", "piano_id", "voce_codice"),
-    )
-
-
-class RigaNominativoFondimpresa(Base):
-    __tablename__ = "righe_nominativo_fondimpresa"
-
-    id = Column(Integer, primary_key=True, index=True)
-    voce_id = Column(Integer, ForeignKey("voci_fondimpresa.id", ondelete="CASCADE"), nullable=False, index=True)
-    collaborator_id = Column(Integer, ForeignKey("collaborators.id", ondelete="SET NULL"), nullable=True, index=True)
-    nominativo = Column(String(255), nullable=False)
-    ore = Column(Float, nullable=False, default=0.0)
-    costo_orario = Column(Float, nullable=False, default=0.0)
-    totale = Column(Float, nullable=False, default=0.0)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-
-    voce = relationship("VoceFondimpresa", back_populates="righe_nominativo", lazy="select")
-    collaborator = relationship("Collaborator", foreign_keys=[collaborator_id], lazy="select")
-
-
-class DocumentoFondimpresa(Base):
-    __tablename__ = "documenti_fondimpresa"
-
-    id = Column(Integer, primary_key=True, index=True)
-    voce_id = Column(Integer, ForeignKey("voci_fondimpresa.id", ondelete="CASCADE"), nullable=False, index=True)
-    tipo_documento = Column(String(100), nullable=True)
-    numero_documento = Column(String(100), nullable=True)
-    data_documento = Column(DateTime, nullable=True)
-    importo_totale = Column(Float, nullable=False, default=0.0)
-    importo_imputato = Column(Float, nullable=False, default=0.0)
-    data_pagamento = Column(DateTime, nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-
-    voce = relationship("VoceFondimpresa", back_populates="documenti", lazy="select")
-
-
-class DettaglioBudgetFondimpresa(Base):
-    __tablename__ = "dettaglio_budget_fondimpresa"
-
-    id = Column(Integer, primary_key=True, index=True)
-    piano_id = Column(Integer, ForeignKey("piani_finanziari_fondimpresa.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-
-    piano = relationship("PianoFinanziarioFondimpresa", back_populates="dettaglio_budget", lazy="select")
-    consulenti = relationship("BudgetConsulenteFondimpresa", back_populates="budget", lazy="select", cascade="all, delete-orphan")
-    costi_fissi = relationship("BudgetCostoFissoFondimpresa", back_populates="budget", lazy="select", cascade="all, delete-orphan")
-    margini = relationship("BudgetMargineFondimpresa", back_populates="budget", lazy="select", cascade="all, delete-orphan")
-
-
-class BudgetConsulenteFondimpresa(Base):
-    __tablename__ = "budget_consulenti_fondimpresa"
-
-    id = Column(Integer, primary_key=True, index=True)
-    budget_id = Column(Integer, ForeignKey("dettaglio_budget_fondimpresa.id", ondelete="CASCADE"), nullable=False, index=True)
-    collaborator_id = Column(Integer, ForeignKey("collaborators.id", ondelete="SET NULL"), nullable=True, index=True)
-    nominativo = Column(String(255), nullable=False)
-    ore = Column(Float, nullable=False, default=0.0)
-    costo_orario = Column(Float, nullable=False, default=0.0)
-    totale = Column(Float, nullable=False, default=0.0)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-
-    budget = relationship("DettaglioBudgetFondimpresa", back_populates="consulenti", lazy="select")
-    collaborator = relationship("Collaborator", foreign_keys=[collaborator_id], lazy="select")
-
-
-class BudgetCostoFissoFondimpresa(Base):
-    __tablename__ = "budget_costi_fissi_fondimpresa"
-
-    id = Column(Integer, primary_key=True, index=True)
-    budget_id = Column(Integer, ForeignKey("dettaglio_budget_fondimpresa.id", ondelete="CASCADE"), nullable=False, index=True)
-    tipologia = Column(String(255), nullable=False)
-    parametro = Column(String(255), nullable=True)
-    totale = Column(Float, nullable=False, default=0.0)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-
-    budget = relationship("DettaglioBudgetFondimpresa", back_populates="costi_fissi", lazy="select")
-
-
-class BudgetMargineFondimpresa(Base):
-    __tablename__ = "budget_margine_fondimpresa"
-
-    id = Column(Integer, primary_key=True, index=True)
-    budget_id = Column(Integer, ForeignKey("dettaglio_budget_fondimpresa.id", ondelete="CASCADE"), nullable=False, index=True)
-    tipologia = Column(String(255), nullable=False)
-    percentuale = Column(Float, nullable=False, default=0.0)
-    totale = Column(Float, nullable=False, default=0.0)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-
-    budget = relationship("DettaglioBudgetFondimpresa", back_populates="margini", lazy="select")
 
 
 class Prodotto(Base):
@@ -1373,14 +1132,25 @@ class AziendaCliente(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     ragione_sociale = Column(String(200), nullable=False, index=True)
+    natura_giuridica = Column(String(50))
     partita_iva = Column(String(11), unique=True, index=True)
     codice_fiscale = Column(String(16), index=True)
     settore_ateco = Column(String(10))
+    settore_codice = Column(String(10))
+    settore_descrizione = Column(String(255))
     attivita_erogate = Column(Text)
     indirizzo = Column(String(200))
     citta = Column(String(100), index=True)
     cap = Column(String(5))
     provincia = Column(String(2))
+    sede_legale_indirizzo = Column(String(255))
+    sede_legale_cap = Column(String(5))
+    sede_legale_comune = Column(String(100))
+    sede_legale_provincia = Column(String(100))
+    sede_operativa_indirizzo = Column(String(255))
+    sede_operativa_cap = Column(String(5))
+    sede_operativa_comune = Column(String(100))
+    sede_operativa_provincia = Column(String(100))
     email = Column(String(100))
     pec = Column(String(100))
     telefono = Column(String(20))
@@ -1410,6 +1180,11 @@ class AziendaCliente(Base):
     referente_facebook = Column(String(255))
     referente_instagram = Column(String(255))
     referente_tiktok = Column(String(255))
+    matricola_inps = Column(String(30))
+    anno_adesione = Column(String(4))
+    regime_aiuto_default = Column(String(30))
+    num_dipendenti = Column(Integer)
+    ccnl_prevalente = Column(String(255))
     agenzia_id = Column(Integer, ForeignKey("agenzie.id", ondelete="SET NULL"), nullable=True, index=True)
     consulente_id = Column(Integer, ForeignKey("consulenti.id", ondelete="SET NULL"), nullable=True, index=True)
     note = Column(Text)
@@ -1580,6 +1355,12 @@ class AziendaClienteProjectLink(Base):
     azienda_cliente_id = Column(Integer, ForeignKey("aziende_clienti.id", ondelete="CASCADE"), nullable=False, index=True)
     project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    regime_aiuto = Column(String(30), nullable=True)
+    cofinanziamento_perc = Column(Float, nullable=True)
+    dichiarazione_de_minimis = Column(String(500), nullable=True)
+    plafond_dichiarato = Column(Float, nullable=True)
+    stato = Column(String(30), nullable=True, default='in_attesa')
+    note = Column(Text, nullable=True)
 
     azienda = relationship("AziendaCliente", back_populates="project_links", lazy="select")
     project = relationship("Project", back_populates="azienda_links", lazy="select")
@@ -1773,6 +1554,23 @@ class Ordine(Base):
 
     __table_args__ = (
         Index('idx_ordine_anno_prog', 'anno', 'numero_progressivo', unique=True),
+    )
+
+
+class DocumentCounter(Base):
+    """Contatore persistente per numerazioni documentali concorrenti."""
+    __tablename__ = "document_counters"
+
+    id = Column(Integer, primary_key=True, index=True)
+    document_type = Column(String(20), nullable=False)
+    anno = Column(Integer, nullable=False, index=True)
+    last_number = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("document_type", "anno", name="uq_document_counter_type_anno"),
+        Index("idx_document_counter_type_anno", "document_type", "anno", unique=True),
     )
 
 
@@ -2067,7 +1865,8 @@ class AgentRun(Base):
     suggestions_created = Column(Integer, nullable=False, default=0)
     error_message = Column(Text, nullable=True)
     execution_time_ms = Column(Integer, nullable=True)
-    metadata_json = Column("metadata", Text, nullable=True)
+    metadata_json = Column("agent_metadata", Text, nullable=True)
+    idempotency_key = Column(String(64), nullable=True, unique=True, index=True)
 
     suggestions = relationship(
         "AgentSuggestion",
@@ -2161,6 +1960,10 @@ class AgentReviewAction(Base):
 
     suggestion = relationship("AgentSuggestion", back_populates="review_actions", lazy="select")
 
+    @property
+    def created_at(self):
+        return self.reviewed_at
+
 
 class AgentCommunicationDraft(Base):
     """Bozza comunicazione generata da agente, da revisionare prima dell'invio."""
@@ -2206,4 +2009,74 @@ class EmailInboxItem(Base):
     reply_sent = Column(Boolean, server_default=text("false"), nullable=False)
     reply_sent_at = Column(DateTime(timezone=True), nullable=True)
     error_message = Column(Text, nullable=True)
+    archived = Column(Boolean, server_default=text("false"), nullable=False, index=True)
+    archived_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+
+
+class TimesheetGenerato(Base):
+    """Timesheet PDF generato per un assignment. Bloccato dopo generazione."""
+    __tablename__ = "timesheet_generati"
+
+    id = Column(Integer, primary_key=True, index=True)
+    assignment_id = Column(Integer, ForeignKey("assignments.id", ondelete="CASCADE"), nullable=False, index=True)
+    pdf_path = Column(String(500), nullable=False)
+    pdf_filename = Column(String(255), nullable=False)
+    generato_il = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    generato_da = Column(String(100), nullable=True)
+    bloccato = Column(Boolean, nullable=False, default=True)
+    sbloccato_da = Column(String(100), nullable=True)
+    sbloccato_il = Column(DateTime(timezone=True), nullable=True)
+    note = Column(Text, nullable=True)
+
+    assignment = relationship("Assignment", backref="timesheet_generati", lazy="select")
+
+
+class DatiRetributivi(Base):
+    """Dati retributivi di un allievo per un progetto specifico."""
+    __tablename__ = "dati_retributivi"
+
+    id = Column(Integer, primary_key=True, index=True)
+    allievo_id = Column(Integer, ForeignKey("allievi.id", ondelete="CASCADE"), nullable=False, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    ral_annua = Column(Float, nullable=True)
+    costo_orario = Column(Float, nullable=True)
+    ore_1720 = Column(Float, nullable=True, default=1720)
+    busta_paga_path = Column(String(500), nullable=True)
+    busta_paga_filename = Column(String(255), nullable=True)
+    periodo_riferimento = Column(String(50), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=True)
+
+    allievo = relationship("Allievo", backref="dati_retributivi", lazy="select")
+    project = relationship("Project", backref="dati_retributivi", lazy="select")
+
+    __table_args__ = (
+        UniqueConstraint("allievo_id", "project_id", name="uq_dati_retributivi_allievo_project"),
+    )
+
+
+class ModuloFormativo(Base):
+    """Modulo formativo estratto dal formulario FAPI di un progetto."""
+    __tablename__ = "moduli_formativi"
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    azienda_beneficiaria_id = Column(Integer, ForeignKey("aziende_clienti.id", ondelete="SET NULL"), nullable=True, index=True)
+    codice_progetto_fapi = Column(String(30), nullable=True, index=True)
+    titolo_modulo = Column(String(300), nullable=False)
+    materia = Column(String(200), nullable=True)
+    modalita_erogazione = Column(String(30), nullable=True, index=True)
+    # aula | fad_sincrona | fad_asincrona | training_on_job | propedeutica
+    tipo_attivita = Column(String(20), nullable=False, default="formativa", index=True)
+    # formativa | propedeutica
+    ore_previste = Column(Float, nullable=True)
+    obiettivo = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    project = relationship("Project", backref="moduli_formativi", lazy="select")
+    azienda_beneficiaria = relationship("AziendaCliente", backref="moduli_formativi", lazy="select")
+
+    __table_args__ = (
+        Index("idx_modulo_project_codice", "project_id", "codice_progetto_fapi"),
+    )

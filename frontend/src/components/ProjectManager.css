@@ -1099,3 +1099,104 @@
   color: #7f8c8d;
   font-style: italic;
 }
+
+.moduli-formativi-section {
+  margin-top: 14px;
+  padding: 14px 0 0;
+  border-top: 1px solid var(--color-border-tertiary);
+}
+
+.moduli-formativi-header,
+.moduli-fapi-title,
+.moduli-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.moduli-formativi-header h4 {
+  margin: 0;
+  font-size: 15px;
+  color: var(--color-text-primary);
+}
+
+.moduli-formativi-header span,
+.moduli-fapi-title small,
+.moduli-footer,
+.moduli-loading,
+.moduli-empty,
+.moduli-error {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.moduli-formativi-header strong {
+  font-size: 12px;
+  color: var(--color-accent);
+  white-space: nowrap;
+}
+
+.moduli-fapi-group {
+  margin-top: 12px;
+  border: 1px solid var(--color-border-tertiary);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--color-background-primary);
+}
+
+.moduli-fapi-title {
+  padding: 10px 12px;
+  background: var(--color-background-secondary);
+  border-bottom: 1px solid var(--color-border-tertiary);
+}
+
+.moduli-fapi-title span {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.moduli-table-wrap {
+  overflow-x: auto;
+}
+
+.moduli-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  min-width: 620px;
+}
+
+.moduli-table th,
+.moduli-table td {
+  padding: 7px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border-tertiary);
+  vertical-align: top;
+}
+
+.moduli-table th {
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  background: var(--color-background-primary);
+}
+
+.moduli-footer {
+  padding: 9px 12px;
+  background: var(--color-background-secondary);
+}
+
+.moduli-error {
+  color: var(--color-danger);
+}
+
+.assignment-project-button {
+  padding: 6px 14px;
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: 6px;
+  border: none;
+  background: var(--color-accent);
+  color: white;
+}

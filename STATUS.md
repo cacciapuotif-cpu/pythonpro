@@ -1,5 +1,895 @@
 # PythonPro — Status & Development Context
-_Ultimo aggiornamento: 2026-04-19_
+_Ultimo aggiornamento: 2026-04-24_
+
+---
+
+## SESSIONE 2026-04-24 — Recovery post-reboot ZimaOS
+
+### Completato
+- **Root cause**: reboot ZimaOS (inode saturi su /run) ha corrotto i permessi del volume Docker `pythonpro_db_data` → postgres (uid 999) non poteva scrivere → container `pythonpro_db` usciva con PANIC (exit 139)
+- **Fix permessi volume DB**: `docker run --rm -v pythonpro_db_data:/data alpine chown -R 999:999 /data && chmod 700 /data`
+- **Riavviato `pythonpro_db`**: ora up e healthy, recovery WAL completata automaticamente
+- **Impostato restart policy**: `docker update --restart unless-stopped pythonpro_db` (era `no`)
+- **Fix /tmp backend**: uid 999 vs appuser uid 1000 → `docker exec -u root ... chmod 1777 /tmp`
+- **Fix /app/logs**: `docker exec -u root ... chown -R 1000:999 /app/logs/`
+- **Creato** `/DATA/progetti/pythonpro/build_frontend.sh` (build+replace senza docker compose)
+- **Docker Compose**: già funzionante (v2.32.4 via plugin `/usr/local/lib/docker/cli-plugins/docker-compose`)
+- **Permessi /DATA/.docker**: OK (Francesco:samba)
+
+### Verifiche finali
+- Frontend 200: ✅ `curl http://localhost:3001/api/v1/auth/login → 200`
+- FAPI moduli 25: ✅ `project 11 → moduli_totali: 25`
+- pytest: ✅ `105 passed`
+
+### Non risolto
+- **Tailscale**: binario non trovato nel PATH — è un componente ZimaOS a livello sistema, non accessibile senza sudo/accesso admin ZimaOS
+
+### Prossimi passi
+1. Riconnettere Tailscale tramite pannello admin ZimaOS (GUI o `sudo tailscale up`)
+2. Verificare che `pythonpro_db` sopravviva al prossimo reboot (ora ha restart policy `unless-stopped`)
+
+---
+
+## SESSIONE 2026-04-23 — Verifica pulizia modulo parametrico multi-fondo e conferma UI documentale multi-ente (Codex)
+
+### Completato
+- Verificato che il ramo errato `Piano Finanziario parametrico multi-fondo` risulta gia' rimosso dal codice attivo:
+  - assenti i file:
+    - `backend/routers/fondi.py`
+    - `backend/routers/piani.py`
+    - `backend/services/piano_template_service.py`
+    - `backend/alembic/versions/045_add_generic_fund_plan_templates.py`
+    - `frontend/src/components/PianiManager.js`
+- Verificato che non restano riferimenti residui al ramo parametrico in:
+  - `backend/main.py`
+  - `backend/models.py`
+  - `backend/schemas.py`
+  - `frontend/src/App.js`
+  - `frontend/src/services/apiService.js`
+- Verifica residui richiesta:
+  - `grep -rnE "fondi|PianiManager|piano_template" backend/routers backend/services frontend/src/App.js | grep -vE "piani_finanziari|piano_finanziario|pianiFondimpresa|fondimpresa"` -> vuoto
+- Verifica sintassi locale:
+  - `python3 -m py_compile /DATA/progetti/pythonpro/backend/main.py` -> OK
+- Confermata nel frontend la UX corretta documentale multi-ente gia' presente:
+  - toolbar `ProjectManager.js` con bottone `📄 Carica Atto / Convenzione`
+  - `FapiUpload.js` con `NuovoPianoModal` a 4 card:
+    - `🏦 FAPI`
+    - `🏗️ Fondimpresa`
+    - `🏢 Formazienda`
+    - `🏛️ Altro ente`
+  - `FapiUploadSection` ente-aware sulla card progetto:
+    - FAPI -> `✅ Convenzione` / `📋 Carica Formulario` / `💰 Carica Piano Finanziario`
+    - Fondimpresa -> `✅ Lettera ammissione` / `📊 Carica Excel Riepilogo`
+    - Formazienda -> `✅ Atto adesione` / `💰 Carica Piano Fin.`
+    - altri enti -> sezione nascosta
+  - badge documento principale basato su `project.convenzione_file_path`
+
+### Bloccato / non verificato
+- Le verifiche runtime richieste restano bloccate dall'ambiente host:
+  - `docker exec pythonpro_db ... DROP TABLE IF EXISTS fondi CASCADE;` -> fallisce prima dell'esecuzione per creazione FIFO Docker
+  - `docker exec pythonpro_backend python3 -m py_compile /app/main.py` -> stesso problema
+  - causa confermata: `/run` saturo al `100%` inode (`819198/819200`, solo `2` inode liberi)
+- Tentativo di cleanup:
+  - `rm -rf /run/udev/links/*` senza privilegi -> `Permission denied`
+  - `sudo rm -rf /run/udev/links/*` non eseguibile da Codex in questa sessione per richiesta password sudo interattiva
+- Di conseguenza non sono stati verificabili in questa sessione:
+  - drop effettivo tabella `fondi`
+  - check `\dt | grep fondi`
+  - login API + `projects/11/moduli-formativi` -> `moduli: 25`
+  - `pytest -q /app/tests/`
+  - `docker compose build frontend`
+  - `docker compose up -d frontend`
+
+### Decisioni prese
+- Nessun nuovo edit applicato al codice applicativo per il ramo multi-fondo: la pulizia richiesta risulta gia' presente nel worktree corrente.
+- La direzione corretta resta confermata:
+  - upload da documento ufficiale
+  - parsing/preview/conferma
+  - UI ente-aware senza template parametrici DB
+
+### Prossimi passi
+1. Liberare inode su `/run` con accesso host/sudo reale
+2. Rieseguire:
+   - `docker exec pythonpro_db psql -U admin gestionale -c "DROP TABLE IF EXISTS fondi CASCADE;"`
+   - `docker exec pythonpro_db psql -U admin gestionale -c "\\dt" | grep fondi`
+   - `docker exec pythonpro_backend python3 -m py_compile /app/main.py`
+   - login API e check `project 11 -> moduli: 25`
+   - `docker exec pythonpro_backend pytest -q /app/tests/`
+   - `docker compose build frontend && docker compose up -d frontend`
+
+---
+
+## SESSIONE 2026-04-23 — Pulizia modulo parametrico multi-fondo e UI upload multi-ente (Codex)
+
+### Completato
+- Annullato e rimosso il lavoro sul modulo `Piano Finanziario parametrico multi-fondo`.
+- Eliminati i file introdotti per il ramo parametrico:
+  - `backend/routers/fondi.py`
+  - `backend/routers/piani.py`
+  - `backend/services/piano_template_service.py`
+  - `backend/alembic/versions/045_add_generic_fund_plan_templates.py`
+  - `frontend/src/components/PianiManager.js`
+- Ripuliti i riferimenti residui:
+  - `backend/main.py`: rimossi import e include router parametrico, rimossi runtime schema update associati
+  - `backend/models.py`: rimossi modelli/relazioni/template/voci istanziate del ramo parametrico
+  - `backend/schemas.py`: rimossi schemi Pydantic `Fondo*` / `PianoGenerico*`
+  - `frontend/src/App.js`: rimossi import, menu e route `Piani`
+  - `frontend/src/services/apiService.js`: rimossi metodi `fondi/piani` parametrici
+- Tabella DB `fondi` droppata con:
+  - `DROP TABLE IF EXISTS fondi CASCADE;`
+- Frontend corretto sul flusso giusto documentale:
+  - `ProjectManager.js`: sostituito il vecchio dropdown `Nuovo piano` con bottone unico `📄 Carica Atto / Convenzione`
+  - `FapiUpload.js`: aggiunto modal multi-ente `NuovoPianoModal` con 4 card:
+    - `FAPI`
+    - `Fondimpresa`
+    - `Formazienda`
+    - `Altro ente`
+  - `FapiUpload.js`: sezione documenti ora ente-aware sulla card progetto:
+    - FAPI -> `Convenzione`, `Formulario`, `Piano Finanziario`
+    - Fondimpresa -> `Lettera ammissione`, `Excel Riepilogo`
+    - Formazienda -> `Atto adesione`, `Piano Fin.`
+    - altri enti -> sezione nascosta
+  - badge documento principale basato su `project.convenzione_file_path`
+- Verifiche locali:
+  - `python3 -m py_compile ...` backend locale OK
+  - `npm run build` frontend locale OK
+  - warning residuo preesistente: `HomeCockpit.js` `CATEGORIA_COLORE` unused
+
+### Bloccato / non verificato
+- Verifiche runtime container ancora instabili per saturazione inode su `/run`:
+  - `docker exec pythonpro_db psql ... \\dt` -> `no space left on device`
+  - `docker exec pythonpro_backend pytest ...` -> fifo/stdout creation failure su `/var/run/docker/containerd/...`
+  - `docker compose build frontend` -> fallisce in build step per `open /var/run/docker/netns/...: no space left on device`
+- `docker exec pythonpro_backend python3 -m py_compile /app/main.py` nel container fallisce tentando di scrivere `__pycache__` dentro `/app`; la verifica equivalente locale e' comunque passata.
+- Check host-side FAPI via `curl http://127.0.0.1:8001/...` non affidabile in questa sessione: login/JSON non ritornano payload leggibile dal sandbox nonostante i container risultino attivi.
+
+### Decisioni prese
+- Il ramo corretto resta quello documentale per ente, non la parametrizzazione via template DB.
+- Per `Formazienda` e `Altro ente` il modal mostra gia' il punto di ingresso e l'anteprima file; il backend dedicato resta da implementare quando saranno definiti parser e endpoint ufficiali.
+- La sezione documenti usa `convenzione_file_path` come indicatore unico del documento principale per tutti gli enti gia' supportati in UI.
+
+### Prossimi passi
+1. Sbloccare gli inode su `/run` per riprendere verifiche `docker exec`, `pytest` e build compose frontend
+2. Verificare runtime FAPI progetto 11 -> `moduli: 25`
+3. Aggiungere backend documentale Formazienda se confermato il tracciato ufficiale
+4. Rifinire eventuali icone/testi della UX multi-ente dopo verifica browser live
+
+---
+
+## SESSIONE 2026-04-23 — Architettura multi-ente upload documenti e base Fondimpresa (Codex)
+
+### Completato
+- Creata architettura parser estensibile per ente:
+  - `backend/services/parsers/base_parser.py`
+  - `backend/services/parsers/fapi/*`
+  - `backend/services/parsers/fondimpresa/*`
+- Parser FAPI spostati sotto `services/parsers/fapi/`:
+  - `convenzione_parser.py`
+  - `formulario_parser.py`
+  - `piano_finanziario_parser.py`
+- Aggiornati import FAPI nei router:
+  - `backend/routers/convenzione_upload.py`
+  - `backend/routers/formulario_upload.py`
+  - `backend/routers/piano_finanziario_upload.py`
+- Aggiunti wrapper compatibilita' nei vecchi path `backend/services/*.py` per non rompere import legacy.
+- Aggiunti parser Fondimpresa:
+  - `backend/services/parsers/fondimpresa/ammissione_parser.py`
+  - `backend/services/parsers/fondimpresa/riepilogo_parser.py`
+- Aggiunto router `backend/routers/fondimpresa_upload.py` con endpoint:
+  - `POST /api/v1/projects/fondimpresa/upload-ammissione`
+  - `POST /api/v1/projects/fondimpresa/confirm-ammissione`
+  - `POST /api/v1/projects/{id}/fondimpresa/upload-riepilogo`
+  - `POST /api/v1/projects/{id}/fondimpresa/confirm-riepilogo`
+- `backend/main.py` aggiornato con `include_protected_router(fondimpresa_upload_router)`.
+- Modello progetto aggiornato con `id_piano_esterno`; `cup` ampliato a `VARCHAR(50)`.
+- Aggiunta migrazione `044_add_project_id_piano_esterno.py`.
+- Frontend aggiornato:
+  - `frontend/src/services/apiService.js` con 4 metodi Fondimpresa
+  - `frontend/src/components/FapiUpload.js` ora gestisce FAPI/Fondimpresa per ente
+  - `frontend/src/components/ProjectManager.js` ora mostra menu `Nuovo piano` con:
+    - `Nuovo piano FAPI`
+    - `Nuovo piano Fondimpresa`
+- Build frontend locale completato:
+  - `npm run build` OK
+  - warning preesistente: `HomeCockpit.js` `CATEGORIA_COLORE` unused
+- Verifica statica backend:
+  - `python3 -m py_compile ...` OK su parser/router nuovi e aggiornati
+
+### Bloccato / non verificato
+- I file campione Fondimpresa non risultano presenti nei path rapidi indicati (`/mnt/user-data/uploads`, `/app/test_data`) e la ricerca ampia e' lenta/non conclusa.
+- `docker exec pythonpro_backend ...` al momento fallisce per saturazione inode in `/run`:
+  - errore: `OCI runtime exec failed ... no space left on device`
+- Pulizia `/run/udev/links/*` richiede `sudo`, ma su questo host non e' disponibile una password sudo interattiva per Codex.
+- Per questo motivo non e' stato possibile completare in questa sessione:
+  - `alembic upgrade head` nel container
+  - restart backend/frontend container
+  - test parser Fondimpresa sui file reali
+  - test E2E API/DB richiesti
+  - conferma runtime che l'endpoint FAPI progetto `11` continui a rispondere `moduli: 25`
+
+### Decisioni prese
+- `cup` e `avviso` esistono gia' nel modello `projects`, quindi sono stati riusati per Fondimpresa come richiesto.
+- E' stata aggiunta solo la colonna realmente mancante `id_piano_esterno`.
+- Il router/document UI e' stato impostato per essere ente-aware, cosi' ulteriori enti possono aggiungere parser e pulsanti senza riscrivere il flusso FAPI.
+- Per il soggetto attuatore Fondimpresa, se non trovato e senza P.IVA nel PDF, il router crea un record `ImplementingEntity` con P.IVA placeholder deterministica e nota esplicita.
+
+### Prossimi passi
+1. Sbloccare `docker exec` liberando inode `/run` con accesso sudo reale sull'host
+2. Copiare i 2 file campione in `/app/test_data/`
+3. Eseguire parsing reale PDF/XLSX e rifinire regex/header map se serve
+4. Applicare migrazione `044`, riavviare backend
+5. Verificare:
+   - FAPI progetto 11 -> `moduli: 25`
+   - parser Fondimpresa -> `8 aziende`, `>=30 azioni`
+   - upload/confirm ammissione + riepilogo
+   - query DB finale progetto `AV3/087/25`
+   - `pytest`
+
+---
+
+## SESSIONE 2026-04-23 — Rimozione template piani finanziari e collegamento voci-moduli (Codex)
+
+### Completato
+- Backup DB prima dei drop: `/tmp/prebackup.sql`
+- Migrazioni applicate:
+  - `042_add_modulo_formativo_to_voci_pf`
+  - `043_drop_template_pf`
+- Tabelle obsolete eliminate dal DB:
+  - `template_piani_finanziari`
+  - `avvisi_piani_finanziari`
+  - `piani_finanziari_fondimpresa`
+  - tabelle figlie Fondimpresa
+- Backend aggiornato:
+  - rimossi modelli template piano/Fondimpresa
+  - rimosso router `/api/v1/piani-fondimpresa`
+  - rimossi endpoint template/avvisi da `piani_finanziari.py`, mantenendo consultazione piano/voci
+  - aggiunto `modulo_formativo_id` a `voci_piano_finanziario`
+  - aggiornato parser piano FAPI per match voce Excel -> modulo formativo
+  - aggiunto endpoint `GET /api/v1/projects/{id}/moduli-formativi/{modulo_id}/voce-piano`
+  - assignment con modulo collega `voci_piano_finanziario.assignment_id`
+  - contratto PDF arricchito con voce piano/materia/modalita/ore/progetto FAPI
+- Backfill progetto 11:
+  - creato/aggiornato piano FAPI id `7`
+  - `25` voci piano
+  - `15` voci collegate a moduli formativi
+- Frontend aggiornato:
+  - rimossa voce menu `Piani Finanziari`
+  - rimossi componenti `PianiFinanziari*` / `PianiFondimpresa*`
+  - rimosse chiamate API template/Fondimpresa
+  - form assegnazione mostra info non modificabile `Voce piano collegata`
+
+### Verifiche
+- `GET /api/v1/projects/11/moduli-formativi`: 5 progetti FAPI, 25 moduli, 207h formative
+- `GET /api/v1/projects/11/moduli-formativi/139/voce-piano`:
+  - `A.1.1.1`, `Docenza`, `POWER IMPIANTI 01`, `Gestione Aziendale e amministrazione`, `12h`, `50`, `600`
+- Query DB:
+  - voci project 11: `25`
+  - voci con `modulo_formativo_id`: `15`
+  - tabelle obsolete: `0 rows`
+- Assegnazione test API:
+  - assignment `52`, `ANTONELLA GIGLIO`, modulo `139`
+  - voce piano collegata con `assignment_id=52`
+- PDF contratto generato: `/tmp/contratto_52.pdf`
+- Frontend:
+  - `npm run build` locale OK con soli warning preesistenti (`FapiUpload.isFapi`, `HomeCockpit.CATEGORIA_COLORE`)
+  - build copiato nel container nginx attivo; bundle servito `main.609253d9.js` contiene `Voce piano collegata`
+- Test suite backend:
+  - `docker exec pythonpro_backend pytest -q /app/tests/`
+  - `105 passed in 147.93s`
+
+### Nota operativa
+- `docker compose build frontend` non ha potuto completare per saturazione inode host su `/run` (`/run/udev` circa 818k entry, `/run` al 100% inode). Per completare il deploy senza fermare il servizio, il build locale e' stato copiato nel container frontend gia' attivo con `docker cp`.
+- Test Playwright browser non completato nello stesso host: Chromium locale manca `libatk-1.0.so.0`; container Playwright bloccato dallo stesso problema inode `/run`.
+
+---
+
+## SESSIONE 2026-04-23 — Moduli formativi FAPI e assegnazioni collegate (Codex)
+
+### ✅ Funzionalità 1 — Moduli formativi nel progetto
+- Endpoint verificato: `GET /api/v1/projects/11/moduli-formativi`
+- Il payload raggruppa i 25 moduli di `MAXI COMMUNICATION` in 5 sottoprogetti FAPI:
+  - `20250611CMIA00101` → Power Impianti srl, 3 formativi + 2 propedeutici, 40h + 20h
+  - `20250611CMIA00102` → Pasticceria Galdiero, 3 formativi + 2 propedeutici, 42h + 20h
+  - `20250611CMIA00103` → Martinelli Carmela, 3 formativi + 2 propedeutici, 50h + 20h
+  - `20250611CMIA00104` → Maximercato uno srl, 3 formativi + 2 propedeutici, 50h + 20h
+  - `20250611CMIA00105` → Ass. San Vincenzo, 3 formativi + 2 propedeutici, 25h + 20h
+- Totali endpoint: `moduli_totali=25`, `ore_totali=207.0`
+- UI progetto aggiornata/validata:
+  - sezione `Moduli Formativi` visibile nella card FAPI
+  - 25 righe modulo renderizzate
+  - gruppi PG01-PG05 con azienda, codice FAPI, icone modalita, ore e footer totali
+
+### ✅ Funzionalità 2 — Assegnazioni collegate ai moduli
+- Migrazione DB presente/applicata: `040_add_assignment_modulo`
+- Campi `assignments` confermati:
+  - `modulo_formativo_id`
+  - `materia`
+  - `modalita_erogazione`
+- Aggiunta migrazione `041_expand_assignment_role_length.py` per portare `assignments.role` da 50 a 300 caratteri, necessaria per titoli modulo FAPI lunghi.
+- Backend:
+  - `PATCH /api/v1/assignments/{id}` aggiunto come alias di update oltre al `PUT`
+  - creazione/update assegnazione validano che il modulo appartenga al progetto e compilano materia/modalita dal modulo se mancanti
+  - fix validatore date assignment: supporta datetime ISO browser con timezone senza errore naive/aware
+- Frontend:
+  - `AssignmentModal` mostra dropdown `Seleziona modulo formativo` per progetti FAPI
+  - selezione modulo precompila `role`, `materia`, `modalita_erogazione`, `assigned_hours`
+  - label card progetto aggiornata a `Aziende Beneficiarie`
+
+### ✅ Funzionalità 3 — Test browser completo
+- Test Playwright eseguito in container ufficiale `mcr.microsoft.com/playwright:v1.59.1-noble` contro `http://100.100.49.54:3001`
+- Risultato browser:
+  - login admin riuscito
+  - Progetti → card `MAXI COMMUNICATION` visibile
+  - `Documenti FAPI` visibile con 3 bottoni
+  - `Aziende Beneficiarie` visibile; nomi delle 5 aziende presenti
+  - `Moduli Formativi` visibile con 25 righe e PG01 presente
+  - `Nuova Assegnazione`: selezionato `ANTONELLA GIGLIO`
+  - selezionato modulo `Innovazione, Sicurezza e modelli ESG on the job`
+  - prefill confermato: role titolo modulo, materia `Sviluppo delle abilità personali`, modalita `training_on_job`, ore `20`
+  - salvataggio assignment riuscito
+- Query DB finale conferma nuove assegnazioni project_id=11 con:
+  - `ANTONELLA GIGLIO`
+  - role `Innovazione, Sicurezza e modelli ESG on the job`
+  - materia `Sviluppo delle abilità personali`
+  - modalita `training_on_job`
+
+### ✅ Deploy e test
+- Migrazione applicata: `docker exec pythonpro_backend alembic upgrade head`
+- Backend riavviato: `docker restart pythonpro_backend`
+- Frontend rebuild/redeploy:
+  - `docker compose build frontend`
+  - `docker compose up -d frontend`
+- Build frontend completata con soli warning preesistenti/non bloccanti:
+  - `FapiUpload.js`: `isFapi` unused
+  - `HomeCockpit.js`: `CATEGORIA_COLORE` unused
+- Test suite backend:
+  - `docker exec pythonpro_backend pytest -q /app/tests/`
+  - `105 passed in 85.28s`
+
+### 🔜 Resta aperto
+1. Valutare pulizia delle assegnazioni create dal test browser su progetto 11 se non devono restare nel DB demo
+2. Restano aperti i punti precedenti non collegati a questa sessione: migrazione frontend off legacy `/contracts/generate-contract`, parsing indirizzo email avanzato
+
+---
+
+## SESSIONE 2026-04-22 — Parser formulario aziende e confirm-formulario (Codex)
+
+### ✅ Parser sezione 2.2 formulario arricchito
+- **Analisi PDF reale**
+  - Letto il formulario piu' recente in `/app/uploads/formulari/` dal container `pythonpro_backend`
+  - La sezione `SEZIONE 2.2 - ANAGRAFICA BENEFICIARIA` espone tabelle strutturate per:
+    - soggetto azienda
+    - matricola INPS / anno adesione
+    - regime aiuti
+    - settore
+    - sede legale / operativa
+    - rappresentante legale
+    - lavoratori azienda
+- **Fix**
+  - File: `backend/services/formulario_parser.py`
+  - Ogni azienda in `aziende_beneficiarie` ora include:
+    - `ragione_sociale`, `natura_giuridica`, `codice_fiscale`, `partita_iva`, `tipo`
+    - `settore_codice`, `settore_descrizione`
+    - `sede_legale_*`, `sede_operativa_*`
+    - `legale_rappresentante_nome`, `legale_rappresentante_cf`, telefono, email
+    - `matricola_inps`, `anno_adesione`, `regime_aiuto`, `num_dipendenti`, `ccnl_prevalente`
+  - Mapping regime aiuto implementato:
+    - `Regolamento (CE) n. 651/2014 (Esenzione)` -> `esenzione`
+    - `Regolamento (CE) n. 1407/2013 (De Minimis)` -> `de_minimis`
+    - `Regolamento (CE) n. 1408/2013 (De Minimis)` -> `de_minimis`
+- **Esempio estratto Power Impianti**
+  - P.IVA `09326361210`
+  - sede legale `Via PR. Botteghelle di Portici 569`, `80147`, `Napoli`, `Napoli`
+  - sede operativa `Corso Sirena 85`, `80147`, `Napoli`, `Napoli`
+  - rappresentante `Reia Samuele`, CF `REISML04L09F839A`, email `powerimpiantisrl@legalmail.it`
+  - matricola INPS `5139485270`, anno adesione `2023`, regime `esenzione`, dipendenti `12`
+
+### ✅ Modello e migrazione aziende
+- **File**: `backend/models.py`
+- **Migrazione applicata**: `backend/alembic/versions/039_add_azienda_formulario_fields.py`
+- **Campi aggiunti ad `aziende_clienti`**
+  - `natura_giuridica`
+  - `settore_codice`, `settore_descrizione`
+  - `sede_legale_indirizzo`, `sede_legale_cap`, `sede_legale_comune`, `sede_legale_provincia`
+  - `sede_operativa_indirizzo`, `sede_operativa_cap`, `sede_operativa_comune`, `sede_operativa_provincia`
+  - `matricola_inps`, `anno_adesione`, `regime_aiuto_default`
+  - `num_dipendenti`, `ccnl_prevalente`
+- Nota: non riusato `provincia` legacy per la provincia estesa del formulario, perche' nel modello esistente e' validata come sigla a 2 lettere.
+
+### ✅ Confirm formulario aggiornata
+- **File**: `backend/routers/formulario_upload.py`
+- `confirm-formulario` ora:
+  - cerca aziende per P.IVA, CF o ragione sociale `ILIKE`
+  - aggiorna solo campi azienda vuoti/nulli, senza sovrascrivere dati esistenti
+  - salva telefono/email azienda dai dati del rappresentante legale se mancanti
+  - aggiorna sempre `azienda_cliente_projects.regime_aiuto` per il progetto
+  - restituisce `regimi_aiuto_impostati`
+
+### ✅ Verifica end-to-end reale
+- Migrazione applicata con `docker exec pythonpro_backend alembic upgrade head`
+- Backend riavviato con `docker restart pythonpro_backend`
+- Per la verifica "da zero":
+  - il progetto FAPI `20250611CMIA001` esisteva gia' come soft-deleted/legacy `id=10`
+  - eliminato fisicamente solo quel record DB per poter ricreare il progetto con lo stesso codice FAPI
+- Flusso API completato:
+  - upload convenzione `20250611CMIA001.pdf`
+  - confirm convenzione -> progetto creato `id=11`
+  - upload formulario piu' recente
+  - confirm formulario -> `moduli_creati=25`, `aziende_arricchite=5`, `regimi_aiuto_impostati=5`
+- Query DB confermate:
+  - Martinelli `partita_iva=07933760634`
+  - Galdiero `partita_iva=06460601211`
+  - Power Impianti `sede_legale_comune=Napoli`
+  - tutte le 5 aziende hanno `azienda_cliente_projects.regime_aiuto=esenzione`
+  - tutte le 5 aziende hanno `regime_aiuto_default=esenzione`
+- Test finale:
+  - `docker exec pythonpro_backend pytest -q /app/tests/`
+  - `105 passed in 182.10s`
+
+### 🔜 Resta aperto
+1. Se serve pulizia dati test, valutare rimozione progetto E2E `id=11` creato per questa verifica
+2. Restano invariati i punti aperti precedenti: migrazione frontend off legacy `/contracts/generate-contract`, verifica browser manuale UI regime, parsing indirizzo email avanzato
+
+---
+
+## SESSIONE 2026-04-21 — Bugfix gestionale PythonPro con verifiche E2E (Codex)
+
+### ✅ Hotfix CORS login dopo deploy
+- **Problema rilevato**
+  - Browser da `http://192.168.2.161:3001` bloccava `POST http://192.168.2.161:8001/api/v1/auth/login`
+  - Errore: preflight CORS non passava perche' la risposta `OPTIONS` poteva non avere HTTP OK
+- **Fix**
+  - File: `backend/main.py`, `backend/request_middleware.py`, `backend/app/main.py`
+  - CORS registrato come middleware piu' esterno dopo i middleware custom
+  - `RateLimitingMiddleware` ora bypassa sempre le richieste `OPTIONS`
+  - Aggiunto header frontend reale `X-Request-ID` a `allow_headers`
+- **Verifica**
+  - `docker restart pythonpro_backend`
+  - Preflight reale da origin `http://192.168.2.161:3001` verso `/api/v1/auth/login`: HTTP `200`, header `access-control-allow-origin: http://192.168.2.161:3001`
+  - Stress preflight: `130 preflight OK`
+  - Login reale con header Origin: HTTP `200`, token restituito e header CORS presente
+  - Riprodotto il caso browser esatto: prima `Access-Control-Request-Headers: content-type,x-request-id` tornava `400 Disallowed CORS headers`; dopo fix torna HTTP `200` e `access-control-allow-headers` include `X-Request-ID`
+
+### ✅ Hotfix endpoint collaboratori dopo login
+- **Problema rilevato**
+  - Dopo login la UI mostrava errore CORS su `/api/v1/collaborators`, ma la causa reale nei log era HTTP `500`
+  - Stack trace: `ResponseValidationError` su email test `codex-doc-e2e-113923@example.invalid`, rifiutata da `EmailStr`
+- **Fix**
+  - Rimossi dal DB i dati E2E creati da Codex: collaboratore id `32` e 3 documenti fittizi collegati
+  - File: `frontend/src/services/apiService.js`
+  - `getCollaborators()` ora chiama `/collaborators/` con slash finale, evitando redirect automatico da `/collaborators`
+- **Verifica**
+  - Query DB email invalid: `0` record
+  - `GET http://192.168.2.161:8001/api/v1/collaborators/?limit=100&is_active=true` con Origin frontend e token: HTTP `200`, `31` items
+  - `GET http://192.168.2.161:8001/api/v1/collaborators/search?page=1&limit=20&sort_by=last_name&order=asc` con Origin frontend e token: HTTP `200`, `total=20`
+  - `docker compose build frontend && docker compose up -d frontend` eseguiti
+
+### ✅ Bug chiusi con verifica reale
+- **Bug 1 — Email inbox / parsing risposte**
+  - File: `backend/services/attachment_handler.py`, `backend/services/email_body_parser.py`, `backend/services/email_inbox_worker.py`, `backend/services/document_intake_agent.py`
+  - Attachment picker ora ignora immagini inline Gmail/pixel/firme e preferisce PDF/DOC/DOCX utili, scegliendo il piu' grande tra i preferiti
+  - Body parser estrae Partita IVA, codice fiscale e telefono senza sovrascrivere campi gia' valorizzati
+  - Verifica su email reale `cacciapuotif@gmail.com`: PDF `CV Cacciapuoti Francesco 3_2020.pdf` identificato, P.IVA `04798311215` salvata, curriculum collaboratore 1 validato
+- **Bug 4 — Trigger automatico contract agent**
+  - File: `backend/ai_agents/contract_agent.py`, `backend/services/document_intake_agent.py`, `backend/routers/documenti_richiesti.py`
+  - Dopo validazione documento viene lanciato contract agent per gli assignment del collaboratore
+  - Verifica API: validazione documento 39 ha prodotto suggestion `contract_ready` per assignment 1
+- **Bug 3 — Cron agenti ARQ**
+  - File: `backend/arq_worker.py`
+  - Aggiunti cron: `mail_recovery_agent` ogni 6h, `contract_agent` ogni 2h, `certification_agent` daily 09:00
+  - Verifica: restart `pythonpro_arq_worker`; log mostra 12 funzioni incluse le cron e poll email vivo dopo 2 minuti
+- **Bug 2 — Mail recovery semi-autonomo**
+  - File: `backend/agent_workflows.py`
+  - Confidence `>=0.85` invia email, `0.60-0.85` crea bozza, `<0.60` scarta/logga
+  - Verifica: run 66 su collaboratore 21 ha inviato 2 email; Gmail Sent via IMAP contiene i messaggi inviati
+- **Bug 10 — Auto-decision documenti per confidence**
+  - File: `backend/ai_agents/document_processor.py`
+  - `>=0.85` validato, `0.60-0.85` caricato/manual review, `<0.60` rifiutato
+  - Verifica con 3 PDF di test: stati `validato`, `caricato`, `rifiutato`; log confidence decision presente
+- **Bug 5 — UI regime aiuto**
+  - File: `backend/routers/fondi.py`, `frontend/src/services/apiService.js`, `frontend/src/components/PianiFinanziariManager.js`, `frontend/src/components/PianiFinanziariManager.css`
+  - Vista aziende beneficiarie con dropdown regime, plafond de minimis, cofinanziamento esenzione e save PATCH
+  - Verifica: PATCH progetto 5/azienda 1 salva `de_minimis` + `plafond_dichiarato=200000`; DB conferma
+- **Bug 6 — ZIP rendicontazione fund-aware**
+  - File: `backend/rendicontazione_generator.py`
+  - Struttura ZIP diversa per Formazienda, FAPI, Fondimpresa, Regione Campania
+  - Verifica: ZIP progetto 1 contiene cartelle Formazienda/FormUp/questionari; ZIP progetto 5 contiene relazioni FAPI; manifest dichiara il fondo
+- **Bug 8 — Error handling FastAPI**
+  - File: `backend/error_handler.py`
+  - Handler HTTPException ora restituisce formato standard `{"detail": "..."}`
+  - Verifica: `/api/v1/projects/999999` ritorna `{"detail":"Progetto non trovato"}` con HTTP 404
+- **Bug 9 — `crud.py` return None silenziosi**
+  - File: `backend/crud.py`
+  - I casi not-found reali ora sollevano `HTTPException(404, ...)`
+  - Mantenuti volutamente i `None` semantici per helper opzionali/no-conflict
+  - Verifica: validazione documento inesistente ritorna `{"detail":"Documento richiesto con id 999999 non trovato"}` con HTTP 404
+
+### ⚠️ Bug non chiuso
+- **Bug 7 — Endpoint contratti duplicati**
+  - Non deprecato per vincolo esplicito utente: `grep -RIn "generate-contract" frontend/src/` trova ancora uso frontend in `frontend/src/services/apiService.js` e `frontend/src/components/CollaboratorManager.js`
+  - Prossimo passo: migrare frontend su `/api/v1/assignments/{id}/contract`, poi rimuovere/deprecare i legacy endpoint
+
+### ✅ Verifiche finali
+- Backend restart eseguiti dopo patch backend
+- Frontend rebuild/redeploy eseguito: `docker compose build frontend && docker compose up -d frontend`
+- Test suite finale: `docker exec pythonpro_backend pytest -q /app/tests/` -> `105 passed in 53.17s`
+- Warning frontend build non bloccanti/preesistenti: variabili/import non usati in `AgentsManager.js`, `HomeCockpit.js`, `TimesheetPDF.js`
+
+### 🔜 Resta aperto
+1. Migrare il frontend off legacy `/contracts/generate-contract` prima di rimuovere gli endpoint duplicati
+2. Verifica browser manuale della UI regime: endpoint e bundle sono verificati, ma non e' stata fatta navigazione GUI reale
+3. Estendere parsing indirizzo nelle email, rimandato per complessita' come previsto dal task
+
+---
+
+## SESSIONE 2026-04-21 — Verifica audit production readiness Claude Code (Codex)
+
+### ✅ Verifica read-only eseguita
+- Letto `STATUS.md` come contesto iniziale PythonPro
+- Verificati in modo mirato i punti principali dell'audit incollato:
+  - `backend/main.py`
+  - `backend/auth.py`
+  - `backend/routers/auth.py`
+  - `backend/routers/system.py`
+  - `backend/routers/whatsapp.py`
+  - `backend/file_upload.py`
+  - `frontend/src/index.js`
+  - `docker-compose.yml`
+  - `docker-compose.prod.yml`
+  - `backend/ai_agents/document_processor.py`
+  - `backend/tests/test_email_agent.py`
+
+### ✅ Punti audit confermati
+- CORS ancora troppo largo in `backend/main.py`: `allow_methods=["*"]`, `allow_headers=["*"]`
+- Rate limiter esiste in `backend/auth.py` ma non risulta applicato a `/api/v1/auth/login`
+- Root `ErrorBoundary` assente in `frontend/src/index.js`; esiste solo componente `ErrorBoundary` e uso locale in `Calendar.js`
+- Upload in `backend/file_upload.py` valida estensione e size, ma non magic bytes/MIME reale
+- `docker-compose.yml` contiene default `changeme_*` per DB/Redis/JWT
+- `docker-compose.prod.yml` usa SQLite e frontend espone solo porta 80
+- `arq_worker` in `docker-compose.yml` ha healthcheck disabilitato
+- Test indicato dall'audit plausibilmente rotto: `DocumentProcessor.process()` passa il risultato LLM direttamente a `_parse_llm_result_dict()`, ma il test mocka una stringa JSON; serve compatibilita' string/dict
+
+### ⚠️ Nota su B1 auth globale
+- L'audit e' sostanzialmente corretto: molti router CRUD non hanno `Depends(get_current_user)` sui singoli endpoint
+- Fix consigliato da fare con cautela:
+  - protezione centrale in `backend/main.py` al momento di `include_router(..., dependencies=[Depends(get_current_user)])`
+  - lasciare pubblici `auth.router`, `system.router` (`/health`) e webhook WhatsApp Meta
+  - aggiungere auth anche agli endpoint cross-resource definiti direttamente in `main.py`
+- Questo cambia il contratto di molte API: dopo patch serve smoke frontend login + chiamate principali
+
+### 🔜 Correzioni che Codex puo' fare direttamente
+1. P0 piccolo/medio:
+   - applicare rate limit a login/refresh auth
+   - stringere CORS methods/headers
+   - aggiungere root `ErrorBoundary`
+   - fix `DocumentProcessor` per test `test_valid_document_parsed`
+   - validazione magic bytes in upload senza dipendenza esterna pesante
+2. P0/P2 ops:
+   - rimuovere default `changeme_*` dal compose usando env obbligatorie
+   - forzare Postgres in `docker-compose.prod.yml`
+   - aggiungere logging rotation Docker
+   - aggiungere healthcheck/resource limits ad `arq_worker`
+3. P0 sicurezza piu' delicato:
+   - protezione auth globale dei router dati, con esclusioni esplicite per login/health/webhook
+4. P2 rapido:
+   - migrazione indici mancanti `036`
+
+### ⏸️ Non modificato in questa sessione
+- Nessuna patch applicata al codice applicativo
+- Nessun test eseguito
+- In attesa di scelta utente su quali fix applicare per primi
+
+---
+
+## SESSIONE 2026-04-21 — Implementazione P0/P2 audit production readiness (Codex)
+
+### ✅ Punto 1 — Fix rapidi P0 implementati
+- **Rate limiting auth**
+  - File: `backend/auth.py`, `backend/routers/auth.py`
+  - `rate_limit()` ora supporta anche endpoint `async`
+  - Applicato:
+    - `/api/v1/auth/login`: 5 richieste / 300s per IP+path
+    - `/api/v1/auth/refresh`: 20 richieste / 300s per IP+path
+- **CORS ristretto**
+  - File: `backend/main.py`, `backend/app/main.py`
+  - Rimossi `allow_methods=["*"]` e `allow_headers=["*"]`
+  - Methods consentiti: `GET, POST, PUT, PATCH, DELETE, OPTIONS`
+  - Headers consentiti: `Authorization, Content-Type, Accept, Origin, X-Requested-With`
+- **ErrorBoundary root frontend**
+  - File: `frontend/src/index.js`
+  - `<AppProvider><App /></AppProvider>` ora e' wrappato da `ErrorBoundary`
+- **Fix test `DocumentProcessor`**
+  - File: `backend/ai_agents/document_processor.py`
+  - `process()` ora accetta sia dict dal provider LLM sia stringa JSON legacy/mock
+  - Risolto failure `test_valid_document_parsed`
+- **Magic bytes upload**
+  - File: `backend/file_upload.py`
+  - Aggiunta validazione signature per:
+    - PDF
+    - JPG/JPEG
+    - PNG
+    - GIF
+    - DOC
+    - DOCX
+    - SVG
+  - Evitato che un binario/script con estensione falsa venga salvato
+  - Corretto anche il caso in cui `HTTPException` interna veniva trasformata in 500 generico
+
+### ✅ Punto 2 — Hardening Docker implementato
+- **File**: `docker-compose.yml`, `docker-compose.prod.yml`
+- Rimossi default noti `changeme_*` per:
+  - `DB_PASSWORD`
+  - `REDIS_PASSWORD`
+  - `JWT_SECRET_KEY`
+  - `SECRET_KEY` / `JWT_SECRET` in prod
+- Le variabili critiche ora sono obbligatorie con sintassi `${VAR:?VAR is required}`
+- Aggiunta rotazione log Docker:
+  - `max-size=100m`
+  - `max-file=3`
+- `arq_worker`:
+  - healthcheck Redis attivo
+  - `cpus: "1.0"`
+  - `mem_limit: 1g`
+- `docker-compose.prod.yml`:
+  - rimosso SQLite
+  - aggiunto servizio Postgres `db`
+  - backend prod usa `postgresql+psycopg://...@db:5432/...`
+
+### ✅ Punto 3 — Auth globale implementata
+- **File**: `backend/main.py`
+- Aggiunta protezione centralizzata con `Depends(get_current_user)` al momento di `include_router`
+- Router dati ora protetti:
+  - collaborators, projects, attendances, assignments
+  - timesheet, fondi, cockpit, sprint7
+  - entities/project assignments/contracts/reporting/admin
+  - agenzie, consulenti, aziende-clienti, allievi
+  - catalogo, listini, preventivi, ordini
+  - piani finanziari, documenti richiesti, avvisi, agents, email inbox
+- Rimangono pubblici volutamente:
+  - `auth.router` per login/refresh
+  - `system.router` per `/` e `/health`
+  - `whatsapp.router` per webhook Meta esterno
+- Aggiunta auth anche agli endpoint cross-resource rimasti direttamente in `main.py`
+
+### ✅ Punto 4 — Migrazione indici P2 implementata
+- **File**: `backend/alembic/versions/036_add_production_readiness_indexes.py`
+- Aggiunti indici:
+  - `email_inbox_items.created_at`
+  - `documenti_richiesti.stato`
+  - compound `attendances(collaborator_id, project_id, date)`
+- Downgrade presente
+
+### ✅ Test/verifiche eseguite
+- `python3 -m py_compile ...`
+  - esito: OK
+- `docker compose config --quiet` con env obbligatorie simulate
+  - esito: OK
+- `docker compose -f docker-compose.prod.yml config --quiet` con env obbligatorie simulate
+  - esito: OK
+  - nota: warning Docker su attributo `version` obsoleto
+- Smoke Alembic:
+  - `DATABASE_URL=sqlite:////tmp/pythonpro_mig_036.db alembic upgrade head`
+  - esito: OK, upgrade `035 -> 036`
+- Smoke auth:
+  - `/health` pubblico: `200`
+  - `/api/v1/collaborators/` senza token: `401`
+  - `/api/v1/auth/login` resta raggiungibile: `422` se manca form, quindi non bloccato da auth globale
+  - webhook WhatsApp resta pubblico e valida token provider: `403` senza challenge valido
+- Test backend:
+  - `pytest tests/test_email_agent.py -q`
+  - esito: `29 passed`
+  - `pytest tests/test_agent_audit_fixes.py -q`
+  - esito: `18 passed`
+  - `pytest tests -q`
+  - esito: `105 passed`
+- Frontend:
+  - `npm run build`
+  - esito: build OK con warning ESLint preesistenti/non bloccanti:
+    - `AgentsManager.js`: variabile non usata
+    - `HomeCockpit.js`: variabile non usata
+    - `TimesheetPDF.js`: import non usato + dependency warning `useEffect`
+
+### ⚠️ Note operative
+- Lo stack ora richiede un `.env` completo per partire:
+  - `DB_PASSWORD`
+  - `REDIS_PASSWORD`
+  - `JWT_SECRET_KEY`
+  - in prod anche `SECRET_KEY` e `JWT_SECRET`
+- Il frontend container gia' avviato non incorpora automaticamente `frontend/src/index.js`: serve rebuild immagine frontend per deploy
+- Il backend in container potrebbe richiedere restart/redeploy per caricare la nuova policy auth se il processo live non e' in reload
+
+### 🔜 Resta da fare
+1. **TLS/HTTPS reale**
+   - Non implementabile completamente senza dominio/DNS/cert strategy
+   - Serve reverse proxy TLS o tunnel/proxy esterno
+2. **Auth fine-grained/RBAC**
+   - Ora c'e' auth globale; restano da stringere permessi per ruolo/azione su endpoint sensibili
+3. **Protezione webhook WhatsApp piu' forte**
+   - Rimasto pubblico per necessita' Meta
+   - Da aggiungere verifica firma `X-Hub-Signature-256` se disponibile
+4. **Backup off-site/encryption**
+   - Ancora solo locale/volume
+5. **Flusso convenzione -> chiusura**
+   - Restano feature P1:
+     - upload convenzione
+     - selector regime_aiuto
+     - cron agenti
+     - trigger contract/timesheet/ZIP
+     - ZIP fund-aware
+6. **Debt tecnico**
+   - error handling misto `return {"error": ...}`
+   - response_model mancanti
+   - endpoint contratti duplicati
+   - consolidamento `sprint7.py`
+
+---
+
+## SESSIONE 2026-04-20 — Fix audit criticita' runtime/concorrenza (Codex, caveman)
+
+### ✅ Bug #1 fixato — `update_collaborator` discrimina meglio i conflict reali
+- **File**: `backend/crud.py`
+- Aggiunto lock pessimista `with_for_update()` sul record collaboratore in update
+- Prima del commit ora controlla anche:
+  - `fiscal_code`
+  - `partita_iva`
+  - oltre a `email`
+- In caso di `IntegrityError` non risponde piu' sempre con falso positivo `Email gia' esistente`
+- Mapping errori ora distingue:
+  - `Email gia' esistente`
+  - `Codice fiscale gia' esistente`
+  - `Partita IVA gia' esistente`
+
+### ✅ Bug #2 fixato — `complete_agent_run()` robusto con datetime naive/aware
+- **File**: `backend/crud.py`
+- Introdotta normalizzazione UTC interna prima di calcolare `execution_time_ms`
+- Evitato `TypeError` nel delta tra `started_at` e `completed_at` con timezone miste
+- Questo copre uno dei failure mode residui attorno a `/agents/run`
+
+### ✅ Bug #3 fixato — numerazione `Preventivo` / `Ordine` meno fragile sotto race
+- **File**: `backend/crud.py`
+- Senza rompere schema live, `create_preventivo()` e `converti_in_ordine()` ora fanno retry automatico se il progressivo collide su vincolo unique
+- Strategia attuale:
+  - ricalcolo numero
+  - retry fino a 5 tentativi su conflict `preventivi` / `ordini`
+- Non e' ancora il modello ideale con tabella `DocumentCounter`, ma elimina il failure immediato da race semplice senza introdurre migrazione bloccante oggi
+
+### ✅ Bug #4 fixato — `create_attendance()` valida prima il range assignment
+- **File**: `backend/crud.py`
+- Inversione ordine validazioni:
+  - prima controllo data dentro periodo assegnazione
+  - poi check overlap orario
+- Messaggio errore ora piu' corretto nei casi fuori range
+
+### ✅ Bug #5 fixato — transazioni Piano Finanziario meno fragili
+- **File**: `backend/crud.py`
+- Ridotti i `db.commit()` annidati nei punti piu' critici:
+  - `create_piano_finanziario()`
+  - `update_piano_finanziario()`
+  - `delete_piano_finanziario()`
+  - `bulk_upsert_voci_piano()`
+- Audit log ora entra nella stessa transazione del dato principale, non in commit separato successivo
+- Eventuale failure del webhook budget non rompe piu' la chiamata dopo commit:
+  - emissione resa safe con warning a log
+  - dati + audit restano persistiti correttamente
+
+### ✅ Bug #6 fixato — introdotto `DocumentCounter` persistente per numerazioni
+- **File**: `backend/models.py`, `backend/crud.py`, `backend/alembic/versions/031_add_document_counters_and_agent_metadata.py`
+- Aggiunta tabella `document_counters`
+- `_next_preventivo_number()` e `_next_ordine_number()` ora usano contatore persistente con lock e increment atomico lato transazione
+- Ridotta ulteriore fragilita' della numerazione documentale sotto concorrenza
+
+### ✅ Bug #7 fixato — `AgentRun.metadata` spostato a `agent_metadata`
+- **File**: `backend/models.py`, `backend/main.py`, `backend/alembic/versions/031_add_document_counters_and_agent_metadata.py`
+- Modello ORM ora usa colonna `agent_metadata` invece di `metadata`
+- Migrazione `031` gestisce upgrade compatibile:
+  - rename diretto se possibile
+  - fallback add+copy se il rename non e' supportato
+
+### ✅ Fix extra emerso dallo smoke Alembic
+- **File**: `backend/alembic/env.py`
+- Bootstrap di DB vuoto falliva per FK `agent_review_actions.reviewed_by_user_id -> users.id`
+- Causa: Alembic caricava `models` ma non `auth.User`
+- Fix: import anche `auth` in `alembic/env.py` cosi' `users` entra nel metadata durante `create_all()`
+
+### ✅ Test eseguiti
+- Dentro container `pythonpro_backend`
+- Suite verde:
+  - `tests/test_agent_audit_fixes.py`
+- **Risultato**: `18 passed`
+
+### ✅ Smoke migration eseguito
+- Dentro container `pythonpro_backend`
+- Comando:
+  - `DATABASE_URL=sqlite:////tmp/pythonpro_mig.db alembic upgrade head`
+- Risultato:
+  - migrazione `030 -> 031` eseguita correttamente su DB temporaneo
+
+### ⚠️ Audit Claude: ancora aperto / non fatto in questa sessione
+- Refactor transazionale ampio su altri commit annidati del modulo non ancora affrontato
+- Vincoli strutturali Piano Finanziario / Fondi / DocumentoRichiesto / disponibilita' calendario ancora da progettare e migrare
+- Vincoli economici forti e blocco budget configurabile su `VocePianoFinanziario` ancora non introdotti
+
+### 🔜 Prossimo step consigliato
+1. Decidere se fare migrazione vera per:
+   - `idempotency_key` su `AgentRun`
+   - state machine esplicita draft/documenti
+2. Passare ai vincoli economici di `VocePianoFinanziario` e al block budget configurabile
+3. Continuare pulizia commit annidati su altri blocchi CRUD sensibili
+
+---
+
+## SESSIONE 2026-04-19 — Fix audit agent workflow (Codex, caveman)
+
+### ✅ Bug #1 fixato — `suggestion_type` duplicato in `DataQualityAgent`
+- **File**: `backend/ai_agents/data_quality.py`
+- Separati i due casi:
+  - `missing_identity_document`
+  - `missing_profile_fields`
+- Evitata sovrascrittura dedup per collaboratore con problemi multipli
+
+### ✅ Bug #2 fixato — WhatsApp draft non piu' bloccato da email assente
+- **File**: `backend/agent_workflows.py`
+- `_ensure_collaborator_draft()` ora:
+  - blocca email solo se manca email
+  - blocca WhatsApp solo se manca telefono
+
+### ✅ Bug #3 fixato — `/accept` riallineato a workflow reale
+- **File**: `backend/routers/agents.py`, `frontend/src/components/AgentsManager.js`
+- `accept_suggestion` ora delega a `apply_workflow_action`
+- mapping compatibile:
+  - `accept|accepted|approve|approved` -> `approve_email`
+- corretto anche messaggio UI legacy: non dice piu' falsamente "appare tra le bozze"
+
+### ✅ Bug #4 fixato — run falliti tracciati a DB
+- **File**: `backend/agent_workflows.py`, `backend/routers/agents.py`
+- `run_agent_workflow()` ora:
+  - persiste subito `AgentRun`
+  - in caso di eccezione salva `status="failed"` + `error_message`
+  - rilancia errore controllato `AgentWorkflowExecutionError`
+- router `POST /agents/run` e `POST /agents/{type}/run` non lasciano piu' 500 raw senza traccia DB
+
+### ✅ Bug #5 fixato — `created_at` fantasma su `AgentReviewAction`
+- **File**: `backend/models.py`
+- aggiunto alias property `created_at -> reviewed_at`
+- compatibilita' mantenuta per consumer/schema esistenti, senza migrazione
+
+### ✅ Bug #6 fixato — dead code in `promote_due_followups`
+- **File**: `backend/agent_workflows.py`
+- rimossa guard impossibile `if draft.status != "sent"` dopo query gia' filtrata
+
+### ✅ Bug #7 fixato — validazione LLM troppo aggressiva
+- **File**: `backend/ai_agents/llm.py`
+- `_is_mail_copy_acceptable()` non rigetta piu' testo valido con parole generiche tipo `documentazione`
+- resta blocco solo per richieste esplicite di documento identita' fuori contesto
+
+### ✅ Bug #8 fixato — path `/agents/{type}/run` unificato
+- **File**: `backend/routers/agents.py`
+- il path manuale usa ora `run_agent_workflow()`
+- stessa logica di:
+  - dedup
+  - severity
+  - drafts
+  - tracking failure
+
+### ✅ Fix extra emerso dai test
+- **File**: `backend/services/inbox_router.py`
+- fallback compatibile per tabella `allievi`:
+  - prima prova colonna `attivo`
+  - se schema legacy/test usa `is_active`, fa fallback
+
+### ✅ Test eseguiti
+- Dentro container `pythonpro_backend`
+- Suite verde:
+  - `tests/test_agent_audit_fixes.py`
+  - `tests/test_email_agent.py`
+- **Risultato**: `39 passed`
+
+### 🔜 Prossimo step consigliato
+1. Eseguire smoke UI su `/agents` per verificare:
+   - invio email da pending suggestion
+   - percorso manual run `/agents/{type}/run`
+   - followup status in inbox
+2. Se tutto ok, committare fix audit agent workflow in commit separato
 
 ---
 

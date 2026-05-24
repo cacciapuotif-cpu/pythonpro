@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from main import app
 from database import Base, get_db
+from auth import get_current_user
 import models  # noqa: F401  # assicura registrazione metadata
 
 
@@ -52,7 +53,21 @@ def client(db_session):
         finally:
             pass
 
+    def override_get_current_user():
+        return type(
+            "TestUser",
+            (),
+            {
+                "id": 1,
+                "username": "test-admin",
+                "email": "test-admin@example.com",
+                "role": "admin",
+                "is_active": True,
+            },
+        )()
+
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = override_get_current_user
 
     with TestClient(app) as test_client:
         yield test_client
@@ -228,8 +243,13 @@ class TestAdminEndpoints:
     """Test endpoint admin /api/v1/admin"""
 
     def test_admin_metrics_unauthorized(self, client):
-        response = client.get("/api/v1/admin/metrics")
-        assert response.status_code in [401, 403]
+        auth_override = app.dependency_overrides.pop(get_current_user, None)
+        try:
+            response = client.get("/api/v1/admin/metrics")
+            assert response.status_code in [401, 403]
+        finally:
+            if auth_override is not None:
+                app.dependency_overrides[get_current_user] = auth_override
 
 
 class TestIntegrationFlow:

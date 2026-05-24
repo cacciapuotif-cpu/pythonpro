@@ -125,10 +125,8 @@ class ErrorHandler:
         logger.warning(f"HTTP exception: {error.status_code} - {error.detail}")
         return JSONResponse(
             status_code=error.status_code,
-            content={
-                "error": error.detail,
-                "error_code": f"HTTP_{error.status_code}"
-            }
+            content={"detail": error.detail},
+            headers=getattr(error, "headers", None),
         )
 
 # Decorator per retry automatico

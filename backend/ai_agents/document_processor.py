@@ -82,6 +82,7 @@ class DocumentResult:
     issues: List[str] = field(default_factory=list)
     extracted_data: Dict[str, Any] = field(default_factory=dict)
     raw_llm_output: Optional[str] = None
+    confidence: float = 0.0        # 0.0-1.0: soglia auto-apply=0.85, conferma=0.60
 
 
 class DocumentProcessor:
@@ -97,7 +98,7 @@ class DocumentProcessor:
         text_content = _extract_text(file_path)
 
         try:
-            raw = call_llm_for_document(
+            data = call_llm_for_document(
                 file_path=file_path,
                 text_content=text_content,
                 entity_name=entity_name,
@@ -107,7 +108,10 @@ class DocumentProcessor:
             logger.warning("DocumentProcessor: LLM non disponibile (%s), manual review", exc)
             return DocumentResult(valid=None, doc_type=expected_doc_type, raw_llm_output=None)
 
-        return _parse_llm_result(raw, expected_doc_type)
+        if isinstance(data, str):
+            return _apply_confidence_decision(_parse_llm_result(data, expected_doc_type))
+
+        return _apply_confidence_decision(_parse_llm_result_dict(data, expected_doc_type))
 
 
 def call_llm_for_document(
@@ -116,41 +120,50 @@ def call_llm_for_document(
     text_content: str,
     entity_name: str,
     expected_doc_type: str,
-) -> str:
+) -> dict:
     """
-    Chiama il provider LLM configurato e ritorna la risposta raw (stringa JSON).
+    Chiama il provider LLM configurato e ritorna un dizionario JSON.
     Lancia eccezione se LLM non disponibile o timeout.
     """
-    from .llm import get_agent_llm_config, _call_ollama, _call_openclaw
-
-    config = get_agent_llm_config()
-    if not config.enabled:
-        raise RuntimeError("Provider LLM non abilitato")
+    from .llm import call_ollama_json
 
     filename = Path(file_path).name
     normalized_doc_type = (expected_doc_type or "").strip().lower().replace(" ", "_")
     extraction_hint = DOC_TYPE_EXTRACTION_HINTS.get(normalized_doc_type, {})
+
     system_prompt = (
-        "Sei un assistente per la verifica di documenti amministrativi. "
-        "Analizza il documento fornito e rispondi SOLO con JSON valido. "
+        "Sei un assistente per la verifica di documenti amministrativi italiani. "
+        "Analizza il documento e rispondi SOLO con JSON valido. "
         "Non aggiungere testo fuori dal JSON."
     )
     user_prompt = (
-        f"Documento allegato: '{filename}'\n"
+        f"Documento: '{filename}'\n"
         f"Mittente: {entity_name}\n"
-        f"Tipo documento atteso: {expected_doc_type}\n"
-        f"Contenuto estratto (parziale):\n{text_content[:2000]}\n\n"
-        "Rispondi con JSON:\n"
-        '{"valid": true/false, "doc_type": "tipo_rilevato", "issues": ["problema1"], "extracted_data": %s}'
-        % json.dumps(extraction_hint, ensure_ascii=True)
+        f"Tipo atteso: {expected_doc_type}\n"
+        f"Contenuto (parziale):\n{text_content[:2000]}\n\n"
+        "Rispondi SOLO con JSON nel formato:\n"
+        + json.dumps({
+            "valid": True,
+            "doc_type": expected_doc_type,
+            "confidence": 0.9,
+            "issues": [],
+            "extracted_data": extraction_hint,
+        }, ensure_ascii=True)
+        + "\n\nDove confidence va da 0.0 a 1.0: 0.9+=valido certo, 0.7-0.9=probabilmente valido, 0.5-0.7=incerto, sotto 0.5=non valido"
     )
 
-    if config.provider == "ollama":
-        result = _call_ollama(config, system_prompt=system_prompt, user_prompt=user_prompt)
-    else:
-        result = _call_openclaw(config, system_prompt=system_prompt, user_prompt=user_prompt)
+    return call_ollama_json(system_prompt=system_prompt, user_prompt=user_prompt)
 
-    return result.raw_text or result.body
+
+def _infer_confidence(valid: Optional[bool], issues: list) -> float:
+    """Stima confidence quando il LLM non la fornisce esplicitamente."""
+    if valid is True and not issues:
+        return 0.90
+    if valid is True and issues:
+        return 0.72
+    if valid is False and issues:
+        return 0.88
+    return 0.55
 
 
 def _extract_text(file_path: str) -> str:
@@ -171,25 +184,94 @@ def _extract_text(file_path: str) -> str:
     return f"[File: {path.name}]"
 
 
-def _parse_llm_result(raw: str, expected_doc_type: str) -> DocumentResult:
-    """Parsa la stringa raw JSON dal LLM. In caso di errore: valid=None."""
-    if not raw:
-        return DocumentResult(valid=None, doc_type=expected_doc_type, raw_llm_output=raw)
+def _parse_llm_result_dict(data: dict, expected_doc_type: str) -> DocumentResult:
+    """Parsa il dizionario JSON dal LLM. In caso di errore: valid=None."""
+    if not data:
+        return DocumentResult(valid=None, doc_type=expected_doc_type, confidence=0.0)
 
+    valid = bool(data.get("valid")) if data.get("valid") is not None else None
+    issues = list(data.get("issues") or [])
+
+    raw_confidence = data.get("confidence")
+    if raw_confidence is not None:
+        try:
+            confidence = float(raw_confidence)
+            confidence = max(0.0, min(1.0, confidence))
+        except (ValueError, TypeError):
+            confidence = _infer_confidence(valid, issues)
+    else:
+        confidence = _infer_confidence(valid, issues)
+
+    if confidence >= 0.85 and not issues and valid is False:
+        logger.debug(
+            "DocumentProcessor: confidence %.2f alta con zero issues, override valid False -> True",
+            confidence,
+        )
+        valid = True
+
+    return DocumentResult(
+        valid=valid,
+        doc_type=str(data.get("doc_type") or expected_doc_type),
+        issues=issues,
+        extracted_data=dict(data.get("extracted_data") or {}),
+        raw_llm_output=json.dumps(data),
+        confidence=confidence,
+    )
+
+
+def _parse_llm_result(raw: str, expected_doc_type: str) -> DocumentResult:
+    """Compatibilita backward: parsa stringa JSON. Usa _parse_llm_result_dict internamente."""
+    if not raw:
+        return DocumentResult(valid=None, doc_type=expected_doc_type, confidence=0.0)
     try:
         start = raw.find("{")
         end = raw.rfind("}")
         if start == -1 or end <= start:
-            raise ValueError("nessun oggetto JSON trovato")
+            raise ValueError("nessun JSON trovato")
         data = json.loads(raw[start:end + 1])
-    except (json.JSONDecodeError, ValueError) as exc:
+        return _parse_llm_result_dict(data, expected_doc_type)
+    except Exception as exc:
         logger.warning("DocumentProcessor: JSON malformato (%s), manual review", exc)
-        return DocumentResult(valid=None, doc_type=expected_doc_type, raw_llm_output=raw)
+        return DocumentResult(valid=None, doc_type=expected_doc_type, raw_llm_output=raw, confidence=0.0)
 
-    return DocumentResult(
-        valid=bool(data.get("valid")) if data.get("valid") is not None else None,
-        doc_type=str(data.get("doc_type") or expected_doc_type),
-        issues=list(data.get("issues") or []),
-        extracted_data=dict(data.get("extracted_data") or {}),
-        raw_llm_output=raw,
+
+def _apply_confidence_decision(result: DocumentResult) -> DocumentResult:
+    if result.raw_llm_output and result.confidence == 0.0 and not result.extracted_data and not result.issues:
+        logger.info("DocumentProcessor: output LLM non parseabile -> revisione manuale (%s)", result.doc_type)
+        return result
+
+    if result.valid is False and result.issues:
+        logger.info(
+            "DocumentProcessor: documento esplicitamente non valido -> rifiutato (%s, confidence %.2f)",
+            result.doc_type,
+            result.confidence,
+        )
+        return result
+
+    if result.confidence >= 0.85:
+        result.valid = True
+        logger.info(
+            "DocumentProcessor: confidence %.2f -> auto-validato (%s)",
+            result.confidence,
+            result.doc_type,
+        )
+        return result
+
+    if result.confidence >= 0.60:
+        result.valid = None
+        logger.info(
+            "DocumentProcessor: confidence %.2f -> caricato/revisione umana (%s)",
+            result.confidence,
+            result.doc_type,
+        )
+        return result
+
+    result.valid = False
+    if not result.issues:
+        result.issues = ["Confidence sotto soglia minima per validazione automatica"]
+    logger.info(
+        "DocumentProcessor: confidence %.2f -> rifiutato (%s)",
+        result.confidence,
+        result.doc_type,
     )
+    return result

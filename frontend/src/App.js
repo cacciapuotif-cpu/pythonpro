@@ -19,9 +19,11 @@ import ListiniManager from './components/ListiniManager';
 import PreventiviManager from './components/PreventiviManager';
 import OrdiniManager from './components/OrdiniManager';
 import Dashboard from './components/Dashboard';
+import HomeCockpit from './components/HomeCockpit';
+import PortaleAllievi from './components/PortaleAllievi';
 import ImplementingEntitiesList from './components/ImplementingEntitiesList';
 import TimesheetReport from './components/TimesheetReport';
-import PianiFinanziariHub from './components/PianiFinanziariHub';
+import TimesheetPDF from './components/TimesheetPDF';
 import DocumentiMancanti from './components/DocumentiMancanti';
 import ContractTemplatesManager from './components/ContractTemplatesManager';
 import AgentsManager from './components/AgentsManager';
@@ -63,6 +65,7 @@ const ROLE_EXPERIENCE = {
 
 // group: raggruppa le voci nella nav — null = nessun separatore
 const SECTION_CONFIG = [
+  { id: 'home',              label: 'Home',           icon: '🏠', group: null,           title: 'Decisioni urgenti',                  breadcrumb: '🏠 Home',                  roles: ['admin', 'user', 'manager'] },
   { id: 'dashboard',         label: 'Dashboard',      icon: '📊', group: null,           title: 'Statistiche e report',               breadcrumb: '📊 Dashboard',            roles: ['admin', 'user', 'manager'] },
   { id: 'calendar',          label: 'Calendario',     icon: '📅', group: 'Attività',     title: 'Presenze sul calendario',            breadcrumb: '📅 Calendario Presenze',   roles: ['admin', 'user', 'manager'] },
   { id: 'timesheet',         label: 'Timesheet',      icon: '⏱️', group: null,           title: 'Timesheet delle ore lavorate',       breadcrumb: '⏱️ Timesheet',             roles: ['admin', 'user', 'manager'] },
@@ -76,7 +79,6 @@ const SECTION_CONFIG = [
   { id: 'preventivi',        label: 'Preventivi',     icon: '📝', group: null,           title: 'Preventivi commerciali',             breadcrumb: '📝 Preventivi',            roles: ['admin', 'user', 'manager'] },
   { id: 'ordini',            label: 'Ordini',         icon: '🛒', group: null,           title: 'Gestione ordini',                    breadcrumb: '🛒 Ordini',                roles: ['admin', 'user', 'manager'] },
   { id: 'entities',          label: 'Enti Attuatori', icon: '🏢', group: 'Config',       title: 'Enti attuatori',                     breadcrumb: '🏢 Enti Attuatori',        roles: ['admin'] },
-  { id: 'piani-finanziari',  label: 'Piani Finanziari', icon: '🧮', group: null,         title: 'Piani finanziari per progetto',      breadcrumb: '🧮 Piani Finanziari',      roles: ['admin'] },
   { id: 'agents-dashboard',  label: 'Agents Dashboard', icon: '📡', group: null,         title: 'Panoramica sistema agenti',          breadcrumb: '📡 Agents Dashboard',      roles: ['admin'] },
   { id: 'agents',            label: 'Agenti',         icon: '🤖', group: null,           title: 'Agenti operativi e revisioni AI',    breadcrumb: '🤖 Agenti Operativi',      roles: ['admin'] },
   { id: 'templates',         label: 'Template',       icon: '📋', group: null,           title: 'Template documentali',               breadcrumb: '📋 Template',              roles: ['admin'] },
@@ -89,9 +91,6 @@ const getSectionFromPath = (pathname) => {
   if (pathname.startsWith('/agents/review')) {
     return 'agents-review';
   }
-  if (pathname.startsWith('/piani-finanziari') || pathname.startsWith('/piani-fondimpresa')) {
-    return 'piani-finanziari';
-  }
   if (pathname.startsWith('/agents')) {
     return 'agents';
   }
@@ -102,9 +101,6 @@ const getSectionFromPath = (pathname) => {
 };
 
 const getPathForSection = (sectionId) => {
-  if (sectionId === 'piani-finanziari') {
-    return '/piani-finanziari';
-  }
   if (sectionId === 'agents-dashboard') {
     return '/agents/dashboard';
   }
@@ -124,6 +120,7 @@ const getPathForSection = (sectionId) => {
  * COMPONENTE PRINCIPALE APP
  */
 function App() {
+
   // ==========================================
   // STATE MANAGEMENT
   // ==========================================
@@ -328,9 +325,6 @@ function App() {
       case 'entities':
         return <ImplementingEntitiesList currentUser={currentUser} />;
 
-      case 'piani-finanziari':
-        return <PianiFinanziariHub />;
-
       case 'agents-dashboard':
         return <AgentsDashboard currentUser={currentUser} />;
 
@@ -338,7 +332,7 @@ function App() {
         return <AgentSuggestionsReview currentUser={currentUser} />;
 
       case 'timesheet':
-        return <TimesheetReport />;
+        return <TimesheetView />;
 
       case 'documenti-mancanti':
         return <DocumentiMancanti />;
@@ -349,6 +343,8 @@ function App() {
       case 'agents':
         return <AgentsManager currentUser={currentUser} />;
 
+      case 'home':
+        return <HomeCockpit currentUser={currentUser} />;
       case 'dashboard':
         return <Dashboard currentUser={currentUser} />;
 
@@ -521,6 +517,8 @@ function App() {
 
   const currentSection = availableSections.find((section) => section.id === activeSection) || availableSections[0];
   const navGroups = buildNavGroups(availableSections);
+  const isPortaleAllievi = window.location.pathname === '/portale-allievi';
+  if (isPortaleAllievi) { return <PortaleAllievi />; }
 
   return (
     <div className="app">
@@ -614,5 +612,87 @@ function App() {
     </div>
   );
 }
+
+const TimesheetView = () => {
+  const [activeTab, setActiveTab] = React.useState('report');
+  const [selectedProjectId, setSelectedProjectId] = React.useState('');
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: '8px', padding: '0 0 1rem 0', borderBottom: '0.5px solid var(--color-border-tertiary)', marginBottom: '1rem' }}>
+        <button
+          onClick={() => setActiveTab('report')}
+          style={{
+            padding: '8px 16px',
+            fontSize: '13px',
+            cursor: 'pointer',
+            borderRadius: '6px',
+            border: '0.5px solid var(--color-border-secondary)',
+            background: activeTab === 'report' ? '#2c3e50' : 'var(--color-background-primary)',
+            color: activeTab === 'report' ? 'white' : 'var(--color-text-primary)',
+          }}
+        >
+          Report Ore
+        </button>
+        <button
+          onClick={() => setActiveTab('pdf')}
+          style={{
+            padding: '8px 16px',
+            fontSize: '13px',
+            cursor: 'pointer',
+            borderRadius: '6px',
+            border: '0.5px solid var(--color-border-secondary)',
+            background: activeTab === 'pdf' ? '#2c3e50' : 'var(--color-background-primary)',
+            color: activeTab === 'pdf' ? 'white' : 'var(--color-text-primary)',
+          }}
+        >
+          Genera PDF
+        </button>
+      </div>
+
+      {activeTab === 'report' && <TimesheetReport />}
+
+      {activeTab === 'pdf' && (
+        <div>
+          <div style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <label style={{ fontSize: '13px', color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>
+              Seleziona progetto:
+            </label>
+            <ProjectSelect onSelect={setSelectedProjectId} selectedId={selectedProjectId} />
+          </div>
+          {selectedProjectId
+            ? <TimesheetPDF projectId={selectedProjectId} />
+            : <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--color-text-secondary)', fontSize: '14px' }}>
+                Seleziona un progetto per vedere i timesheet dei collaboratori
+              </div>
+          }
+        </div>
+      )}
+    </div>
+  );
+};
+
+const ProjectSelect = ({ onSelect, selectedId }) => {
+  const [projects, setProjects] = React.useState([]);
+  React.useEffect(() => {
+    fetch(`${process.env.REACT_APP_API_URL || ''}/api/v1/projects/?limit=100`)
+      .then(r => r.json())
+      .then(data => setProjects(Array.isArray(data) ? data : (data.items || [])))
+      .catch(() => {});
+  }, []);
+
+  return (
+    <select
+      value={selectedId}
+      onChange={e => onSelect(e.target.value)}
+      style={{ padding: '8px 12px', fontSize: '13px', borderRadius: '6px', border: '0.5px solid var(--color-border-secondary)', minWidth: '200px' }}
+    >
+      <option value="">— Scegli progetto —</option>
+      {projects.map(p => (
+        <option key={p.id} value={p.id}>{p.name}</option>
+      ))}
+    </select>
+  );
+};
 
 export default App;

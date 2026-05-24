@@ -10,8 +10,10 @@
  */
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { useProjects, useImplementingEntities, useNotifications } from '../hooks/useEntity';
-import { getAvvisi, getAvvisiPianoFinanziario, getTemplatePianiFinanziari, getAziendeClienti, getAllievi } from '../services/apiService';
+import { useProjects, useImplementingEntities, useCollaborators, useNotifications } from '../hooks/useEntity';
+import { getAziendeClienti, getAllievi, getProjectBeneficiari, getProjectModuliFormativi, updateProjectBeneficiarioRegime } from '../services/apiService';
+import { FapiUploadSection } from './FapiUpload';
+import AssignmentModal from './AssignmentModal';
 import './ProjectManager.css';
 
 const ROLE_EXPERIENCE = {
@@ -51,21 +53,133 @@ const PROJECT_FORM_STEPS = [
   {
     id: 'delivery',
     title: 'Delivery',
-    description: 'Sede operativa, ente attuatore, aziende coinvolte e collegamento gerarchico template -> avviso piano.',
-    fields: ['sede_aziendale_comune', 'sede_aziendale_via', 'sede_aziendale_numero_civico', 'ente_attuatore_id', 'azienda_ids', 'template_piano_finanziario_id', 'avviso_pf_id'],
+    description: 'Sede operativa, ente attuatore, aziende e allievi coinvolti.',
+    fields: ['sede_aziendale_comune', 'sede_aziendale_via', 'sede_aziendale_numero_civico', 'ente_attuatore_id', 'azienda_ids', 'allievo_ids'],
   },
 ];
 
-const normalizeText = (value) => String(value || '').trim().toLowerCase();
-const formatTipoFondo = (value) => {
-  const normalized = normalizeText(value);
-  const mapping = {
-    formazienda: 'FORMAZIENDA',
-    fapi: 'FAPI',
-    fondimpresa: 'FONDIMPRESA',
-    fse: 'FSE',
+const MODALITA_ICONS = {
+  aula: '🏫',
+  training_on_job: '🔧',
+  fad_sincrona: '💻',
+  fad_asincrona: '📱',
+  propedeutica: '📋',
+};
+
+const formatModalita = (value) => {
+  const normalized = String(value || '').trim();
+  const labels = {
+    aula: 'Aula',
+    training_on_job: 'Training on job',
+    fad_sincrona: 'FAD sincrona',
+    fad_asincrona: 'FAD asincrona',
+    propedeutica: 'Propedeutica',
   };
-  return mapping[normalized] || String(value || '').trim().toUpperCase();
+  return labels[normalized] || normalized || '-';
+};
+
+const formatOre = (value) => `${Number(value || 0).toLocaleString('it-IT', { maximumFractionDigits: 1 })}h`;
+
+const ModuliFormativiSection = ({ project }) => {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    const isFapiProject = project?.codice_fapi || project?.ente_erogatore === 'FAPI';
+    if (!project?.id || !isFapiProject) return;
+    let cancelled = false;
+
+    const loadModuli = async () => {
+      try {
+        setLoading(true);
+        setError('');
+        const response = await getProjectModuliFormativi(project.id);
+        if (!cancelled) setData(response);
+      } catch (err) {
+        if (!cancelled) {
+          setError(err?.response?.data?.detail || 'Moduli formativi non disponibili');
+          setData(null);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    loadModuli();
+    return () => {
+      cancelled = true;
+    };
+  }, [project?.id, project?.codice_fapi, project?.ente_erogatore]);
+
+  if (!project?.codice_fapi && project?.ente_erogatore !== 'FAPI') return null;
+
+  const progettiFapi = data?.progetti_fapi || [];
+
+  return (
+    <section className="moduli-formativi-section">
+      <div className="moduli-formativi-header">
+        <div>
+          <h4>Moduli Formativi</h4>
+          <span>{project.codice_fapi || 'FAPI'}</span>
+        </div>
+        {data && (
+          <strong>{data.moduli_totali} moduli · {formatOre(data.ore_totali)}</strong>
+        )}
+      </div>
+
+      {loading && <div className="moduli-loading">Caricamento moduli...</div>}
+      {error && <div className="moduli-error">{error}</div>}
+      {!loading && !error && progettiFapi.length === 0 && (
+        <div className="moduli-empty">Nessun modulo formativo collegato.</div>
+      )}
+
+      {progettiFapi.map((gruppo, index) => {
+        const allModuli = [
+          ...(gruppo.moduli_formativi || []),
+          ...(gruppo.moduli_propedeutici || []),
+        ];
+        const pgLabel = `PG${String(index + 1).padStart(2, '0')}`;
+        const partecipanti = gruppo.partecipanti ? ` (${gruppo.partecipanti} partecipanti)` : '';
+
+        return (
+          <div className="moduli-fapi-group" key={gruppo.codice_progetto_fapi}>
+            <div className="moduli-fapi-title">
+              <span>{pgLabel} — {gruppo.azienda?.ragione_sociale || gruppo.codice_progetto_fapi}{partecipanti}</span>
+              <small>{gruppo.codice_progetto_fapi}</small>
+            </div>
+            <div className="moduli-table-wrap">
+              <table className="moduli-table">
+                <thead>
+                  <tr>
+                    <th>Titolo modulo</th>
+                    <th>Materia</th>
+                    <th>Modalità</th>
+                    <th>Ore</th>
+                    <th>Tipo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {allModuli.map((modulo) => (
+                    <tr key={modulo.id}>
+                      <td>{modulo.titolo_modulo}</td>
+                      <td>{modulo.materia || '-'}</td>
+                      <td>{MODALITA_ICONS[modulo.modalita_erogazione] || '•'} {formatModalita(modulo.modalita_erogazione)}</td>
+                      <td>{formatOre(modulo.ore_previste)}</td>
+                      <td>{modulo.tipo_attivita === 'propedeutica' ? 'Propedeutica' : 'Formativa'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="moduli-footer">
+              Totale ore formative: {formatOre(gruppo.ore_formative_totali)} | Totale ore propedeutiche: {formatOre(gruppo.ore_propedeutiche_totali)}
+            </div>
+          </div>
+        );
+      })}
+    </section>
+  );
 };
 
 const ProjectManager = ({ currentUser }) => {
@@ -76,6 +190,7 @@ const ProjectManager = ({ currentUser }) => {
   // Carica dati dal Context
   const { data: projects, loading: loadingProjects, error: contextError, refresh, create, update, remove } = useProjects();
   const { data: allEntities, loading: loadingEntities } = useImplementingEntities();
+  const { data: collaborators } = useCollaborators();
   const { showSuccess, showError } = useNotifications();
   const isAdmin = currentUser?.role === 'admin';
   const roleExperience = ROLE_EXPERIENCE[currentUser?.role] || ROLE_EXPERIENCE.user;
@@ -101,16 +216,10 @@ const ProjectManager = ({ currentUser }) => {
     sede_aziendale_numero_civico: '',
     avviso: '',
     avviso_id: '',
-    avviso_pf_id: '',
-    avviso_selection: '',
-    template_piano_finanziario_id: '',
     azienda_ids: [],
     allievo_ids: [],
     ente_attuatore_id: null // NUOVO: FK verso ente attuatore
   });
-  const [financialTemplates, setFinancialTemplates] = useState([]);
-  const [avvisiCatalogo, setAvvisiCatalogo] = useState([]);
-  const [legacyAvvisi, setLegacyAvvisi] = useState([]);
   const [aziendaOptions, setAziendaOptions] = useState([]);
   const [aziendaToAdd, setAziendaToAdd] = useState('');
   const [allievoOptions, setAllievoOptions] = useState([]);
@@ -122,113 +231,94 @@ const ProjectManager = ({ currentUser }) => {
   const [deleteConfirm, setDeleteConfirm] = useState(null); // Stato per conferma eliminazione
   const [statusFilter, setStatusFilter] = useState('all'); // Filtri per la visualizzazione
   const [activeStepIndex, setActiveStepIndex] = useState(0);
+  const [beneficiariByProject, setBeneficiariByProject] = useState({});
+  const [regimeSaving, setRegimeSaving] = useState({});
+  const [showFapiModal, setShowFapiModal] = useState(false);
+  const [regimeOpenProject, setRegimeOpenProject] = useState(null);
+  const [plafondByBeneficiario, setPlafondByBeneficiario] = useState({});
+  const [regimeByBeneficiario, setRegimeByBeneficiario] = useState({});
+  const [assignmentProject, setAssignmentProject] = useState(null);
 
   // Combina stati di loading
   const loading = loadingProjects || loadingEntities;
+
+  const loadBeneficiari = async (projectId) => {
+    if (beneficiariByProject[projectId]) return;
+    try {
+      const data = await getProjectBeneficiari(projectId);
+      const beneficiari = data.beneficiari || [];
+      setBeneficiariByProject(prev => ({ ...prev, [projectId]: beneficiari }));
+      const plafondInit = {};
+      const regimeInit = {};
+      beneficiari.forEach(b => {
+        const key = `${projectId}_${b.azienda_id}`;
+        plafondInit[key] = b.plafond_dichiarato != null ? String(b.plafond_dichiarato) : '';
+        regimeInit[key] = b.regime_aiuto || 'non_definito';
+      });
+      setPlafondByBeneficiario(prev => ({ ...prev, ...plafondInit }));
+      setRegimeByBeneficiario(prev => ({ ...prev, ...regimeInit }));
+    } catch {
+      setBeneficiariByProject(prev => ({ ...prev, [projectId]: [] }));
+    }
+  };
+
+  const handleSaveRegime = async (projectId, aziendaId) => {
+    const key = `${projectId}_${aziendaId}`;
+    const regime = regimeByBeneficiario[key] || 'non_definito';
+    const plafondStr = plafondByBeneficiario[key] || '';
+    const plafond = plafondStr !== '' ? parseFloat(plafondStr) : null;
+    setRegimeSaving(prev => ({ ...prev, [key]: true }));
+    try {
+      const body = { regime_aiuto: regime };
+      if (plafond !== null && !isNaN(plafond)) body.plafond_dichiarato = plafond;
+      await updateProjectBeneficiarioRegime(projectId, aziendaId, body);
+      setBeneficiariByProject(prev => ({
+        ...prev,
+        [projectId]: (prev[projectId] || []).map(b =>
+          b.azienda_id === aziendaId
+            ? { ...b, regime_aiuto: regime === 'non_definito' ? null : regime, plafond_dichiarato: plafond }
+            : b
+        ),
+      }));
+    } catch (err) {
+      alert('Errore salvataggio regime: ' + (err?.response?.data?.detail || err?.message || 'Errore sconosciuto'));
+    } finally {
+      setRegimeSaving(prev => ({ ...prev, [key]: false }));
+    }
+  };
+
+  const handleAssignmentSuccess = (message) => {
+    showSuccess(message);
+    setAssignmentProject(null);
+    refresh();
+  };
+
   useEffect(() => {
     let cancelled = false;
 
-    const loadFinancialTemplates = async () => {
+    const loadFormOptions = async () => {
       try {
-        const [data, avvisi, legacyAvvisiData, aziendeData, allieviData] = await Promise.all([
-          getTemplatePianiFinanziari({
-            solo_attivi: true,
-            limit: 200,
-          }),
-          getAvvisiPianoFinanziario({ limit: 200 }),
-          getAvvisi({ active_only: true, limit: 1000 }),
+        const [aziendeData, allieviData] = await Promise.all([
           getAziendeClienti({ limit: 100, page: 1 }),
           getAllievi({ limit: 100, page: 1 }),
         ]);
         if (!cancelled) {
-          setFinancialTemplates(Array.isArray(data) ? data : []);
-          setAvvisiCatalogo(Array.isArray(avvisi) ? avvisi : []);
-          setLegacyAvvisi(Array.isArray(legacyAvvisiData) ? legacyAvvisiData : []);
           setAziendaOptions(Array.isArray(aziendeData?.items) ? aziendeData.items : (Array.isArray(aziendeData) ? aziendeData : []));
           setAllievoOptions(Array.isArray(allieviData?.items) ? allieviData.items : (Array.isArray(allieviData) ? allieviData : []));
         }
       } catch (error) {
         if (!cancelled) {
-          setFinancialTemplates([]);
-          setAvvisiCatalogo([]);
-          setLegacyAvvisi([]);
           setAziendaOptions([]);
           setAllievoOptions([]);
         }
       }
     };
 
-    loadFinancialTemplates();
+    loadFormOptions();
     return () => {
       cancelled = true;
     };
   }, []);
-
-  const avvisiOptions = useMemo(() => {
-    const seen = new Set();
-    const nextOptions = [];
-
-    avvisiCatalogo.forEach((item) => {
-      const key = `${item.template_id || ''}:${normalizeText(item.codice_avviso)}`;
-      if (seen.has(key)) {
-        return;
-      }
-      seen.add(key);
-      nextOptions.push({
-        source: 'pf',
-        optionKey: `pf:${item.id}`,
-        id: item.id,
-        template_id: item.template_id,
-        codice: item.codice_avviso,
-        titolo: item.titolo,
-        ente_erogatore: formatTipoFondo(
-          financialTemplates.find((template) => String(template.id) === String(item.template_id))?.tipo_fondo || ''
-        ),
-      });
-    });
-
-    legacyAvvisi.forEach((item) => {
-      const normalizedEnte = normalizeText(item.ente_erogatore);
-      const inferredTemplate = financialTemplates.find(
-        (template) => normalizeText(template.tipo_fondo) === normalizedEnte
-      ) || null;
-      const key = `${inferredTemplate?.id || ''}:${normalizeText(item.codice)}`;
-      if (seen.has(key)) {
-        return;
-      }
-      seen.add(key);
-      nextOptions.push({
-        source: 'legacy',
-        optionKey: `legacy:${item.id}`,
-        id: item.id,
-        template_id: inferredTemplate?.id || null,
-        codice: item.codice,
-        titolo: item.descrizione || item.codice,
-        ente_erogatore: item.ente_erogatore,
-      });
-    });
-
-    return nextOptions.sort((a, b) => {
-      const enteCompare = String(a.ente_erogatore || '').localeCompare(String(b.ente_erogatore || ''));
-      if (enteCompare !== 0) {
-        return enteCompare;
-      }
-      return String(a.codice || '').localeCompare(String(b.codice || ''));
-    });
-  }, [avvisiCatalogo, financialTemplates, legacyAvvisi]);
-
-  const getTemplateLinkedAvvisi = (templateId) =>
-    avvisiOptions.filter((item) => String(item.template_id || '') === String(templateId));
-
-  const getTemplateAvvisoCodes = (template) =>
-    getTemplateLinkedAvvisi(template?.id).map((item) => item.codice_avviso).filter(Boolean);
-
-  const selectedFinancialTemplate = financialTemplates.find(
-    (template) => String(template.id) === String(formData.template_piano_finanziario_id),
-  );
-  const selectedAvvisoOption = avvisiOptions.find(
-    (avviso) => avviso.optionKey === formData.avviso_selection,
-  );
 
   // ==========================================
   // GESTIONE FORM
@@ -239,46 +329,6 @@ const ProjectManager = ({ currentUser }) => {
    */
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-
-    if (name === 'template_piano_finanziario_id') {
-      const nextTemplate = financialTemplates.find((template) => String(template.id) === String(value));
-      const linkedAvvisi = nextTemplate ? getTemplateLinkedAvvisi(nextTemplate.id) : [];
-      const currentAvviso = linkedAvvisi.find((item) => item.optionKey === formData.avviso_selection);
-      const linkedAvviso = currentAvviso || linkedAvvisi[0] || null;
-      setFormData(prev => ({
-        ...prev,
-        template_piano_finanziario_id: value,
-        ...(nextTemplate ? {
-          ente_erogatore: formatTipoFondo(nextTemplate.tipo_fondo),
-          avviso: linkedAvviso?.codice || '',
-          avviso_pf_id: linkedAvviso?.source === 'pf' ? String(linkedAvviso.id) : '',
-          avviso_id: linkedAvviso?.source === 'legacy' ? String(linkedAvviso.id) : '',
-          avviso_selection: linkedAvviso?.optionKey || '',
-        } : {
-          ente_erogatore: '',
-          avviso: '',
-          avviso_pf_id: '',
-          avviso_id: '',
-          avviso_selection: '',
-        })
-      }));
-      return;
-    }
-
-    if (name === 'avviso_selection') {
-      const selected = avvisiOptions.find((a) => a.optionKey === value);
-      const template = financialTemplates.find((item) => String(item.id) === String(selected?.template_id || ''));
-      setFormData(prev => ({
-        ...prev,
-        avviso_selection: value,
-        avviso_pf_id: selected?.source === 'pf' ? String(selected.id) : '',
-        avviso_id: selected?.source === 'legacy' ? String(selected.id) : '',
-        avviso: selected?.codice || '',
-        template_piano_finanziario_id: template ? String(template.id) : prev.template_piano_finanziario_id,
-        ente_erogatore: template ? formatTipoFondo(template.tipo_fondo) : (selected?.ente_erogatore || prev.ente_erogatore),
-      }));
-      return;
-    }
 
     setFormData(prev => ({
       ...prev,
@@ -407,8 +457,6 @@ const ProjectManager = ({ currentUser }) => {
         ente_erogatore: formData.ente_erogatore || null,
         avviso: formData.avviso || null,
         avviso_id: formData.avviso_id ? parseInt(formData.avviso_id, 10) : null,
-        avviso_pf_id: formData.avviso_pf_id ? parseInt(formData.avviso_pf_id, 10) : null,
-        template_piano_finanziario_id: formData.template_piano_finanziario_id ? parseInt(formData.template_piano_finanziario_id, 10) : null,
       };
 
       if (editingId) {
@@ -449,9 +497,6 @@ const ProjectManager = ({ currentUser }) => {
       sede_aziendale_numero_civico: '',
       avviso: '',
       avviso_id: '',
-      avviso_pf_id: '',
-      avviso_selection: '',
-      template_piano_finanziario_id: '',
       azienda_ids: [],
       allievo_ids: [],
       ente_attuatore_id: null
@@ -485,9 +530,6 @@ const ProjectManager = ({ currentUser }) => {
       sede_aziendale_numero_civico: project.sede_aziendale_numero_civico || '',
       avviso: project.avviso || '',
       avviso_id: project.avviso_id ? String(project.avviso_id) : '',
-      avviso_pf_id: project.avviso_pf_id ? String(project.avviso_pf_id) : '',
-      avviso_selection: project.avviso_pf_id ? `pf:${project.avviso_pf_id}` : (project.avviso_id ? `legacy:${project.avviso_id}` : ''),
-      template_piano_finanziario_id: project.template_piano_finanziario_id ? String(project.template_piano_finanziario_id) : '',
       azienda_ids: Array.isArray(project.azienda_ids) ? project.azienda_ids.map((id) => Number(id)) : [],
       allievo_ids: Array.isArray(project.allievo_ids) ? project.allievo_ids.map((id) => Number(id)) : [],
       ente_attuatore_id: project.ente_attuatore_id || null
@@ -603,8 +645,7 @@ const ProjectManager = ({ currentUser }) => {
     formData.description,
     formData.start_date,
     formData.end_date,
-    formData.template_piano_finanziario_id,
-    formData.avviso_selection || formData.avviso_pf_id || formData.avviso_id,
+    formData.avviso_id,
     formData.cup,
     formData.atto_approvazione,
     formData.sede_aziendale_comune,
@@ -614,10 +655,9 @@ const ProjectManager = ({ currentUser }) => {
     formData.azienda_ids.length > 0 ? 'aziende' : '',
     formData.allievo_ids.length > 0 ? 'allievi' : '',
   ].filter((value) => `${value ?? ''}`.trim() !== '').length;
-  const completionPercentage = Math.round((completedFields / 14) * 100);
+  const completionPercentage = Math.round((completedFields / 12) * 100);
   const currentStep = PROJECT_FORM_STEPS[activeStepIndex];
   const selectedEntity = implementingEntities.find((entity) => String(entity.id) === String(formData.ente_attuatore_id));
-  const avvisiFiltrati = selectedFinancialTemplate ? getTemplateLinkedAvvisi(selectedFinancialTemplate.id) : avvisiOptions;
   const selectedAziende = formData.azienda_ids
     .map((aziendaId) => aziendaOptions.find((azienda) => Number(azienda.id) === Number(aziendaId)))
     .filter(Boolean);
@@ -671,19 +711,35 @@ const ProjectManager = ({ currentUser }) => {
         </div>
 
         {showCreateAction ? (
-          <button
-            className={`add-button ${showForm ? 'active' : ''}`}
-            onClick={() => {
-              setShowForm(!showForm);
-              if (showForm) {
-                resetForm();
-              } else {
-                setActiveStepIndex(0);
-              }
-            }}
-          >
-            {showForm ? '❌ Chiudi Form' : roleExperience.ctaLabel}
-          </button>
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <button
+              className={`add-button ${showForm ? 'active' : ''}`}
+              onClick={() => {
+                setShowForm(!showForm);
+                if (showForm) {
+                  resetForm();
+                } else {
+                  setActiveStepIndex(0);
+                }
+              }}
+            >
+              {showForm ? '❌ Chiudi Form' : roleExperience.ctaLabel}
+            </button>
+            <button
+              style={{
+                padding: '8px 14px',
+                fontSize: '13px',
+                borderRadius: '8px',
+                border: '0.5px solid #2c6fad',
+                background: '#ebf4ff',
+                color: '#1a4a7a',
+                cursor: 'pointer',
+              }}
+              onClick={() => setShowFapiModal(true)}
+            >
+              📄 Carica Atto / Convenzione
+            </button>
+          </div>
         ) : (
           <div className="project-guidance-pill">
             Apri un progetto esistente per aggiornarne stato, delivery e riferimenti attuativi.
@@ -765,12 +821,6 @@ const ProjectManager = ({ currentUser }) => {
                   </li>
                   <li className={formData.allievo_ids.length > 0 ? 'done' : ''}>
                     Allievi coinvolti {formData.allievo_ids.length > 0 ? 'associati' : 'non associati'}
-                  </li>
-                  <li className={formData.template_piano_finanziario_id ? 'done' : ''}>
-                    Template piano {formData.template_piano_finanziario_id ? 'selezionato' : 'non selezionato'}
-                  </li>
-                  <li className={(formData.avviso_selection || formData.avviso_pf_id || formData.avviso_id) ? 'done' : ''}>
-                    Avviso piano {(formData.avviso_selection || formData.avviso_pf_id || formData.avviso_id) ? 'selezionato' : 'non selezionato'}
                   </li>
                 </ul>
               </div>
@@ -1062,51 +1112,6 @@ const ProjectManager = ({ currentUser }) => {
                         </div>
                       </div>
 
-                      <div className="form-group">
-                        <label htmlFor="template_piano_finanziario_id">Template Piano Finanziario</label>
-                        <select
-                          id="template_piano_finanziario_id"
-                          name="template_piano_finanziario_id"
-                          value={formData.template_piano_finanziario_id}
-                          onChange={handleInputChange}
-                        >
-                          <option value="">Nessun template collegato</option>
-                          {financialTemplates.map((template) => (
-                            <option key={template.id} value={template.id}>
-                              {template.nome}
-                              {template.tipo_fondo ? ` · ${formatTipoFondo(template.tipo_fondo)}` : ''}
-                              {getTemplateAvvisoCodes(template).length > 0 ? ` · Avvisi ${getTemplateAvvisoCodes(template).join(', ')}` : ''}
-                            </option>
-                          ))}
-                        </select>
-                        <small className="field-hint">
-                          Seleziona il template economico principale del progetto.
-                        </small>
-                      </div>
-
-                      <div className="form-group">
-                        <label htmlFor="avviso_selection">Avviso Piano</label>
-                        <select
-                          id="avviso_selection"
-                          name="avviso_selection"
-                          value={formData.avviso_selection}
-                          onChange={handleInputChange}
-                        >
-                          <option value="">Seleziona avviso</option>
-                          {avvisiFiltrati.map((avvisoItem) => (
-                            <option key={avvisoItem.optionKey} value={avvisoItem.optionKey}>
-                              {avvisoItem.codice}
-                              {avvisoItem.ente_erogatore ? ` · ${avvisoItem.ente_erogatore}` : ''}
-                              {avvisoItem.source === 'legacy' ? ' · legacy' : ''}
-                            </option>
-                          ))}
-                        </select>
-                        <small className="field-hint">
-                          {selectedFinancialTemplate
-                            ? 'Avvisi filtrati dal template selezionato.'
-                            : 'Puoi selezionare prima l’avviso: il template verra collegato automaticamente quando possibile.'}
-                        </small>
-                      </div>
                     </div>
 
                     <div className="project-delivery-card">
@@ -1125,12 +1130,6 @@ const ProjectManager = ({ currentUser }) => {
                           </strong>
                         </div>
                         <div>
-                          <span>Template piano</span>
-                          <strong>
-                            {financialTemplates.find((template) => String(template.id) === String(formData.template_piano_finanziario_id))?.nome || 'Non impostato'}
-                          </strong>
-                        </div>
-                        <div>
                           <span>Aziende coinvolte</span>
                           <strong>{selectedAziende.length > 0 ? selectedAziende.map((azienda) => azienda.ragione_sociale).join(', ') : 'Non impostate'}</strong>
                         </div>
@@ -1140,11 +1139,11 @@ const ProjectManager = ({ currentUser }) => {
                         </div>
                         <div>
                           <span>Ente erogatore</span>
-                          <strong>{formData.ente_erogatore || (selectedFinancialTemplate ? formatTipoFondo(selectedFinancialTemplate.tipo_fondo) : 'Non impostato')}</strong>
+                          <strong>{formData.ente_erogatore || 'Non impostato'}</strong>
                         </div>
                         <div>
                           <span>Avviso</span>
-                          <strong>{selectedAvvisoOption?.codice || formData.avviso || 'Non impostato'}</strong>
+                          <strong>{formData.avviso || 'Non impostato'}</strong>
                         </div>
                       </div>
                     </div>
@@ -1405,18 +1404,146 @@ const ProjectManager = ({ currentUser }) => {
                   </div>
                 </div>
 
+                {/* Sezione FAPI upload */}
+                {(project.ente_erogatore === 'FAPI' || project.codice_fapi) && (
+                  <FapiUploadSection project={project} onRefresh={refresh} />
+                )}
+
+                {(project.codice_fapi || project.ente_erogatore === 'FAPI') && (
+                  <ModuliFormativiSection project={project} />
+                )}
+
                 {/* Footer con statistiche */}
                 <div className="project-stats">
                   <div className="stat">
                     <span className="stat-number">ID: {project.id}</span>
                     <span className="stat-label">Codice Progetto</span>
                   </div>
+                  <div className="stat">
+                    <button
+                      onClick={() => {
+                        if (regimeOpenProject === project.id) {
+                          setRegimeOpenProject(null);
+                        } else {
+                          setRegimeOpenProject(project.id);
+                          loadBeneficiari(project.id);
+                        }
+                      }}
+                      style={{
+                        padding: '6px 14px',
+                        fontSize: '12px',
+                        cursor: 'pointer',
+                        borderRadius: '6px',
+                        border: '0.5px solid var(--color-border-secondary)',
+                        background: regimeOpenProject === project.id ? '#2c3e50' : 'var(--color-background-primary)',
+                        color: regimeOpenProject === project.id ? 'white' : 'var(--color-text-primary)',
+                      }}
+                    >
+                      Aziende Beneficiarie
+                    </button>
+                  </div>
+                  {(project.codice_fapi || project.ente_erogatore === 'FAPI') && (
+                    <div className="stat">
+                      <button
+                        onClick={() => setAssignmentProject(project)}
+                        className="assignment-project-button"
+                      >
+                        Nuova Assegnazione
+                      </button>
+                    </div>
+                  )}
                 </div>
+                {regimeOpenProject === project.id && (
+                  <div style={{ borderTop: '0.5px solid var(--color-border-tertiary)', marginTop: '0.5rem', padding: '0.75rem 1rem' }}>
+                    <div style={{ fontSize: '13px', fontWeight: 500, marginBottom: '0.5rem', color: 'var(--color-text-primary)' }}>
+                      Aziende Beneficiarie — Regime aiuto
+                    </div>
+                    {!beneficiariByProject[project.id] ? (
+                      <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>Caricamento...</div>
+                    ) : beneficiariByProject[project.id].length === 0 ? (
+                      <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>Nessuna azienda beneficiaria</div>
+                    ) : (
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                        <thead>
+                          <tr>
+                            <th style={{ textAlign: 'left', padding: '4px 8px', color: 'var(--color-text-secondary)', fontWeight: 500 }}>Azienda</th>
+                            <th style={{ textAlign: 'left', padding: '4px 8px', color: 'var(--color-text-secondary)', fontWeight: 500 }}>Regime</th>
+                            <th style={{ textAlign: 'left', padding: '4px 8px', color: 'var(--color-text-secondary)', fontWeight: 500 }}>Plafond (€)</th>
+                            <th style={{ padding: '4px 8px' }}></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {beneficiariByProject[project.id].map(b => {
+                            const key = `${project.id}_${b.azienda_id}`;
+                            return (
+                              <tr key={b.azienda_id}>
+                                <td style={{ padding: '4px 8px' }}>{b.ragione_sociale}</td>
+                                <td style={{ padding: '4px 8px' }}>
+                                  <select
+                                    value={regimeByBeneficiario[key] ?? (b.regime_aiuto || 'non_definito')}
+                                    disabled={regimeSaving[key]}
+                                    onChange={e => setRegimeByBeneficiario(prev => ({ ...prev, [key]: e.target.value }))}
+                                    style={{ fontSize: '12px', padding: '2px 6px', borderRadius: '4px', border: '0.5px solid var(--color-border-secondary)' }}
+                                  >
+                                    <option value="non_definito">Non definito</option>
+                                    <option value="de_minimis">De Minimis</option>
+                                    <option value="esenzione">Esenzione</option>
+                                  </select>
+                                </td>
+                                <td style={{ padding: '4px 8px' }}>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="1000"
+                                    value={plafondByBeneficiario[key] ?? (b.plafond_dichiarato != null ? String(b.plafond_dichiarato) : '')}
+                                    disabled={regimeSaving[key]}
+                                    onChange={e => setPlafondByBeneficiario(prev => ({ ...prev, [key]: e.target.value }))}
+                                    placeholder="es. 200000"
+                                    style={{ fontSize: '12px', padding: '2px 6px', borderRadius: '4px', border: '0.5px solid var(--color-border-secondary)', width: '110px' }}
+                                  />
+                                </td>
+                                <td style={{ padding: '4px 8px' }}>
+                                  <button
+                                    onClick={() => handleSaveRegime(project.id, b.azienda_id)}
+                                    disabled={regimeSaving[key]}
+                                    style={{ fontSize: '11px', padding: '2px 10px', borderRadius: '4px', border: 'none', background: 'var(--color-accent)', color: 'white', cursor: regimeSaving[key] ? 'not-allowed' : 'pointer' }}
+                                  >
+                                    {regimeSaving[key] ? '...' : 'Salva'}
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>
         )}
       </div>
+
+      {/* MODAL CONVENZIONE FAPI da toolbar */}
+      {showFapiModal && (
+        <FapiUploadSection
+          project={null}
+          onRefresh={refresh}
+          autoOpenConvenzione
+          autoOpenMode="new-piano"
+          onAutoClose={() => setShowFapiModal(false)}
+        />
+      )}
+
+      <AssignmentModal
+        isOpen={!!assignmentProject}
+        onClose={() => setAssignmentProject(null)}
+        onSuccess={handleAssignmentSuccess}
+        project={assignmentProject}
+        availableProjects={projects}
+        availableCollaborators={collaborators}
+      />
 
       {/* MODAL CONFERMA ELIMINAZIONE */}
       {deleteConfirm && (

@@ -61,9 +61,16 @@ except ImportError:
 from request_middleware import setup_middleware
 
 # IMPORTAZIONI SICUREZZA E AUTENTICAZIONE
-from auth import User, UserRole, create_user
+from auth import User, UserRole, create_user, get_current_user
 
 # IMPORTAZIONI ROUTERS MODULARI
+from routers.timesheet import router as timesheet_router
+from routers.cockpit import router as cockpit_router
+from routers.sprint7 import router as sprint7_router
+from routers.convenzione_upload import router as convenzione_upload_router
+from routers.formulario_upload import router as formulario_upload_router
+from routers.piano_finanziario_upload import router as piano_finanziario_upload_router
+from routers.fondimpresa_upload import router as fondimpresa_upload_router
 from routers import (
     auth,
     collaborators,
@@ -85,7 +92,6 @@ from routers import (
     preventivi,
     ordini,
     piani_finanziari,
-    piani_fondimpresa,
     documenti_richiesti,
     avvisi,
     agents,
@@ -159,7 +165,15 @@ def ensure_runtime_schema_updates():
             "ente_erogatore": "VARCHAR(100)",
             "avviso": "VARCHAR(100)",
             "avviso_id": "INTEGER",
-            "template_piano_finanziario_id": "INTEGER",
+            "codice_fapi": "VARCHAR(30)",
+            "id_piano_esterno": "VARCHAR(50)",
+            "delibera_numero": "VARCHAR(20)",
+            "delibera_data": "DATE",
+            "data_approvazione": "DATE",
+            "costo_totale": "FLOAT",
+            "contributo_ente": "FLOAT",
+            "cofinanziamento": "FLOAT",
+            "convenzione_file_path": "VARCHAR(500)",
         },
         "implementing_entities": {
             "legale_rappresentante_nome": "VARCHAR(50)",
@@ -179,12 +193,10 @@ def ensure_runtime_schema_updates():
             "avviso": "VARCHAR(100)",
         },
         "piani_finanziari": {
-            "template_id": "INTEGER",
             "avviso": "VARCHAR(100) DEFAULT ''",
-            "avviso_id": "INTEGER",
         },
-        "piani_finanziari_fondimpresa": {
-            "avviso_id": "INTEGER",
+        "voci_piano_finanziario": {
+            "modulo_formativo_id": "INTEGER",
         },
         "avvisi": {
             "codice": "VARCHAR(50)",
@@ -209,7 +221,7 @@ def ensure_runtime_schema_updates():
             "items_with_issues": "INTEGER DEFAULT 0",
             "suggestions_created": "INTEGER DEFAULT 0",
             "execution_time_ms": "INTEGER",
-            "metadata": "TEXT",
+            "agent_metadata": "TEXT",
         },
         "agent_suggestions": {
             "agent_name": "VARCHAR(100)",
@@ -261,13 +273,20 @@ ensure_runtime_schema_updates()
 
 try:
     with engine.begin() as connection:
+        # partita_iva deve essere nullable (aziende FAPI senza P.IVA nota)
+        connection.execute(text("ALTER TABLE aziende_clienti ALTER COLUMN partita_iva DROP NOT NULL"))
+except Exception:
+    pass
+
+try:
+    with engine.begin() as connection:
         connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_collaborators_partita_iva_unique ON collaborators (partita_iva)"))
         connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_agenzie_partita_iva_unique ON agenzie (partita_iva)"))
         connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_agenzie_collaborator_id_unique ON agenzie (collaborator_id)"))
         connection.execute(text("DROP INDEX IF EXISTS idx_unique_piano_progetto_anno"))
         connection.execute(text("DROP INDEX IF EXISTS idx_unique_piano_progetto_anno_fondo"))
         connection.execute(text("DROP INDEX IF EXISTS idx_unique_piano_progetto_anno_fondo_avviso"))
-        connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_piano_progetto_anno_ente_avviso_id ON piani_finanziari (progetto_id, anno, ente_erogatore, avviso_id)"))
+        connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_piano_progetto_anno_codice_runtime ON piani_finanziari (progetto_id, anno, codice_piano)"))
         connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_avvisi_codice_ente ON avvisi (codice, ente_erogatore)"))
 except Exception as exc:
     logger.warning(f"Indici runtime non aggiornati automaticamente: {exc}")
@@ -276,7 +295,7 @@ except Exception as exc:
 app = FastAPI(
     title="Gestionale Collaboratori e Progetti",
     description="Sistema per gestire collaboratori, progetti formativi e presenze",
-    version="2.0.0"
+    version="2.0.0",
 )
 
 # ========================================
@@ -339,67 +358,87 @@ async def general_exception_handler(request: Request, exc: Exception):
 # CONFIGURAZIONE CORS E MIDDLEWARE
 # ========================================
 
+setup_middleware(app)
+
 _cors_origins_raw = os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:3001")
 _cors_origins = [o.strip() for o in _cors_origins_raw.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With", "X-Request-ID"],
 )
-
-setup_middleware(app)
 
 
 # ========================================
 # REGISTRAZIONE ROUTERS MODULARI
 # ========================================
 
+_protected_dependencies = [Depends(get_current_user)]
+
+
+def include_protected_router(router):
+    app.include_router(router, dependencies=_protected_dependencies)
+
+
 # Router autenticazione
 app.include_router(auth.router)
 
-# Router per risorse principali
+# Router pubblici per health/root
 app.include_router(system.router)
-app.include_router(collaborators.router)
-app.include_router(projects.router)
-app.include_router(attendances.router)
-app.include_router(assignments.router)
+
+# Router per risorse principali
+include_protected_router(collaborators.router)
+include_protected_router(projects.router)
+include_protected_router(attendances.router)
+include_protected_router(assignments.router)
+include_protected_router(timesheet_router)
+include_protected_router(cockpit_router)
+include_protected_router(sprint7_router)
 
 # Router per enti e associazioni
-app.include_router(implementing_entities.router)
-app.include_router(progetto_mansione_ente.router)
+include_protected_router(implementing_entities.router)
+include_protected_router(progetto_mansione_ente.router)
 
 # Router per template e generazione contratti
-app.include_router(contract_templates.router)
+include_protected_router(contract_templates.router)
 
 # Router per reporting e statistiche
-app.include_router(reporting.router)
+include_protected_router(reporting.router)
 
 # Router amministrazione
-app.include_router(admin.router)
+include_protected_router(admin.router)
 
 # Router Blocco 1 — Anagrafica espansa
-app.include_router(agenzie.router)
-app.include_router(consulenti.router)
-app.include_router(aziende_clienti.router)
-app.include_router(allievi.router)
+include_protected_router(agenzie.router)
+include_protected_router(consulenti.router)
+include_protected_router(aziende_clienti.router)
+include_protected_router(allievi.router)
 
 # Router Blocco 3 — Catalogo + Listini
-app.include_router(catalogo.router)
-app.include_router(listini.router)
+include_protected_router(catalogo.router)
+include_protected_router(listini.router)
 
 # Router Blocco 4 — Preventivi + Ordini
-app.include_router(preventivi.router)
-app.include_router(ordini.router)
+include_protected_router(preventivi.router)
+include_protected_router(ordini.router)
 
 # Router Piano Finanziario Formazienda
-app.include_router(piani_finanziari.router)
-app.include_router(piani_fondimpresa.router)
-app.include_router(documenti_richiesti.router)
-app.include_router(avvisi.router)
-app.include_router(agents.router)
-app.include_router(email_inbox.router)
+include_protected_router(piani_finanziari.router)
+include_protected_router(documenti_richiesti.router)
+include_protected_router(avvisi.router)
+include_protected_router(agents.router)
+include_protected_router(agents.suggestion_actions_router)
+include_protected_router(email_inbox.router)
+
+# Router FAPI — upload documenti
+include_protected_router(convenzione_upload_router)
+include_protected_router(formulario_upload_router)
+include_protected_router(piano_finanziario_upload_router)
+include_protected_router(fondimpresa_upload_router)
+
+# Webhook WhatsApp Meta deve restare raggiungibile dal provider esterno.
 app.include_router(whatsapp.router)
 
 
@@ -412,6 +451,7 @@ app.include_router(whatsapp.router)
 def read_collaborators_with_projects(
     skip: int = 0,
     limit: int = 100,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -426,6 +466,7 @@ def read_collaborators_with_projects(
 def assign_collaborator_to_project(
     collaborator_id: int,
     project_id: int,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """ASSEGNA UN COLLABORATORE AD UN PROGETTO"""
@@ -439,6 +480,7 @@ def assign_collaborator_to_project(
 def remove_collaborator_from_project(
     collaborator_id: int,
     project_id: int,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """RIMUOVI UN COLLABORATORE DA UN PROGETTO"""
@@ -451,6 +493,7 @@ def remove_collaborator_from_project(
 @app.get("/collaborators/{collaborator_id}/assignments/", response_model=List[schemas.Assignment], response_model_by_alias=False)
 def read_collaborator_assignments(
     collaborator_id: int,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """OTTIENI TUTTE LE ASSEGNAZIONI DI UN COLLABORATORE"""
@@ -461,6 +504,7 @@ def read_collaborator_assignments(
 @app.get("/projects/{project_id}/assignments/", response_model=List[schemas.Assignment], response_model_by_alias=False)
 def read_project_assignments(
     project_id: int,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """OTTIENI TUTTE LE ASSEGNAZIONI DI UN PROGETTO"""
@@ -471,6 +515,7 @@ def read_project_assignments(
 @app.get("/projects/{project_id}/mansioni-enti", response_model=List[schemas.ProgettoMansioneEnteWithDetails], response_model_by_alias=False)
 def get_project_mansioni_enti(
     project_id: int,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """RECUPERA TUTTE LE ASSOCIAZIONI (MANSIONI-ENTI) DI UN PROGETTO"""
@@ -488,6 +533,7 @@ def get_project_mansioni_enti(
 @app.get("/implementing-entities/{entity_id}/mansioni-progetti", response_model=List[schemas.ProgettoMansioneEnteWithDetails], response_model_by_alias=False)
 def get_entity_mansioni_progetti(
     entity_id: int,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """RECUPERA TUTTE LE ASSOCIAZIONI (MANSIONI-PROGETTI) DI UN ENTE ATTUATORE"""

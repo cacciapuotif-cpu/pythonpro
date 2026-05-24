@@ -13,10 +13,18 @@ logger = logging.getLogger(__name__)
 
 ALLOWED_CONTENT_TYPES = {
     "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 }
 
 DEFAULT_MAX_BYTES = int(os.getenv("MAX_ATTACHMENT_MB", "10")) * 1024 * 1024
 _DEFAULT_UPLOAD_BASE = Path(os.getenv("UPLOAD_BASE_DIR", "uploads")) / "email_inbox"
+INLINE_IMAGE_MAX_BYTES = 50 * 1024
+PREFERRED_CONTENT_TYPES = {
+    "application/pdf": 30,
+    "application/msword": 20,
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 20,
+}
 
 
 class AttachmentHandler:
@@ -35,16 +43,19 @@ class AttachmentHandler:
         entity_id: Optional[int],
     ) -> Optional[Tuple[str, str]]:
         """
-        Scansiona msg alla ricerca del primo allegato valido.
+        Scansiona msg alla ricerca del miglior allegato valido.
         Restituisce (path_assoluto, nome_file_originale) o None.
         """
+        best_candidate: Optional[tuple[int, int, str, bytes, str]] = None
+
         for part in msg.walk():
-            disposition = part.get_content_disposition() or ""
+            disposition = (part.get_content_disposition() or "").lower()
             content_type = (part.get_content_type() or "").lower()
-            if disposition != "attachment":
+            filename = part.get_filename()
+
+            if _should_skip_part(disposition, content_type, filename, part):
                 continue
 
-            filename = part.get_filename()
             if not filename:
                 continue
 
@@ -63,6 +74,13 @@ class AttachmentHandler:
                 )
                 continue
 
+            score = PREFERRED_CONTENT_TYPES.get(content_type, 0)
+            size = len(payload)
+            if best_candidate is None or (score, size) > (best_candidate[0], best_candidate[1]):
+                best_candidate = (score, size, filename, payload, content_type)
+
+        if best_candidate:
+            _, _, filename, payload, content_type = best_candidate
             dest_dir = self.upload_base_dir
             if entity_type:
                 dest_dir = dest_dir / entity_type
@@ -80,8 +98,7 @@ class AttachmentHandler:
             dest_path = dest_dir / f"{timestamp}_{safe_name}"
 
             dest_path.write_bytes(payload)
-            logger.info("AttachmentHandler: salvato '%s' -> %s", filename, dest_path)
-            logger.debug("AttachmentHandler: allegati successivi a '%s' ignorati (se presenti)", filename)
+            logger.info("AttachmentHandler: salvato '%s' (%s, %d bytes) -> %s", filename, content_type, len(payload), dest_path)
             return str(dest_path), filename
 
         return None
@@ -92,3 +109,34 @@ def _sanitize_filename(name: str) -> str:
     name = Path(name).name  # no directory traversal
     name = re.sub(r"[^\w.\-]", "_", name)
     return name[:200] or "attachment"
+
+
+def _should_skip_part(disposition: str, content_type: str, filename: Optional[str], part: Message) -> bool:
+    if disposition not in {"attachment", "inline"}:
+        return True
+
+    payload = part.get_payload(decode=True) or b""
+    if disposition == "inline" and not _has_meaningful_filename(filename):
+        logger.info("AttachmentHandler: inline senza filename significativo, skip")
+        return True
+
+    if content_type.startswith("image/") and len(payload) < INLINE_IMAGE_MAX_BYTES:
+        logger.info(
+            "AttachmentHandler: inline/logo image '%s' sotto 50KB (%d bytes), skip",
+            filename or "",
+            len(payload),
+        )
+        return True
+
+    return False
+
+
+def _has_meaningful_filename(filename: Optional[str]) -> bool:
+    if not filename:
+        return False
+    normalized = filename.strip().lower()
+    if not normalized:
+        return False
+    if normalized.startswith("risorsa ") or normalized.startswith("image") or normalized.startswith("logo"):
+        return False
+    return Path(normalized).suffix.lower() in {".pdf", ".doc", ".docx"}

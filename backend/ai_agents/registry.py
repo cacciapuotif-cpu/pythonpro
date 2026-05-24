@@ -108,3 +108,37 @@ class AgentRegistry:
 
 
 agent_registry = AgentRegistry()
+
+
+class ContractGeneratorAgent(BaseAgent):
+    agent_type = "contract_generator"
+    version = "1.0"
+    description = "Monitora pratiche documentali complete e genera suggerimenti contratto"
+
+    def run(self, db) -> AgentRunResult:
+        from .contract_agent import run_contract_agent
+        result = run_contract_agent(db)
+        return AgentRunResult(
+            items_processed=result["assignments_scansionati"],
+            items_with_issues=result["documenti_incompleti"],
+            suggestions=[],
+        )
+
+
+class CertificationAgent(BaseAgent):
+    agent_type = "certification"
+    version = "1.0"
+    description = "Verifica frequenza allievi e genera suggerimenti attestato"
+
+    def run(self, db) -> AgentRunResult:
+        from .certification_agent import run_certification_agent
+        result = run_certification_agent(db)
+        return AgentRunResult(
+            items_processed=result["allievi_verificati"],
+            items_with_issues=result["frequenza_insufficiente"],
+            suggestions=[],
+        )
+
+
+agent_registry.register(ContractGeneratorAgent())
+agent_registry.register(CertificationAgent())

@@ -65,11 +65,11 @@ COPY --from=builder /usr/local /usr/local
 
 # Copia codice applicazione
 COPY --chown=appuser:appuser . .
-RUN chmod +x /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh /app/scripts/validate_env.sh
 
 
 # Crea directory necessarie con permessi corretti
-RUN mkdir -p /app/logs /app/uploads /app/backups && \
+RUN mkdir -p /app/logs /app/uploads /app/backups /app/exports && \
     chown -R appuser:appuser /app
 
 # Cambia a utente non-root

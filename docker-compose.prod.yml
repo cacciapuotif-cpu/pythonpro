@@ -1,6 +1,32 @@
 version: "3.9"
 
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "100m"
+    max-file: "3"
+
 services:
+  db:
+    image: postgres:15-alpine
+    container_name: pythonpro_db_prod
+    environment:
+      POSTGRES_DB: ${DB_NAME:-gestionale}
+      POSTGRES_USER: ${DB_USER:-admin}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+    volumes:
+      - prod_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-admin} -d ${DB_NAME:-gestionale}"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+    logging: *default-logging
+    networks:
+      - pythonpro_network
+
   # Backend FastAPI service
   backend:
     build:
@@ -13,24 +39,26 @@ services:
       - PORT=8000
       - UVICORN_WORKERS=2
 
-      # Database configuration (adjust as needed)
-      - DATABASE_URL=sqlite:///./gestionale_new.db
+      # Database configuration
+      - DATABASE_URL=postgresql+psycopg://${DB_USER:-admin}:${DB_PASSWORD:?DB_PASSWORD is required}@db:5432/${DB_NAME:-gestionale}
 
-      # Security (use secrets in production!)
-      - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
-      - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
+      # Security
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY is required}
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required}
 
       # Logging
       - LOG_LEVEL=info
 
     volumes:
-      # Persist SQLite database
-      - ./backend/gestionale_new.db:/app/gestionale_new.db
       # Persist uploads
       - ./backend/uploads:/app/uploads
 
     expose:
       - "8000"
+
+    depends_on:
+      db:
+        condition: service_healthy
 
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8000/health"]
@@ -40,6 +68,7 @@ services:
       start_period: 10s
 
     restart: unless-stopped
+    logging: *default-logging
 
     networks:
       - pythonpro_network
@@ -64,6 +93,7 @@ services:
       start_period: 5s
 
     restart: unless-stopped
+    logging: *default-logging
 
     networks:
       - pythonpro_network
@@ -71,3 +101,7 @@ services:
 networks:
   pythonpro_network:
     driver: bridge
+
+volumes:
+  prod_db_data:
+    driver: local

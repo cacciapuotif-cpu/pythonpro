@@ -20,7 +20,7 @@ from database import SessionLocal, get_db
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/reporting", tags=["Reporting"])
-EXPORTS_DIR = "/tmp/exports"
+EXPORTS_DIR = os.getenv("EXPORTS_DIR", "/app/exports")
 
 
 class TimesheetExportFilters(BaseModel):
@@ -436,7 +436,7 @@ def get_collaborator_statistics(
             if not _page:
                 break
             for att in _page:
-                ore = float(att.hours_worked) if att.hours_worked else 0
+                ore = float(att.hours) if att.hours else 0
                 total_hours += ore
                 total_attendances_count += 1
                 project_hours[att.project_id] = project_hours.get(att.project_id, 0) + ore
@@ -533,7 +533,7 @@ def get_project_statistics(
             if not _page:
                 break
             for att in _page:
-                ore = float(att.hours_worked) if att.hours_worked else 0
+                ore = float(att.hours) if att.hours else 0
                 total_hours += ore
                 total_attendances_count += 1
                 collaborator_hours[att.collaborator_id] = collaborator_hours.get(att.collaborator_id, 0) + ore

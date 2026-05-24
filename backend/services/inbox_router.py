@@ -40,12 +40,25 @@ class InboxRouter:
                 text("SELECT id FROM allievi WHERE lower(email) = :email AND attivo = true LIMIT 1"),
                 {"email": normalized}
             ).fetchone()
+        except Exception as exc:
+            self.db.rollback()
+            logger.warning("InboxRouter: query allievi fallita su colonna attivo, provo fallback: %s", exc)
+            try:
+                row = self.db.execute(
+                    text("SELECT id FROM allievi WHERE lower(email) = :email AND is_active = true LIMIT 1"),
+                    {"email": normalized}
+                ).fetchone()
+            except Exception as inner_exc:
+                self.db.rollback()
+                logger.warning("InboxRouter: query allievi fallita: %s", inner_exc)
+                row = None
+
+        try:
             if row:
                 logger.debug("InboxRouter: %s -> allievo %s", sender_email, row[0])
                 return "allievo", row[0]
         except Exception as exc:
-            self.db.rollback()
-            logger.warning("InboxRouter: query allievi fallita: %s", exc)
+            logger.warning("InboxRouter: gestione risultato allievi fallita: %s", exc)
 
         # Cerca nelle aziende clienti
         try:

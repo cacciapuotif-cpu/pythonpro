@@ -6,6 +6,7 @@ Implementa JWT, RBAC, rate limiting e security headers
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 from functools import wraps
+import inspect
 from jose import jwt  # python-jose library
 import bcrypt
 from fastapi import HTTPException, status, Depends, Request
@@ -299,18 +300,19 @@ def rate_limit(max_requests: int = 100, window_seconds: int = 3600):
     limiter = RateLimiter(max_requests, window_seconds)
 
     def decorator(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            # Estrai l'indirizzo IP dalla richiesta
+        def check_request(args, kwargs) -> None:
             request = None
             for arg in args:
                 if isinstance(arg, Request):
                     request = arg
                     break
+            if request is None:
+                request = kwargs.get("request")
 
             if request:
-                client_ip = request.client.host
-                key = f"rate_limit:{client_ip}"
+                client_ip = request.client.host if request.client else "unknown"
+                path = request.url.path if request.url else "unknown"
+                key = f"rate_limit:{path}:{client_ip}"
 
                 if not limiter.is_allowed(key):
                     raise HTTPException(
@@ -318,7 +320,19 @@ def rate_limit(max_requests: int = 100, window_seconds: int = 3600):
                         detail="Troppe richieste. Riprova più tardi."
                     )
 
+        if inspect.iscoroutinefunction(func):
+            @wraps(func)
+            async def async_wrapper(*args, **kwargs):
+                check_request(args, kwargs)
+                return await func(*args, **kwargs)
+
+            return async_wrapper
+
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            check_request(args, kwargs)
             return func(*args, **kwargs)
+
         return wrapper
     return decorator
 

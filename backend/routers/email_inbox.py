@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import logging
+import json
 from typing import Optional
 from types import SimpleNamespace
 from mimetypes import guess_type
+from datetime import datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
@@ -26,6 +28,7 @@ def list_items(
     status: Optional[str] = Query(None, description="Filtra per processing_status"),
     entity_type: Optional[str] = Query(None),
     entity_id: Optional[int] = Query(None),
+    archived: Optional[bool] = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
@@ -38,9 +41,53 @@ def list_items(
         q = q.filter(models.EmailInboxItem.entity_type == entity_type)
     if entity_id is not None:
         q = q.filter(models.EmailInboxItem.entity_id == entity_id)
+    if archived is not None:
+        q = q.filter(models.EmailInboxItem.archived == archived)
     total = q.count()
     items = q.order_by(models.EmailInboxItem.received_at.desc()).offset(skip).limit(limit).all()
     return schemas.EmailInboxListResponse(items=items, total=total)
+
+
+def _archive_item(
+    item_id: int,
+    db: Session,
+    current_user,
+):
+    item = db.query(models.EmailInboxItem).filter(models.EmailInboxItem.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Item non trovato")
+
+    item.archived = True
+    item.archived_at = datetime.utcnow()
+    create_audit_log(
+        db,
+        entity="email_inbox_item",
+        action="archive",
+        old_value={"item_id": item.id, "archived": False},
+        new_value={"item_id": item.id, "archived": True},
+        user_id=getattr(current_user, "id", None),
+    )
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+@router.post("/{item_id}/archive", response_model=schemas.EmailInboxItemOut)
+def archive_item(
+    item_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    return _archive_item(item_id, db, current_user)
+
+
+@router.post("/items/{item_id}/archive", response_model=schemas.EmailInboxItemOut)
+def archive_item_legacy_path(
+    item_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    return _archive_item(item_id, db, current_user)
 
 
 @router.get("/items/{item_id}", response_model=schemas.EmailInboxItemOut)
@@ -76,6 +123,120 @@ def download_item_attachment(
         filename=item.attachment_name,
         media_type=media_type,
     )
+
+
+@router.post("/{item_id}/send-followup", response_model=schemas.EmailInboxFollowupResponse)
+def send_followup(
+    item_id: int,
+    payload: schemas.EmailInboxFollowupPayload,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    item = db.query(models.EmailInboxItem).filter(models.EmailInboxItem.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Item non trovato")
+    if item.entity_type != "collaborator" or not item.entity_id:
+        raise HTTPException(status_code=400, detail="Email non associata a un collaboratore")
+
+    collaborator = db.query(models.Collaborator).filter(models.Collaborator.id == item.entity_id).first()
+    if not collaborator:
+        raise HTTPException(status_code=404, detail="Collaboratore non trovato")
+
+    requested = [field.strip() for field in payload.fields_requested if field and field.strip()]
+    if not requested:
+        raise HTTPException(status_code=400, detail="Seleziona almeno un dato da richiedere")
+
+    recipient_name = f"{collaborator.first_name} {collaborator.last_name}".strip()
+    requested_text = ", ".join(requested)
+    now = datetime.utcnow()
+    run = models.AgentRun(
+        agent_type="mail_recovery",
+        status="completed",
+        entity_type="collaborator",
+        entity_id=collaborator.id,
+        requested_by_user_id=payload.reviewed_by_user_id or getattr(current_user, "id", None),
+        input_payload=json.dumps({"source_item_id": item.id, "fields_requested": requested}),
+        result_summary=f"Sollecito inviato per {requested_text}",
+        suggestions_count=1,
+        suggestions_created=1,
+        items_processed=1,
+        completed_at=now,
+        triggered_by="manual_review",
+    )
+    db.add(run)
+    db.flush()
+
+    suggestion = models.AgentSuggestion(
+        run_id=run.id,
+        suggestion_type="email_missing_collaborator_data",
+        status="sent",
+        entity_type="collaborator",
+        entity_id=collaborator.id,
+        severity="medium",
+        title=f"Sollecito {requested_text}",
+        description=f"Richiesta integrativa inviata a {recipient_name}",
+        payload=json.dumps({
+            "recipient_name": recipient_name,
+            "recipient_email": collaborator.email,
+            "missing_fields": requested,
+            "source_item_id": item.id,
+        }),
+        priority="medium",
+        reviewed_at=now,
+        reviewed_by_user_id=payload.reviewed_by_user_id or getattr(current_user, "id", None),
+    )
+    db.add(suggestion)
+    db.flush()
+
+    draft = models.AgentCommunicationDraft(
+        run_id=run.id,
+        suggestion_id=suggestion.id,
+        agent_name="mail_recovery",
+        channel="email",
+        recipient_type="collaborator",
+        recipient_id=collaborator.id,
+        recipient_email=collaborator.email,
+        recipient_name=recipient_name,
+        subject=f"Integrazione documenti richiesta - {requested_text}",
+        body=(
+            f"Gentile {recipient_name},\n\n"
+            f"abbiamo ricevuto la sua risposta, ma resta da inviare: {requested_text}.\n"
+            "La invitiamo a rispondere a questa email con quanto richiesto.\n\n"
+            "Grazie."
+        ),
+        status="sent",
+        meta_payload=json.dumps({"source": "manual_followup", "source_item_id": item.id}),
+        created_by_user_id=payload.reviewed_by_user_id or getattr(current_user, "id", None),
+        reviewed_by_user_id=payload.reviewed_by_user_id or getattr(current_user, "id", None),
+        sent_at=now,
+    )
+    db.add(draft)
+
+    item.processing_status = "valid"
+    create_audit_log(
+        db,
+        entity="email_inbox_item",
+        action="manual_followup_sent",
+        old_value={"item_id": item.id, "processing_status": "manual_review"},
+        new_value={"item_id": item.id, "processing_status": item.processing_status, "fields_requested": requested},
+        user_id=payload.reviewed_by_user_id or getattr(current_user, "id", None),
+    )
+
+    db.commit()
+    db.refresh(item)
+    db.refresh(suggestion)
+    db.refresh(draft)
+    return schemas.EmailInboxFollowupResponse(item=item, suggestion_id=suggestion.id, draft_id=draft.id)
+
+
+@router.post("/items/{item_id}/send-followup", response_model=schemas.EmailInboxFollowupResponse)
+def send_followup_legacy_path(
+    item_id: int,
+    payload: schemas.EmailInboxFollowupPayload,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    return send_followup(item_id, payload, db, current_user)
 
 
 @router.post("/trigger-poll", status_code=202)
