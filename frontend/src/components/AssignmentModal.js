@@ -13,7 +13,9 @@ import {
   updateAssignment,
   deleteAssignment,
   getPianiFinanziari,
-  getPianoFinanziario
+  getPianoFinanziario,
+  getProjectModuliFormativi,
+  getProjectModuloVocePiano
 } from '../services/apiService';
 import ErrorBanner from './ErrorBanner';
 import './AssignmentModal.css';
@@ -49,6 +51,39 @@ const PIANO_ROLE_TEMPLATES = [
   { voce_codice: 'D.3', descrizione: 'Rimborsi viaggi e trasferte' },
   { voce_codice: 'D.4', descrizione: 'Altro' },
 ];
+
+const MODALITA_LABELS = {
+  aula: 'Aula',
+  training_on_job: 'Training on job',
+  fad_sincrona: 'FAD sincrona',
+  fad_asincrona: 'FAD asincrona',
+  propedeutica: 'Propedeutica',
+};
+
+const MODALITA_ICONS = {
+  aula: '🏫',
+  training_on_job: '🔧',
+  fad_sincrona: '💻',
+  fad_asincrona: '📱',
+  propedeutica: '📋',
+};
+
+const formatModalita = (value) => MODALITA_LABELS[value] || value || '-';
+
+const flattenFapiModules = (payload) => {
+  if (!payload?.progetti_fapi) return [];
+  return payload.progetti_fapi.flatMap((gruppo) => {
+    const modules = [
+      ...(gruppo.moduli_formativi || []),
+      ...(gruppo.moduli_propedeutici || []),
+    ];
+    return modules.map((modulo) => ({
+      ...modulo,
+      azienda_ragione_sociale: gruppo.azienda?.ragione_sociale || '',
+      codice_progetto_fapi: modulo.codice_progetto_fapi || gruppo.codice_progetto_fapi,
+    }));
+  });
+};
 
 const buildPlanRoleOptions = (voci = []) => {
   const byCode = voci.reduce((accumulator, voce) => {
@@ -130,6 +165,9 @@ const AssignmentModal = ({
     collaborator_id: '',
     project_id: '',
     role: '',
+    modulo_formativo_id: '',
+    materia: '',
+    modalita_erogazione: '',
     edizione_label: '',
     assigned_hours: '',
     start_date: '',
@@ -143,9 +181,15 @@ const AssignmentModal = ({
   const [error, setError] = useState(null);
   const [planRoles, setPlanRoles] = useState([]);
   const [loadingPlanRoles, setLoadingPlanRoles] = useState(false);
+  const [fapiModules, setFapiModules] = useState([]);
+  const [loadingFapiModules, setLoadingFapiModules] = useState(false);
+  const [vocePianoCollegata, setVocePianoCollegata] = useState(null);
+  const [loadingVocePiano, setLoadingVocePiano] = useState(false);
   const selectablePlanRoles = formData.role && !planRoles.some((item) => item.mansione === formData.role)
     ? [{ id: `legacy-${formData.role}`, mansione: formData.role, tipo_contratto: formData.contract_type, tariffa_oraria: formData.hourly_rate }, ...planRoles]
     : planRoles;
+  const selectedProject = project || availableProjects.find((item) => String(item.id) === String(formData.project_id));
+  const isFapiProject = Boolean(selectedProject?.codice_fapi || selectedProject?.ente_erogatore === 'FAPI');
 
   // Lista dei tipi di contratto
   const contractTypeOptions = [
@@ -164,6 +208,9 @@ const AssignmentModal = ({
           collaborator_id: assignment.collaborator_id,
           project_id: assignment.project_id,
           role: assignment.role,
+          modulo_formativo_id: assignment.modulo_formativo_id || '',
+          materia: assignment.materia || '',
+          modalita_erogazione: assignment.modalita_erogazione || '',
           edizione_label: assignment.edizione_label || '',
           assigned_hours: assignment.assigned_hours,
           start_date: assignment.start_date ? assignment.start_date.split('T')[0] : '',
@@ -178,6 +225,9 @@ const AssignmentModal = ({
           collaborator_id: collaborator?.id || '',
           project_id: project?.id || '',
           role: '',
+          modulo_formativo_id: '',
+          materia: '',
+          modalita_erogazione: '',
           edizione_label: '',
           assigned_hours: '',
           start_date: '',
@@ -241,6 +291,76 @@ const AssignmentModal = ({
     };
   }, [isOpen, formData.project_id, project]);
 
+  useEffect(() => {
+    const projectId = formData.project_id || project?.id;
+    if (!isOpen || !projectId || !isFapiProject) {
+      setFapiModules([]);
+      setVocePianoCollegata(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadFapiModules = async () => {
+      try {
+        setLoadingFapiModules(true);
+        const payload = await getProjectModuliFormativi(projectId);
+        if (!cancelled) {
+          setFapiModules(flattenFapiModules(payload));
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setFapiModules([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingFapiModules(false);
+        }
+      }
+    };
+
+    loadFapiModules();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, formData.project_id, project, isFapiProject]);
+
+  useEffect(() => {
+    const projectId = formData.project_id || project?.id;
+    const moduloId = formData.modulo_formativo_id;
+    if (!isOpen || !projectId || !moduloId || !isFapiProject) {
+      setVocePianoCollegata(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadVocePiano = async () => {
+      try {
+        setLoadingVocePiano(true);
+        const payload = await getProjectModuloVocePiano(projectId, moduloId);
+        if (!cancelled) {
+          setVocePianoCollegata(payload);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setVocePianoCollegata(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingVocePiano(false);
+        }
+      }
+    };
+
+    loadVocePiano();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, formData.project_id, formData.modulo_formativo_id, project, isFapiProject]);
+
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => {
@@ -251,11 +371,31 @@ const AssignmentModal = ({
 
       if (name === 'project_id') {
         next.role = '';
+        next.modulo_formativo_id = '';
+        next.materia = '';
+        next.modalita_erogazione = '';
         next.edizione_label = '';
         next.hourly_rate = '';
         next.contract_type = '';
         next.start_date = '';
         next.end_date = '';
+        setVocePianoCollegata(null);
+      }
+
+      if (name === 'modulo_formativo_id') {
+        const selectedModule = fapiModules.find((item) => String(item.id) === String(value));
+        if (selectedModule) {
+          next.role = selectedModule.titolo_modulo || next.role;
+          next.materia = selectedModule.materia || '';
+          next.modalita_erogazione = selectedModule.modalita_erogazione || '';
+          next.assigned_hours = selectedModule.ore_previste || next.assigned_hours;
+          if (selectedModule.tipo_attivita === 'propedeutica') {
+            next.edizione_label = '';
+          }
+        } else {
+          next.materia = '';
+          next.modalita_erogazione = '';
+        }
       }
 
       if (name === 'role') {
@@ -325,6 +465,9 @@ const AssignmentModal = ({
         collaborator_id: parseInt(formData.collaborator_id),
         project_id: parseInt(formData.project_id),
         role: formData.role,
+        modulo_formativo_id: formData.modulo_formativo_id ? parseInt(formData.modulo_formativo_id) : null,
+        materia: formData.materia || null,
+        modalita_erogazione: formData.modalita_erogazione || null,
         edizione_label: formData.edizione_label.trim() || null,
         assigned_hours: parseFloat(formData.assigned_hours),
         start_date: new Date(formData.start_date).toISOString(),  // Formato ISO datetime
@@ -450,6 +593,41 @@ const AssignmentModal = ({
           <div className="form-section">
             <h3>👔 Mansione</h3>
             <div className="form-grid">
+              {isFapiProject && (
+                <div className="form-group form-group-wide">
+                  <label htmlFor="modulo_formativo_id">Seleziona modulo formativo</label>
+                  <select
+                    id="modulo_formativo_id"
+                    name="modulo_formativo_id"
+                    value={formData.modulo_formativo_id}
+                    onChange={handleInputChange}
+                  >
+                    <option value="">
+                      {loadingFapiModules ? 'Caricamento moduli...' : 'Seleziona modulo formativo...'}
+                    </option>
+                    {fapiModules.map((modulo) => (
+                      <option key={modulo.id} value={modulo.id}>
+                        {(MODALITA_ICONS[modulo.modalita_erogazione] || '•')} {modulo.titolo_modulo} — {modulo.materia || 'Materia non indicata'} ({formatModalita(modulo.modalita_erogazione)}, {Number(modulo.ore_previste || 0)}h)
+                      </option>
+                    ))}
+                  </select>
+                  <small>La selezione compila mansione, materia, modalità e ore dal formulario FAPI.</small>
+                  {formData.modulo_formativo_id && (
+                    <div className="assignment-linked-plan-voice">
+                      {loadingVocePiano ? (
+                        <span>Caricamento voce piano collegata...</span>
+                      ) : vocePianoCollegata ? (
+                        <span>
+                          Voce piano collegata: {vocePianoCollegata.voce_codice} {vocePianoCollegata.voce_descrizione} — {vocePianoCollegata.azienda} — {vocePianoCollegata.materia} ({Number(vocePianoCollegata.ore_previste || 0)}h)
+                        </span>
+                      ) : (
+                        <span>Nessuna voce piano collegata al modulo selezionato.</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="form-group">
                 <label htmlFor="role">Voce Piano / Mansione *</label>
                 <select
@@ -469,11 +647,42 @@ const AssignmentModal = ({
                   ))}
                 </select>
                 {formData.project_id && !loadingPlanRoles && planRoles.length === 0 ? (
-                  <small style={{color:'var(--color-warning)'}}>Nessun piano finanziario trovato per questo progetto. Crea prima il piano in "Piani Finanziari".</small>
+                  <small style={{color:'var(--color-warning)'}}>Nessun piano finanziario caricato per questo progetto.</small>
                 ) : (
                   <small>Le voci vengono dal piano finanziario del progetto.</small>
                 )}
               </div>
+
+              {isFapiProject && (
+                <>
+                  <div className="form-group">
+                    <label htmlFor="materia">Materia</label>
+                    <input
+                      type="text"
+                      id="materia"
+                      name="materia"
+                      value={formData.materia}
+                      onChange={handleInputChange}
+                      placeholder="Materia del modulo"
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label htmlFor="modalita_erogazione">Modalità erogazione</label>
+                    <select
+                      id="modalita_erogazione"
+                      name="modalita_erogazione"
+                      value={formData.modalita_erogazione}
+                      onChange={handleInputChange}
+                    >
+                      <option value="">Seleziona modalità...</option>
+                      {Object.entries(MODALITA_LABELS).map(([value, label]) => (
+                        <option key={value} value={value}>{MODALITA_ICONS[value]} {label}</option>
+                      ))}
+                    </select>
+                  </div>
+                </>
+              )}
 
               <div className="form-group">
                 <label htmlFor="contract_type">Tipo di Contratto</label>

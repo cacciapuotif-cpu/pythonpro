@@ -20,10 +20,28 @@ OPEN_SUGGESTION_STATUSES = {"pending", "waiting", "approved", "sent", "followup_
 FOLLOWUP_ELIGIBLE_STATUSES = {"sent"}
 
 
+class AgentWorkflowExecutionError(RuntimeError):
+    pass
+
+
 def _json_dumps(value: Any) -> Optional[str]:
     if value is None:
         return None
     return json.dumps(value, default=str)
+
+
+def _mark_run_failed(db: Session, *, run_id: int, error_message: str) -> models.AgentRun:
+    run = db.query(models.AgentRun).filter(models.AgentRun.id == run_id).first()
+    if run is None:
+        raise AgentWorkflowExecutionError(error_message)
+    run.status = "failed"
+    run.completed_at = datetime.utcnow()
+    run.error_message = error_message
+    run.suggestions_count = 0
+    run.result_summary = _json_dumps({"error": error_message})
+    db.commit()
+    db.refresh(run)
+    return run
 
 
 def create_audit_log(
@@ -376,115 +394,193 @@ def run_agent_workflow(
         input_payload=_json_dumps(payload),
     )
     db.add(run)
-    db.flush()
-
-    result = run_registered_agent(
-        db,
-        agent_name=agent_type,
-        entity_type=entity_type,
-        entity_id=entity_id,
-        input_payload=payload,
-    )
-
-    created_suggestions: list[models.AgentSuggestion] = []
-    for item in result.get("suggestions", []):
-        # Deduplication: reuse any still-open suggestion of the same type for this entity.
-        # In particular, do not recreate a new pending item if the previous request was already sent;
-        # that request should remain hidden until it becomes follow-up_due.
-        existing = None
-        if item.get("entity_id") and item.get("entity_type") and item.get("suggestion_type"):
-            existing = db.query(models.AgentSuggestion).filter(
-                models.AgentSuggestion.entity_type == item["entity_type"],
-                models.AgentSuggestion.entity_id == item["entity_id"],
-                models.AgentSuggestion.suggestion_type == item["suggestion_type"],
-                models.AgentSuggestion.status.in_(tuple(OPEN_SUGGESTION_STATUSES)),
-            ).order_by(models.AgentSuggestion.id.desc()).first()
-
-        if existing:
-            existing.run_id = run.id
-            existing.severity = item["severity"]
-            existing.title = item["title"]
-            existing.description = item["description"]
-            existing.payload = _json_dumps(item.get("payload"))
-            existing.confidence_score = item.get("confidence_score", item.get("confidence"))
-            db.flush()
-            suggestion = existing
-        else:
-            suggestion = models.AgentSuggestion(
-                run_id=run.id,
-                entity_type=item["entity_type"],
-                entity_id=item.get("entity_id"),
-                suggestion_type=item["suggestion_type"],
-                severity=item["severity"],
-                status="pending",
-                title=item["title"],
-                description=item["description"],
-                payload=_json_dumps(item.get("payload")),
-                confidence_score=item.get("confidence_score", item.get("confidence")),
-            )
-            db.add(suggestion)
-            db.flush()
-        created_suggestions.append(suggestion)
-
-        payload_dict = item.get("payload") or {}
-        if (
-            definition["name"] == "mail_recovery"
-            and payload_dict.get("recipient_email")
-            and payload_dict.get("subject")
-            and payload_dict.get("body")
-        ):
-            # Reuse editable drafts attached to the current open suggestion.
-            existing_draft = db.query(models.AgentCommunicationDraft).filter(
-                models.AgentCommunicationDraft.suggestion_id == suggestion.id,
-                models.AgentCommunicationDraft.channel == "email",
-                models.AgentCommunicationDraft.status.in_(["draft", "approved", "waiting", "followup_due"]),
-            ).first()
-            if existing_draft:
-                existing_draft.subject = payload_dict["subject"]
-                existing_draft.body = payload_dict["body"]
-                existing_draft.run_id = run.id
-            else:
-                db.add(models.AgentCommunicationDraft(
-                    run_id=run.id,
-                    suggestion_id=suggestion.id,
-                    agent_name=definition["name"],
-                    channel="email",
-                    recipient_type=payload_dict.get("recipient_type") or item["entity_type"],
-                    recipient_id=payload_dict.get("recipient_id"),
-                    recipient_email=payload_dict["recipient_email"],
-                    recipient_name=payload_dict.get("recipient_name"),
-                    subject=payload_dict["subject"],
-                    body=payload_dict["body"],
-                    status="draft",
-                    meta_payload=_json_dumps(payload_dict),
-                    created_by_user_id=requested_by_user_id,
-                ))
-
-    summary = result.get("summary", {})
-    run.status = "completed"
-    run.completed_at = datetime.utcnow()
-    run.suggestions_count = len(created_suggestions)
-    run.result_summary = _json_dumps(summary)
-
-    create_audit_log(
-        db,
-        entity="agent_run",
-        action="created",
-        old_value=None,
-        new_value={
-            "run_id": run.id,
-            "agent_type": run.agent_type,
-            "entity_type": run.entity_type,
-            "entity_id": run.entity_id,
-            "suggestions_count": run.suggestions_count,
-            "auto_mode": auto_mode,
-        },
-        user_id=requested_by_user_id,
-    )
-
     db.commit()
     db.refresh(run)
-    return run
+
+    try:
+        result = run_registered_agent(
+            db,
+            agent_name=agent_type,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            input_payload=payload,
+        )
+
+        created_suggestions: list[models.AgentSuggestion] = []
+        auto_sent_emails = 0
+        draft_emails = 0
+        discarded_emails = 0
+        for item in result.get("suggestions", []):
+            payload_dict = item.get("payload") or {}
+            confidence = float(item.get("confidence_score", item.get("confidence", 0.0)) or 0.0)
+            mail_recovery_decision = None
+            if (
+                definition["name"] == "mail_recovery"
+                and payload_dict.get("recipient_email")
+                and payload_dict.get("subject")
+                and payload_dict.get("body")
+            ):
+                if confidence < 0.60:
+                    discarded_emails += 1
+                    logger.info(
+                        "mail_recovery scarta email: collaborator=%s confidence=%.2f",
+                        payload_dict.get("recipient_id"),
+                        confidence,
+                    )
+                    continue
+                mail_recovery_decision = "auto_send" if confidence >= 0.85 else "draft"
+
+            # Deduplication: reuse any still-open suggestion of the same type for this entity.
+            # In particular, do not recreate a new pending item if the previous request was already sent;
+            # that request should remain hidden until it becomes follow-up_due.
+            existing = None
+            if item.get("entity_id") and item.get("entity_type") and item.get("suggestion_type"):
+                existing = db.query(models.AgentSuggestion).filter(
+                    models.AgentSuggestion.entity_type == item["entity_type"],
+                    models.AgentSuggestion.entity_id == item["entity_id"],
+                    models.AgentSuggestion.suggestion_type == item["suggestion_type"],
+                    models.AgentSuggestion.status.in_(tuple(OPEN_SUGGESTION_STATUSES)),
+                ).order_by(models.AgentSuggestion.id.desc()).first()
+
+            if existing:
+                existing.run_id = run.id
+                existing.severity = item["severity"]
+                existing.title = item["title"]
+                existing.description = item["description"]
+                existing.payload = _json_dumps(item.get("payload"))
+                existing.confidence_score = confidence
+                if mail_recovery_decision == "auto_send":
+                    existing.status = "sent"
+                db.flush()
+                suggestion = existing
+            else:
+                suggestion = models.AgentSuggestion(
+                    run_id=run.id,
+                    entity_type=item["entity_type"],
+                    entity_id=item.get("entity_id"),
+                    suggestion_type=item["suggestion_type"],
+                    severity=item["severity"],
+                    status="sent" if mail_recovery_decision == "auto_send" else "pending",
+                    title=item["title"],
+                    description=item["description"],
+                    payload=_json_dumps(item.get("payload")),
+                    confidence_score=confidence,
+                )
+                db.add(suggestion)
+                db.flush()
+            created_suggestions.append(suggestion)
+
+            if (
+                definition["name"] == "mail_recovery"
+                and payload_dict.get("recipient_email")
+                and payload_dict.get("subject")
+                and payload_dict.get("body")
+            ):
+                if mail_recovery_decision == "auto_send":
+                    sent_ok, detail = _send_email(
+                        recipient_email=payload_dict["recipient_email"],
+                        subject=payload_dict["subject"],
+                        body=payload_dict["body"],
+                    )
+                    status_value = "sent" if sent_ok else "draft"
+                    sent_at = datetime.utcnow() if sent_ok else None
+                    if sent_ok:
+                        auto_sent_emails += 1
+                    else:
+                        logger.warning(
+                            "mail_recovery auto-send fallito, mantiene bozza: collaborator=%s detail=%s",
+                            payload_dict.get("recipient_id"),
+                            detail,
+                        )
+                    db.add(models.AgentCommunicationDraft(
+                        run_id=run.id,
+                        suggestion_id=suggestion.id,
+                        agent_name=definition["name"],
+                        channel="email",
+                        recipient_type=payload_dict.get("recipient_type") or item["entity_type"],
+                        recipient_id=payload_dict.get("recipient_id"),
+                        recipient_email=payload_dict["recipient_email"],
+                        recipient_name=payload_dict.get("recipient_name"),
+                        subject=payload_dict["subject"],
+                        body=payload_dict["body"],
+                        status=status_value,
+                        sent_at=sent_at,
+                        meta_payload=_json_dumps({
+                            **payload_dict,
+                            "auto_decision": "sent" if sent_ok else "send_failed_draft",
+                            "delivery_detail": detail,
+                            "confidence": confidence,
+                        }),
+                        created_by_user_id=requested_by_user_id,
+                    ))
+                    continue
+
+                # Reuse editable drafts attached to the current open suggestion.
+                existing_draft = db.query(models.AgentCommunicationDraft).filter(
+                    models.AgentCommunicationDraft.suggestion_id == suggestion.id,
+                    models.AgentCommunicationDraft.channel == "email",
+                    models.AgentCommunicationDraft.status.in_(["draft", "approved", "waiting", "followup_due"]),
+                ).first()
+                if existing_draft:
+                    existing_draft.subject = payload_dict["subject"]
+                    existing_draft.body = payload_dict["body"]
+                    existing_draft.run_id = run.id
+                else:
+                    db.add(models.AgentCommunicationDraft(
+                        run_id=run.id,
+                        suggestion_id=suggestion.id,
+                        agent_name=definition["name"],
+                        channel="email",
+                        recipient_type=payload_dict.get("recipient_type") or item["entity_type"],
+                        recipient_id=payload_dict.get("recipient_id"),
+                        recipient_email=payload_dict["recipient_email"],
+                        recipient_name=payload_dict.get("recipient_name"),
+                        subject=payload_dict["subject"],
+                        body=payload_dict["body"],
+                        status="draft",
+                        meta_payload=_json_dumps(payload_dict),
+                        created_by_user_id=requested_by_user_id,
+                    ))
+                draft_emails += 1
+
+        summary = result.get("summary", {})
+        if definition["name"] == "mail_recovery":
+            summary = {
+                **summary,
+                "auto_sent_emails": auto_sent_emails,
+                "draft_emails": draft_emails,
+                "discarded_emails": discarded_emails,
+            }
+        run.status = "completed"
+        run.completed_at = datetime.utcnow()
+        run.suggestions_count = len(created_suggestions)
+        run.result_summary = _json_dumps(summary)
+        run.error_message = None
+
+        create_audit_log(
+            db,
+            entity="agent_run",
+            action="created",
+            old_value=None,
+            new_value={
+                "run_id": run.id,
+                "agent_type": run.agent_type,
+                "entity_type": run.entity_type,
+                "entity_id": run.entity_id,
+                "suggestions_count": run.suggestions_count,
+                "auto_mode": auto_mode,
+            },
+            user_id=requested_by_user_id,
+        )
+
+        db.commit()
+        db.refresh(run)
+        return run
+    except Exception as exc:
+        db.rollback()
+        error_message = str(exc) or exc.__class__.__name__
+        _mark_run_failed(db, run_id=run.id, error_message=error_message)
+        raise AgentWorkflowExecutionError(error_message) from exc
 
 
 def sync_collaborator_data_quality(
@@ -594,8 +690,6 @@ def promote_due_followups(db: Session) -> int:
                 models.AgentSuggestion.id == draft.suggestion_id
             ).first()
 
-        if draft.status != "sent":
-            continue
         draft.status = "followup_due"
         due_count += 1
         if suggestion and suggestion.status in FOLLOWUP_ELIGIBLE_STATUSES:

@@ -164,6 +164,98 @@ def generate_mail_recovery_copy(
     return None
 
 
+
+
+def call_ollama_json(
+    *,
+    system_prompt: str,
+    user_prompt: str,
+) -> dict:
+    """
+    Chiama Ollama e ritorna un dizionario JSON generico.
+    Non impone vincoli su subject/body — usabile per DocumentProcessor
+    e qualsiasi agente che non genera email.
+    """
+    config = get_agent_llm_config()
+    if not config.enabled:
+        raise RuntimeError("Provider LLM non abilitato")
+
+    if config.provider == "ollama":
+        if not config.model:
+            raise ValueError("AI_AGENT_LLM_MODEL obbligatorio per provider ollama")
+
+        payload = {
+            "model": config.model,
+            "stream": False,
+            "format": "json",
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "options": {
+                "temperature": 0.1,
+            },
+        }
+
+        with httpx.Client(timeout=config.timeout_seconds) as client:
+            response = client.post(f"{config.ollama_base_url}/api/chat", json=payload)
+            response.raise_for_status()
+            data = response.json()
+
+        raw_text = ((data.get("message") or {}).get("content") or "").strip()
+
+    elif config.provider == "openclaw":
+        if not config.openclaw_base_url:
+            raise ValueError("OPENCLAW_BASE_URL obbligatorio per provider openclaw")
+        if not config.model:
+            raise ValueError("AI_AGENT_LLM_MODEL obbligatorio per provider openclaw")
+
+        headers = {"Content-Type": "application/json"}
+        if config.openclaw_api_key:
+            headers["Authorization"] = f"Bearer {config.openclaw_api_key}"
+
+        payload = {
+            "model": config.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": 0.1,
+        }
+
+        with httpx.Client(timeout=config.timeout_seconds) as client:
+            response = client.post(
+                f"{config.openclaw_base_url}{config.openclaw_path}",
+                json=payload,
+                headers=headers,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+        choices = data.get("choices") or []
+        raw_text = ""
+        if choices:
+            raw_text = (((choices[0] or {}).get("message") or {}).get("content") or "").strip()
+    else:
+        raise RuntimeError(f"Provider LLM non supportato: {config.provider}")
+
+    if not raw_text:
+        raise ValueError("Risposta LLM vuota")
+
+    try:
+        parsed = json.loads(raw_text)
+    except json.JSONDecodeError:
+        start = raw_text.find("{")
+        end = raw_text.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            raise ValueError("Risposta LLM non in formato JSON")
+        parsed = json.loads(raw_text[start:end + 1])
+
+    if not isinstance(parsed, dict):
+        raise ValueError("Risposta LLM JSON non e un oggetto")
+
+    return parsed
+
 def _call_ollama(config: AgentLlmConfig, *, system_prompt: str, user_prompt: str) -> AgentLlmResult:
     if not config.model:
         raise ValueError("AI_AGENT_LLM_MODEL obbligatorio per provider ollama")
@@ -381,6 +473,7 @@ def _normalize_mail_copy(subject: Any, body: Any) -> tuple[str, str]:
 
 def _is_mail_copy_acceptable(*, context_label: str, body: str, missing_fields: list[str]) -> bool:
     normalized_body = body.lower()
+    normalized_missing_fields = " ".join(missing_fields).lower()
     blocked_snippets = [
         "ti chiameremo",
         "il nostro team",
@@ -394,7 +487,16 @@ def _is_mail_copy_acceptable(*, context_label: str, body: str, missing_fields: l
     if context_label == "missing_collaborator_data":
         if missing_fields and not all(field.lower() in normalized_body for field in missing_fields):
             return False
-        if "documento" in normalized_body and "document" not in " ".join(missing_fields).lower():
+        identity_document_snippets = [
+            "documento di identita",
+            "documento d'identita",
+            "carta di identita",
+            "carta d'identita",
+        ]
+        if (
+            any(snippet in normalized_body for snippet in identity_document_snippets)
+            and "document" not in normalized_missing_fields
+        ):
             return False
 
     if context_label == "identity_document_followup":

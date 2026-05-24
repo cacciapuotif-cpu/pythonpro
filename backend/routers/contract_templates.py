@@ -417,36 +417,6 @@ async def convert_docx_to_html(
         )
 
 
-@router.post("/generate-contract")
-async def generate_contract_from_template(
-    request: schemas.ContractGenerationRequest,
-    db: Session = Depends(get_db)
-):
-    """
-    GENERA UN CONTRATTO PDF USANDO UN TEMPLATE PERSONALIZZATO
-
-    Richiede:
-    - collaboratore_id: ID del collaboratore
-    - progetto_id: ID del progetto
-    - ente_attuatore_id: ID dell'ente attuatore
-    - mansione: Mansione/ruolo
-    - ore_previste: Ore totali previste
-    - tariffa_oraria: Tariffa oraria in euro
-    - data_inizio: Data inizio contratto
-    - data_fine: Data fine contratto
-    - template_id (opzionale): ID del template da usare
-    - tipo_contratto (opzionale): Se template_id non fornito, usa il default per questo tipo
-
-    Il sistema:
-    1. Recupera tutti i dati dalle tabelle (collaboratore, progetto, ente)
-    2. Recupera il template (specificato o default)
-    3. Sostituisce le variabili {{variabile}} con i dati reali
-    4. Include il logo dell'ente se presente e configurato nel template
-    5. Genera e restituisce il PDF del contratto
-    """
-    return _generate_contract_pdf_response(request, db)
-
-
 def _generate_contract_pdf_response(
     request: schemas.ContractGenerationRequest,
     db: Session

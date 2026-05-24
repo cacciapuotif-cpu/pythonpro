@@ -29,6 +29,7 @@ from contextlib import asynccontextmanager
 from typing import AsyncIterator
 from datetime import datetime
 import logging
+import os
 import sys
 
 from fastapi import FastAPI
@@ -230,20 +231,20 @@ app = FastAPI(
 # SICUREZZA:
 # - In sviluppo: permettiamo tutti i domini (comodo per test)
 # - In produzione: specifica SOLO i domini autorizzati in .env
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Domini autorizzati (da settings)
-    allow_credentials=False,  # Permette invio cookies/auth headers
-    allow_methods=["*"],     # Permette tutti i metodi HTTP (GET, POST, PUT, DELETE, etc.)
-    allow_headers=["*"],     # Permette tutti gli headers
-)
-
 # TODO: Aggiungere altri middleware quando necessario
 # Esempi:
 # - Rate limiting (limitare richieste per IP)
 # - Compression (comprimere risposte grandi)
 # - Security headers (aggiungere header di sicurezza)
 # - Request logging (loggare tutte le richieste)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[origin.strip() for origin in os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:3001").split(",") if origin.strip()],
+    allow_credentials=False,  # Permette invio cookies/auth headers
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With", "X-Request-ID"],
+)
 
 # ============================================================
 # ENDPOINT DI SISTEMA

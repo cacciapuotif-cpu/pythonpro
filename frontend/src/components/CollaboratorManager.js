@@ -13,7 +13,7 @@ import React, { useMemo, useState, useCallback } from 'react';
 import {
   assignCollaboratorToProject,
   removeCollaboratorFromProject,
-  generateContract,
+  downloadAssignmentContract,
   bulkImportCollaborators
 } from '../services/apiService';
 import { useCollaborators, useProjects, useAssignments, useNotifications } from '../hooks/useEntity';
@@ -533,13 +533,9 @@ const CollaboratorManager = ({ currentUser }) => {
   const downloadContract = async (assignment) => {
     const extractBlobErrorMessage = async (error) => {
       const responseData = error?.response?.data;
-
       if (responseData instanceof Blob) {
         const text = await responseData.text();
-        if (!text) {
-          return 'Errore nella generazione del contratto. Riprova.';
-        }
-
+        if (!text) return 'Errore nella generazione del contratto. Riprova.';
         try {
           const parsed = JSON.parse(text);
           return parsed?.detail || parsed?.message || text;
@@ -547,44 +543,17 @@ const CollaboratorManager = ({ currentUser }) => {
           return text;
         }
       }
-
       return error?.response?.data?.detail || error?.message || 'Errore nella generazione del contratto. Riprova.';
     };
 
-    let previewWindow = null;
-
     try {
       setContractGenerating(true);
-      showSuccess('Apertura contratto in corso...');
-      previewWindow = window.open('', '_blank', 'noopener,noreferrer');
+      showSuccess('Generazione contratto in corso...');
 
-      if (previewWindow) {
-        previewWindow.document.title = 'Generazione contratto...';
-        previewWindow.document.body.innerHTML = '<p style="font-family: sans-serif; padding: 24px;">Generazione contratto in corso...</p>';
-      }
-
-      const project = projectIndex.get(assignment.project_id);
       const collaborator = collaboratorIndex.get(assignment.collaborator_id);
-      if (!project?.ente_attuatore_id) {
-        throw new Error('Progetto senza ente attuatore: impossibile generare il contratto template-based.');
-      }
+      const project = projectIndex.get(assignment.project_id);
 
-      if (!assignment.contract_type) {
-        throw new Error('Tipo contratto mancante: impossibile selezionare il template di default.');
-      }
-
-      const responseBlob = await generateContract({
-        collaboratore_id: assignment.collaborator_id,
-        progetto_id: assignment.project_id,
-        ente_attuatore_id: project.ente_attuatore_id,
-        mansione: assignment.role,
-        ore_previste: assignment.assigned_hours,
-        tariffa_oraria: assignment.hourly_rate,
-        data_inizio: assignment.start_date,
-        data_fine: assignment.end_date,
-        contract_signed_date: assignment.contract_signed_date || null,
-        tipo_contratto: assignment.contract_type,
-      });
+      const responseBlob = await downloadAssignmentContract(assignment.id);
 
       const pdfBlob = responseBlob instanceof Blob
         ? responseBlob
@@ -603,33 +572,21 @@ const CollaboratorManager = ({ currentUser }) => {
       const collaboratorName = (collaborator?.last_name && collaborator?.first_name)
         ? `${collaborator.last_name}_${collaborator.first_name}`.replace(/\s/g, '_')
         : 'collaboratore';
-      const projectName = project?.name
-        ? project.name.replace(/\s/g, '_')
-        : 'progetto';
+      const projectName = project?.name ? project.name.replace(/\s/g, '_') : 'progetto';
       const filename = `contratto_${collaboratorName}_${projectName}.pdf`;
 
       const url = window.URL.createObjectURL(pdfBlob);
       const link = document.createElement('a');
       link.href = url;
       link.download = filename;
-      link.target = '_blank';
-      link.rel = 'noopener noreferrer';
-
-      if (previewWindow) {
-        previewWindow.location.href = url;
-      } else {
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-      }
-
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
       window.setTimeout(() => window.URL.revokeObjectURL(url), 60000);
-      showSuccess('Contratto aperto con successo!');
+
+      showSuccess('Contratto scaricato!');
       closeContractPreflight();
     } catch (err) {
-      if (previewWindow && !previewWindow.closed) {
-        previewWindow.close();
-      }
       console.error('Errore generazione contratto:', err);
       const errorMessage = await extractBlobErrorMessage(err);
       showError(errorMessage);

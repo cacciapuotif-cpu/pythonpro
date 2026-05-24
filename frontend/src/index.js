@@ -13,6 +13,7 @@ import ReactDOM from 'react-dom/client';
 import './index.css';  // Stili globali dell'applicazione
 import App from './App';  // Il componente principale
 import { AppProvider } from './context/AppContext';  // Context provider stabile
+import ErrorBoundary from './components/ErrorBoundary';
 
 // CONFIGURAZIONE DEL RENDERING
 // Creiamo il root dell'applicazione React collegandolo all'elemento HTML con id="root"
@@ -24,8 +25,10 @@ const root = ReactDOM.createRoot(document.getElementById('root'));
 // AppProvider fornisce il context globale con import dinamici per stabilità
 root.render(
   <React.StrictMode>
-    <AppProvider>
-      <App />
-    </AppProvider>
+    <ErrorBoundary>
+      <AppProvider>
+        <App />
+      </AppProvider>
+    </ErrorBoundary>
   </React.StrictMode>
 );

@@ -112,6 +112,10 @@
   flex-direction: column;
 }
 
+.form-group-wide {
+  grid-column: 1 / -1;
+}
+
 .form-group label {
   margin-bottom: 6px;
   font-weight: 500;
@@ -364,6 +368,17 @@
 /* Styling per gli emoji nei select */
 .form-group option {
   padding: 8px 12px;
+}
+
+.assignment-linked-plan-voice {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid #c7d2fe;
+  border-radius: 6px;
+  background: #eef2ff;
+  color: #312e81;
+  font-size: 13px;
+  line-height: 1.4;
 }
 
 /* Miglioramenti per l'accessibilità */

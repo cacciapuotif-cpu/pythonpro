@@ -25,6 +25,14 @@ router = APIRouter(prefix="/api/v1/assignments", tags=["Assignments"])
 PAGE_BREAK_MARKER = "__PAGE_BREAK__"
 
 
+def _normalize_assignment_metrics(assignment):
+    if assignment.completed_hours is None:
+        assignment.completed_hours = 0.0
+    if assignment.progress_percentage is None:
+        assignment.progress_percentage = 0.0
+    return assignment
+
+
 def _split_street_and_number(address: str | None) -> tuple[str, str]:
     """Estrae via e numero civico da un indirizzo libero."""
     if not address:
@@ -243,6 +251,7 @@ def create_assignment(
         result = crud.create_assignment(db=db, assignment=assignment_data)
         db.commit()
         db.refresh(result)
+        _normalize_assignment_metrics(result)
 
         logger.info(f"Assegnazione creata con successo: ID {result.id}")
         return result
@@ -268,7 +277,7 @@ def read_assignments(
 ):
     """OTTIENI LISTA DELLE ASSEGNAZIONI"""
     assignments = crud.get_assignments(db, skip=skip, limit=limit, is_active=is_active)
-    return assignments
+    return [_normalize_assignment_metrics(assignment) for assignment in assignments]
 
 
 @router.put("/bulk")
@@ -294,9 +303,10 @@ def read_assignment(
     db_assignment = crud.get_assignment(db, assignment_id=assignment_id)
     if db_assignment is None:
         raise HTTPException(status_code=404, detail="Assegnazione non trovata")
-    return db_assignment
+    return _normalize_assignment_metrics(db_assignment)
 
 
+@router.patch("/{assignment_id}", response_model=schemas.Assignment)
 @router.put("/{assignment_id}", response_model=schemas.Assignment)
 def update_assignment(
     assignment_id: int,
@@ -307,7 +317,7 @@ def update_assignment(
     db_assignment = crud.update_assignment(db, assignment_id, assignment)
     if db_assignment is None:
         raise HTTPException(status_code=404, detail="Assegnazione non trovata")
-    return db_assignment
+    return _normalize_assignment_metrics(db_assignment)
 
 
 @router.delete("/{assignment_id}")
@@ -320,107 +330,3 @@ def delete_assignment(
     if db_assignment is None:
         raise HTTPException(status_code=404, detail="Assegnazione non trovata")
     return {"message": "Assegnazione eliminata con successo"}
-
-
-@router.get("/{assignment_id}/generate-contract")
-def generate_contract_pdf(
-    assignment_id: int,
-    db: Session = Depends(get_db)
-):
-    """
-    GENERA UN CONTRATTO PDF PER UNA ASSEGNAZIONE
-
-    Compila automaticamente un contratto con i dati del collaboratore,
-    progetto, mansione, ore e importo.
-    """
-    try:
-        assignment = crud.get_assignment(db, assignment_id=assignment_id)
-        if not assignment:
-            raise HTTPException(status_code=404, detail="Assegnazione non trovata")
-
-        collaborator = crud.get_collaborator(db, assignment.collaborator_id)
-        project = crud.get_project(db, assignment.project_id)
-
-        if not collaborator or not project:
-            raise HTTPException(status_code=404, detail="Dati incompleti per generare il contratto")
-
-        # Retrocompatibilita: il route legacy converge sul motore template-based quando possibile.
-        if project.ente_attuatore_id:
-            from routers.contract_templates import _generate_contract_pdf_response
-
-            try:
-                return _generate_contract_pdf_response(
-                    schemas.ContractGenerationRequest(
-                        collaboratore_id=assignment.collaborator_id,
-                        progetto_id=assignment.project_id,
-                        ente_attuatore_id=project.ente_attuatore_id,
-                        mansione=assignment.role,
-                        ore_previste=assignment.assigned_hours,
-                        tariffa_oraria=assignment.hourly_rate,
-                        data_inizio=assignment.start_date,
-                        data_fine=assignment.end_date,
-                        contract_signed_date=assignment.contract_signed_date,
-                        tipo_contratto=assignment.contract_type or 'professionale'
-                    ),
-                    db
-                )
-            except HTTPException as template_error:
-                logger.warning(
-                    "Fallback legacy generator per assignment %s: %s",
-                    assignment_id,
-                    template_error.detail
-                )
-
-        if not CONTRACT_GENERATOR_AVAILABLE:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Sistema di generazione contratti non disponibile"
-            )
-
-        assignment_data = {
-            'id': assignment.id,
-            'role': assignment.role,
-            'assigned_hours': assignment.assigned_hours,
-            'hourly_rate': assignment.hourly_rate,
-            'start_date': assignment.start_date.isoformat() if assignment.start_date else None,
-            'end_date': assignment.end_date.isoformat() if assignment.end_date else None,
-            'contract_type': assignment.contract_type,
-            'collaborator': {
-                'first_name': collaborator.first_name,
-                'last_name': collaborator.last_name,
-                'email': collaborator.email,
-                'fiscal_code': collaborator.fiscal_code,
-                'birthplace': collaborator.birthplace,
-                'birth_date': collaborator.birth_date.isoformat() if collaborator.birth_date else None,
-                'address': collaborator.address,
-                'city': collaborator.city
-            },
-            'project': {
-                'name': project.name,
-                'description': project.description
-            }
-        }
-
-        generator = ContractGenerator()
-        pdf_buffer = generator.generate_contract(assignment_data)
-
-        filename = f"contratto_{collaborator.last_name}_{project.name.replace(' ', '_')}.pdf"
-
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
-            tmp.write(pdf_buffer.read())
-            tmp_path = tmp.name
-
-        logger.info(f"Contratto generato per assignment {assignment_id}")
-
-        return FileResponse(
-            tmp_path,
-            media_type='application/pdf',
-            filename=filename,
-            headers={"Content-Disposition": f"attachment; filename={filename}"}
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Errore generazione contratto: {e}")
-        raise HTTPException(status_code=500, detail=f"Errore nella generazione del contratto: {str(e)}")

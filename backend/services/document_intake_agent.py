@@ -203,6 +203,9 @@ class DocumentIntakeAgent:
         db.add(collaborator)
         db.commit()
         db.refresh(documento)
+        contract_trigger_result = None
+        if documento.stato == "validato":
+            contract_trigger_result = self._trigger_contract_agent(db, entity_id)
 
         return DocumentIntakeOutcome(
             expected_doc_type=expected_doc_type,
@@ -211,7 +214,21 @@ class DocumentIntakeAgent:
             documento_richiesto_id=documento.id,
             created_documento_richiesto=created_documento,
             collaborator_updated_fields=updated_fields,
+            note=f"contract_agent={contract_trigger_result}" if contract_trigger_result else None,
         )
+
+    def _trigger_contract_agent(self, db, collaboratore_id: int) -> Optional[dict]:
+        try:
+            from ai_agents.contract_agent import run_contract_agent_for_collaborator
+
+            return run_contract_agent_for_collaborator(db, collaboratore_id)
+        except Exception as exc:
+            logger.exception(
+                "DocumentIntakeAgent: trigger contract_agent fallito per collaboratore %s: %s",
+                collaboratore_id,
+                exc,
+            )
+            return None
 
     def _find_or_create_documento_richiesto(self, db, *, collaboratore_id: int, doc_type: str, expected_doc_type: str):
         candidate_types = []
@@ -316,6 +333,11 @@ class DocumentIntakeAgent:
         if partita_iva and not collaborator.partita_iva:
             collaborator.partita_iva = partita_iva.replace("IT", "").replace(" ", "")
             updated_fields.append("partita_iva")
+
+        phone = self._clean_optional_text(extracted_data.get("phone") or extracted_data.get("telefono"))
+        if phone and not collaborator.phone:
+            collaborator.phone = phone
+            updated_fields.append("phone")
 
         return updated_fields
 

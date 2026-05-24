@@ -13,7 +13,7 @@ import logging
 
 import crud
 import schemas
-from agent_workflows import sync_collaborator_data_quality
+from agent_workflows import create_audit_log, sync_collaborator_data_quality
 from database import get_db
 from validators import EnhancedCollaboratorCreate
 
@@ -224,6 +224,43 @@ def update_collaborator(
     except Exception as e:
         logger.error(f"Errore aggiornamento collaboratore {collaborator_id}: {e}")
         raise HTTPException(status_code=400, detail=f"Errore aggiornamento: {str(e)}")
+
+
+@router.patch("/{collaborator_id}/manual-update", response_model=schemas.Collaborator, response_model_by_alias=False)
+def manual_update_collaborator(
+    collaborator_id: int,
+    payload: schemas.CollaboratorManualUpdatePayload,
+    db: Session = Depends(get_db),
+):
+    update_data = payload.fields.model_dump(exclude_unset=True)
+    if not update_data:
+        raise HTTPException(status_code=400, detail="Nessun campo da aggiornare")
+
+    try:
+        db_collaborator = crud.get_collaborator(db, collaborator_id)
+        if not db_collaborator:
+            raise HTTPException(status_code=404, detail="Collaboratore non trovato")
+
+        updated_collaborator = crud.update_collaborator(db, collaborator_id, payload.fields)
+        create_audit_log(
+            db,
+            entity="collaborator",
+            action="manual_update_from_agent_review",
+            old_value={"collaborator_id": collaborator_id, "source_item_id": payload.source_item_id},
+            new_value={"collaborator_id": collaborator_id, "fields": sorted(update_data.keys())},
+            user_id=payload.reviewed_by_user_id,
+        )
+        db.commit()
+        try:
+            sync_collaborator_data_quality(db, collaborator_id=collaborator_id, trigger_source="manual_agent_review")
+        except Exception as workflow_exc:
+            logger.warning("Auto data quality collaborator %s failed after manual review: %s", collaborator_id, workflow_exc)
+        return updated_collaborator
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Errore aggiornamento manuale collaboratore {collaborator_id}: {e}")
+        raise HTTPException(status_code=400, detail=f"Errore aggiornamento manuale: {str(e)}")
 
 
 @router.delete("/{collaborator_id}")

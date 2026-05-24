@@ -132,6 +132,9 @@ class RateLimitingMiddleware(BaseHTTPMiddleware):
         self.client_requests = {}  # IP -> [timestamps]
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        if request.method == "OPTIONS":
+            return await call_next(request)
+
         client_ip = request.client.host if request.client else "unknown"
         current_time = datetime.now()
 

@@ -120,11 +120,13 @@ class ContractGenerator:
         story.append(Spacer(1, 0.3*cm))
 
         # Committente (da configurare)
+        ente_nome = assignment_data.get('ente_attuatore') or '[RAGIONE SOCIALE COMMITTENTE]'
+        ente_piva = assignment_data.get('ente_attuatore_piva') or '[P.IVA COMMITTENTE]'
+        ente_indirizzo = assignment_data.get('ente_attuatore_indirizzo') or '[INDIRIZZO COMMITTENTE]'
         story.append(Paragraph(
-            f"<b>Il Committente:</b> [RAGIONE SOCIALE COMMITTENTE]<br/>"
-            f"con sede in [INDIRIZZO COMMITTENTE]<br/>"
-            f"P.IVA: [P.IVA COMMITTENTE]<br/>"
-            f"rappresentata da [NOME RAPPRESENTANTE]",
+            f"<b>Il Committente:</b> {ente_nome}<br/>"
+            f"con sede in {ente_indirizzo}<br/>"
+            f"P.IVA: {ente_piva}",
             self.styles['ContractBody']
         ))
         story.append(Spacer(1, 0.5*cm))
@@ -168,6 +170,22 @@ class ContractGenerator:
         )
         story.append(Paragraph(art1_text, self.styles['ContractBody']))
         story.append(Spacer(1, 0.5*cm))
+
+        if assignment_data.get('voce_piano_mansione') or assignment_data.get('materia_docenza'):
+            story.append(Paragraph("<b>Informazioni piano finanziario</b>", self.styles['ContractBody']))
+            finance_lines = []
+            if assignment_data.get('voce_piano_mansione'):
+                finance_lines.append(f"Voce Piano / Mansione: <b>{assignment_data.get('voce_piano_mansione')}</b>")
+            if assignment_data.get('materia_docenza'):
+                finance_lines.append(f"Materia della docenza: <b>{assignment_data.get('materia_docenza')}</b>")
+            if assignment_data.get('modalita_erogazione'):
+                finance_lines.append(f"Modalità erogazione: <b>{assignment_data.get('modalita_erogazione')}</b>")
+            if assignment_data.get('ore_previste_modulo'):
+                finance_lines.append(f"Ore previste: <b>{assignment_data.get('ore_previste_modulo')}h</b>")
+            if assignment_data.get('progetto_fapi_modulo'):
+                finance_lines.append(f"Progetto FAPI: <b>{assignment_data.get('progetto_fapi_modulo')}</b>")
+            story.append(Paragraph("<br/>".join(finance_lines), self.styles['ContractBody']))
+            story.append(Spacer(1, 0.5*cm))
 
         # Articolo 2 - Durata
         story.append(Paragraph("<b>Art. 2 - Durata</b>", self.styles['ContractBody']))
@@ -243,13 +261,13 @@ class ContractGenerator:
             birthdate = datetime.fromisoformat(birthdate.replace('Z', '+00:00')).strftime('%d/%m/%Y')
 
         return {
-            'collaborator_name': f"{collaborator.get('first_name', '')} {collaborator.get('last_name', '')}",
+            'collaborator_name': assignment_data.get('collaborator_name') or f"{collaborator.get('first_name', '')} {collaborator.get('last_name', '')}",
             'collaborator_email': collaborator.get('email', ''),
-            'collaborator_fiscal_code': collaborator.get('fiscal_code', 'N/A'),
+            'collaborator_fiscal_code': assignment_data.get('collaborator_fiscal_code') or collaborator.get('fiscal_code', 'N/A'),
             'collaborator_birthplace': collaborator.get('birthplace', 'N/A'),
             'collaborator_birthdate': birthdate or 'N/A',
-            'collaborator_address': f"{collaborator.get('address', 'N/A')}, {collaborator.get('city', '')}",
-            'project_name': assignment_data.get('project', {}).get('name', 'N/A'),
+            'collaborator_address': assignment_data.get('collaborator_address') or f"{collaborator.get('address', 'N/A')}, {collaborator.get('city', '')}",
+            'project_name': assignment_data.get('project_name') or assignment_data.get('project', {}).get('name', 'N/A'),
             'project_description': assignment_data.get('project', {}).get('description', ''),
             'role': assignment_data.get('role', 'N/A'),
             'assigned_hours': assignment_data.get('assigned_hours', 0),
@@ -270,6 +288,116 @@ class ContractGenerator:
             'contratto_progetto': 'Contratto a Progetto'
         }
         return labels.get(contract_type, 'Contratto di Collaborazione')
+
+
+    def generate_from_template(
+        self,
+        template_html: str,
+        context: dict,
+        ente_logo_path: str = None,
+    ):
+        """
+        Genera PDF da template HTML con placeholder Jinja2.
+        Usa ReportLab per la conversione HTML -> PDF.
+        """
+        from jinja2 import Environment, BaseLoader
+        from reportlab.platypus import Paragraph, Spacer, SimpleDocTemplate, Image
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.units import cm
+        from reportlab.lib import colors
+        import re
+
+        env = Environment(loader=BaseLoader(), variable_start_string="{{", variable_end_string="}}")
+        try:
+            tmpl = env.from_string(template_html)
+            html_compiled = tmpl.render(**context)
+        except Exception as exc:
+            html_compiled = template_html
+            import logging
+            logging.getLogger(__name__).warning("Errore Jinja2 template: %s", exc)
+
+        html_work = html_compiled
+
+        for tag in ["</p>", "</div>", "</h1>", "</h2>", "</h3>", "<br>", "<br/>", "<br />"]:
+            html_work = html_work.replace(tag, "\n")
+        for tag in ["</li>", "</tr>"]:
+            html_work = html_work.replace(tag, "\n")
+        for tag in ["</th>", "</td>"]:
+            html_work = html_work.replace(tag, " ")
+
+        text_clean = re.sub(r"<[^>]+>", "", html_work)
+
+        import html as html_module
+        text_clean = html_module.unescape(text_clean)
+
+        text_clean = re.sub(r"[ \t]+", " ", text_clean)
+        text_clean = re.sub(r"\n[ \t]+", "\n", text_clean)
+        text_clean = re.sub(r"\n{3,}", "\n\n", text_clean)
+        text_clean = text_clean.strip()
+
+        paragraphs_raw = text_clean.split("\n")
+
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=A4,
+            rightMargin=2*cm,
+            leftMargin=2*cm,
+            topMargin=2*cm,
+            bottomMargin=2*cm,
+        )
+
+        story = []
+
+        if ente_logo_path:
+            import os
+            full_logo = os.path.join("/app/uploads", ente_logo_path) if not ente_logo_path.startswith("/") else ente_logo_path
+            if os.path.exists(full_logo):
+                try:
+                    logo = Image(full_logo, width=4*cm, height=2*cm, kind="proportional")
+                    logo.hAlign = "LEFT"
+                    story.append(logo)
+                    story.append(Spacer(1, 0.4*cm))
+                except Exception:
+                    pass
+
+        body_style = ParagraphStyle(
+            "TemplateBody",
+            parent=self.styles["BodyText"],
+            fontSize=10,
+            leading=14,
+            spaceAfter=8,
+        )
+
+        for para in paragraphs_raw:
+            para = para.strip()
+            if not para:
+                continue
+            story.append(Paragraph(para, body_style))
+
+        story.append(Spacer(1, 1*cm))
+
+        firma_data = [
+            ["Il Committente", "", "Il/La Collaboratore/trice"],
+            ["", "", ""],
+            ["", "", ""],
+            ["_______________________", "", "_______________________"],
+            ["Data: _______________", "", "Data: _______________"],
+        ]
+        from reportlab.platypus import Table, TableStyle
+        firma_table = Table(firma_data, colWidths=[7*cm, 3*cm, 7*cm])
+        firma_table.setStyle(TableStyle([
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("PADDING", (0, 0), (-1, -1), 4),
+        ]))
+        story.append(firma_table)
+
+        doc.build(story)
+        buffer.seek(0)
+        return buffer
 
     def save_contract(self, assignment_data: Dict[str, Any], filename: str = None) -> Path:
         """

@@ -14,6 +14,26 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Documenti Richiesti"])
 
 
+def _trigger_contract_agent_for_document(db: Session, documento) -> None:
+    if not documento or documento.stato != "validato":
+        return
+    doc_id = documento.id
+    collaboratore_id = documento.collaboratore_id
+    try:
+        from ai_agents.contract_agent import run_contract_agent_for_collaborator
+
+        result = run_contract_agent_for_collaborator(db, collaboratore_id)
+        logger.info(
+            "DocumentiRichiesti: contract_agent trigger doc=%s collaborator=%s result=%s",
+            doc_id,
+            collaboratore_id,
+            result,
+        )
+    except Exception as exc:
+        db.rollback()
+        logger.exception("DocumentiRichiesti: trigger contract_agent fallito per doc %s: %s", doc_id, exc)
+
+
 class DocumentoRichiestoPayload(BaseModel):
     collaboratore_id: int
     tipo_documento: str
@@ -97,6 +117,7 @@ def update_documento_richiesto(
         updated = crud.update_documento_richiesto(db, doc_id, documento)
         if not updated:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Documento richiesto non trovato")
+        _trigger_contract_agent_for_document(db, updated)
         return updated
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
@@ -156,6 +177,7 @@ def valida_documento(
     documento = crud.valida_documento(db, doc_id, validato_da)
     if not documento:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Documento richiesto non trovato")
+    _trigger_contract_agent_for_document(db, documento)
     return documento
 
 

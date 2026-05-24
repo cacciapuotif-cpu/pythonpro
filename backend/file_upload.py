@@ -58,6 +58,16 @@ ALLOWED_DOCUMENT_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png"}
 ALLOWED_CV_EXTENSIONS = {".pdf", ".doc", ".docx"}
 ALLOWED_ENTITY_LOGO_EXTENSIONS = {".png", ".jpg", ".jpeg", ".svg", ".gif"}
 
+FILE_SIGNATURES = {
+    ".pdf": (b"%PDF-",),
+    ".jpg": (b"\xff\xd8\xff",),
+    ".jpeg": (b"\xff\xd8\xff",),
+    ".png": (b"\x89PNG\r\n\x1a\n",),
+    ".gif": (b"GIF87a", b"GIF89a"),
+    ".doc": (b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1",),
+    ".docx": (b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08"),
+}
+
 # =================================================================
 # SETUP DIRECTORIES
 # =================================================================
@@ -90,6 +100,23 @@ def validate_file_extension(filename: str, allowed_extensions: set) -> bool:
     """
     ext = Path(filename).suffix.lower()
     return ext in allowed_extensions
+
+
+def validate_file_signature(filename: str, contents: bytes, allowed_extensions: set) -> bool:
+    """Valida magic bytes coerenti con l'estensione permessa."""
+    ext = Path(filename).suffix.lower()
+    if ext not in allowed_extensions or not contents:
+        return False
+
+    if ext == ".svg":
+        prefix = contents[:512].lstrip().lower()
+        return prefix.startswith(b"<svg") or prefix.startswith(b"<?xml")
+
+    expected_signatures = FILE_SIGNATURES.get(ext)
+    if not expected_signatures:
+        return False
+
+    return any(contents.startswith(signature) for signature in expected_signatures)
 
 
 def sanitize_filename(filename: str) -> str:
@@ -232,6 +259,12 @@ async def save_uploaded_file(
                 detail=f"File troppo grande. Massimo: {MAX_FILE_SIZE / 1024 / 1024:.1f}MB"
             )
 
+        if not validate_file_signature(file.filename, contents, allowed_extensions):
+            raise HTTPException(
+                status_code=400,
+                detail="Tipo file non valido o contenuto non coerente con l'estensione"
+            )
+
         # Scrivi file
         with open(file_path, "wb") as f:
             f.write(contents)
@@ -242,6 +275,8 @@ async def save_uploaded_file(
         relative_path = str(file_path.relative_to(UPLOAD_DIR))
         return file.filename, relative_path
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error saving file: {e}")
         raise HTTPException(status_code=500, detail=f"Errore salvataggio file: {str(e)}")

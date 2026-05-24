@@ -893,7 +893,7 @@ class TestEmailInboxWorker:
         assert len(items) == 1
         assert items[0].sender_email == "mario@example.com"
         assert items[0].entity_type == "collaborator"
-        assert items[0].processing_status in ("valid", "manual_review")
+        assert items[0].processing_status in ("valid", "manual_review", "auto_processed")
         saved_payload = json.loads(items[0].llm_result)
         assert saved_payload["intake_outcome"]["resolved_doc_type"] == "curriculum"
 

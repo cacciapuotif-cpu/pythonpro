@@ -95,9 +95,13 @@ class BusinessValidator:
         if start_date >= end_date:
             raise ValueError("La data di inizio deve essere precedente alla data di fine")
 
-        # Verifica date non troppo nel futuro (max 10 anni)
-        from datetime import timedelta
-        max_future = datetime.now() + timedelta(days=3650)
+        # Verifica date non troppo nel futuro (max 10 anni), preservando
+        # l'eventuale timezone dei datetime ricevuti dal browser.
+        from datetime import timedelta, timezone
+        reference_now = datetime.now(start_date.tzinfo or timezone.utc)
+        if start_date.tzinfo is None and end_date.tzinfo is None:
+            reference_now = datetime.now()
+        max_future = reference_now + timedelta(days=3650)
         if start_date > max_future or end_date > max_future:
             raise ValueError("Le date non possono essere oltre 10 anni nel futuro")
 
@@ -283,17 +287,47 @@ class EnhancedAttendanceCreate(BaseModel):
 class EnhancedAssignmentCreate(BaseModel):
     collaborator_id: int = Field(..., gt=0)
     project_id: int = Field(..., gt=0)
-    role: str = Field(..., min_length=1, max_length=50)
+    role: str = Field(..., min_length=1, max_length=300)
+    modulo_formativo_id: Optional[int] = Field(None, gt=0)
+    materia: Optional[str] = Field(None, max_length=200)
+    modalita_erogazione: Optional[str] = Field(None, max_length=30)
+    edizione_label: Optional[str] = Field(None, max_length=100)
     assigned_hours: float = Field(..., gt=0, le=10000)
     start_date: datetime
     end_date: datetime
+    contract_signed_date: Optional[datetime] = None
     hourly_rate: float = Field(..., ge=0, le=1000)
+    contract_type: Optional[str] = Field(None, max_length=50)
 
     @validator('role')
     def validate_role_field(cls, v):
-        v = InputSanitizer.sanitize_string(v, 50)
+        v = InputSanitizer.sanitize_string(v, 300)
         if len(v.strip()) < 2:
             raise ValueError('Ruolo deve essere almeno 2 caratteri')
+        return v
+
+    @validator('materia')
+    def validate_materia_field(cls, v):
+        if v:
+            return InputSanitizer.sanitize_string(v, 200)
+        return v
+
+    @validator('modalita_erogazione')
+    def validate_modalita_field(cls, v):
+        if v:
+            return InputSanitizer.sanitize_string(v, 30)
+        return v
+
+    @validator('edizione_label')
+    def validate_edizione_label_field(cls, v):
+        if v:
+            return InputSanitizer.sanitize_string(v, 100)
+        return v
+
+    @validator('contract_type')
+    def validate_contract_type_field(cls, v):
+        if v:
+            return InputSanitizer.sanitize_string(v, 50)
         return v
 
     @validator('end_date')

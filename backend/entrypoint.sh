@@ -10,6 +10,10 @@
 
 set -euo pipefail  # Exit on error, undefined vars, pipe failures
 
+if [ -x "/app/scripts/validate_env.sh" ]; then
+    /app/scripts/validate_env.sh
+fi
+
 # === VARIABILI D'AMBIENTE CON VALORI DI DEFAULT ===
 : "${DB_HOST:=db}"
 : "${DB_PORT:=5432}"

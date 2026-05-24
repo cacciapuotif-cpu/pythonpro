@@ -8,6 +8,12 @@
 # - Frontend React
 # ============================================================
 
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "100m"
+    max-file: "3"
+
 services:
   # === DATABASE POSTGRESQL ===
   db:
@@ -15,20 +21,21 @@ services:
     container_name: pythonpro_db
     environment:
       POSTGRES_DB: ${DB_NAME:-gestionale}
-      POSTGRES_USER: ${DB_USER:-admin}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme_in_production}
+      POSTGRES_USER: ${DB_USER:?ERRORE: DB_USER obbligatoria}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?ERRORE: DB_PASSWORD obbligatoria}
       POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=it_IT.utf8"
     ports:
       - "${POSTGRES_PORT:-5434}:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-admin} -d ${DB_NAME:-gestionale}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:?ERRORE: DB_USER obbligatoria} -d ${DB_NAME:-gestionale}"]
       interval: 5s
       timeout: 3s
       retries: 10
       start_period: 10s
     restart: unless-stopped
+    logging: *default-logging
     networks:
       - pythonpro_net
     labels:
@@ -47,22 +54,25 @@ services:
   redis:
     image: redis:7-alpine
     container_name: pythonpro_redis
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?ERRORE: REDIS_PASSWORD obbligatoria}
     command: >
       redis-server
       --appendonly yes
       --maxmemory 256mb
       --maxmemory-policy allkeys-lru
-      --requirepass ${REDIS_PASSWORD:-changeme_redis_pwd}
+      --requirepass ${REDIS_PASSWORD:?ERRORE: REDIS_PASSWORD obbligatoria}
     ports:
       - "${REDIS_PORT:-6381}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" --raw incr ping >/dev/null"]
       interval: 10s
       timeout: 3s
       retries: 3
     restart: unless-stopped
+    logging: *default-logging
     networks:
       - pythonpro_net
     labels:
@@ -82,18 +92,18 @@ services:
     working_dir: /app
     environment:
       # Database
-      DATABASE_URL: postgresql+psycopg://${DB_USER:-admin}:${DB_PASSWORD:-changeme_in_production}@db:5432/${DB_NAME:-gestionale}
+      DATABASE_URL: postgresql+psycopg://${DB_USER:?ERRORE: DB_USER obbligatoria}:${DB_PASSWORD:?ERRORE: DB_PASSWORD obbligatoria}@db:5432/${DB_NAME:-gestionale}
       DB_HOST: db
       DB_PORT: 5432
-      DB_USER: ${DB_USER:-admin}
-      DB_PASSWORD: ${DB_PASSWORD:-changeme_in_production}
+      DB_USER: ${DB_USER:?ERRORE: DB_USER obbligatoria}
+      DB_PASSWORD: ${DB_PASSWORD:?ERRORE: DB_PASSWORD obbligatoria}
       DB_NAME: ${DB_NAME:-gestionale}
 
       # Redis
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-changeme_redis_pwd}
-      REDIS_URL: redis://:${REDIS_PASSWORD:-changeme_redis_pwd}@redis:6379/0
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?ERRORE: REDIS_PASSWORD obbligatoria}
+      REDIS_URL: redis://:${REDIS_PASSWORD:?ERRORE: REDIS_PASSWORD obbligatoria}@redis:6379/0
       REDIS_DB: 0
       PYTHONPRO_OUTBOUND_WEBHOOK_URL: ${PYTHONPRO_OUTBOUND_WEBHOOK_URL:-http://webhook_sink:8080}
 
@@ -104,12 +114,12 @@ services:
       GRACEFUL_TIMEOUT: ${GRACEFUL_TIMEOUT:-20}
 
       # Security
-      SECRET_KEY: ${JWT_SECRET_KEY:-changeme_secret_key_super_sicura}
-      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-changeme_secret_key_super_sicura}
+      SECRET_KEY: ${JWT_SECRET_KEY:?ERRORE: JWT_SECRET_KEY obbligatoria}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?ERRORE: JWT_SECRET_KEY obbligatoria}
       JWT_ALGORITHM: HS256
       ACCESS_TOKEN_EXPIRE_MINUTES: 60
-      ADMIN_DEFAULT_PASSWORD: ${ADMIN_DEFAULT_PASSWORD:-}
-      OPERATOR_DEFAULT_PASSWORD: ${OPERATOR_DEFAULT_PASSWORD:-}
+      ADMIN_DEFAULT_PASSWORD: ${ADMIN_DEFAULT_PASSWORD:?ERRORE: ADMIN_DEFAULT_PASSWORD obbligatoria}
+      OPERATOR_DEFAULT_PASSWORD: ${OPERATOR_DEFAULT_PASSWORD:?ERRORE: OPERATOR_DEFAULT_PASSWORD obbligatoria}
 
       # Environment
       ENVIRONMENT: ${ENVIRONMENT:-production}
@@ -117,18 +127,19 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
 
       # CORS
-      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3001}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?ERRORE: CORS_ALLOWED_ORIGINS obbligatoria}
 
       # Alembic
       ALEMBIC_CONFIG: /app/alembic.ini
-      AUTO_BACKUP_ENABLED: "false"
+      AUTO_BACKUP_ENABLED: "true"
       BACKUP_DIR: /app/backups
+      EXPORTS_DIR: /app/exports
       AI_AGENT_LLM_PROVIDER: ${AI_AGENT_LLM_PROVIDER:-none}
       AI_AGENT_LLM_MODEL: ${AI_AGENT_LLM_MODEL:-}
       AI_AGENT_LLM_TIMEOUT_SECONDS: ${AI_AGENT_LLM_TIMEOUT_SECONDS:-25}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OPENCLAW_BASE_URL: ${OPENCLAW_BASE_URL:-http://host.docker.internal:18789}
-      OPENCLAW_API_KEY: ${OPENCLAW_API_KEY:-}
+      OPENCLAW_API_KEY: ${OPENCLAW_API_KEY:?ERRORE: OPENCLAW_API_KEY obbligatoria}
       OPENCLAW_CHAT_PATH: ${OPENCLAW_CHAT_PATH:-/v1/chat/completions}
       ENABLE_WHATSAPP: ${ENABLE_WHATSAPP:-false}
       WHATSAPP_PROVIDER: ${WHATSAPP_PROVIDER:-meta}
@@ -139,7 +150,7 @@ services:
       WHATSAPP_META_PHONE_NUMBER_ID: ${WHATSAPP_META_PHONE_NUMBER_ID:-}
       WHATSAPP_META_GRAPH_VERSION: ${WHATSAPP_META_GRAPH_VERSION:-v17.0}
       WHATSAPP_META_BASE_URL: ${WHATSAPP_META_BASE_URL:-https://graph.facebook.com}
-      WHATSAPP_META_WEBHOOK_VERIFY_TOKEN: ${WHATSAPP_META_WEBHOOK_VERIFY_TOKEN:-}
+      WHATSAPP_META_WEBHOOK_VERIFY_TOKEN: ${WHATSAPP_META_WEBHOOK_VERIFY_TOKEN:?ERRORE: WHATSAPP_META_WEBHOOK_VERIFY_TOKEN obbligatoria}
       GMAIL_IMAP_USER: ${GMAIL_IMAP_USER:-}
       GMAIL_IMAP_APP_PASSWORD: ${GMAIL_IMAP_APP_PASSWORD:-}
       SMTP_HOST: ${SMTP_HOST:-}
@@ -147,7 +158,7 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_FROM: ${SMTP_FROM:-no-reply@gestionale.local}
-      SMTP_TEST_MODE: ${SMTP_TEST_MODE:-true}
+      SMTP_TEST_MODE: ${SMTP_TEST_MODE:-false}
       SMTP_USE_TLS: ${SMTP_USE_TLS:-true}
       ENABLE_EMAIL: ${ENABLE_EMAIL:-false}
       INBOX_POLL_INTERVAL_SECONDS: ${INBOX_POLL_INTERVAL_SECONDS:-300}
@@ -170,10 +181,12 @@ services:
       - backend_uploads:/app/uploads
       - backend_logs:/app/logs
       - backend_backups:/app/backups
+      - exports_data:/app/exports
       - ./backend:/app
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
+    logging: *default-logging
     networks:
       - pythonpro_net
     labels:
@@ -197,11 +210,11 @@ services:
     entrypoint: ["arq"]
     command: ["arq_worker.WorkerSettings"]
     environment:
-      DATABASE_URL: postgresql+psycopg://${DB_USER:-admin}:${DB_PASSWORD:-changeme_in_production}@db:5432/${DB_NAME:-gestionale}
+      DATABASE_URL: postgresql+psycopg://${DB_USER:?ERRORE: DB_USER obbligatoria}:${DB_PASSWORD:?ERRORE: DB_PASSWORD obbligatoria}@db:5432/${DB_NAME:-gestionale}
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-changeme_redis_pwd}
-      REDIS_URL: redis://:${REDIS_PASSWORD:-changeme_redis_pwd}@redis:6379/0
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?ERRORE: REDIS_PASSWORD obbligatoria}
+      REDIS_URL: redis://:${REDIS_PASSWORD:?ERRORE: REDIS_PASSWORD obbligatoria}@redis:6379/0
       REDIS_DB: 0
       PYTHONPRO_OUTBOUND_WEBHOOK_URL: ${PYTHONPRO_OUTBOUND_WEBHOOK_URL:-http://webhook_sink:8080}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
@@ -217,10 +230,10 @@ services:
       WHATSAPP_META_PHONE_NUMBER_ID: ${WHATSAPP_META_PHONE_NUMBER_ID:-}
       WHATSAPP_META_GRAPH_VERSION: ${WHATSAPP_META_GRAPH_VERSION:-v17.0}
       WHATSAPP_META_BASE_URL: ${WHATSAPP_META_BASE_URL:-https://graph.facebook.com}
-      WHATSAPP_META_WEBHOOK_VERIFY_TOKEN: ${WHATSAPP_META_WEBHOOK_VERIFY_TOKEN:-}
+      WHATSAPP_META_WEBHOOK_VERIFY_TOKEN: ${WHATSAPP_META_WEBHOOK_VERIFY_TOKEN:?ERRORE: WHATSAPP_META_WEBHOOK_VERIFY_TOKEN obbligatoria}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OPENCLAW_BASE_URL: ${OPENCLAW_BASE_URL:-http://host.docker.internal:18789}
-      OPENCLAW_API_KEY: ${OPENCLAW_API_KEY:-}
+      OPENCLAW_API_KEY: ${OPENCLAW_API_KEY:?ERRORE: OPENCLAW_API_KEY obbligatoria}
       OPENCLAW_CHAT_PATH: ${OPENCLAW_CHAT_PATH:-/v1/chat/completions}
       GMAIL_IMAP_USER: ${GMAIL_IMAP_USER:-}
       GMAIL_IMAP_APP_PASSWORD: ${GMAIL_IMAP_APP_PASSWORD:-}
@@ -244,13 +257,20 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
+    logging: *default-logging
+    cpus: "1.0"
+    mem_limit: 1g
     networks:
       - pythonpro_net
     labels:
       - "com.project=pythonpro"
       - "com.role=worker"
     healthcheck:
-      disable: true
+      test: ["CMD-SHELL", "python -c \"import os, redis; redis.Redis(host=os.getenv('REDIS_HOST', 'redis'), port=int(os.getenv('REDIS_PORT', '6379')), password=os.getenv('REDIS_PASSWORD') or None, socket_timeout=2).ping()\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   # === WEBHOOK SINK (test endpoint locale) ===
   webhook_sink:
@@ -259,6 +279,7 @@ services:
     ports:
       - "8099:8080"
     restart: unless-stopped
+    logging: *default-logging
     networks:
       - pythonpro_net
     labels:
@@ -273,11 +294,11 @@ services:
     working_dir: /app
     entrypoint: ["python", "run_backup.py", "schedule"]
     environment:
-      DATABASE_URL: postgresql+psycopg://${DB_USER:-admin}:${DB_PASSWORD:-changeme_in_production}@db:5432/${DB_NAME:-gestionale}
+      DATABASE_URL: postgresql+psycopg://${DB_USER:?ERRORE: DB_USER obbligatoria}:${DB_PASSWORD:?ERRORE: DB_PASSWORD obbligatoria}@db:5432/${DB_NAME:-gestionale}
       DB_HOST: db
       DB_PORT: 5432
-      DB_USER: ${DB_USER:-admin}
-      DB_PASSWORD: ${DB_PASSWORD:-changeme_in_production}
+      DB_USER: ${DB_USER:?ERRORE: DB_USER obbligatoria}
+      DB_PASSWORD: ${DB_PASSWORD:?ERRORE: DB_PASSWORD obbligatoria}
       DB_NAME: ${DB_NAME:-gestionale}
       BACKUP_DIR: /app/backups
       BACKUP_RETENTION_COUNT: ${BACKUP_RETENTION_COUNT:-30}
@@ -295,6 +316,7 @@ services:
       - backend_backups:/app/backups
       - ./backend:/app
     restart: unless-stopped
+    logging: *default-logging
     networks:
       - pythonpro_net
     labels:
@@ -315,18 +337,18 @@ services:
     entrypoint: ["python", "jobs/check_scadenze.py", "schedule"]
     command: ["--time", "${CHECK_SCADENZE_TIME:-08:00}"]
     environment:
-      DATABASE_URL: postgresql+psycopg://${DB_USER:-admin}:${DB_PASSWORD:-changeme_in_production}@db:5432/${DB_NAME:-gestionale}
+      DATABASE_URL: postgresql+psycopg://${DB_USER:?ERRORE: DB_USER obbligatoria}:${DB_PASSWORD:?ERRORE: DB_PASSWORD obbligatoria}@db:5432/${DB_NAME:-gestionale}
       DB_HOST: db
       DB_PORT: 5432
-      DB_USER: ${DB_USER:-admin}
-      DB_PASSWORD: ${DB_PASSWORD:-changeme_in_production}
+      DB_USER: ${DB_USER:?ERRORE: DB_USER obbligatoria}
+      DB_PASSWORD: ${DB_PASSWORD:?ERRORE: DB_PASSWORD obbligatoria}
       DB_NAME: ${DB_NAME:-gestionale}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_FROM: ${SMTP_FROM:-no-reply@gestionale.local}
-      SMTP_TEST_MODE: ${SMTP_TEST_MODE:-true}
+      SMTP_TEST_MODE: ${SMTP_TEST_MODE:-false}
       SMTP_USE_TLS: ${SMTP_USE_TLS:-true}
     container_name: pythonpro_check_scadenze_scheduler
     depends_on:
@@ -337,6 +359,7 @@ services:
     volumes:
       - ./backend:/app
     restart: unless-stopped
+    logging: *default-logging
     networks:
       - pythonpro_net
     labels:
@@ -367,6 +390,7 @@ services:
     ports:
       - "${FRONTEND_PORT:-3001}:80"
     restart: unless-stopped
+    logging: *default-logging
     networks:
       - pythonpro_net
     labels:
@@ -394,6 +418,9 @@ volumes:
     driver: local
   backend_backups:
     name: ${COMPOSE_PROJECT_NAME:-pythonpro}_backend_backups
+    driver: local
+  exports_data:
+    name: ${COMPOSE_PROJECT_NAME:-pythonpro}_exports_data
     driver: local
 
 # === NETWORK ===

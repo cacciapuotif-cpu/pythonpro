@@ -79,7 +79,7 @@ class ApiService {
     if (filters.isActive !== undefined) params.is_active = filters.isActive;
 
     const response = await retryRequest(() =>
-      http.get('/collaborators', { params })
+      http.get('/collaborators/', { params })
     );
 
     return response.data;
@@ -91,7 +91,7 @@ class ApiService {
   }
 
   async createCollaborator(data) {
-    const response = await http.post('/collaborators', data);
+    const response = await http.post('/collaborators/', data);
     return response.data;
   }
 
@@ -140,7 +140,7 @@ class ApiService {
     if (filters.status) params.status = filters.status;
 
     const response = await retryRequest(() =>
-      http.get('/projects', { params })
+      http.get('/projects/', { params })
     );
 
     return response.data;
@@ -151,8 +151,18 @@ class ApiService {
     return response.data;
   }
 
+  async getProjectModuliFormativi(id) {
+    const response = await http.get(`/projects/${id}/moduli-formativi`);
+    return response.data;
+  }
+
+  async getProjectModuloVocePiano(projectId, moduloId) {
+    const response = await http.get(`/projects/${projectId}/moduli-formativi/${moduloId}/voce-piano`);
+    return response.data;
+  }
+
   async createProject(data) {
-    const response = await http.post('/projects', data);
+    const response = await http.post('/projects/', data);
     return response.data;
   }
 
@@ -190,7 +200,7 @@ class ApiService {
   }
 
   async createAttendance(data) {
-    const response = await http.post('/attendances', data);
+    const response = await http.post('/attendances/', data);
     return response.data;
   }
 
@@ -211,7 +221,7 @@ class ApiService {
     if (pagination.limit) params.limit = pagination.limit;
 
     const response = await retryRequest(() =>
-      http.get('/assignments', { params })
+      http.get('/assignments/', { params })
     );
 
     return response.data;
@@ -223,7 +233,7 @@ class ApiService {
   }
 
   async createAssignment(data) {
-    const response = await http.post('/assignments', data);
+    const response = await http.post('/assignments/', data);
     return response.data;
   }
 
@@ -297,7 +307,7 @@ class ApiService {
   }
 
   async createEntity(data) {
-    const response = await http.post('/entities', data);
+    const response = await http.post('/entities/', data);
     return response.data;
   }
 
@@ -337,7 +347,7 @@ class ApiService {
   }
 
   async createContractTemplate(data) {
-    const response = await http.post('/contracts', data);
+    const response = await http.post('/contracts/', data);
     return response.data;
   }
 
@@ -351,9 +361,9 @@ class ApiService {
     return response.data;
   }
 
-  async generateContract(data) {
-    const response = await http.post('/contracts/generate-contract', data, {
-      responseType: 'blob'
+  async downloadAssignmentContract(assignmentId) {
+    const response = await http.get(`/assignments/${assignmentId}/contract`, {
+      responseType: 'blob',
     });
     return response.data;
   }
@@ -415,7 +425,7 @@ class ApiService {
   }
 
   async createPianoFinanziario(data) {
-    const response = await http.post('/piani-finanziari', data);
+    const response = await http.post('/piani-finanziari/', data);
     return response.data;
   }
 
@@ -623,6 +633,7 @@ export const createProject = (data) => apiService.createProject(data);
 export const updateProject = (id, data) => apiService.updateProject(id, data);
 export const deleteProject = (id) => apiService.deleteProject(id);
 export const getProject = (id) => apiService.getProject(id);
+export const getProjectModuliFormativi = (id) => apiService.getProjectModuliFormativi(id);
 
 // Collaborator-Project associations
 export const assignCollaboratorToProject = (collaboratorId, projectId) => apiService.assignCollaboratorToProject(collaboratorId, projectId);
@@ -647,7 +658,7 @@ export const getContractTemplate = (id) => apiService.getContractTemplate(id);
 export const createContractTemplate = (data) => apiService.createContractTemplate(data);
 export const updateContractTemplate = (id, data) => apiService.updateContractTemplate(id, data);
 export const deleteContractTemplate = (id, soft_delete = true) => apiService.deleteContractTemplate(id, soft_delete);
-export const generateContract = (data) => apiService.generateContract(data);
+export const downloadAssignmentContract = (assignmentId) => apiService.downloadAssignmentContract(assignmentId);
 
 // Avvisi
 export const getAvvisi = (params = {}) =>
@@ -694,6 +705,8 @@ export const rejectAgentSuggestion = (suggestionId, data) =>
   http.post(`/agents/suggestions/${suggestionId}/reject`, data).then(r => r.data);
 export const workflowAgentSuggestion = (suggestionId, data) =>
   http.post(`/agents/suggestions/${suggestionId}/workflow`, data).then(r => r.data);
+export const sendAgentSuggestionEmail = (suggestionId, data) =>
+  http.post(`/agent-suggestions/${suggestionId}/send-email`, data).then(r => r.data);
 export const getAgentCommunications = (params = {}) =>
   http.get('/agents/communications', { params }).then(r => r.data);
 export const createAgentCommunication = (data) =>
@@ -704,8 +717,14 @@ export const getEmailInboxItems = (params = {}) =>
   http.get('/email-inbox/items', { params }).then(r => r.data);
 export const assignEmailInboxItem = (itemId, data) =>
   http.post(`/email-inbox/items/${itemId}/assign`, data).then(r => r.data);
+export const archiveEmailInboxItem = (itemId) =>
+  http.post(`/email-inbox/${itemId}/archive`).then(r => r.data);
+export const sendEmailInboxFollowup = (itemId, data) =>
+  http.post(`/email-inbox/${itemId}/send-followup`, data).then(r => r.data);
 export const downloadEmailInboxAttachment = (itemId) =>
   http.get(`/email-inbox/items/${itemId}/attachment`, { responseType: 'blob' });
+export const manualUpdateCollaborator = (collaboratorId, data) =>
+  http.patch(`/collaborators/${collaboratorId}/manual-update`, data).then(r => r.data);
 
 // Reporting
 export const getTimesheetReport = (filters) => apiService.getTimesheetReport(filters);
@@ -831,12 +850,10 @@ export const getPrezzoInListino = (listinoId, prodottoId) =>
 // ── Piano Finanziario ───────────────────────
 export const getPianiFinanziari = (params = {}) =>
   http.get('/piani-finanziari/', { params }).then(r => r.data);
-export const getTemplatePianiFinanziari = (params = {}) =>
-  http.get('/piani-finanziari/templates/', { params }).then(r => r.data);
-export const getAvvisiPianoFinanziario = (params = {}) =>
-  http.get('/piani-finanziari/avvisi/', { params }).then(r => r.data);
 export const getPianoFinanziario = (id) =>
   http.get(`/piani-finanziari/${id}`).then(r => r.data);
+export const getProjectModuloVocePiano = (projectId, moduloId) =>
+  http.get(`/projects/${projectId}/moduli-formativi/${moduloId}/voce-piano`).then(r => r.data);
 export const createPianoFinanziario = (data) =>
   http.post('/piani-finanziari/', data).then(r => r.data);
 export const updatePianoFinanziario = (id, data) =>
@@ -857,24 +874,10 @@ export const getRiepilogoPianoFinanziario = (pianoId) =>
   http.get(`/piani-finanziari/${pianoId}/riepilogo`).then(r => r.data);
 export const exportPianoFinanziarioExcel = (pianoId) =>
   http.get(`/piani-finanziari/${pianoId}/export-excel`, { responseType: 'blob' });
-
-// ── Piano Fondimpresa ───────────────────────
-export const getPianiFondimpresa = (params = {}) =>
-  http.get('/piani-fondimpresa/', { params }).then(r => r.data);
-export const getPianoFondimpresa = (id) =>
-  http.get(`/piani-fondimpresa/${id}`).then(r => r.data);
-export const createPianoFondimpresa = (data) =>
-  http.post('/piani-fondimpresa/', data).then(r => r.data);
-export const updateVociPianoFondimpresa = (pianoId, data) =>
-  http.put(`/piani-fondimpresa/${pianoId}/voci`, data).then(r => r.data);
-export const updateDocumentiPianoFondimpresa = (pianoId, data) =>
-  http.put(`/piani-fondimpresa/${pianoId}/documenti`, data).then(r => r.data);
-export const updateDettaglioBudgetFondimpresa = (pianoId, data) =>
-  http.put(`/piani-fondimpresa/${pianoId}/dettaglio-budget`, data).then(r => r.data);
-export const getRiepilogoPianoFondimpresa = (pianoId) =>
-  http.get(`/piani-fondimpresa/${pianoId}/riepilogo`).then(r => r.data);
-export const exportPianoFondimpresaExcel = (pianoId) =>
-  http.get(`/piani-fondimpresa/${pianoId}/export-excel`, { responseType: 'blob' });
+export const getProjectBeneficiari = (projectId) =>
+  http.get(`/projects/${projectId}/beneficiari`).then(r => r.data);
+export const updateProjectBeneficiarioRegime = (projectId, aziendaId, data) =>
+  http.patch(`/projects/${projectId}/beneficiari/${aziendaId}/regime`, data).then(r => r.data);
 
 // ── Blocco 4: Preventivi ─────────────────────
 export const getPreventivi = (params = {}) =>
@@ -915,6 +918,58 @@ export const deleteOrdine = (id) =>
   http.delete(`/ordini/${id}`).then(r => r.data);
 export const hardDeleteOrdine = (id) =>
   http.delete(`/ordini/${id}/hard`).then(r => r.data);
+
+// ── FAPI document upload ──────────────────────────────────────────────────
+export const uploadConvenzione = (file) => {
+  const fd = new FormData();
+  fd.append('file', file);
+  return http.post('/projects/upload-convenzione', fd, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }).then(r => r.data);
+};
+export const confirmConvenzione = (previewToken) =>
+  http.post('/projects/confirm-convenzione', { preview_token: previewToken }).then(r => r.data);
+
+export const uploadFormulario = (projectId, file) => {
+  const fd = new FormData();
+  fd.append('file', file);
+  return http.post(`/projects/${projectId}/upload-formulario`, fd, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }).then(r => r.data);
+};
+export const confirmFormulario = (projectId, previewToken) =>
+  http.post(`/projects/${projectId}/confirm-formulario`, { preview_token: previewToken }).then(r => r.data);
+
+export const uploadPianoFinanziario = (projectId, file) => {
+  const fd = new FormData();
+  fd.append('file', file);
+  return http.post(`/projects/${projectId}/upload-piano-finanziario`, fd, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }).then(r => r.data);
+};
+export const confirmPianoFinanziario = (projectId, previewToken) =>
+  http.post(`/projects/${projectId}/confirm-piano-finanziario`, { preview_token: previewToken }).then(r => r.data);
+
+// ── Fondimpresa document upload ───────────────────────────────────────────
+export const uploadAmmissioneFondimpresa = (file) => {
+  const fd = new FormData();
+  fd.append('file', file);
+  return http.post('/projects/fondimpresa/upload-ammissione', fd, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }).then(r => r.data);
+};
+export const confirmAmmissioneFondimpresa = (previewToken) =>
+  http.post('/projects/fondimpresa/confirm-ammissione', { preview_token: previewToken }).then(r => r.data);
+
+export const uploadRiepilogoFondimpresa = (projectId, file) => {
+  const fd = new FormData();
+  fd.append('file', file);
+  return http.post(`/projects/${projectId}/fondimpresa/upload-riepilogo`, fd, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }).then(r => r.data);
+};
+export const confirmRiepilogoFondimpresa = (projectId, previewToken) =>
+  http.post(`/projects/${projectId}/fondimpresa/confirm-riepilogo`, { preview_token: previewToken }).then(r => r.data);
 
 export { apiService };
 export default apiService;
