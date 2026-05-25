@@ -124,7 +124,7 @@ def genera_o_scarica_timesheet(
 
     pdf_bytes = _build_timesheet_pdf(db, assignment)
 
-    upload_dir = "/app/uploads/timesheets"
+    upload_dir = os.path.join(os.getenv("UPLOADS_DIR", "/app/uploads"), "timesheets")
     os.makedirs(upload_dir, exist_ok=True)
 
     collab_name = "{}_{}".format(

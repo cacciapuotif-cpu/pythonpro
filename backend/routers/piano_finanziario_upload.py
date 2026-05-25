@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/projects", tags=["fapi-piano-finanziario"])
 
-UPLOAD_DIR = "/app/uploads/piani_finanziari"
+UPLOAD_DIR = os.path.join(os.getenv("UPLOADS_DIR", "/app/uploads"), "piani_finanziari")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
@@ -106,7 +106,7 @@ def confirm_piano_finanziario(
                 progetto_id=project_id,
                 anno=anno,
                 ente_erogatore="FAPI",
-                avviso=project.codice_fapi or "",
+                avviso_pf_id=getattr(project, "avviso_id", None),
                 tipo_fondo="fapi",
                 nome=f"Piano Finanziario FAPI — {project.codice_fapi or project.name}",
                 codice_piano=project.codice_fapi,

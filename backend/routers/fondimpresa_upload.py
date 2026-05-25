@@ -22,8 +22,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/projects", tags=["fondimpresa-upload"])
 
-AMMISSIONI_DIR = "/app/uploads/fondimpresa/ammissioni"
-RIEPILOGHI_DIR = "/app/uploads/fondimpresa/riepiloghi"
+AMMISSIONI_DIR = os.path.join(os.getenv("UPLOADS_DIR", "/app/uploads"), "fondimpresa", "ammissioni")
+RIEPILOGHI_DIR = os.path.join(os.getenv("UPLOADS_DIR", "/app/uploads"), "fondimpresa", "riepiloghi")
 os.makedirs(AMMISSIONI_DIR, exist_ok=True)
 os.makedirs(RIEPILOGHI_DIR, exist_ok=True)
 
@@ -372,7 +372,7 @@ def confirm_riepilogo_fondimpresa(
             progetto_id=project_id,
             anno=anno,
             ente_erogatore="Fondimpresa",
-            avviso=project.avviso or "",
+            avviso_pf_id=getattr(project, "avviso_id", None),
             tipo_fondo="fondimpresa",
             codice_piano=project.codice_fapi,
             nome=f"Piano Finanziario Fondimpresa - {project.codice_fapi or project.name}",

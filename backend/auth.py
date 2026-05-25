@@ -3,7 +3,7 @@ Sistema di autenticazione e autorizzazione avanzato
 Implementa JWT, RBAC, rate limiting e security headers
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any
 from functools import wraps
 import inspect
@@ -20,12 +20,12 @@ import logging
 from enum import Enum
 import redis
 import json
-from datetime import timezone
+import uuid
 
 logger = logging.getLogger(__name__)
 
 # Configurazione JWT
-_secret_key = os.getenv("SECRET_KEY")
+_secret_key = os.getenv("SECRET_KEY") or os.getenv("JWT_SECRET_KEY")
 _insecure_defaults = {"your-super-secret-key-change-in-production", "changeme_secret_key_super_sicura", ""}
 if not _secret_key or _secret_key in _insecure_defaults:
     raise RuntimeError(
@@ -53,12 +53,56 @@ except redis.RedisError as _redis_err:
 
 # Fallback in-memory per rate limiting se Redis non disponibile
 _memory_store = {}
+_memory_token_blacklist = {}
+
+def _utcnow_naive() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _current_timestamp() -> int:
+    return int(datetime.now(timezone.utc).timestamp())
+
+
+def is_token_revoked(jti: Optional[str]) -> bool:
+    if not jti:
+        return False
+    key = f"blacklist:jti:{jti}"
+    if redis_client:
+        try:
+            return bool(redis_client.exists(key))
+        except redis.RedisError:
+            logger.warning("Redis non disponibile durante controllo blacklist token")
+    expires_at = _memory_token_blacklist.get(jti)
+    if expires_at is None:
+        return False
+    if expires_at <= _current_timestamp():
+        _memory_token_blacklist.pop(jti, None)
+        return False
+    return True
+
+
+def revoke_token(jti: Optional[str], exp: Optional[int]) -> None:
+    if not jti or not exp:
+        return
+    ttl = int(exp) - _current_timestamp()
+    if ttl <= 0:
+        return
+    key = f"blacklist:jti:{jti}"
+    if redis_client:
+        try:
+            redis_client.setex(key, ttl, "revoked")
+            return
+        except redis.RedisError:
+            logger.warning("Redis non disponibile durante revoca token; uso fallback memoria")
+    _memory_token_blacklist[jti] = _current_timestamp() + ttl
+
 
 class UserRole(str, Enum):
     ADMIN = "admin"
     MANAGER = "manager"
     USER = "user"
     READONLY = "readonly"
+    DPO = "dpo"
 
 class Permission(str, Enum):
     READ_COLLABORATORS = "read:collaborators"
@@ -75,10 +119,14 @@ class Permission(str, Enum):
     DELETE_ASSIGNMENTS = "delete:assignments"
     VIEW_DASHBOARD = "view:dashboard"
     MANAGE_USERS = "manage:users"
+    MANAGE_GDPR = "manage:gdpr"
 
 # Mapping ruoli -> permessi
 ROLE_PERMISSIONS: Dict[UserRole, List[Permission]] = {
     UserRole.ADMIN: [p for p in Permission],  # Tutti i permessi
+    UserRole.DPO: [
+        Permission.READ_COLLABORATORS, Permission.READ_PROJECTS, Permission.MANAGE_GDPR
+    ],
     UserRole.MANAGER: [
         Permission.READ_COLLABORATORS, Permission.WRITE_COLLABORATORS,
         Permission.READ_PROJECTS, Permission.WRITE_PROJECTS,
@@ -154,12 +202,13 @@ class SecurityUtils:
     def generate_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
         """Genera JWT token"""
         to_encode = data.copy()
+        now = datetime.now(timezone.utc)
         if expires_delta:
-            expire = datetime.utcnow() + expires_delta
+            expire = now + expires_delta
         else:
-            expire = datetime.utcnow() + timedelta(minutes=15)
+            expire = now + timedelta(minutes=15)
 
-        to_encode.update({"exp": expire, "iat": datetime.utcnow()})
+        to_encode.update({"exp": expire, "iat": now, "jti": str(uuid.uuid4())})
         return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
     @staticmethod
@@ -228,6 +277,12 @@ def get_current_user(
     """Dependency per ottenere l'utente corrente dal token"""
     try:
         payload = SecurityUtils.verify_token(credentials.credentials)
+        jti: str = payload.get("jti")
+        if is_token_revoked(jti):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token revocato"
+            )
         username: str = payload.get("sub")
         if username is None:
             raise HTTPException(
@@ -407,7 +462,7 @@ def authenticate_user(
         return None
 
     # Controllo account bloccato
-    if user.locked_until and user.locked_until > datetime.utcnow():
+    if user.locked_until and user.locked_until > _utcnow_naive():
         log_security_event(db, username, ip_address, user_agent, False, "Account locked")
         raise HTTPException(
             status_code=status.HTTP_423_LOCKED,
@@ -421,7 +476,7 @@ def authenticate_user(
 
         # Blocca account dopo 5 tentativi
         if user.failed_login_attempts >= 5:
-            user.locked_until = datetime.utcnow() + timedelta(hours=1)
+            user.locked_until = _utcnow_naive() + timedelta(hours=1)
             log_security_event(db, username, ip_address, user_agent, False, "Account locked after failed attempts")
         else:
             log_security_event(db, username, ip_address, user_agent, False, "Invalid password")
@@ -432,7 +487,7 @@ def authenticate_user(
     # Login riuscito
     user.failed_login_attempts = 0
     user.locked_until = None
-    user.last_login = datetime.utcnow()
+    user.last_login = _utcnow_naive()
     db.commit()
 
     log_security_event(db, username, ip_address, user_agent, True)

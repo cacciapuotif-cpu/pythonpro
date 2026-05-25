@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/projects", tags=["fapi-convenzione"])
 
-UPLOAD_DIR = "/app/uploads/convenzioni"
+UPLOAD_DIR = os.path.join(os.getenv("UPLOADS_DIR", "/app/uploads"), "convenzioni")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
