@@ -188,9 +188,19 @@ def run_mail_recovery_agent(
     suggestions: list[dict[str, Any]] = []
     llm_config = get_agent_llm_config()
     llm_generated_count = 0
+    skipped_no_consent = 0
     use_llm_copy = entity_id is not None
 
     for collaborator in query.all():
+        if not getattr(collaborator, "consenso_email_agenti", False):
+            skipped_no_consent += 1
+            if entity_id is not None:
+                return {
+                    "status": "skipped",
+                    "reason": "no_consent",
+                    "collaboratore_id": collaborator.id,
+                }
+            continue
         missing_fields = []
         if not collaborator.phone:
             missing_fields.append("telefono")
@@ -315,5 +325,6 @@ def run_mail_recovery_agent(
         "llm_provider": llm_config.provider,
         "llm_enabled": llm_config.enabled,
         "llm_generated_count": llm_generated_count,
+        "skipped_no_consent": skipped_no_consent,
     }
     return {"summary": summary, "suggestions": suggestions}

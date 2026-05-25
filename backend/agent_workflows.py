@@ -76,6 +76,17 @@ def _is_email_enabled() -> bool:
     return os.getenv("ENABLE_EMAIL", "false").strip().lower() in {"1", "true", "yes", "on"}
 
 
+
+
+def _email_agent_consent_ok(db: Session, payload: dict[str, Any]) -> bool:
+    if (payload.get("recipient_type") or "").strip().lower() not in {"collaborator", "collaborators"}:
+        return True
+    collaborator_id = payload.get("recipient_id")
+    if collaborator_id is None:
+        return False
+    collaborator = db.get(models.Collaborator, collaborator_id)
+    return bool(collaborator and getattr(collaborator, "consenso_email_agenti", False))
+
 def _send_email(*, recipient_email: str, subject: str, body: str) -> tuple[bool, str]:
     if not _is_email_enabled():
         return False, "Invio email non abilitato"
@@ -476,6 +487,11 @@ def run_agent_workflow(
                 and payload_dict.get("subject")
                 and payload_dict.get("body")
             ):
+                if not _email_agent_consent_ok(db, payload_dict):
+                    discarded_emails += 1
+                    suggestion.status = "discarded"
+                    continue
+
                 if mail_recovery_decision == "auto_send":
                     sent_ok, detail = _send_email(
                         recipient_email=payload_dict["recipient_email"],

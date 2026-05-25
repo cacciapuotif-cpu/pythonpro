@@ -9,7 +9,7 @@ import models
 from .registry import BaseAgent, AgentRunResult, agent_registry
 
 
-_FISCAL_CODE_PATTERN = re.compile(r"^(?:[A-Z0-9]{16}|\d{11})$")
+_FISCAL_CODE_PATTERN = re.compile(r"^[A-Z]{6}[0-9LMNPQRSTUV]{2}[ABCDEHLMPRST][0-9LMNPQRSTUV]{2}[A-Z][0-9LMNPQRSTUV]{3}[A-Z]$")
 
 
 class DataQualityAgent(BaseAgent):
