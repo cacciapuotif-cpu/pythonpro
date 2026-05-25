@@ -69,6 +69,10 @@ class CollaboratorBase(BaseModel):
     is_agency: bool = False
     is_consultant: bool = False
     documento_identita_scadenza: Optional[datetime] = Field(None)
+    consenso_email_agenti: bool = False
+    consenso_whatsapp_agenti: bool = False
+    anonimizzato: bool = False
+    data_anonimizzazione: Optional[datetime] = None
 
     @field_validator("partita_iva", mode="before")
     @classmethod
@@ -104,6 +108,10 @@ class CollaboratorUpdate(BaseModel):
     is_agency: Optional[bool] = None
     is_consultant: Optional[bool] = None
     documento_identita_scadenza: Optional[datetime] = None
+    consenso_email_agenti: Optional[bool] = None
+    consenso_whatsapp_agenti: Optional[bool] = None
+    anonimizzato: Optional[bool] = None
+    data_anonimizzazione: Optional[datetime] = None
 
     @field_validator("partita_iva", mode="before")
     @classmethod
@@ -1547,8 +1555,9 @@ class OrdineUpdate(BaseModel):
 
 from typing import Literal
 
-TIPO_FONDO = Literal['formazienda', 'fapi', 'fondimpresa', 'fse', 'altro']
+TIPO_FONDO = Literal['fondimpresa', 'fonamcom', 'fse', 'regionale', 'altro']
 STATO_PIANO = Literal['bozza', 'inviato', 'approvato', 'in_corso', 'completato', 'rendicontato', 'chiuso', 'respinto']
+STATO_RENDICONTAZIONE = Literal['bozza', 'in_corso', 'inviato', 'approvato', 'respinto']
 STATO_AVVISO_PIANO = Literal['bozza', 'aperto', 'chiuso', 'rendicontato']
 STATO_VOCE_PIANO = Literal['previsto', 'in_corso', 'rendicontato', 'validato']
 CATEGORIA_VOCE = Literal['docenza', 'tutoraggio', 'coordinamento', 'progettazione', 'materiali', 'materiali_didattici', 'aula', 'viaggi', 'attrezzature', 'certificazioni', 'altro']
@@ -1631,6 +1640,11 @@ class PianoFinanziarioBase(BaseModel):
     progetto_id: int
     nome: str = Field(max_length=200)
     tipo_fondo: TIPO_FONDO
+    avviso_pf_id: Optional[int] = None
+    data_ammissione: Optional[date] = None
+    stato_rendicontazione: STATO_RENDICONTAZIONE = 'bozza'
+    codice_progetto_fondo: Optional[str] = Field(default=None, max_length=50)
+    importo_ammesso: Optional[float] = Field(default=None, ge=0)
     budget_totale: float = Field(ge=0)
     budget_approvato: float = Field(default=0.0, ge=0)
     budget_utilizzato: float = Field(default=0.0, ge=0)
@@ -1659,6 +1673,11 @@ class PianoFinanziarioCreate(PianoFinanziarioBase):
 class PianoFinanziarioUpdate(BaseModel):
     nome: Optional[str] = Field(default=None, max_length=200)
     tipo_fondo: Optional[TIPO_FONDO] = None
+    avviso_pf_id: Optional[int] = None
+    data_ammissione: Optional[date] = None
+    stato_rendicontazione: Optional[STATO_RENDICONTAZIONE] = None
+    codice_progetto_fondo: Optional[str] = Field(default=None, max_length=50)
+    importo_ammesso: Optional[float] = Field(default=None, ge=0)
     budget_totale: Optional[float] = Field(default=None, ge=0)
     budget_approvato: Optional[float] = Field(default=None, ge=0)
     budget_utilizzato: Optional[float] = Field(default=None, ge=0)

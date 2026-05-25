@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Date, ForeignKey, Table, Text, Float, Index, Boolean, UniqueConstraint, JSON, text, event
+from sqlalchemy import Column, Integer, String, DateTime, Date, ForeignKey, Table, Text, Float, Numeric, Index, Boolean, UniqueConstraint, JSON, text, event
 from sqlalchemy.orm import relationship, validates, foreign
 from sqlalchemy.sql import func
 from sqlalchemy.ext.hybrid import hybrid_property
@@ -75,6 +75,11 @@ class Collaborator(Base):
     curriculum_path = Column(String(500))              # Path storage
     curriculum_uploaded_at = Column(DateTime)          # Data upload
 
+    consenso_email_agenti = Column(Boolean, nullable=False, default=False, server_default=text("false"), index=True)
+    consenso_whatsapp_agenti = Column(Boolean, nullable=False, default=False, server_default=text("false"), index=True)
+    anonimizzato = Column(Boolean, nullable=False, default=False, server_default=text("false"), index=True)
+    data_anonimizzazione = Column(DateTime(timezone=True), nullable=True)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -110,6 +115,36 @@ class Collaborator(Base):
                 raise ValueError("Partita IVA deve essere di 11 cifre numeriche")
             return piva_clean
         return piva
+
+
+class GDPRConsenso(Base):
+    __tablename__ = "gdpr_consensi"
+
+    id = Column(Integer, primary_key=True, index=True)
+    collaboratore_id = Column(Integer, ForeignKey("collaborators.id", ondelete="CASCADE"), nullable=False, index=True)
+    tipo_consenso = Column(String(50), nullable=False, index=True)
+    data_consenso = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    ip_address_hash = Column(String(64), nullable=True)
+    revocato = Column(Boolean, nullable=False, default=False, server_default=text("false"), index=True)
+    data_revoca = Column(DateTime(timezone=True), nullable=True)
+
+    collaboratore = relationship("Collaborator", backref="gdpr_consensi")
+
+
+
+class SecurityAuditLog(Base):
+    __tablename__ = "audit_log"
+
+    id = Column(Integer, primary_key=True, index=True)
+    timestamp = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    azione = Column(String(100), nullable=False, index=True)
+    risorsa_tipo = Column(String(100), nullable=False, index=True)
+    risorsa_id = Column(String(100), nullable=True, index=True)
+    dati_prima = Column(Text, nullable=True)
+    dati_dopo = Column(Text, nullable=True)
+    ip_address_hash = Column(String(64), nullable=True)
+    esito = Column(String(50), nullable=False, default="success", index=True)
 
 
 class DocumentoRichiesto(Base):
@@ -746,13 +781,17 @@ class PianoFinanziario(Base):
     legacy_avviso_id = Column(Integer, nullable=True)
     anno = Column(Integer, nullable=False, index=True)
     ente_erogatore = Column(String(100), nullable=False, default="Formazienda")
-    avviso = Column(String(100), nullable=False, default="")
+    avviso_pf_id = Column(Integer, ForeignKey("avvisi.id", ondelete="SET NULL"), nullable=True, index=True)
 
     # === IDENTIFICAZIONE ===
     codice_piano = Column(String(100), unique=True, nullable=True, index=True)
     nome = Column(String(200), nullable=False, default="")
-    tipo_fondo = Column(String(50), nullable=False, default="formazienda", index=True)
-    # Valori: "formazienda", "fapi", "fondimpresa", "fse", "altro"
+    tipo_fondo = Column(String(30), nullable=True, default="altro", index=True)
+    # Valori: "fondimpresa", "fonamcom", "fse", "regionale", "altro"
+    data_ammissione = Column(Date, nullable=True)
+    stato_rendicontazione = Column(String(20), nullable=False, default="bozza", server_default="bozza", index=True)
+    codice_progetto_fondo = Column(String(50), nullable=True, index=True)
+    importo_ammesso = Column(Numeric(12, 2), nullable=True)
 
     # === BUDGET ===
     budget_totale = Column(Float, nullable=False, default=0.0)
@@ -778,11 +817,20 @@ class PianoFinanziario(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     progetto = relationship("Project", back_populates="piani_finanziari", lazy="joined")
+    avviso_rel = relationship("Avviso", foreign_keys=[avviso_pf_id], lazy="select")
     voci = relationship("VocePianoFinanziario", back_populates="piano", lazy="select", cascade="all, delete-orphan")
+
+    @property
+    def avviso(self):
+        return self.avviso_rel.codice if self.avviso_rel else ""
+
+    @avviso.setter
+    def avviso(self, value):
+        self._pending_avviso = value
 
     @validates('tipo_fondo')
     def validate_tipo_fondo(self, key, valore):
-        tipi_validi = ['formazienda', 'fapi', 'fondimpresa', 'fse', 'altro']
+        tipi_validi = ['fondimpresa', 'fonamcom', 'fse', 'regionale', 'altro']
         if valore not in tipi_validi:
             raise ValueError(f"tipo_fondo deve essere uno di: {tipi_validi}")
         return valore
@@ -804,6 +852,13 @@ class PianoFinanziario(Base):
     def __repr__(self):
         return f"<PianoFinanziario {self.codice_piano or self.id}>"
 
+    @validates("stato_rendicontazione")
+    def validate_stato_rendicontazione(self, key, valore):
+        stati_validi = ["bozza", "in_corso", "inviato", "approvato", "respinto"]
+        if valore not in stati_validi:
+            raise ValueError(f"stato_rendicontazione deve essere uno di: {stati_validi}")
+        return valore
+
     def aggiorna_budget_utilizzato(self, db):
         totale = db.query(
             func.coalesce(func.sum(VocePianoFinanziario.importo_consuntivo), 0.0)
@@ -813,6 +868,34 @@ class PianoFinanziario(Base):
         self.budget_utilizzato = float(totale or 0.0)
         self.budget_rimanente = float(self.budget_totale or 0.0) - self.budget_utilizzato
         return self.budget_utilizzato
+
+
+class ProgettoBeneficiario(Base):
+    __tablename__ = "progetto_beneficiario"
+
+    id = Column(Integer, primary_key=True, index=True)
+    progetto_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    nome = Column(String(100), nullable=False)
+    cognome = Column(String(100), nullable=False)
+    cf = Column(String(16), nullable=False, index=True)
+    ruolo = Column(String(100), nullable=True)
+    data_inizio = Column(Date, nullable=True)
+    data_fine = Column(Date, nullable=True)
+
+
+class MassimaleFondo(Base):
+    __tablename__ = "massimali_fondo"
+
+    id = Column(Integer, primary_key=True, index=True)
+    tipo_fondo = Column(String(30), nullable=False, index=True)
+    anno = Column(Integer, nullable=False, index=True)
+    massimale_orario_docenza = Column(Numeric(8, 2), nullable=True)
+    massimale_orario_tutoraggio = Column(Numeric(8, 2), nullable=True)
+    massimale_spese_generali_pct = Column(Numeric(5, 2), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("tipo_fondo", "anno", name="uq_massimali_fondo_tipo_anno"),
+    )
 
 
 class VocePianoFinanziario(Base):
@@ -1838,6 +1921,23 @@ def _prevent_audit_log_update(mapper, connection, target):
 @event.listens_for(AuditLog, "before_delete")
 def _prevent_audit_log_delete(mapper, connection, target):
     raise ValueError("AuditLog is immutable and cannot be deleted")
+
+
+class GiustificativoSpesa(Base):
+    __tablename__ = "giustificativo_spesa"
+
+    id = Column(Integer, primary_key=True, index=True)
+    voce_piano_id = Column(Integer, ForeignKey("voci_piano_finanziario.id", ondelete="CASCADE"), nullable=False, index=True)
+    tipo = Column(String(50), nullable=False, index=True)
+    importo = Column(Numeric(12, 2), nullable=False)
+    numero_doc = Column(String(100), nullable=True)
+    data_doc = Column(Date, nullable=True)
+    fornitore = Column(String(200), nullable=True)
+    file_path = Column(String(500), nullable=True)
+    validato = Column(Boolean, nullable=False, default=False, server_default=text("false"), index=True)
+    note = Column(Text, nullable=True)
+
+    voce_piano = relationship("VocePianoFinanziario", backref="giustificativi_spesa")
 
 
 class AgentRun(Base):

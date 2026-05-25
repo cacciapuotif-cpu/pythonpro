@@ -1,7 +1,7 @@
 """add document columns to collaborators
 
 Revision ID: 001
-Revises:
+Revises: 000
 Create Date: 2025-10-01
 
 """
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 # revision identifiers
 revision = '001'
-down_revision = None
+down_revision = "000"
 branch_labels = None
 depends_on = None
 

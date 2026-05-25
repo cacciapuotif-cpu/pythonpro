@@ -5,11 +5,12 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy import inspect, text
-from typing import List
+from typing import Any, List
 from datetime import datetime
+import json
 import os
 import logging
+import re
 
 # IMPORTAZIONI DEI NOSTRI MODULI
 import models
@@ -36,6 +37,41 @@ logger = logging.getLogger(__name__)
 
 ADMIN_DEFAULT_PASSWORD = os.getenv("ADMIN_DEFAULT_PASSWORD", "").strip()
 OPERATOR_DEFAULT_PASSWORD = os.getenv("OPERATOR_DEFAULT_PASSWORD", "").strip()
+
+CAMPI_SENSIBILI = {
+    "password", "token", "access_token", "refresh_token", "secret", "codice_fiscale", "iban",
+    "documento_identita", "documento_identita_path", "curriculum_path",
+    "email", "phone", "telefono", "partita_iva", "first_name",
+    "last_name", "data_nascita",
+}
+
+
+def valida_password_bootstrap(password: str, ruolo: str) -> None:
+    if not password:
+        raise ValueError(f"[AVVIO] {ruolo}: BOOTSTRAP_PASSWORD non configurata")
+    if len(password) < 12:
+        raise ValueError(f"[AVVIO] {ruolo}: password troppo corta (min 12 char)")
+    if not re.search(r"[A-Z]", password):
+        raise ValueError(f"[AVVIO] {ruolo}: password deve contenere maiuscole")
+    if not re.search(r"[0-9]", password):
+        raise ValueError(f"[AVVIO] {ruolo}: password deve contenere cifre")
+    if not re.search(r"[^A-Za-z0-9]", password):
+        raise ValueError(f"[AVVIO] {ruolo}: password deve contenere caratteri speciali")
+
+
+def sanitize_body_for_log(body: Any) -> Any:
+    if isinstance(body, dict):
+        sanitized = {}
+        for key, value in body.items():
+            normalized = str(key).lower()
+            if any(sensitive in normalized for sensitive in CAMPI_SENSIBILI):
+                sanitized[key] = "***REDACTED***"
+            else:
+                sanitized[key] = sanitize_body_for_log(value)
+        return sanitized
+    if isinstance(body, list):
+        return [sanitize_body_for_log(item) for item in body]
+    return body
 
 # IMPORTAZIONI SISTEMI AVANZATI
 from error_handler import (
@@ -97,199 +133,11 @@ from routers import (
     agents,
     email_inbox,
     whatsapp,
+    gdpr,
 )
 
-# CREIAMO LE TABELLE NEL DATABASE
-models.Base.metadata.create_all(bind=engine)
-
-
-def ensure_runtime_schema_updates():
-    """Aggiunge colonne mancanti su installazioni già esistenti senza migrazione completa."""
-    table_updates = {
-        "assignments": {
-            "contract_signed_date": "TIMESTAMP",
-            "edizione_label": "VARCHAR(100)",
-        },
-        "collaborators": {
-            "documento_identita_scadenza": "TIMESTAMP",
-            "is_agency": "BOOLEAN DEFAULT FALSE",
-            "is_consultant": "BOOLEAN DEFAULT FALSE",
-            "partita_iva": "VARCHAR(11)",
-            "profilo_professionale": "TEXT",
-            "competenze_principali": "TEXT",
-            "certificazioni": "TEXT",
-            "sito_web": "VARCHAR(255)",
-            "portfolio_url": "VARCHAR(255)",
-            "linkedin_url": "VARCHAR(255)",
-            "facebook_url": "VARCHAR(255)",
-            "instagram_url": "VARCHAR(255)",
-            "tiktok_url": "VARCHAR(255)",
-        },
-        "agenzie": {
-            "partita_iva": "VARCHAR(11)",
-            "collaborator_id": "INTEGER",
-        },
-        "aziende_clienti": {
-            "agenzia_id": "INTEGER",
-            "attivita_erogate": "TEXT",
-            "sito_web": "VARCHAR(255)",
-            "linkedin_url": "VARCHAR(255)",
-            "facebook_url": "VARCHAR(255)",
-            "instagram_url": "VARCHAR(255)",
-            "legale_rappresentante_nome": "VARCHAR(100)",
-            "legale_rappresentante_cognome": "VARCHAR(100)",
-            "legale_rappresentante_codice_fiscale": "VARCHAR(16)",
-            "legale_rappresentante_email": "VARCHAR(100)",
-            "legale_rappresentante_telefono": "VARCHAR(30)",
-            "legale_rappresentante_indirizzo": "VARCHAR(255)",
-            "legale_rappresentante_linkedin": "VARCHAR(255)",
-            "legale_rappresentante_facebook": "VARCHAR(255)",
-            "legale_rappresentante_instagram": "VARCHAR(255)",
-            "legale_rappresentante_tiktok": "VARCHAR(255)",
-            "referente_cognome": "VARCHAR(100)",
-            "referente_ruolo": "VARCHAR(100)",
-            "referente_telefono": "VARCHAR(30)",
-            "referente_indirizzo": "VARCHAR(255)",
-            "referente_luogo_nascita": "VARCHAR(100)",
-            "referente_data_nascita": "TIMESTAMP",
-            "referente_linkedin": "VARCHAR(255)",
-            "referente_facebook": "VARCHAR(255)",
-            "referente_instagram": "VARCHAR(255)",
-            "referente_tiktok": "VARCHAR(255)",
-        },
-        "projects": {
-            "atto_approvazione": "VARCHAR(255)",
-            "sede_aziendale_comune": "VARCHAR(100)",
-            "sede_aziendale_via": "VARCHAR(200)",
-            "sede_aziendale_numero_civico": "VARCHAR(20)",
-            "ente_erogatore": "VARCHAR(100)",
-            "avviso": "VARCHAR(100)",
-            "avviso_id": "INTEGER",
-            "codice_fapi": "VARCHAR(30)",
-            "id_piano_esterno": "VARCHAR(50)",
-            "delibera_numero": "VARCHAR(20)",
-            "delibera_data": "DATE",
-            "data_approvazione": "DATE",
-            "costo_totale": "FLOAT",
-            "contributo_ente": "FLOAT",
-            "cofinanziamento": "FLOAT",
-            "convenzione_file_path": "VARCHAR(500)",
-        },
-        "implementing_entities": {
-            "legale_rappresentante_nome": "VARCHAR(50)",
-            "legale_rappresentante_cognome": "VARCHAR(50)",
-            "legale_rappresentante_luogo_nascita": "VARCHAR(100)",
-            "legale_rappresentante_data_nascita": "DATETIME",
-            "legale_rappresentante_comune_residenza": "VARCHAR(100)",
-            "legale_rappresentante_via_residenza": "VARCHAR(200)",
-            "legale_rappresentante_codice_fiscale": "VARCHAR(16)",
-        },
-        "contract_templates": {
-            "ambito_template": "VARCHAR(50) DEFAULT 'contratto'",
-            "chiave_documento": "VARCHAR(100)",
-            "ente_attuatore_id": "INTEGER",
-            "progetto_id": "INTEGER",
-            "ente_erogatore": "VARCHAR(100)",
-            "avviso": "VARCHAR(100)",
-        },
-        "piani_finanziari": {
-            "avviso": "VARCHAR(100) DEFAULT ''",
-        },
-        "voci_piano_finanziario": {
-            "modulo_formativo_id": "INTEGER",
-        },
-        "avvisi": {
-            "codice": "VARCHAR(50)",
-            "ente_erogatore": "VARCHAR(100)",
-            "descrizione": "VARCHAR(200)",
-            "template_id": "INTEGER",
-            "is_active": "BOOLEAN DEFAULT TRUE",
-        },
-        "agent_runs": {
-            "agent_name": "VARCHAR(100)",
-            "entity_type": "VARCHAR(50)",
-            "entity_id": "INTEGER",
-            "requested_by_user_id": "INTEGER",
-            "input_payload": "TEXT",
-            "result_summary": "TEXT",
-            "suggestions_count": "INTEGER DEFAULT 0",
-            "agent_type": "VARCHAR(100)",
-            "agent_version": "VARCHAR(20) DEFAULT '1.0'",
-            "triggered_by": "VARCHAR(50)",
-            "trigger_details": "TEXT",
-            "items_processed": "INTEGER DEFAULT 0",
-            "items_with_issues": "INTEGER DEFAULT 0",
-            "suggestions_created": "INTEGER DEFAULT 0",
-            "execution_time_ms": "INTEGER",
-            "agent_metadata": "TEXT",
-        },
-        "agent_suggestions": {
-            "agent_name": "VARCHAR(100)",
-            "severity": "VARCHAR(20)",
-            "payload": "TEXT",
-            "confidence": "FLOAT",
-            "reviewed_at": "TIMESTAMP",
-            "reviewed_by_user_id": "INTEGER",
-            "priority": "VARCHAR(20) DEFAULT 'medium'",
-            "suggested_action": "TEXT",
-            "auto_fix_available": "BOOLEAN DEFAULT FALSE",
-            "auto_fix_payload": "TEXT",
-            "confidence_score": "FLOAT",
-            "expires_at": "TIMESTAMP",
-        },
-        "agent_review_actions": {
-            "reviewed_by_user_id": "INTEGER",
-            "reviewed_by": "VARCHAR(100)",
-            "reviewed_at": "TIMESTAMP",
-            "auto_fix_applied": "BOOLEAN DEFAULT FALSE",
-            "result_success": "BOOLEAN",
-            "result_message": "TEXT",
-        },
-        "agent_communication_drafts": {
-            "reviewed_by_user_id": "INTEGER",
-            "sent_at": "TIMESTAMP",
-            "updated_at": "TIMESTAMP",
-        },
-        "voci_piano_finanziario": {
-            "importo_presentato": "FLOAT DEFAULT 0",
-        },
-    }
-
-    try:
-        inspector = inspect(engine)
-        with engine.begin() as connection:
-            for table_name, columns in table_updates.items():
-                existing_columns = {col["name"] for col in inspector.get_columns(table_name)}
-                for column_name, column_type in columns.items():
-                    if column_name in existing_columns:
-                        continue
-                    connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}"))
-                    logger.info(f"Aggiunta colonna runtime {table_name}.{column_name}")
-    except Exception as exc:
-        logger.warning(f"Schema runtime non aggiornato automaticamente: {exc}")
-
-
-ensure_runtime_schema_updates()
-
-try:
-    with engine.begin() as connection:
-        # partita_iva deve essere nullable (aziende FAPI senza P.IVA nota)
-        connection.execute(text("ALTER TABLE aziende_clienti ALTER COLUMN partita_iva DROP NOT NULL"))
-except Exception:
-    pass
-
-try:
-    with engine.begin() as connection:
-        connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_collaborators_partita_iva_unique ON collaborators (partita_iva)"))
-        connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_agenzie_partita_iva_unique ON agenzie (partita_iva)"))
-        connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_agenzie_collaborator_id_unique ON agenzie (collaborator_id)"))
-        connection.execute(text("DROP INDEX IF EXISTS idx_unique_piano_progetto_anno"))
-        connection.execute(text("DROP INDEX IF EXISTS idx_unique_piano_progetto_anno_fondo"))
-        connection.execute(text("DROP INDEX IF EXISTS idx_unique_piano_progetto_anno_fondo_avviso"))
-        connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_piano_progetto_anno_codice_runtime ON piani_finanziari (progetto_id, anno, codice_piano)"))
-        connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_avvisi_codice_ente ON avvisi (codice, ente_erogatore)"))
-except Exception as exc:
-    logger.warning(f"Indici runtime non aggiornati automaticamente: {exc}")
+# Lo schema database e' gestito esclusivamente da Alembic.
+# L'entrypoint esegue `alembic upgrade head` prima dell'avvio applicativo.
 
 # CREAZIONE DELL'APPLICAZIONE FASTAPI
 app = FastAPI(
@@ -313,8 +161,22 @@ async def sqlalchemy_exception_handler(request: Request, exc: SQLAlchemyError):
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     error_monitor.record_error("validation_error")
     logger.error(f"Validation error on {request.url}: {exc.errors()}")
-    body = await request.body()
-    logger.error(f"Request body: {body.decode() if body else 'empty'}")
+    if request.method == "POST" and request.url.path.startswith("/api/v1/auth/"):
+        safe_body = "<auth body redatto>"
+    else:
+        body = await request.body()
+        if body:
+            try:
+                parsed_body = json.loads(body.decode())
+                safe_body = sanitize_body_for_log(parsed_body)
+            except Exception:
+                safe_body = "<non-json body redatto>"
+        else:
+            safe_body = "empty"
+    safe_body_text = json.dumps(safe_body, ensure_ascii=False, default=str) if not isinstance(safe_body, str) else safe_body
+    if len(safe_body_text) > 500:
+        safe_body_text = safe_body_text[:500] + "...<truncated>"
+    logger.error("Request body: %s", safe_body_text)
     ErrorHandler.log_error(exc, request)
     return ErrorHandler.handle_validation_error(exc)
 
@@ -431,6 +293,7 @@ include_protected_router(avvisi.router)
 include_protected_router(agents.router)
 include_protected_router(agents.suggestion_actions_router)
 include_protected_router(email_inbox.router)
+include_protected_router(gdpr.router)
 
 # Router FAPI — upload documenti
 include_protected_router(convenzione_upload_router)
@@ -591,7 +454,8 @@ async def startup_event():
     try:
         db = SessionLocal()
         admin_exists = db.query(User).filter(User.username == "admin").first()
-        if not admin_exists and ADMIN_DEFAULT_PASSWORD:
+        if not admin_exists:
+            valida_password_bootstrap(ADMIN_DEFAULT_PASSWORD, "admin")
             create_user(
                 db=db,
                 username="admin",
@@ -601,11 +465,11 @@ async def startup_event():
                 role=UserRole.ADMIN
             )
             logger.info("👤 Created default admin user from environment bootstrap password")
-        elif not admin_exists:
-            logger.warning("⚠️ Admin bootstrap skipped: ADMIN_DEFAULT_PASSWORD not configured")
+
 
         operator_exists = db.query(User).filter(User.username == "operatore").first()
-        if not operator_exists and OPERATOR_DEFAULT_PASSWORD:
+        if not operator_exists:
+            valida_password_bootstrap(OPERATOR_DEFAULT_PASSWORD, "operatore")
             create_user(
                 db=db,
                 username="operatore",
@@ -615,11 +479,10 @@ async def startup_event():
                 role=UserRole.USER
             )
             logger.info("👤 Created default operator user from environment bootstrap password")
-        elif not operator_exists:
-            logger.warning("⚠️ Operator bootstrap skipped: OPERATOR_DEFAULT_PASSWORD not configured")
         db.close()
     except Exception as e:
-        logger.error(f"Error creating admin user: {e}")
+        logger.error(f"Error creating bootstrap users: {e}")
+        raise
 
     # Verifica salute database
     try:
