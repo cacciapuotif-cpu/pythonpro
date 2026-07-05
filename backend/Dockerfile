@@ -29,7 +29,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copia e installa dipendenze Python
 # (separato per sfruttare cache Docker se requirements.txt non cambia)
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
+RUN pip install --no-cache-dir --upgrade pip==26.1.2 setuptools wheel==0.46.2 && \
     pip install --no-cache-dir -r requirements.txt
 
 # --- STAGE 2: Runtime (immagine finale) ---
@@ -62,6 +62,9 @@ WORKDIR /app
 
 # Copia dipendenze Python da builder stage
 COPY --from=builder /usr/local /usr/local
+RUN rm -rf /usr/local/lib/python3.11/site-packages/pip-24.0.dist-info \
+           /usr/local/lib/python3.11/site-packages/wheel-0.45.1.dist-info && \
+    python -m pip install --no-cache-dir --upgrade --force-reinstall pip==26.1.2 setuptools wheel==0.46.2
 
 # Copia codice applicazione
 COPY --chown=appuser:appuser . .
