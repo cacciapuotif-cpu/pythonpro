@@ -4875,6 +4875,63 @@ def build_piano_finanziario_riepilogo(piano: models.PianoFinanziario, db: Sessio
     }
 
 
+# ── Listini ──────────────────────────────────
+
+def get_listini(db: Session, search: str = None, tipo_cliente: str = None,
+                attivo: bool = None, skip: int = 0, limit: int = 50):
+    """Lista listini con filtri. Ritorna (items, total)."""
+    query = db.query(models.Listino)
+    if search:
+        term = f"%{search}%"
+        query = query.filter(or_(models.Listino.nome.ilike(term),
+                                 models.Listino.descrizione.ilike(term)))
+    if tipo_cliente:
+        query = query.filter(models.Listino.tipo_cliente == tipo_cliente)
+    if attivo is not None:
+        query = query.filter(models.Listino.attivo == attivo)
+    total = query.count()
+    items = query.order_by(models.Listino.nome).offset(skip).limit(limit).all()
+    return items, total
+
+
+def get_listino(db: Session, listino_id: int):
+    """Dettaglio listino con voci e prodotti embedded."""
+    return (db.query(models.Listino)
+              .options(selectinload(models.Listino.voci)
+                       .selectinload(models.ListinoVoce.prodotto))
+              .filter(models.Listino.id == listino_id).first())
+
+
+def create_listino(db: Session, listino: schemas.ListinoCreate):
+    db_obj = models.Listino(**listino.model_dump())
+    db.add(db_obj)
+    db.commit()
+    db.refresh(db_obj)
+    return db_obj
+
+
+def update_listino(db: Session, listino_id: int, listino: schemas.ListinoUpdate):
+    db_obj = db.query(models.Listino).filter(models.Listino.id == listino_id).first()
+    if not db_obj:
+        return None
+    for k, v in listino.model_dump(exclude_unset=True).items():
+        setattr(db_obj, k, v)
+    db.commit()
+    db.refresh(db_obj)
+    return db_obj
+
+
+def delete_listino(db: Session, listino_id: int):
+    """Soft delete: attivo=False."""
+    db_obj = db.query(models.Listino).filter(models.Listino.id == listino_id).first()
+    if not db_obj:
+        return None
+    db_obj.attivo = False
+    db.commit()
+    db.refresh(db_obj)
+    return db_obj
+
+
 # ── Listino Voci ─────────────────────────────
 
 def get_voci_listino(db: Session, listino_id: int):
