@@ -12,6 +12,8 @@
     "@testing-library/user-event": "^13.5.0",
     "axios": "^1.9.0",
     "date-fns": "^2.30.0",
+    "dompurify": "^3.4.7",
+    "exceljs": "^4.4.0",
     "framer-motion": "^10.16.4",
     "lodash.debounce": "^4.0.8",
     "lodash.throttle": "^4.1.1",
@@ -25,15 +27,13 @@
     "react-intersection-observer": "^9.5.2",
     "react-modal": "^3.16.1",
     "react-query": "^3.39.3",
-    "react-router-dom": "^6.31.0",
-    "react-scripts": "5.0.1",
+    "react-router-dom": "^6.30.3",
     "react-select": "^5.7.2",
     "react-virtualized": "^9.22.5",
     "react-window": "^1.8.8",
     "react-window-infinite-loader": "^1.0.9",
     "recharts": "^3.8.1",
     "use-debounce": "^9.0.4",
-    "xlsx": "^0.18.5",
     "zustand": "^4.4.4"
   },
   "scripts": {
@@ -53,8 +53,16 @@
     "brace-expansion": "^2.0.2",
     "glob": "^10.4.5",
     "flatted": "^3.3.2",
-    "fast-uri": "^3.2.0",
-    "@babel/plugin-transform-modules-systemjs": "^7.26.0"
+    "fast-uri": "^3.1.2",
+    "@babel/plugin-transform-modules-systemjs": "^7.26.0",
+    "underscore": "^1.13.8",
+    "bfj": "^9.1.3",
+    "nth-check": "^2.1.1",
+    "css-select": "^5.2.2",
+    "svgo": "^3.3.3",
+    "serialize-javascript": "^7.0.5",
+    "postcss": "^8.5.15",
+    "uuid": "^11.1.1"
   },
   "browserslist": {
     "production": [
@@ -67,5 +75,8 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
+  },
+  "devDependencies": {
+    "react-scripts": "5.0.1"
   }
 }
