@@ -12,6 +12,7 @@ from pathlib import Path
 import threading
 import zipfile
 import hashlib
+import tempfile
 from urllib.parse import urlparse, unquote
 
 try:
@@ -67,21 +68,17 @@ class BackupManager:
                 backup_path = self.backup_dir / backup_filename
                 self._backup_postgresql(str(backup_path))
 
-            # Comprimi il backup
             compressed_path = self._compress_backup(backup_path)
+            final_path = self._encrypt_backup(compressed_path)
 
-            # Calcola checksum per verifica integrità
-            checksum = self._calculate_checksum(compressed_path)
+            checksum = self._calculate_checksum(final_path)
+            self._save_backup_metadata(final_path, backup_type, checksum)
 
-            # Salva metadata
-            self._save_backup_metadata(compressed_path, backup_type, checksum)
+            logger.info(f"Backup creato: {final_path}")
 
-            logger.info(f"Backup creato: {compressed_path}")
-
-            # Pulizia backup vecchi
             self._cleanup_old_backups()
 
-            return str(compressed_path)
+            return str(final_path)
 
         except Exception as e:
             logger.error(f"Errore creazione backup: {e}")
@@ -102,6 +99,7 @@ class BackupManager:
             "--no-password",
             "--clean",
             "--create",
+            "--format=plain",
             f"--file={backup_path}"
         ]
 
@@ -124,13 +122,68 @@ class BackupManager:
 
         return compressed_path
 
+    def _gpg_executable(self) -> str:
+        gpg_path = shutil.which("gpg")
+        if not gpg_path:
+            raise RuntimeError("gpg non disponibile nel container backup")
+        return gpg_path
+
+    def _encrypt_backup(self, backup_path: Path) -> Path:
+        """Cifra il backup compresso con GPG simmetrico AES-256."""
+        key = os.getenv("BACKUP_ENCRYPTION_KEY", "").strip()
+        if not key:
+            raise RuntimeError("BACKUP_ENCRYPTION_KEY non configurata")
+
+        encrypted_path = backup_path.with_suffix(backup_path.suffix + ".gpg")
+        with tempfile.TemporaryDirectory(prefix="gnupg_") as gpg_home:
+            os.chmod(gpg_home, 0o700)
+            cmd = [
+                self._gpg_executable(),
+                "--homedir",
+                gpg_home,
+                "--batch",
+                "--yes",
+                "--pinentry-mode",
+                "loopback",
+                "--passphrase",
+                key,
+                "--symmetric",
+                "--cipher-algo",
+                "AES256",
+                "--output",
+                str(encrypted_path),
+                str(backup_path),
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(f"gpg encryption failed: {result.stderr}")
+        backup_path.unlink()
+        return encrypted_path
+
+    def _decrypt_backup(self, backup_path: Path, output_dir: Path) -> Path:
+        key = os.getenv("BACKUP_ENCRYPTION_KEY", "").strip()
+        if not key:
+            raise RuntimeError("BACKUP_ENCRYPTION_KEY non configurata")
+        decrypted_path = output_dir / backup_path.name.removesuffix(".gpg")
+        with tempfile.TemporaryDirectory(prefix="gnupg_") as gpg_home:
+            os.chmod(gpg_home, 0o700)
+            cmd = [
+                self._gpg_executable(), "--homedir", gpg_home,
+                "--batch", "--yes", "--pinentry-mode", "loopback",
+                "--passphrase", key, "--decrypt", "--output", str(decrypted_path), str(backup_path),
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(f"gpg decrypt failed: {result.stderr}")
+        return decrypted_path
+
     def _calculate_checksum(self, file_path: Path) -> str:
-        """Calcola checksum MD5 del file"""
-        hash_md5 = hashlib.md5()
+        """Calcola checksum SHA-256 del file."""
+        sha256 = hashlib.sha256()
         with open(file_path, "rb") as f:
-            for chunk in iter(lambda: f.read(4096), b""):
-                hash_md5.update(chunk)
-        return hash_md5.hexdigest()
+            for chunk in iter(lambda: f.read(65536), b""):
+                sha256.update(chunk)
+        return sha256.hexdigest()
 
     def _save_backup_metadata(self, backup_path: Path, backup_type: str, checksum: str):
         """Salva metadati del backup"""
@@ -148,7 +201,7 @@ class BackupManager:
 
     def _cleanup_old_backups(self):
         """Rimuovi backup vecchi mantenendo solo gli ultimi max_backups"""
-        backup_files = list(self.backup_dir.glob("gestionale_backup_*.zip"))
+        backup_files = list(self.backup_dir.glob("gestionale_backup_*.zip.gpg"))
         backup_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
 
         # Mantieni i backup più recenti
@@ -190,11 +243,12 @@ class BackupManager:
                 logger.error("Impossibile creare backup di sicurezza")
                 return False
 
-            # Estrai backup
-            restore_dir = self.backup_dir / "restore_temp"
-            restore_dir.mkdir(exist_ok=True)
+            restore_dir = Path(tempfile.mkdtemp(prefix="restore_", dir=str(self.backup_dir)))
+            archive_file = backup_file
+            if backup_file.suffix == ".gpg":
+                archive_file = self._decrypt_backup(backup_file, restore_dir)
 
-            with zipfile.ZipFile(backup_file, 'r') as zipf:
+            with zipfile.ZipFile(archive_file, 'r') as zipf:
                 zipf.extractall(restore_dir)
 
             # Trova il file database estratto
@@ -250,7 +304,7 @@ class BackupManager:
         """Lista tutti i backup disponibili"""
         backups = []
 
-        for backup_file in self.backup_dir.glob("gestionale_backup_*.zip"):
+        for backup_file in self.backup_dir.glob("gestionale_backup_*.zip.gpg"):
             metadata_file = backup_file.with_suffix('.json')
 
             backup_info = {
@@ -283,6 +337,10 @@ class BackupManager:
         daily_time = os.getenv("BACKUP_DAILY_TIME", "02:00")
         weekly_time = os.getenv("BACKUP_WEEKLY_TIME", "03:00")
         monthly_days = int(os.getenv("BACKUP_MONTHLY_INTERVAL_DAYS", "30"))
+
+        if os.getenv("AUTO_BACKUP_ENABLED", "false").lower() != "true":
+            logger.info("Backup automatici disabilitati da AUTO_BACKUP_ENABLED")
+            return
 
         schedule.clear()
         schedule.every().day.at(daily_time).do(lambda: self.create_backup("daily"))
@@ -331,11 +389,17 @@ class BackupManager:
                     logger.error(f"Checksum non corrispondente per {backup_path}")
                     return False
 
-            # Verifica che il ZIP sia valido
-            with zipfile.ZipFile(backup_file, 'r') as zipf:
-                if zipf.testzip() is not None:
-                    logger.error(f"File ZIP corrotto: {backup_path}")
-                    return False
+            with tempfile.TemporaryDirectory(prefix="verify_backup_", dir=str(self.backup_dir)) as tmpdir:
+                verify_dir = Path(tmpdir)
+                archive_file = backup_file
+                if backup_file.suffix == ".gpg":
+                    archive_file = self._decrypt_backup(backup_file, verify_dir)
+
+                # Verifica che il ZIP sia valido dopo eventuale decrittazione.
+                with zipfile.ZipFile(archive_file, 'r') as zipf:
+                    if zipf.testzip() is not None:
+                        logger.error(f"File ZIP corrotto: {backup_path}")
+                        return False
 
             logger.info(f"Backup integro: {backup_path}")
             return True
