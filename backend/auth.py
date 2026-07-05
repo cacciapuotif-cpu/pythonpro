@@ -4,7 +4,7 @@ Implementa JWT, RBAC, rate limiting e security headers
 """
 
 from datetime import datetime, timedelta, timezone
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Iterable
 from functools import wraps
 import inspect
 from jose import jwt  # python-jose library
@@ -99,10 +99,120 @@ def revoke_token(jti: Optional[str], exp: Optional[int]) -> None:
 
 class UserRole(str, Enum):
     ADMIN = "admin"
+    OPERATORE = "operatore"
+    CONSULTAZIONE = "consultazione"
+    # Legacy values kept so old tokens/users can be normalized during rollout.
     MANAGER = "manager"
     USER = "user"
     READONLY = "readonly"
     DPO = "dpo"
+
+
+LEGACY_ROLE_MAP = {
+    UserRole.MANAGER.value: UserRole.OPERATORE.value,
+    UserRole.USER.value: UserRole.OPERATORE.value,
+    UserRole.READONLY.value: UserRole.CONSULTAZIONE.value,
+    UserRole.DPO.value: UserRole.ADMIN.value,
+}
+SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+RBAC_ENFORCE = os.getenv("RBAC_ENFORCE", "false").lower() == "true"
+RBAC_LOG_ONLY_EVENTS: list[dict[str, Any]] = []
+
+ADMIN_ONLY_PREFIXES = (
+    "/api/v1/admin",
+    "/api/v1/gdpr",
+    "/api/v1/agents",
+    "/api/v1/agent-suggestions",
+    "/api/v1/email-inbox",
+)
+OPERATIONAL_PREFIXES = (
+    "/api/v1/collaborators",
+    "/api/v1/projects",
+    "/api/v1/attendances",
+    "/api/v1/assignments",
+    "/api/v1/entities",
+    "/api/v1/project-assignments",
+    "/api/v1/contracts",
+    "/api/v1/reporting",
+    "/api/v1/agenzie",
+    "/api/v1/consulenti",
+    "/api/v1/aziende-clienti",
+    "/api/v1/allievi",
+    "/api/v1/catalogo",
+    "/api/v1/listini",
+    "/api/v1/preventivi",
+    "/api/v1/ordini",
+    "/api/v1/piani-finanziari",
+    "/api/v1/documenti-richiesti",
+    "/api/v1/avvisi",
+    "/api/v1/cockpit",
+)
+OPERATIONAL_EXACT_PREFIXES = (
+    "/collaborators-with-projects",
+    "/collaborators/",
+)
+ADMIN_ONLY_PATTERNS = (
+    "/download-documento",
+    "/download-curriculum",
+    "/api/v1/reporting/timesheet/export",
+)
+OPERATORE_ALLOWED_SENSITIVE_GET_PATHS = (
+    "/api/v1/reporting/timesheet",
+)
+OPERATORE_ALLOWED_SENSITIVE_GET_SUFFIXES = (
+    "/export-excel",
+)
+
+
+def normalize_role(role: str | UserRole | None) -> str:
+    if isinstance(role, UserRole):
+        role = role.value
+    if not role:
+        return UserRole.CONSULTAZIONE.value
+    normalized = LEGACY_ROLE_MAP.get(str(role), str(role))
+    valid_roles = {item.value for item in UserRole}
+    return normalized if normalized in valid_roles else UserRole.CONSULTAZIONE.value
+
+
+def _path_matches(path: str, prefixes: Iterable[str]) -> bool:
+    return any(path == prefix or path.startswith(prefix + "/") for prefix in prefixes)
+
+
+def _path_starts_with_any(path: str, prefixes: Iterable[str]) -> bool:
+    return any(path.startswith(prefix) for prefix in prefixes)
+
+
+def rbac_allowed_roles(method: str, path: str) -> set[str]:
+    method = method.upper()
+    if _path_matches(path, ADMIN_ONLY_PREFIXES):
+        return {UserRole.ADMIN.value}
+    if method in SAFE_METHODS and (
+        path in OPERATORE_ALLOWED_SENSITIVE_GET_PATHS
+        or any(path.endswith(suffix) for suffix in OPERATORE_ALLOWED_SENSITIVE_GET_SUFFIXES)
+    ):
+        return {UserRole.ADMIN.value, UserRole.OPERATORE.value}
+    if any(pattern in path for pattern in ADMIN_ONLY_PATTERNS):
+        return {UserRole.ADMIN.value}
+    if _path_matches(path, OPERATIONAL_PREFIXES) or _path_starts_with_any(path, OPERATIONAL_EXACT_PREFIXES):
+        if method in SAFE_METHODS:
+            return {UserRole.ADMIN.value, UserRole.OPERATORE.value, UserRole.CONSULTAZIONE.value}
+        return {UserRole.ADMIN.value, UserRole.OPERATORE.value}
+    return {UserRole.ADMIN.value}
+
+
+def rbac_decision_for(method: str, path: str, role: str | UserRole | None) -> dict[str, Any]:
+    normalized_role = normalize_role(role)
+    allowed_roles = rbac_allowed_roles(method, path)
+    allowed = normalized_role in allowed_roles
+    return {
+        "method": method.upper(),
+        "path": path,
+        "role": normalized_role,
+        "allowed_roles": sorted(allowed_roles),
+        "allowed": allowed,
+        "would_status": 200 if allowed else 403,
+    }
+
 
 class Permission(str, Enum):
     READ_COLLABORATORS = "read:collaborators"
@@ -124,6 +234,18 @@ class Permission(str, Enum):
 # Mapping ruoli -> permessi
 ROLE_PERMISSIONS: Dict[UserRole, List[Permission]] = {
     UserRole.ADMIN: [p for p in Permission],  # Tutti i permessi
+    UserRole.OPERATORE: [
+        Permission.READ_COLLABORATORS, Permission.WRITE_COLLABORATORS, Permission.DELETE_COLLABORATORS,
+        Permission.READ_PROJECTS, Permission.WRITE_PROJECTS, Permission.DELETE_PROJECTS,
+        Permission.READ_ATTENDANCES, Permission.WRITE_ATTENDANCES, Permission.DELETE_ATTENDANCES,
+        Permission.READ_ASSIGNMENTS, Permission.WRITE_ASSIGNMENTS, Permission.DELETE_ASSIGNMENTS,
+        Permission.VIEW_DASHBOARD,
+    ],
+    UserRole.CONSULTAZIONE: [
+        Permission.READ_COLLABORATORS, Permission.READ_PROJECTS,
+        Permission.READ_ATTENDANCES, Permission.READ_ASSIGNMENTS,
+        Permission.VIEW_DASHBOARD,
+    ],
     UserRole.DPO: [
         Permission.READ_COLLABORATORS, Permission.READ_PROJECTS, Permission.MANAGE_GDPR
     ],
@@ -156,7 +278,7 @@ class User(Base):
     email = Column(String(100), unique=True, index=True, nullable=False)
     hashed_password = Column(String(100), nullable=False)
     full_name = Column(String(100))
-    role = Column(String(20), default=UserRole.USER, index=True)
+    role = Column(String(20), default=UserRole.CONSULTAZIONE.value, index=True)
 
     is_active = Column(Boolean, default=True, index=True)
     is_verified = Column(Boolean, default=False)
@@ -312,11 +434,39 @@ def get_current_user(
 
 def get_admin_user(current_user: User = Depends(get_current_user)) -> User:
     """Dependency per verificare che l'utente sia admin"""
-    if current_user.role != UserRole.ADMIN:
+    if normalize_role(current_user.role) != UserRole.ADMIN.value:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Permessi amministratore richiesti"
         )
+    return current_user
+
+async def require_role(request: Request, current_user: User = Depends(get_current_user)) -> User:
+    """RBAC minimo. In fase (a) log-only: registra i 403 potenziali senza bloccare."""
+    decision = rbac_decision_for(request.method, request.url.path, current_user.role)
+    if not decision["allowed"]:
+        event = {
+            "user_id": current_user.id,
+            "username": current_user.username,
+            **decision,
+            "enforced": RBAC_ENFORCE,
+        }
+        RBAC_LOG_ONLY_EVENTS.append(event)
+        logger.warning(
+            "RBAC %s: user_id=%s username=%s role=%s method=%s path=%s allowed_roles=%s",
+            "DENY" if RBAC_ENFORCE else "WOULD_DENY",
+            current_user.id,
+            current_user.username,
+            decision["role"],
+            decision["method"],
+            decision["path"],
+            ",".join(decision["allowed_roles"]),
+        )
+        if RBAC_ENFORCE:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Permessi insufficienti",
+            )
     return current_user
 
 def require_permission(permission: Permission):
@@ -339,7 +489,7 @@ def require_permission(permission: Permission):
                     detail="Autenticazione richiesta"
                 )
 
-            user_permissions = ROLE_PERMISSIONS.get(UserRole(current_user.role), [])
+            user_permissions = ROLE_PERMISSIONS.get(UserRole(normalize_role(current_user.role)), [])
             if permission not in user_permissions:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
@@ -419,7 +569,7 @@ def create_user(
     email: str,
     password: str,
     full_name: str,
-    role: UserRole = UserRole.USER
+    role: UserRole = UserRole.CONSULTAZIONE
 ) -> User:
     """Crea nuovo utente con password hashata"""
     # Verifica se username o email esistono già

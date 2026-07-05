@@ -97,7 +97,7 @@ except ImportError:
 from request_middleware import setup_middleware
 
 # IMPORTAZIONI SICUREZZA E AUTENTICAZIONE
-from auth import User, UserRole, create_user, get_current_user
+from auth import User, UserRole, create_user, get_current_user, require_role
 
 # IMPORTAZIONI ROUTERS MODULARI
 from routers.timesheet import router as timesheet_router
@@ -237,7 +237,7 @@ app.add_middleware(
 # REGISTRAZIONE ROUTERS MODULARI
 # ========================================
 
-_protected_dependencies = [Depends(get_current_user)]
+_protected_dependencies = [Depends(require_role)]
 
 
 def include_protected_router(router):
@@ -476,7 +476,7 @@ async def startup_event():
                 email="operatore@gestionale.local",
                 password=OPERATOR_DEFAULT_PASSWORD,
                 full_name="Operatore Gestionale",
-                role=UserRole.USER
+                role=UserRole.OPERATORE
             )
             logger.info("👤 Created default operator user from environment bootstrap password")
         db.close()
