@@ -1,6 +1,9 @@
 import React, { useEffect, useState } from 'react';
+import { apiRootUrl } from '../lib/http';
 
-const API = process.env.REACT_APP_API_URL || '';
+// Portale pubblico: l'allievo esterno non ha JWT, l'auth e' il magic
+// token in query string. Niente client http (Bearer/redirect login).
+const API = apiRootUrl;
 
 const PortaleAllievi = () => {
   const [allievo, setAllievo] = useState(null);

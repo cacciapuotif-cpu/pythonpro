@@ -103,6 +103,7 @@ from auth import User, UserRole, create_user, get_current_user, require_role
 from routers.timesheet import router as timesheet_router
 from routers.cockpit import router as cockpit_router
 from routers.sprint7 import router as sprint7_router
+from routers.portale_allievi import router as portale_allievi_router
 from routers.convenzione_upload import router as convenzione_upload_router
 from routers.formulario_upload import router as formulario_upload_router
 from routers.piano_finanziario_upload import router as piano_finanziario_upload_router
@@ -249,6 +250,10 @@ app.include_router(auth.router)
 
 # Router pubblici per health/root
 app.include_router(system.router)
+
+# Portale allievi: pubblico by design, autenticato dal magic token
+# a scadenza (vedi routers/portale_allievi.py), non dal JWT applicativo.
+app.include_router(portale_allievi_router)
 
 # Router per risorse principali
 include_protected_router(collaborators.router)
