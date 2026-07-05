@@ -3,6 +3,7 @@ Middleware di sicurezza per FastAPI
 Implementa security headers, CORS avanzato, request validation
 """
 
+from time_utils import utc_now
 from fastapi import Request, Response, HTTPException, status
 from fastapi.middleware.base import BaseHTTPMiddleware
 from fastapi.middleware.cors import CORSMiddleware
@@ -212,7 +213,7 @@ class RequestValidationMiddleware(BaseHTTPMiddleware):
     def _log_request(self, request: Request, response: Response, process_time: float):
         """Log delle richieste per monitoring"""
         log_data = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": utc_now().isoformat(),
             "method": request.method,
             "url": str(request.url),
             "client_ip": request.client.host,

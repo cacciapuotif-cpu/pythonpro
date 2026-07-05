@@ -3,6 +3,7 @@ Sistema di caching avanzato con Redis e fallback in-memory
 Implementa cache distribuito, invalidazione intelligente e compressione
 """
 
+from time_utils import utc_now
 import json
 import pickle
 import gzip
@@ -515,5 +516,5 @@ def get_cache_health() -> Dict[str, Any]:
         'backend': stats['backend'],
         'stats': stats,
         'issues': issues,
-        'timestamp': datetime.utcnow().isoformat()
+        'timestamp': utc_now().isoformat()
     }

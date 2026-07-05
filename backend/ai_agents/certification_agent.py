@@ -6,6 +6,7 @@ Default: 70% se non specificato dall'avviso.
 """
 from __future__ import annotations
 
+from time_utils import utc_now
 import json
 import logging
 from datetime import datetime
@@ -61,7 +62,7 @@ def run_certification_agent(
     agent_run = models.AgentRun(
         agent_type="certification",
         status="running",
-        started_at=datetime.utcnow(),
+        started_at=utc_now(),
         triggered_by="api",
     )
     db.add(agent_run)
@@ -162,7 +163,7 @@ def run_certification_agent(
                         "percentuale": round(percentuale * 100, 1),
                         "soglia": round(soglia * 100, 1),
                     }),
-                    created_at=datetime.utcnow(),
+                    created_at=utc_now(),
                 )
                 db.add(suggestion)
                 attestati_pronti += 1
@@ -196,13 +197,13 @@ def run_certification_agent(
                         "percentuale": round(percentuale * 100, 1),
                         "soglia": round(soglia * 100, 1),
                     }),
-                    created_at=datetime.utcnow(),
+                    created_at=utc_now(),
                 )
                 db.add(suggestion)
                 frequenza_insufficiente += 1
 
     agent_run.status = "completed"
-    agent_run.completed_at = datetime.utcnow()
+    agent_run.completed_at = utc_now()
     agent_run.items_processed = totale_allievi
     agent_run.suggestions_created = attestati_pronti + frequenza_insufficiente
     db.commit()

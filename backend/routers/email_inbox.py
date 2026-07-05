@@ -1,6 +1,7 @@
 """Router per audit trail email in arrivo e controllo worker IMAP."""
 from __future__ import annotations
 
+from time_utils import utc_now
 import logging
 import json
 from typing import Optional
@@ -58,7 +59,7 @@ def _archive_item(
         raise HTTPException(status_code=404, detail="Item non trovato")
 
     item.archived = True
-    item.archived_at = datetime.utcnow()
+    item.archived_at = utc_now()
     create_audit_log(
         db,
         entity="email_inbox_item",
@@ -148,7 +149,7 @@ def send_followup(
 
     recipient_name = f"{collaborator.first_name} {collaborator.last_name}".strip()
     requested_text = ", ".join(requested)
-    now = datetime.utcnow()
+    now = utc_now()
     run = models.AgentRun(
         agent_type="mail_recovery",
         status="completed",

@@ -2,6 +2,7 @@
 Sistema di monitoring e logging avanzato per performance e sicurezza
 """
 
+from time_utils import utc_now
 import logging
 import time
 import json
@@ -52,7 +53,7 @@ class StructuredLogger:
 
     def _log(self, level: str, message: str, extra: Optional[Dict] = None):
         log_data = {
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': utc_now().isoformat(),
             'message': message,
             'level': level
         }
@@ -99,7 +100,7 @@ class MetricsCollector:
             'error_rate': 5.0,     # percentage
             'failed_logins': 5     # count per 5 minutes
         }
-        self._start_time = datetime.utcnow()
+        self._start_time = utc_now()
         self._request_counts = defaultdict(int)
         self._error_counts = defaultdict(int)
         self._failed_logins = deque(maxlen=100)
@@ -128,7 +129,7 @@ class MetricsCollector:
 
     def get_performance_summary(self, hours: int = 24) -> Dict[str, Any]:
         """Ottieni riassunto performance delle ultime ore"""
-        cutoff = datetime.utcnow() - timedelta(hours=hours)
+        cutoff = utc_now() - timedelta(hours=hours)
         recent_metrics = [m for m in self.metrics if m.timestamp >= cutoff]
 
         if not recent_metrics:
@@ -156,12 +157,12 @@ class MetricsCollector:
             'slowest_endpoints': self._get_slowest_endpoints(endpoint_stats),
             'system_metrics': self._get_system_metrics(),
             'alerts': self.alerts[-10:],  # Last 10 alerts
-            'uptime_seconds': (datetime.utcnow() - self._start_time).total_seconds()
+            'uptime_seconds': (utc_now() - self._start_time).total_seconds()
         }
 
     def get_security_summary(self, hours: int = 24) -> Dict[str, Any]:
         """Ottieni riassunto sicurezza delle ultime ore"""
-        cutoff = datetime.utcnow() - timedelta(hours=hours)
+        cutoff = utc_now() - timedelta(hours=hours)
         recent_events = [e for e in self.security_events if e.timestamp >= cutoff]
 
         # Raggruppa eventi per tipo
@@ -177,7 +178,7 @@ class MetricsCollector:
         # Failed logins nelle ultime 5 minuti
         recent_fails = len([
             t for t in self._failed_logins
-            if t >= datetime.utcnow() - timedelta(minutes=5)
+            if t >= utc_now() - timedelta(minutes=5)
         ])
 
         return {
@@ -207,7 +208,7 @@ class MetricsCollector:
                 'severity': 'warning',
                 'message': f'Slow response: {metric.duration:.2f}s on {metric.endpoint}',
                 'metric': asdict(metric),
-                'timestamp': datetime.utcnow()
+                'timestamp': utc_now()
             })
 
         # Memory usage alert
@@ -217,7 +218,7 @@ class MetricsCollector:
                 'severity': 'critical',
                 'message': f'High memory usage: {metric.memory_usage:.1f}%',
                 'metric': asdict(metric),
-                'timestamp': datetime.utcnow()
+                'timestamp': utc_now()
             })
 
         # CPU usage alert
@@ -227,7 +228,7 @@ class MetricsCollector:
                 'severity': 'warning',
                 'message': f'High CPU usage: {metric.cpu_usage:.1f}%',
                 'metric': asdict(metric),
-                'timestamp': datetime.utcnow()
+                'timestamp': utc_now()
             })
 
         self.alerts.extend(alerts)
@@ -239,7 +240,7 @@ class MetricsCollector:
         # Failed login attempts
         recent_fails = len([
             t for t in self._failed_logins
-            if t >= datetime.utcnow() - timedelta(minutes=5)
+            if t >= utc_now() - timedelta(minutes=5)
         ])
 
         if recent_fails >= self.thresholds['failed_logins']:
@@ -248,7 +249,7 @@ class MetricsCollector:
                 'severity': 'critical',
                 'message': f'Multiple failed logins: {recent_fails} in 5 minutes',
                 'event': asdict(event),
-                'timestamp': datetime.utcnow()
+                'timestamp': utc_now()
             })
 
         # Critical security events
@@ -258,7 +259,7 @@ class MetricsCollector:
                 'severity': 'critical',
                 'message': f'Critical security event: {event.event_type}',
                 'event': asdict(event),
-                'timestamp': datetime.utcnow()
+                'timestamp': utc_now()
             })
 
         self.alerts.extend(alerts)
@@ -302,7 +303,7 @@ class MetricsCollector:
         while True:
             try:
                 # Rimuovi alert vecchi (più di 24 ore)
-                cutoff = datetime.utcnow() - timedelta(hours=24)
+                cutoff = utc_now() - timedelta(hours=24)
                 self.alerts = [
                     alert for alert in self.alerts
                     if alert.get('timestamp', datetime.min) >= cutoff
@@ -311,7 +312,7 @@ class MetricsCollector:
                 # Rimuovi failed logins vecchi
                 self._failed_logins = deque([
                     timestamp for timestamp in self._failed_logins
-                    if timestamp >= datetime.utcnow() - timedelta(hours=1)
+                    if timestamp >= utc_now() - timedelta(hours=1)
                 ], maxlen=100)
 
                 time.sleep(3600)  # Cleanup ogni ora
@@ -353,7 +354,7 @@ def monitor_performance(operation: str = None):
                 metric = PerformanceMetric(
                     operation=operation or func.__name__,
                     duration=duration,
-                    timestamp=datetime.utcnow(),
+                    timestamp=utc_now(),
                     status=status,
                     memory_usage=end_memory,
                     cpu_usage=end_cpu
@@ -385,7 +386,7 @@ def monitor_performance(operation: str = None):
                 metric = PerformanceMetric(
                     operation=operation or func.__name__,
                     duration=duration,
-                    timestamp=datetime.utcnow(),
+                    timestamp=utc_now(),
                     status=status,
                     memory_usage=end_memory,
                     cpu_usage=0.0
@@ -429,7 +430,7 @@ def log_security_event(
         ip_address=ip_address,
         user_agent=user_agent,
         endpoint=endpoint,
-        timestamp=datetime.utcnow(),
+        timestamp=utc_now(),
         details=details,
         severity=severity
     )
@@ -462,7 +463,7 @@ def get_health_status() -> Dict[str, Any]:
         critical_alerts = [
             a for a in metrics_collector.alerts[-10:]
             if a.get('severity') == 'critical' and
-            a.get('timestamp', datetime.min) >= datetime.utcnow() - timedelta(minutes=5)
+            a.get('timestamp', datetime.min) >= utc_now() - timedelta(minutes=5)
         ]
 
         if critical_alerts:
@@ -471,8 +472,8 @@ def get_health_status() -> Dict[str, Any]:
 
         return {
             'status': status,
-            'timestamp': datetime.utcnow().isoformat(),
-            'uptime_seconds': (datetime.utcnow() - metrics_collector._start_time).total_seconds(),
+            'timestamp': utc_now().isoformat(),
+            'uptime_seconds': (utc_now() - metrics_collector._start_time).total_seconds(),
             'system_metrics': system_metrics,
             'issues': issues,
             'version': '2.0.0'
@@ -482,7 +483,7 @@ def get_health_status() -> Dict[str, Any]:
         logger.error("Error getting health status", {'error': str(e)})
         return {
             'status': 'unhealthy',
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': utc_now().isoformat(),
             'error': str(e),
             'version': '2.0.0'
         }

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from time_utils import utc_now
 import asyncio
 import logging
 import os
@@ -31,7 +32,7 @@ async def _enqueue_job_async(function_name: str, **payload: Any) -> None:
 
 def enqueue_job(function_name: str, **payload: Any) -> None:
     """Enqueue ARQ job from sync FastAPI CRUD paths."""
-    payload.setdefault("queued_at", datetime.utcnow().isoformat())
+    payload.setdefault("queued_at", utc_now().isoformat())
     try:
         asyncio.run(_enqueue_job_async(function_name, **payload))
     except RuntimeError:

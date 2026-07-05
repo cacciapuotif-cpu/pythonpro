@@ -5,6 +5,7 @@ quando tutti i documenti obbligatori sono validati.
 """
 from __future__ import annotations
 
+from time_utils import utc_now
 import logging
 import json
 from datetime import datetime
@@ -62,7 +63,7 @@ def run_contract_agent(
         triggered_by="document_validation" if assignment_id else "scheduled",
         entity_type="assignment" if assignment_id else ("project" if project_id else None),
         entity_id=assignment_id or project_id,
-        started_at=datetime.utcnow(),
+        started_at=utc_now(),
     )
     db.add(run)
     db.flush()
@@ -132,7 +133,7 @@ def run_contract_agent(
                 "role": assignment.role,
                 "generate_url": "/api/v1/assignments/{}/contract".format(assignment.id),
             }, ensure_ascii=True),
-            created_at=datetime.utcnow(),
+            created_at=utc_now(),
         )
         db.add(suggestion)
         suggerimenti_creati += 1
@@ -142,7 +143,7 @@ def run_contract_agent(
         )
 
     run.status = "completed"
-    run.completed_at = datetime.utcnow()
+    run.completed_at = utc_now()
     run.items_processed = len(assignments)
     run.items_with_issues = documenti_incompleti
     run.suggestions_created = suggerimenti_creati

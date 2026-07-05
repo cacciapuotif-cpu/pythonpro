@@ -2,6 +2,7 @@
 Router per home cockpit — decisioni urgenti che richiedono l'admin.
 Aggrega in un unico endpoint tutto quello che richiede attenzione.
 """
+from time_utils import utc_now
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
@@ -21,7 +22,7 @@ def get_decisioni_urgenti(db: Session = Depends(get_db)):
     Ritorna tutte le decisioni che richiedono attenzione dell'admin oggi.
     """
     decisioni = []
-    now = datetime.utcnow()
+    now = utc_now()
 
     suggestions = db.query(AgentSuggestion).filter(
         AgentSuggestion.status == "pending",

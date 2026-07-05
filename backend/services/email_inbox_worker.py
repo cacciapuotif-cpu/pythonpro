@@ -1,6 +1,7 @@
 """Worker IMAP polling per email in arrivo con allegati documenti."""
 from __future__ import annotations
 
+from time_utils import utc_now
 import email
 import imaplib
 import json
@@ -308,7 +309,7 @@ class EmailInboxWorker:
             )
             for s in pending:
                 s.status = "resolved"
-                s.reviewed_at = datetime.utcnow()
+                s.reviewed_at = utc_now()
             if pending:
                 db.commit()
 

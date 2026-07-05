@@ -1,3 +1,4 @@
+from time_utils import utc_now
 from sqlalchemy.orm import Session, joinedload, selectinload, contains_eager
 from sqlalchemy import and_, or_, desc, asc, func, text, select
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
@@ -792,7 +793,7 @@ def get_project_full_context(db: Session, project_id: int) -> Optional[schemas.P
         implementing_entity=schemas.ImplementingEntity.model_validate(project.ente_attuatore) if project.ente_attuatore else None,
         active_piani_finanziari=active_piani_context,
         collaborator_hours=collaborator_hours,
-        generated_at=datetime.utcnow(),
+        generated_at=utc_now(),
     )
 
 def _resolve_project_financial_refs(
@@ -2221,7 +2222,7 @@ def update_entity_logo(
 
         db_entity.logo_filename = filename
         db_entity.logo_path = storage_path
-        db_entity.logo_uploaded_at = datetime.utcnow()
+        db_entity.logo_uploaded_at = utc_now()
 
         db.commit()
         db.refresh(db_entity)
