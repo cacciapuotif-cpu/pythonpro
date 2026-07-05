@@ -30,7 +30,7 @@ import AgentsManager from './components/AgentsManager';
 import AgentsDashboard from './components/AgentsDashboard';
 import AgentSuggestionsReview from './components/AgentSuggestionsReview';
 import apiService, { healthCheck } from './services/apiService';
-import { ensureValidAccessToken } from './lib/http';
+import { http, ensureValidAccessToken } from './lib/http';
 import './App.css';
 
 const ACCESS_PROFILES = {
@@ -675,9 +675,8 @@ const TimesheetView = () => {
 const ProjectSelect = ({ onSelect, selectedId }) => {
   const [projects, setProjects] = React.useState([]);
   React.useEffect(() => {
-    fetch(`${process.env.REACT_APP_API_URL || ''}/api/v1/projects/?limit=100`)
-      .then(r => r.json())
-      .then(data => setProjects(Array.isArray(data) ? data : (data.items || [])))
+    http.get('/projects/', { params: { limit: 100 } })
+      .then(r => setProjects(Array.isArray(r.data) ? r.data : (r.data.items || [])))
       .catch(() => {});
   }, []);
 

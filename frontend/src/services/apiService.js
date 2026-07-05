@@ -270,11 +270,12 @@ class ApiService {
 
   // System endpoints
   async healthCheck() {
-    const response = await fetch(`${apiRootUrl}/health`);
-    if (!response.ok) {
-      throw new Error(`Health check failed: ${response.status}`);
+    try {
+      const response = await http.get(`${apiRootUrl}/health`);
+      return response.data;
+    } catch (err) {
+      throw new Error(`Health check failed: ${err.response?.status || err.message}`);
     }
-    return await response.json();
   }
 
   async getSystemMetrics() {

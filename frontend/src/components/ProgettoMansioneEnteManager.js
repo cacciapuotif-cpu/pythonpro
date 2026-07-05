@@ -11,10 +11,9 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import ErrorBanner from './ErrorBanner';
-import { apiRootUrl } from '../lib/http';
+import { http } from '../lib/http';
 import './ProgettoMansioneEnteManager.css';
 
-const API_BASE_URL = apiRootUrl;
 const CONTRACT_TYPE_LABELS = {
   professionale: 'Professionale',
   occasionale: 'Occasionale',
@@ -100,22 +99,16 @@ const ProgettoMansioneEnteManager = () => {
       if (filters.is_active !== '') params.append('is_active', filters.is_active);
 
       const [associazioniRes, progettiRes, entiRes, assignmentsRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/api/v1/project-assignments/?${params}`),
-        fetch(`${API_BASE_URL}/api/v1/projects/?limit=200`),
-        fetch(`${API_BASE_URL}/api/v1/entities/?limit=200`),
-        fetch(`${API_BASE_URL}/api/v1/assignments/?limit=1000`)
+        http.get(`/project-assignments/?${params}`),
+        http.get('/projects/', { params: { limit: 200 } }),
+        http.get('/entities/', { params: { limit: 200 } }),
+        http.get('/assignments/', { params: { limit: 1000 } })
       ]);
 
-      if (!associazioniRes.ok || !progettiRes.ok || !entiRes.ok || !assignmentsRes.ok) {
-        throw new Error('Errore nel caricamento dei dati');
-      }
-
-      const [associazioniData, progettiData, entiData, assignmentsData] = await Promise.all([
-        associazioniRes.json(),
-        progettiRes.json(),
-        entiRes.json(),
-        assignmentsRes.json()
-      ]);
+      const associazioniData = associazioniRes.data;
+      const progettiData = progettiRes.data;
+      const entiData = entiRes.data;
+      const assignmentsData = assignmentsRes.data;
 
       setAssociazioni(associazioniData);
       setProgetti(progettiData);
@@ -261,26 +254,16 @@ const ProgettoMansioneEnteManager = () => {
         data_fine: `${formData.data_fine}T23:59:59`
       };
 
-      let response;
-      if (editingAssociazione) {
-        // Update
-        response = await fetch(`${API_BASE_URL}/api/v1/project-assignments/${editingAssociazione.id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-      } else {
-        // Create
-        response = await fetch(`${API_BASE_URL}/api/v1/project-assignments/`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-      }
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Errore nel salvataggio');
+      try {
+        if (editingAssociazione) {
+          // Update
+          await http.put(`/project-assignments/${editingAssociazione.id}`, payload);
+        } else {
+          // Create
+          await http.post('/project-assignments/', payload);
+        }
+      } catch (err) {
+        throw new Error(err.response?.data?.detail || 'Errore nel salvataggio');
       }
 
       // Ricarica i dati e chiudi il modal
@@ -300,11 +283,9 @@ const ProgettoMansioneEnteManager = () => {
     }
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/v1/project-assignments/${id}?soft_delete=true`, {
-        method: 'DELETE'
-      });
-
-      if (!response.ok) {
+      try {
+        await http.delete(`/project-assignments/${id}`, { params: { soft_delete: true } });
+      } catch (err) {
         throw new Error('Errore nell\'eliminazione');
       }
 

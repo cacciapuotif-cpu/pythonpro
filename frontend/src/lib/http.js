@@ -151,6 +151,10 @@ http.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
+// Auth endpoints: a 401 here is a failed login/refresh, not an expired
+// session — never redirect, let the caller show the error.
+const isAuthRequest = (url = '') => /\/auth\/(login|refresh|register)/.test(url);
+
 // Response interceptor for error handling
 http.interceptors.response.use(
   (response) => response,
@@ -158,21 +162,25 @@ http.interceptors.response.use(
     const originalRequest = error.config;
 
     // Handle 401 (token expired)
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    if (error.response?.status === 401 && !originalRequest._retry && !isAuthRequest(originalRequest.url)) {
       originalRequest._retry = true;
 
-      try {
-        const refreshToken = localStorage.getItem('refresh_token');
-        if (refreshToken) {
+      const refreshToken = localStorage.getItem('refresh_token');
+      if (refreshToken) {
+        try {
           const accessToken = await refreshAccessToken();
           originalRequest.headers.Authorization = `Bearer ${accessToken}`;
           return http(originalRequest);
+        } catch (refreshError) {
+          clearStoredAuthTokens();
+          window.location.href = '/';
+          return Promise.reject(refreshError);
         }
-      } catch (refreshError) {
-        clearStoredAuthTokens();
-        window.location.href = '/';
-        return Promise.reject(refreshError);
       }
+
+      // No refresh token: session is gone, back to login.
+      clearStoredAuthTokens();
+      window.location.href = '/';
     }
 
     // Handle network errors

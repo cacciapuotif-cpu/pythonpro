@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import { http, apiRootUrl } from '../lib/http';
 
-const API = process.env.REACT_APP_API_URL || '';
+const API = apiRootUrl;
 
 const CATEGORIA_COLORE = {
   documento: 'var(--color-border-info)',
@@ -105,9 +106,8 @@ const HomeCockpit = ({ currentUser }) => {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(API + '/api/v1/cockpit/decisioni');
-      const json = await res.json();
-      setData(json);
+      const res = await http.get('/cockpit/decisioni');
+      setData(res.data);
     } catch (e) {
       console.error('Errore cockpit:', e);
     } finally {

@@ -8,7 +8,7 @@
  */
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { apiRootUrl } from '../lib/http';
+import { http } from '../lib/http';
 import { createAvviso, getAvvisi } from '../services/apiService';
 import './ContractTemplateModal.css';
 
@@ -301,14 +301,12 @@ const ContractTemplateModal = ({ template, onClose, onSave }) => {
     const loadOptions = async () => {
       try {
         const [entiRes, progettiRes, avvisiData] = await Promise.all([
-          fetch(`${apiRootUrl}/api/v1/entities/?limit=300`),
-          fetch(`${apiRootUrl}/api/v1/projects/?limit=300`),
+          http.get('/entities/', { params: { limit: 300 } }).catch(() => ({ data: [] })),
+          http.get('/projects/', { params: { limit: 300 } }).catch(() => ({ data: [] })),
           getAvvisi({ active_only: true, limit: 1000 }),
         ]);
-        const [entiData, progettiData] = await Promise.all([
-          entiRes.ok ? entiRes.json() : [],
-          progettiRes.ok ? progettiRes.json() : [],
-        ]);
+        const entiData = entiRes.data;
+        const progettiData = progettiRes.data;
         if (!cancelled) {
           setEntiOptions(Array.isArray(entiData) ? entiData : []);
           setProgettiOptions(Array.isArray(progettiData) ? progettiData : []);
@@ -414,15 +412,15 @@ const ContractTemplateModal = ({ template, onClose, onSave }) => {
     try {
       const formData = new FormData();
       formData.append('file', file);
-      const response = await fetch(`${apiRootUrl}/api/v1/contracts/convert-docx-to-html`, {
-        method: 'POST',
-        body: formData,
-      });
-      if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.detail || 'Errore nella conversione del file');
+      let data;
+      try {
+        const response = await http.post('/contracts/convert-docx-to-html', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+        data = response.data;
+      } catch (err) {
+        throw new Error(err.response?.data?.detail || 'Errore nella conversione del file');
       }
-      const data = await response.json();
       setContenutoHtml(data.html);
       if (!nomeTemplate) setNomeTemplate(file.name.replace('.docx', ''));
     } catch (error) {
