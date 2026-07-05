@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr, Field, ConfigDict, field_validator, computed_field
-from typing import Any, Dict, Generic, List, Optional, TypeVar
+from typing import Any, Dict, Generic, List, Literal, Optional, TypeVar
 from datetime import date, datetime
 
 T = TypeVar("T")
@@ -249,6 +249,26 @@ class ProjectFullContext(BaseModel):
     active_piani_finanziari: List[PianoFinanziarioContextItem] = []
     collaborator_hours: List[ProjectCollaboratorHoursContext] = []
     generated_at: datetime
+
+
+class ProjectBeneficiario(BaseModel):
+    azienda_id: int
+    ragione_sociale: str
+    regime_aiuto: Optional[str] = None
+    plafond_dichiarato: Optional[float] = None
+    cofinanziamento_perc: Optional[float] = None
+    stato: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ProjectBeneficiariResponse(BaseModel):
+    beneficiari: List[ProjectBeneficiario] = []
+
+
+class BeneficiarioRegimeUpdate(BaseModel):
+    regime_aiuto: Literal["non_definito", "de_minimis", "esenzione"]
+    plafond_dichiarato: Optional[float] = Field(None, ge=0)
 
 
 class AgentCatalogItem(BaseModel):

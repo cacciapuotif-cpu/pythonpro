@@ -272,3 +272,57 @@ def delete_project(
     if db_project is None:
         raise HTTPException(status_code=404, detail="Progetto non trovato")
     return {"message": "Progetto eliminato con successo"}
+
+
+# ── Aziende beneficiarie (regime aiuto) ──────────────────────────────
+
+def _beneficiario_to_schema(link: models.AziendaClienteProjectLink) -> schemas.ProjectBeneficiario:
+    return schemas.ProjectBeneficiario(
+        azienda_id=link.azienda_cliente_id,
+        ragione_sociale=link.azienda.ragione_sociale if link.azienda else "",
+        regime_aiuto=link.regime_aiuto,
+        plafond_dichiarato=link.plafond_dichiarato,
+        cofinanziamento_perc=link.cofinanziamento_perc,
+        stato=link.stato,
+    )
+
+
+@router.get("/{project_id}/beneficiari", response_model=schemas.ProjectBeneficiariResponse)
+def read_project_beneficiari(project_id: int, db: Session = Depends(get_db)):
+    """Aziende beneficiarie del progetto con regime aiuto e plafond."""
+    if not db.query(models.Project.id).filter(models.Project.id == project_id).first():
+        raise HTTPException(status_code=404, detail="Progetto non trovato")
+    links = (
+        db.query(models.AziendaClienteProjectLink)
+        .filter(models.AziendaClienteProjectLink.project_id == project_id)
+        .all()
+    )
+    return schemas.ProjectBeneficiariResponse(
+        beneficiari=[_beneficiario_to_schema(link) for link in links]
+    )
+
+
+@router.patch("/{project_id}/beneficiari/{azienda_id}/regime", response_model=schemas.ProjectBeneficiario)
+def update_project_beneficiario_regime(
+    project_id: int,
+    azienda_id: int,
+    payload: schemas.BeneficiarioRegimeUpdate,
+    db: Session = Depends(get_db)
+):
+    """Aggiorna regime aiuto e plafond dichiarato di un'azienda beneficiaria."""
+    link = (
+        db.query(models.AziendaClienteProjectLink)
+        .filter(
+            models.AziendaClienteProjectLink.project_id == project_id,
+            models.AziendaClienteProjectLink.azienda_cliente_id == azienda_id,
+        )
+        .first()
+    )
+    if not link:
+        raise HTTPException(status_code=404, detail="Azienda beneficiaria non trovata per questo progetto")
+    link.regime_aiuto = None if payload.regime_aiuto == "non_definito" else payload.regime_aiuto
+    if payload.plafond_dichiarato is not None:
+        link.plafond_dichiarato = payload.plafond_dichiarato
+    db.commit()
+    db.refresh(link)
+    return _beneficiario_to_schema(link)
