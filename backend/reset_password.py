@@ -1,32 +1,48 @@
-import bcrypt
 import os
+import secrets
+from urllib.parse import urlparse
+
+import bcrypt
 import psycopg
 
-password = 'Admin2026!'
-salt = bcrypt.gensalt()
-hashed = bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
 
-db_url = os.getenv('DATABASE_URL', '')
-db_url = db_url.replace('postgresql+psycopg://', '')
-parts = db_url.split('@')
-userpass = parts[0].split(':')
-hostdb = parts[1].split('/')
-hostport = hostdb[0].split(':')
+def _database_url() -> str:
+    value = os.getenv("DATABASE_URL", "").strip()
+    if not value:
+        raise RuntimeError("DATABASE_URL non configurata")
+    return value.replace("postgresql+psycopg://", "postgresql://", 1)
 
-conn = psycopg.connect(
-    host=hostport[0],
-    port=int(hostport[1]) if len(hostport) > 1 else 5432,
-    dbname=hostdb[1],
-    user=userpass[0],
-    password=userpass[1],
-)
-cur = conn.cursor()
-cur.execute(
-    "UPDATE users SET hashed_password=%s WHERE email=%s RETURNING id",
-    (hashed, 'admin@gestionale.local')
-)
-row = cur.fetchone()
-conn.commit()
-conn.close()
-print('OK: aggiornato user id={}'.format(row[0]))
-print('Nuova password: Admin2026!')
+
+def reset_admin_password() -> tuple[int, str]:
+    admin_email = os.getenv("RESET_ADMIN_EMAIL", "admin@gestionale.local")
+    new_password = secrets.token_urlsafe(24)
+    hashed = bcrypt.hashpw(new_password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+    parsed = urlparse(_database_url())
+    if not all([parsed.hostname, parsed.path, parsed.username, parsed.password]):
+        raise RuntimeError("DATABASE_URL incompleta")
+
+    with psycopg.connect(
+        host=parsed.hostname,
+        port=parsed.port or 5432,
+        dbname=parsed.path.lstrip("/"),
+        user=parsed.username,
+        password=parsed.password,
+    ) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE users SET hashed_password=%s WHERE email=%s RETURNING id",
+                (hashed, admin_email),
+            )
+            row = cur.fetchone()
+            if row is None:
+                raise RuntimeError("utente admin non trovato")
+        conn.commit()
+
+    return int(row[0]), new_password
+
+
+if __name__ == "__main__":
+    user_id, password = reset_admin_password()
+    print(f"OK: password monouso generata per user id={user_id}")
+    print(f"PASSWORD_MONOUSO={password}")

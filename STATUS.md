@@ -1,5 +1,360 @@
 # PythonPro — Status & Development Context
-_Ultimo aggiornamento: 2026-04-24_
+_Ultimo aggiornamento: 2026-07-05_
+
+---
+## SESSIONE 2026-07-05 -- Ondata 1 punto 1 segreti/credenziali (Codex)
+
+### Fatto
+- Ruotati in `.env` i segreti runtime senza stampare valori.
+- Aggiornata live la password del ruolo PostgreSQL `admin`.
+- Ricreati `pythonpro_redis`, `pythonpro_backend`, `pythonpro_arq_worker`, `pythonpro_backup_scheduler` per caricare le credenziali ruotate.
+- Rimossi `.env.bak_*`.
+- `.env.example` sostituito con template senza valori segreti reali.
+- `BACKUP_ENCRYPTION_KEY` resa obbligatoria e passata a backend/backup scheduler.
+- `backend/reset_password.py` riscritto: password casuale monouso generata a runtime, niente password hardcoded.
+- Aggiunti test/check: `backend/tests/test_secret_remediation.py` e `scripts/check_secret_remediation.sh`.
+- Aggiornato `REMEDIATION_LOG.md` con avviso permanente: VIETATO push su remote finche history non ripulita.
+- Commit locali creati, nessun push:
+  - `31a7cc5` fix(SEC-01): rotate exposed runtime secrets
+  - fix(SEC-02): remove hardcoded admin reset password
+
+### Verifiche
+- `docker-compose config` OK.
+- Backend healthy e `/health` OK.
+- `validate_env.sh` OK nel container backend.
+- DB `select 1` OK.
+- `pytest -q tests/test_secret_remediation.py -p no:cacheprovider` nel container backend: 2 passed.
+- `scripts/check_secret_remediation.sh` OK.
+- Nessun `.env.bak_*` rimasto nella root progetto.
+
+### Pendenti
+- Comunicare all'utente la lista delle variabili ruotate prima di proseguire al punto 2.
+- Aggiornare sistemi esterni con nuovi valori validi per email/IMAP/SMTP, OpenClaw e WhatsApp prima di usare quei canali.
+- NON fare push finche history git non viene ripulita in Ondata 2.
+
+---
+## SESSIONE 2026-07-05 -- Avvio remediation audit Passo Zero (Codex)
+
+### Fatto
+- Letto audit/AUDIT_REPORT.md integralmente.
+- Letti i report pertinenti alla pianificazione dell Ondata 1: FASE_1_inventario.md, FASE_2_funzionale.md, FASE_3_qualita.md, FASE_6_sicurezza.md, FASE_7_gdpr.md.
+- Creato REMEDIATION_LOG.md con il registro operativo del Passo Zero.
+- Verificato repo git esistente su branch claude/platform-audit-compliance-XnH86; worktree gia sporco prima della remediation, nessun reset/revert eseguito.
+- Verificato .gitignore: .env, .env.*, uploads/, backups/, __pycache__/, node_modules/ ignorati.
+- Verificato che .env/.env* sono presenti nella history git; rotazione completa segreti obbligatoria.
+- Creato backup fresco pre-remediation: directory /DATA/progetti/pythonpro_remediation_backups/20260705_121039, dump DB pythonpro_pg_dumpall_20260705_121039.sql.gz, tar progetto pythonpro_project_20260705_121039.tar.gz, checksum SHA256SUMS.
+- Verifica backup: gzip -t OK; tar ispezionabile con 1135 entry; nessuna occorrenza stampata per node_modules|__pycache__.
+
+### Decisioni
+- Nessuna remediation applicativa prima della conferma esplicita sul piano dettagliato di Ondata 1.
+- I commit atomici inizieranno dai singoli finding risolti, non dal Passo Zero documentale.
+
+### Pendenti
+- Attendere conferma utente sul piano dettagliato Ondata 1.
+- Al via libera, partire da 1.1 segreti/credenziali con rimozione backup .env.bak_*, rotazione segreti e neutralizzazione reset_password.py.
+
+---
+## SESSIONE 2026-06-22 — Fix CORS nuovo IP PythonPro (Codex)
+
+### Problema
+- Browser su `http://192.168.2.108:3001` caricava il frontend, ma le chiamate a `http://192.168.2.108:8001/health` venivano bloccate da CORS.
+- Il backend rispondeva `200 OK`, ma non inviava `Access-Control-Allow-Origin` per il nuovo origin LAN.
+
+### Fix applicato
+- Creato backup `.env.bak_20260622_cors`.
+- Aggiornato `.env` `CORS_ALLOWED_ORIGINS` aggiungendo:
+  - `http://192.168.2.108:3001`
+  - `http://100.102.130.41:3001`
+- Ricreato solo il container `pythonpro_backend` usando `/usr/lib/docker/cli-plugins/docker-compose up -d backend`.
+
+### Verifiche
+- `pythonpro_backend` healthy dopo recreate.
+- `curl -H Origin:http://192.168.2.108:3001 http://127.0.0.1:8001/health` restituisce `access-control-allow-origin: http://192.168.2.108:3001`.
+- `curl -H Origin:http://100.102.130.41:3001 http://127.0.0.1:8001/health` restituisce `access-control-allow-origin: http://100.102.130.41:3001`.
+
+### Pendenti
+- Se il browser mantiene errori vecchi, fare hard refresh o svuotare cache della pagina.
+- Valutare DHCP reservation/static lease per evitare nuovi cambi IP LAN.
+
+---
+## SESSIONE 2026-06-22 — Diagnosi accesso PythonPro timeout LAN (Codex)
+
+### Fatto
+- Ricevuto errore browser `ERR_CONNECTION_TIMED_OUT` su `http://192.168.2.161:3001/`.
+- Verificato che PythonPro e' attivo: `pythonpro_frontend` healthy, `pythonpro_backend` healthy.
+- Verificato `http://127.0.0.1:3001/` -> `200 OK`.
+- Verificato backend `http://127.0.0.1:8001/health` -> `status ok`.
+- Diagnosi: IP vecchio/non valido. L'host ora ha:
+  - LAN: `192.168.2.108/24` su `eth0`
+  - Tailscale: `100.102.130.41/32` su `tailscale0`
+- Verificato `http://192.168.2.108:3001/` -> `200 OK`.
+- Verificato `http://100.102.130.41:3001/` -> `200 OK`.
+- Il vecchio IP Tailscale `100.112.10.69` non risponde piu'.
+
+### Decisione
+- Usare `http://192.168.2.108:3001/` da rete ufficio/LAN.
+- Usare `http://100.102.130.41:3001/` da Tailscale.
+
+### Pendenti
+- Se si vuole evitare futuri cambi IP LAN, configurare DHCP reservation/static lease per lo ZimaOS.
+
+---
+## SESSIONE 2026-06-22 — Consultazione accesso PythonPro (Codex)
+
+### Fatto
+- Verificato percorso attivo PythonPro: `/DATA/progetti/pythonpro`.
+- Il percorso legacy `/DATA/AppData/big-bear-openclaw/workspace/pythonpro` non esiste.
+- Recuperate dal contesto operativo le modalita' di accesso gia' validate:
+  - LAN ufficio: `http://192.168.2.161:3001/`
+  - fuori ufficio via Tailscale: `http://100.112.10.69:3001/`
+  - backend health via Tailscale: `http://100.112.10.69:8001/health`
+  - login admin runtime: `admin` / `Admin123!RuntimeLocal`
+
+### Pendenti
+- Nessun intervento tecnico richiesto in questa sessione.
+
+---
+## SESSIONE 2026-05-29 — Sequenza punti 1-4 PythonPro (Codex)
+
+### Completato
+- Punto 1: branch locale `claude/platform-audit-compliance-XnH86` riallineata a `origin/claude/platform-audit-compliance-XnH86` (`HEAD=b7687c6`). Creati safety net: branch `backup/pythonpro-pre-align-20260529` e stash `pythonpro-pre-align-20260529`.
+- Risolti conflitti da stash su CI, GDPR agenti, WhatsApp HMAC, compose e package frontend. Preservati i miglioramenti utili: checksum codice fiscale, audit su skip consenso, firma Meta obbligatoria.
+- Punto 2: suite backend completa eseguita dentro `pythonpro_backend` con dipendenze container: `pytest -q` -> `115 passed`. Smoke mirato `test_main.py tests/test_whatsapp_meta.py tests/test_agent_audit_fixes.py -q` -> `31 passed`.
+- Punto 3: audit npm high completato. `npm audit --audit-level=high` ora esce `0`; restano solo 2 vulnerabilita moderate in `webpack-dev-server` via `react-scripts`, risolvibili solo con fix forzato/breaking.
+- Punto 3 build: `npm run build` OK con warning preesistente `HomeCockpit.js CATEGORIA_COLORE unused`.
+- Punto 4: frontend Docker rebuildato e ricreato non-root. Runtime verificato: `pythonpro_frontend` healthy, utente `uid=101(nginx)`, listen interno `0.0.0.0:8080`, porta host `3001->8080`, `curl /healthz` -> `ok`.
+- Backend runtime verificato dopo recreate: `pythonpro_backend` healthy, `curl http://127.0.0.1:8001/health` -> `{"status":"ok"}`.
+- Ripristinato hardening compose DB/Redis: niente porte host pubblicate; `pythonpro_db` espone solo `5432/tcp` interno e `pythonpro_redis` solo `6379/tcp` interno.
+
+### Fix applicati
+- `docker-compose.yml`: frontend mappa `${FRONTEND_PORT:-3001}:8080`; messaggi `${VAR:?ERRORE...}` normalizzati per YAML valido; rimosse porte host DB/Redis.
+- `frontend/Dockerfile`: build stage aggiornato a `node:20-alpine` per compatibilita con override audit npm.
+- `frontend/nginx.conf`: pid file spostato in `/var/cache/nginx/nginx.pid` per runtime nginx non-root.
+- `frontend/package.json` / lockfile: `react-router-dom` corretto a versione pubblicata `^6.30.3`; rimossa dipendenza diretta vulnerabile/non usata `xlsx`; aggiunti/ristabiliti `dompurify` e `exceljs`; override mirati per rimuovere high transitive (`@tootallnate/once`, `underscore`, `bfj`, `nth-check`, `css-select`, `svgo`, `serialize-javascript`, `postcss`, `uuid`).
+- `backend/conftest.py`: test isolati dal Redis live forzando fallback locale, evitando rate-limit 429 tra run ripetuti.
+- `backend/tests/test_agent_audit_fixes.py`: fixture aggiornati per tabella audit e `tipo_fondo=fondimpresa`; consenso WhatsApp esplicitato dove richiesto dal gate.
+- `backend/ai_agents/data_quality.py`: mantenuta validazione checksum CF ma rimosso blocco improprio della suggestion documenti in assenza consenso email.
+
+### Note operative
+- Durante il recreate, il vecchio frontend root e stato rinominato e fermato come `pythonpro_frontend_old_root_20260529`; resta disponibile come rollback manuale, ma non e in esecuzione.
+- Il worktree resta sporco con molte modifiche preesistenti piu le correzioni di questa sessione; non e stato fatto commit.
+
+### Pendenti
+1. Decidere se rimuovere il container fermo `pythonpro_frontend_old_root_20260529` dopo ulteriore conferma operativa.
+2. Valutare strategia a medio termine per eliminare le 2 moderate residue da `react-scripts`/`webpack-dev-server` senza usare `npm audit fix --force` che propone un risultato breaking.
+3. Fare review/commit mirato delle modifiche se si vuole consolidare il lavoro sul branch.
+
+---
+
+## SESSIONE 2026-05-25 — Ripristino accesso LAN gestionale (Codex)
+
+### Problema
+- Da browser su rete LAN `http://192.168.2.161:3001/` caricava il frontend statico, ma la console mostrava `:8001/health net::ERR_CONNECTION_REFUSED`.
+- Diagnosi runtime:
+  - `pythonpro_frontend` era `healthy` e serviva `3001`.
+  - `pythonpro_backend` era fermo (`Exited`) e la porta `8001` non era in ascolto.
+
+### Fix applicato
+- Aggiornato `.env` con backup `.env.bak_20260525_135533`, aggiungendo le variabili obbligatorie mancanti introdotte dall'hardening:
+  - `ADMIN_DEFAULT_PASSWORD`, `OPERATOR_DEFAULT_PASSWORD`
+  - alias DB `DB_MIGRATION_*` e `DB_APP_*` derivati dalle credenziali legacy esistenti
+  - `WHATSAPP_META_WEBHOOK_VERIFY_TOKEN`, `WHATSAPP_META_APP_SECRET` locali
+  - `OPENCLAW_API_KEY` locale non vuota per provider LLM disabilitato
+  - `BACKUP_ENCRYPTION_KEY` locale non vuota per validazione compose
+- Aggiunto in `docker-compose.yml` un `tmpfs` per il backend:
+  - `/tmp:size=64m,mode=1777`
+- Ricreato backend con `docker compose up -d backend`. Compose ha ricreato anche `pythonpro_db` e `pythonpro_redis` mantenendo i volumi Docker esistenti.
+
+### Verifiche
+- `pythonpro_backend`: `Up` e `healthy`, porta `0.0.0.0:8001->8000`.
+- `pythonpro_frontend`: `Up` e `healthy`, porta `0.0.0.0:3001->80`.
+- `curl http://192.168.2.161:3001/` -> `HTTP/1.1 200 OK`.
+- `curl http://192.168.2.161:8001/health` -> `{"status":"ok"}`.
+- Log backend: migration Alembic completate, app startup complete, DB health check passed.
+
+### Note
+- Il warning Gunicorn `Control server error: Permission denied: '/home/appuser'` resta nei log ma non impedisce startup o health.
+- Dopo il recreate, `pythonpro_db` e `pythonpro_redis` non espongono piu' porte host secondo il compose hardenizzato; l'app usa rete Docker interna.
+
+---
+
+## SESSIONE 2026-05-25 — Chiusura Blocco A Alembic + Blocco B GDPR agenti (Codex)
+
+### Completato
+- Lavoro eseguito sul branch `claude/platform-audit-compliance-XnH86`.
+- Avviato PostgreSQL temporaneo vuoto `pg_alembic_test` su porta host `55432` perche' `5433` era gia' occupata da `engipro-postgres`.
+- `alembic upgrade head` su DB PostgreSQL vuoto ora completa fino a `051` senza errori.
+- Correzioni Alembic principali:
+  - `h8c9d0e1f2g3_migrate_legacy_avviso_to_avviso_pf.py` ora gestisce `projects.avviso` solo se la colonna esiste gia'.
+  - `000_create_core_baseline.py` include `assignments.assigned_hours`, necessario prima di `i9d0e1f2g3h4`.
+  - `040_add_assignment_modulo.py` crea `moduli_formativi` se manca prima di creare FK da `assignments`.
+- Verifica schema completata:
+  - presenti tabelle critiche: `collaborators`, `projects`, `piani_finanziari`, `attendances`, `gdpr_consensi`, `massimali_fondo`, `agent_runs`, `agent_suggestions`, `agent_communication_drafts`, `audit_logs`.
+  - presenti campi GDPR collaborator: `consenso_email_agenti`, `consenso_whatsapp_agenti`, `anonimizzato`.
+  - presenti campi piani: `tipo_fondo`, `stato_rendicontazione`, `importo_ammesso`.
+  - `massimali_fondo` contiene 1 riga seed.
+- Smoke FastAPI completato con DB migrato:
+  - import `from main import app` -> `Import OK` usando `LOG_DIR`, `UPLOADS_DIR`, `UPLOAD_BASE_DIR`, `EXPORTS_DIR` temporanei.
+  - `pytest test_main.py -k health -v` -> `1 passed, 5 deselected`.
+- Push remoto completato su `origin/claude/platform-audit-compliance-XnH86`.
+
+### Commit pushati
+- `c46d00b` — `Sprint aggiornamento: nuovi agenti, upload routers, timesheet, cockpit e refactor piani finanziari` (cherry-pick del prerequisito locale sopra il remoto; conflitti risolti su `validate_env.sh` e `docker-compose.yml`).
+- `15a8842` — `[DB] Alembic chain: alembic upgrade head passes on empty PostgreSQL DB`.
+- `7834a41` — `[Runtime] Align FastAPI smoke startup dependencies` (necessario per far partire FastAPI sul ramo pushato: upload dir env-aware, router/servizi GDPR, permissione auth, test smoke).
+- `b7687c6` — `[GDPR] Consent check in agents, fix CF regex`.
+
+### Blocco B implementato
+- `backend/ai_agents/mail_recovery.py`: gate su `consenso_email_agenti`; se manca consenso il collaboratore viene saltato, e in run mirato ritorna `status=skipped`, `reason=no_consent`.
+- `backend/agent_workflows.py`: prima di `_send_email()` e prima della creazione bozza mail recovery verifica il consenso email collaboratore.
+- `backend/ai_agents/data_quality.py`: regex codice fiscale corretta a formato CF italiano stretto.
+
+### Note operative
+- Il push iniziale e' stato rifiutato per branch remoto avanti di 2 commit. Per preservare il worktree locale gia' sporco, l'integrazione/push e' stata fatta in worktree temporaneo pulito, poi rimosso.
+- Il worktree locale `/DATA/progetti/pythonpro` resta volutamente sporco con modifiche preesistenti non resettate; non e' stato fatto `git reset` ne' checkout distruttivo.
+- Container temporaneo `pg_alembic_test` fermato e rimosso (`--rm`).
+
+### Prossimi passi
+1. Se serve lavorare ancora su questa branch dalla cartella operativa, riallineare con attenzione il worktree locale al remoto tenendo conto delle modifiche non committate.
+2. Eseguire suite backend piu' ampia in ambiente container/dipendenze completo.
+3. Proseguire con audit npm high e verifica runtime Docker non-root/frontend 8080.
+
+---
+
+## SESSIONE 2026-05-24 — Stop intermedio audit compliance Blocco A (Codex)
+
+### Dove siamo arrivati
+- Branch verificato: `claude/platform-audit-compliance-XnH86`.
+- Worktree gia' molto sporco da Fase 1 precedente; nessun commit/push eseguito in questa tranche perche' il Blocco A non e' ancora chiuso.
+- `ensure_runtime_schema_updates` non risulta piu' presente in `backend/main.py`.
+- `alembic heads` inizialmente mostrava una sola head `050`; dopo aggiunta migration e' `051`.
+- `backend/routers/piani_finanziari.py`: duplicato `get_riepilogo_budget_piano` non risulta presente; script path duplicati ha trovato `15` path e zero duplicati.
+
+### Modifiche applicate in questa tranche
+- Aggiunta migration baseline `backend/alembic/versions/000_create_core_baseline.py` per permettere `alembic upgrade head` su DB vuoto.
+- Collegata `001_add_document_columns.py` a `down_revision = "000"`.
+- Aggiunta migration `backend/alembic/versions/051_align_compliance_schema_fields.py`.
+- Riallineata `048_add_compliance_gdpr_tables.py` su massimali `NUMERIC(8,2)` e tipo_fondo richiesto.
+- Allineati modelli/schemi:
+  - `backend/models.py`: `PianoFinanziario.tipo_fondo` `String(30)` nullable, valori ammessi ridotti a `fondimpresa/fonamcom/fse/regionale/altro`; `MassimaleFondo` usa `Numeric(8,2)`.
+  - `backend/schemas.py`: `TIPO_FONDO` ridotto ai valori richiesti; aggiunti campi GDPR collaborator a create/update/base.
+
+### Verifiche eseguite
+- `grep -n "ensure_runtime_schema_updates\|ALTER TABLE" backend/main.py || true` -> vuoto.
+- `cd backend && alembic heads` -> `051 (head)`.
+- `python3 -m py_compile backend/models.py backend/schemas.py backend/alembic/versions/048_add_compliance_gdpr_tables.py backend/alembic/versions/051_align_compliance_schema_fields.py backend/routers/piani_finanziari.py` -> OK.
+
+### Blocco attuale
+- Test `alembic upgrade head` su PostgreSQL vuoto temporaneo e' ancora fallito durante la chain storica, non nella 051:
+  - primo errore risolto: mancava baseline `collaborators` prima di `001`.
+  - secondo errore risolto: mancavano colonne base `contract_templates.tipo_contratto/is_default`.
+  - errore corrente al momento dello stop: migration `017_rename_fondo_to_ente_erogatore.py` falliva per `projects.ente_erogatore` mancante; appena prima dello stop e' stata aggiunta `projects.ente_erogatore` alla baseline `000`, ma NON e' stato rilanciato il test completo.
+- Container PostgreSQL temporaneo `pythonpro_alembic_empty` e' stato fermato.
+
+### Prossimo passo esatto
+1. Ricreare container PostgreSQL temporaneo vuoto.
+2. Rilanciare:
+   `cd backend && SECRET_KEY=AlembicSecretKey12345678901234567890 ALEMBIC_DATABASE_URL=postgresql+psycopg://admin:AdminPassword123456@127.0.0.1:55432/pythonpro_empty alembic upgrade head`
+3. Se fallisce, correggere la baseline `000` o rendere idempotente la migration storica che fallisce, sempre senza ALTER runtime in `main.py`.
+4. Solo quando `alembic upgrade head` su DB vuoto passa, chiudere Blocco A con commit e push mirato.
+
+## SESSIONE 2026-05-24 — Continuazione hardening produzione Fase 1 PythonPro (Codex)
+
+### Completato
+- Ripresa sessione da `STATUS.md` dopo caduta connessione, senza riesplorare il progetto da zero.
+- `SEC-20` verificato su host locale:
+  - `backend/test_main.py` copre smoke set richiesto: health, login success/fail, protected endpoint unauthorized, reporting summary autenticato, agents list autenticato
+  - `backend/conftest.py` fornisce env dummy test e stub `arq`, quindi non serve dipendenza runtime per lo smoke locale
+- Hardening webhook Meta WhatsApp completato:
+  - `backend/routers/whatsapp.py` legge il body raw e rifiuta POST `/api/v1/whatsapp/webhook` senza firma valida
+  - `backend/services/whatsapp_webhook_service.py` aggiunge verifica `X-Hub-Signature-256` con HMAC SHA-256 e `hmac.compare_digest`
+  - nuova env obbligatoria `WHATSAPP_META_APP_SECRET` in `docker-compose.yml`, `backend/scripts/validate_env.sh` e test config
+  - riallineato `validate_env.sh` con variabili obbligatorie gia' richieste dal compose: `OPERATOR_DEFAULT_PASSWORD`, `OPENCLAW_API_KEY`, `WHATSAPP_META_WEBHOOK_VERIFY_TOKEN`, `WHATSAPP_META_APP_SECRET`
+- Aggiornati test WhatsApp:
+  - payload firmato valido accettato
+  - firma mancante rifiutata con `403`
+  - firma non valida rifiutata con `403`
+
+### Verifiche eseguite
+- `pytest backend/test_main.py -q` -> `6 passed`
+- `pytest backend/test_main.py backend/tests/test_whatsapp_meta.py -q` -> `11 passed`
+- `python3 -m py_compile backend/routers/whatsapp.py backend/services/whatsapp_webhook_service.py backend/tests/test_whatsapp_meta.py backend/test_main.py` -> OK
+- `backend/scripts/validate_env.sh` con variabili dummy produzione -> OK
+- `docker compose config` con variabili dummy incluse `WHATSAPP_META_APP_SECRET` e `BACKUP_ENCRYPTION_KEY` -> OK
+
+### Bloccato / non verificato
+- Non e' stato avviato o rebuildato lo stack Docker live, per evitare impatto operativo.
+- Non e' stata ancora risolta la coda vulnerabilita' npm high emersa dopo `dompurify`.
+- Non e' stata ancora fatta la verifica runtime container non-root/frontend 8080 dopo rebuild live.
+
+### Decisioni prese
+- La firma `X-Hub-Signature-256` e' obbligatoria per ogni POST webhook Meta: se `WHATSAPP_META_APP_SECRET` manca o la firma non combacia, il backend ritorna `403`.
+- Prima del prossimo avvio produzione va aggiornato `.env` reale con `WHATSAPP_META_APP_SECRET`; il compose ora fallisce subito se manca.
+
+### Prossimi passi
+1. Aggiornare `.env` reale produzione con `WHATSAPP_META_APP_SECRET` prima del prossimo deploy/restart
+2. Eseguire test backend dentro container o ambiente dipendenze completo
+3. Valutare/remediare vulnerabilita' npm high prima di considerare CI verde
+4. Completare audit query raw e conferma runtime Docker non-root/frontend 8080
+5. Solo dopo CI/test green passare alla Fase 2 Alembic/DB solido
+
+---
+
+## SESSIONE 2026-05-24 — Avvio hardening produzione Fase 1 PythonPro (Codex)
+
+### Completato
+- Eseguiti i check iniziali richiesti dalla missione:
+  - Alembic: una sola head `044`
+  - confermati bug `att.hours_worked` in `backend/routers/reporting.py`
+  - confermati `EXPORTS_DIR=/tmp/exports`, SMTP test mode default true, token WhatsApp con `==`, backup web process disabilitato, porte DB/Redis esposte
+  - `backend/test_main.py` esiste gia', ma non copre ancora esattamente lo smoke set richiesto dalla missione
+- Fase 1 hardening applicato:
+  - `SEC-01`: aggiunto `backend/scripts/validate_env.sh` e invocazione da `backend/entrypoint.sh`; fail-fast su secret/env obbligatorie; rimosse fallback non sicure principali dal compose
+  - `SEC-04`: validazione password bootstrap admin/operatore in `main.py`, con fail-fast se mancanti/deboli quando gli utenti vanno creati
+  - `DB-06`: sostituiti `att.hours_worked` con `att.hours` nel reporting
+  - `DB-07`: `EXPORTS_DIR` ora usa `os.getenv("EXPORTS_DIR", "/app/exports")`; aggiunto volume `exports_data:/app/exports`
+  - `SEC-12`: rimosse le occorrenze sorgente di `datetime.utcnow()` con helper centralizzato `backend/time_utils.py::utc_now()` basato su `datetime.now(timezone.utc)` e output naive per compatibilita' schema corrente
+  - `SEC-02`: installato `dompurify`; sanitizzato `auto_fix_payload` in `AgentSuggestionsReview.js`
+  - `SEC-06`: webhook Meta WhatsApp usa `hmac.compare_digest`
+  - `SEC-07`: validazione SSRF su `WHATSAPP_PROVIDER_URL` per provider generico WhatsApp (solo HTTPS, blocco IP privati/loopback/link-local/reserved)
+  - `SEC-08`: aggiunto controllo magic bytes anche sugli allegati email in `AttachmentHandler`; `file_upload.py` aveva gia' firme file
+  - `SEC-09`: backend gia' non-root; frontend ora usa `USER nginx`, nginx interno su porta 8080
+  - `SEC-10`: security headers rafforzati in `request_middleware.py`
+  - `SEC-03` / `SEC-13`: token JWT con `jti`, blacklist Redis/fallback memoria, endpoint `/api/v1/auth/logout`, refresh token controllato contro blacklist
+  - `SEC-05`: endpoint agenti protetti; letture richiedono autenticazione, esecuzione/scrittura richiedono admin/manager
+  - `SEC-14`: docker-compose segmentato in `frontend_net`, `backend_net`, `db_net`; rimosse porte host di PostgreSQL e Redis
+  - `SEC-15`: rate limiting granulare per endpoint critici
+  - `SEC-19`: `SMTP_TEST_MODE` default `false`; validate_env blocca `true` in produzione
+  - `SEC-21`: debounce/guard sul pulsante invio email in `AgentsManager.js`
+  - `GDPR-03`: validation error logging redatto con `sanitize_body_for_log`; audit WhatsApp inbound non salva piu' numero/testo nel log
+  - `SEC-11`: aggiunto job CI `security-audit` con pip-audit, npm audit high e TruffleHog; env test aggiornato con password bootstrap dummy
+- Verifiche eseguite:
+  - `docker compose config` con variabili dummy: OK
+  - `python3 -m py_compile` sui file core modificati: OK
+  - `python3 -m compileall -q backend`: OK
+  - `npm run build`: OK con warning preesistente `HomeCockpit.js CATEGORIA_COLORE unused`
+  - grep sorgente `datetime.utcnow()` esclusi pycache: vuoto
+  - grep `hours_worked` in reporting: vuoto
+  - grep `changeme` in docker-compose: vuoto
+  - grep porte compose: PostgreSQL/Redis non risultano piu' pubblicati; restano backend, frontend, webhook sink test
+
+### Bloccato / non verificato
+- `pytest test_main.py -q` su host locale non parte per dipendenza Python mancante: `ModuleNotFoundError: No module named 'arq'`. In CI il workflow installa `backend/requirements.txt`, quindi va riverificato in ambiente con dipendenze complete/container.
+- `npm install dompurify` ha riportato 54 vulnerabilita' npm totali, incluse 29 high. Il nuovo job `security-audit` fallira' finche' non vengono risolte o motivate.
+- Non e' stato avviato/rebuildato lo stack Docker live per evitare impatto operativo durante hardening compose/env.
+- `SEC-20` non e' completato in senso stretto: `backend/test_main.py` esiste, ma va rifatto/allineato agli smoke test richiesti (health, login success/fail, unauthorized, reporting summary, agents list) con autenticazione coerente.
+
+### Decisioni prese
+- Per `datetime.utcnow()` e' stato scelto un helper centralizzato `utc_now()` che usa API timezone-aware internamente ma restituisce datetime naive UTC, per non rompere confronti e colonne SQLAlchemy `DateTime` non timezone-aware prima della Fase 2 DB.
+- Per `validate_env.sh` la lunghezza minima 16 caratteri e' applicata solo alle variabili segrete/password, non a host/origini/email, per non bloccare valori validi come `smtp.gmail.com`.
+- `OPENCLAW_API_KEY` e `WHATSAPP_META_WEBHOOK_VERIFY_TOKEN` sono ora obbligatorie nel compose come richiesto dalla missione; prima del prossimo avvio produzione va aggiornato `.env` reale.
+
+### Prossimi passi
+1. Sistemare `SEC-20`: riscrivere smoke tests con auth fixture e dipendenze CI/container complete
+2. Eseguire test backend dentro container o ambiente con `arq` installato
+3. Valutare/remediare vulnerabilita' npm high prima di considerare CI verde
+4. Proseguire Fase 1 residua con hardening webhook Meta firma `X-Hub-Signature-256`, audit query raw, e conferma runtime Docker non-root/frontend 8080
+5. Solo dopo CI/test green passare alla Fase 2 Alembic/DB solido
 
 ---
 
@@ -5654,3 +6009,39 @@ Migration Alembic `015_add_collaborator_fk_to_voci_piano.py`.
 - `npm run build` frontend -> OK
 - frontend container aggiornato:
   - bundle servito `main.2df986e9.js`
+
+## Sessione 2026-05-25 - Ripristino login admin runtime LAN
+
+### Problema
+- Il frontend su `http://192.168.2.161:3001/` era raggiungibile, ma il backend era stato ripristinato solo dopo aggiunta variabili `.env` runtime e `tmpfs /tmp`.
+- Il login con `admin` / `Admin123!RuntimeLocal` restituiva `401 Username o password non validi`.
+
+### Intervento
+- Verificato che utente `admin` esiste nel DB `gestionale` ed e attivo.
+- Resettata la password di `admin` tramite ORM nel container backend:
+  - username: `admin`
+  - password runtime: `Admin123!RuntimeLocal`
+- Azzerati eventuali tentativi falliti e lock account.
+
+### Verifiche
+- `curl http://127.0.0.1:8001/api/v1/auth/login` con form `username=admin` e `password=Admin123!RuntimeLocal` -> `200 OK`.
+- La risposta API contiene token bearer e ruolo `admin`.
+
+### Stato
+- Accesso admin ripristinato.
+- Per login UI usare:
+  - username: `admin`
+  - password: `Admin123!RuntimeLocal`
+
+## Sessione 2026-05-25 - Accesso fuori ufficio via Tailscale
+
+### Verifica
+- L IP LAN `192.168.2.161` funziona solo dentro la rete ufficio.
+- Tailscale sull host `zimaos` risulta attivo con IP `100.112.10.69`.
+- Frontend verificato su `http://100.112.10.69:3001/` -> `200 OK`.
+- Backend verificato su `http://100.112.10.69:8001/health` -> `status ok`.
+
+### Uso
+- Da fuori ufficio collegarsi prima a Tailscale con lo stesso account.
+- Aprire `http://100.112.10.69:3001/`.
+- Login admin: `admin` / `Admin123!RuntimeLocal`.
