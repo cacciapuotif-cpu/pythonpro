@@ -161,7 +161,7 @@ async def sqlalchemy_exception_handler(request: Request, exc: SQLAlchemyError):
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     error_monitor.record_error("validation_error")
-    logger.error(f"Validation error on {request.url}: {exc.errors()}")
+    logger.error("Validation error on %s: %s", request.url.path, ErrorHandler.redact_text(exc.errors()))
     if request.method == "POST" and request.url.path.startswith("/api/v1/auth/"):
         safe_body = "<auth body redatto>"
     else:
@@ -207,7 +207,7 @@ async def gestionale_exception_handler(request: Request, exc: GestionaleExceptio
 async def general_exception_handler(request: Request, exc: Exception):
     error_monitor.record_error("general_error")
     ErrorHandler.log_error(exc, request)
-    logger.critical(f"Unhandled exception: {exc}")
+    logger.critical("Unhandled exception: %s", ErrorHandler.redact_text(exc))
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={

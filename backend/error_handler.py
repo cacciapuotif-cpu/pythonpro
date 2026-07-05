@@ -8,17 +8,66 @@ import logging
 import traceback
 from datetime import datetime
 import os
+import re
 
 # Setup logging avanzato
+_log_dir = os.getenv('LOG_DIR', 'logs')
+os.makedirs(_log_dir, exist_ok=True)
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s',
     handlers=[
-        logging.FileHandler(os.path.join(os.getenv('LOG_DIR', 'logs'), 'gestionale_errors.log')),
+        logging.FileHandler(os.path.join(_log_dir, 'gestionale_errors.log')),
         logging.StreamHandler()
     ]
 )
 logger = logging.getLogger(__name__)
+
+REDACTED = "[REDACTED]"
+SAFE_HEADER_NAMES = {"content-type", "x-request-id", "x-correlation-id"}
+SENSITIVE_HEADER_NAMES = {
+    "authorization",
+    "cookie",
+    "set-cookie",
+    "proxy-authorization",
+    "x-api-key",
+    "x-auth-token",
+    "x-csrf-token",
+    "x-forwarded-access-token",
+}
+SENSITIVE_TEXT_PATTERNS = (
+    re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]+"),
+    re.compile(r"(?i)(basic\s+)[A-Za-z0-9._~+/=-]+"),
+    re.compile(
+        r"(?i)((?:password|passwd|pwd|token|secret|api[_-]?key|authorization|cookie|set-cookie)\s*[=:]\s*)[^\s,;&]+"
+    ),
+)
+
+
+def redact_sensitive_text(value):
+    """Redact common credentials before writing application logs."""
+    if value is None:
+        return None
+    redacted = str(value)
+    for pattern in SENSITIVE_TEXT_PATTERNS:
+        redacted = pattern.sub(rf"\1{REDACTED}", redacted)
+    return redacted
+
+
+def sanitize_request_headers(headers):
+    """Keep only diagnostic headers and redact known sensitive headers."""
+    if not headers:
+        return None
+
+    sanitized = {}
+    for name, value in headers.items():
+        key = name.lower()
+        if key in SENSITIVE_HEADER_NAMES:
+            sanitized[key] = REDACTED
+        elif key in SAFE_HEADER_NAMES:
+            sanitized[key] = redact_sensitive_text(value)
+    return sanitized
+
 
 class GestionaleException(Exception):
     """Eccezione base del gestionale"""
@@ -50,26 +99,31 @@ class ErrorHandler:
 
     @staticmethod
     def log_error(error: Exception, request: Request = None, user_id: int = None):
-        """Logga l'errore con contesto completo"""
+        """Logga l'errore con contesto diagnostico redatto."""
         error_info = {
             "timestamp": datetime.now().isoformat(),
             "error_type": type(error).__name__,
-            "error_message": str(error),
-            "traceback": traceback.format_exc(),
+            "error_message": redact_sensitive_text(str(error)),
+            "traceback": redact_sensitive_text(traceback.format_exc()),
             "user_id": user_id,
-            "request_url": request.url if request else None,
+            "request_path": request.url.path if request else None,
             "request_method": request.method if request else None,
-            "request_headers": dict(request.headers) if request else None
+            "request_headers": sanitize_request_headers(request.headers) if request else None,
         }
 
-        logger.error(f"Errore applicazione: {error_info}")
+        logger.error("Errore applicazione: %s", error_info)
         return error_info
+
+    @staticmethod
+    def redact_text(value):
+        """Expose log redaction for callers that log outside ErrorHandler."""
+        return redact_sensitive_text(value)
 
     @staticmethod
     def handle_database_error(error: SQLAlchemyError) -> JSONResponse:
         """Gestisce errori database con retry logic"""
         if isinstance(error, OperationalError):
-            logger.error(f"Database operational error: {error}")
+            logger.error("Database operational error: %s", ErrorHandler.redact_text(error))
             return JSONResponse(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 content={
@@ -79,7 +133,7 @@ class ErrorHandler:
                 }
             )
         elif isinstance(error, IntegrityError):
-            logger.error(f"Database integrity error: {error}")
+            logger.error("Database integrity error: %s", ErrorHandler.redact_text(error))
             return JSONResponse(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 content={
@@ -89,7 +143,7 @@ class ErrorHandler:
                 }
             )
         else:
-            logger.error(f"Generic database error: {error}")
+            logger.error("Generic database error: %s", ErrorHandler.redact_text(error))
             return JSONResponse(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 content={
@@ -109,7 +163,7 @@ class ErrorHandler:
                 "type": err["type"]
             })
 
-        logger.warning(f"Validation error: {validation_errors}")
+        logger.warning("Validation error: %s", ErrorHandler.redact_text(validation_errors))
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             content={
@@ -122,7 +176,7 @@ class ErrorHandler:
     @staticmethod
     def handle_http_exception(error: HTTPException) -> JSONResponse:
         """Gestisce eccezioni HTTP"""
-        logger.warning(f"HTTP exception: {error.status_code} - {error.detail}")
+        logger.warning("HTTP exception: %s - %s", error.status_code, ErrorHandler.redact_text(error.detail))
         return JSONResponse(
             status_code=error.status_code,
             content={"detail": error.detail},
@@ -146,7 +200,7 @@ def retry_on_db_error(max_retries: int = 3, delay: float = 1.0):
                 except OperationalError as e:
                     last_exception = e
                     if attempt < max_retries - 1:
-                        logger.warning(f"Database error on attempt {attempt + 1}, retrying in {delay}s: {e}")
+                        logger.warning("Database error on attempt %s, retrying in %ss: %s", attempt + 1, delay, ErrorHandler.redact_text(e))
                         time.sleep(delay * (2 ** attempt))  # Exponential backoff
                     else:
                         logger.error(f"Max retries reached for {func.__name__}")
@@ -176,11 +230,11 @@ class SafeTransaction:
                 self.db.commit()
                 self.committed = True
             except Exception as e:
-                logger.error(f"Error committing transaction: {e}")
+                logger.error("Error committing transaction: %s", ErrorHandler.redact_text(e))
                 self.db.rollback()
                 raise
         elif exc_type is not None:
-            logger.error(f"Transaction rolled back due to: {exc_type.__name__}: {exc_val}")
+            logger.error("Transaction rolled back due to: %s: %s", exc_type.__name__, ErrorHandler.redact_text(exc_val))
             self.db.rollback()
 
     def commit(self):
