@@ -2,6 +2,229 @@
 _Ultimo aggiornamento: 2026-07-05_
 
 ---
+## SESSIONE 2026-07-05 -- Chiusura Ondata 1: ripresa, verifica indipendente, gate confermato (Claude)
+
+### Fatto
+- Ricostruito stato reale dopo interruzione: punto 7 (dipendenze) risultava GIA' completato e committato (`f7a1782` npm, `d4b40bc` pin pip/wheel); pendenti solo docs e 2 hunk orfani.
+- Committati hunk orfani da cui dipendevano fix gia' committati: `38c903e` (gnupg nel Dockerfile backend, richiesto dal backup GPG di `38d158f`) e `d605b09` (`.gitignore`: `.env.*`, `secrets.yml`).
+- Rieseguito INTERO gate Ondata 1 in modo indipendente: pytest completo container, alembic check pulito (053 head), npm audit 0 critical / 0 high (2 moderate + 9 low = NEW-004), pip-audit pulito, scan segreti pulito, RBAC_ENFORCE=true runtime, /health OK, ciclo backup fresco creato+verificato (`ondata1_gate_final_20260705_162703`), build frontend OK, http.test.js 5 passed.
+- Redatta da questo file la password storica gia' ruotata (`[REDACTED-password-storica-ruotata]`).
+- Aggiornati REMEDIATION_LOG.md e FINDINGS_NUOVI.md; sezione ONDATA-1-CHIUSURA aggiunta al log.
+
+### Verdetto
+- ONDATA 1 COMPLETATA — idonea all'uso interno con dati reali: SÌ CON RISERVE (dettaglio e motivazione in REMEDIATION_LOG.md, sezione ONDATA-1-CHIUSURA).
+- Finding aperti per Ondata 2: NEW-003 (alta, catena Alembic greenfield incompleta), NEW-004 (media, residui npm toolchain react-scripts).
+
+### Pendenti
+- NON fare push finche' la history git non viene ripulita (Ondata 2).
+- Non attivare flussi email/IMAP/SMTP, OpenClaw, WhatsApp.
+- Ondata 2 da pianificare insieme: history cleanup, tenancy/SaaS, baseline Alembic, uscita da react-scripts.
+
+---
+## SESSIONE 2026-07-05 -- Apertura contesto PythonPro (Codex)
+
+### Fatto
+- Interpretato `pythoonpro` come `pythonpro`.
+- Confermato percorso attivo: `/DATA/progetti/pythonpro`.
+- Confermato che il percorso legacy `/DATA/AppData/big-bear-openclaw/workspace/pythonpro` non esiste.
+- Nessuna modifica applicativa eseguita.
+
+### Pendenti
+- Restano validi i pendenti gia registrati: usare username `admin` per il login e NON fare push finche la history git non viene ripulita in Ondata 2.
+
+
+
+---
+## SESSIONE 2026-07-05 -- Rigenerazione credenziali admin verificata (Codex)
+
+### Fatto
+- Rigenerata nuova password monouso admin tramite `backend/reset_password.py` dentro `pythonpro_backend`.
+- Verificato login reale via API `POST /api/v1/auth/login`: HTTP 200, username `admin`, ruolo `admin`.
+- Chiarito che il campo login usa `username=admin`; email `admin@gestionale.local` associata all utente ma non e lo username di login.
+- Password comunicata solo in chat utente e non registrata nello status.
+
+### Pendenti
+- L utente deve usare username `admin` con la password monouso comunicata.
+- Dopo login, valutare cambio password da interfaccia se disponibile o rigenerazione controllata se serve.
+- Resta valido: NON fare push finche la history git non viene ripulita in Ondata 2.
+
+
+---
+## SESSIONE 2026-07-05 -- Reset credenziali accesso PythonPro (Codex)
+
+### Fatto
+- Generata nuova password monouso per admin@gestionale.local tramite backend/reset_password.py dentro pythonpro_backend.
+- Password comunicata solo in chat utente e non registrata nello status.
+
+### Pendenti
+- Dopo login, valutare cambio password da interfaccia se disponibile o rigenerazione controllata se serve.
+- Resta valido: NON fare push finche la history git non viene ripulita in Ondata 2.
+
+---
+## SESSIONE 2026-07-05 -- Fix CORS Tailscale PythonPro 100.72.175.102 (Codex)
+
+### Fatto
+- Diagnosticato errore browser su http://100.72.175.102:3001: backend raggiungibile ma origin Tailscale nuovo assente da CORS_ALLOWED_ORIGINS.
+- Aggiornata solo la riga CORS_ALLOWED_ORIGINS in .env aggiungendo http://100.72.175.102:3001.
+- Ricreato solo il container pythonpro_backend con docker-compose per ricaricare la configurazione.
+
+### Verifiche
+- curl con Origin http://100.72.175.102:3001 su http://127.0.0.1:8001/health -> 200 OK.
+- Header confermato: access-control-allow-origin: http://100.72.175.102:3001.
+
+### Pendenti
+- Se il browser mostra ancora il vecchio errore, fare hard refresh della pagina o svuotare cache/service worker.
+- Resta valido: NON fare push finche la history git non viene ripulita in Ondata 2.
+
+
+---
+## SESSIONE 2026-07-05 -- Ondata 1 punto 6 allineamento schema/Alembic F1-002/F1-008/F2-007 (Claude)
+
+### Fatto
+- Prova generale su DB copia da dump fresco: upgrade 052->053 + `alembic check` puliti PRIMA di toccare il reale.
+- Backup pre-053 fuori progetto: `/DATA/progetti/pythonpro_remediation_backups/20260705_150819_punto6/`.
+- DB reale a head 053, `alembic check` PULITO (prima: 139 operazioni di drift). Commit `f43822b`.
+- Migration 053: tabella giustificativo_spesa, 38 indici duplicati droppati, 4 rename, colonne legacy agenti droppate (0 dati divergenti verificati), constraint->unique index, ente_erogatore VARCHAR(100), NOT NULL con backfill, 4 FK (0 orfani).
+- Modelli allineati dove il DB era piu' severo/ricco (timestamptz agenti, NOT NULL, indici funzionali dichiarati; fulltext PG-only escluso via include_name in env.py).
+- Script manuali migrate_*.py rimossi dopo check pulito (tutti SQLite-era, effetti gia' in schema). Commit `d6810c1`.
+- Suite completa: 239 passed. Health OK.
+
+### Rilievo preesistente nuovo
+- Catena Alembic da DB vuoto NON produce schema completo (es. projects.avviso aggiunta storicamente fuori migration). 053 difensiva. Baseline greenfield da valutare in Ondata 2.
+
+### Prossimi passi
+- Punto 7 (dipendenze) su conferma utente: chiude Ondata 1.
+- NON fare push finche' la history git non viene ripulita in Ondata 2.
+
+---
+## SESSIONE 2026-07-05 -- Ondata 1 punto 5 rotture funzionali F2-001/002/003/004 (Claude)
+
+### Fatto
+- F2-001: CRUD listini mancanti implementati in `crud.py`; GET listini da 500 a 200/404. Commit `2ac218b`.
+- F2-002: endpoint beneficiari progetto implementati (GET lista + PATCH regime/plafond) in `routers/projects.py`; scelta implementazione backend motivata nel REMEDIATION_LOG. Commit `0665b4f`.
+- F2-003: 13/14 fetch dirette frontend migrate al client `http` (Bearer automatico); 401 senza refresh token ora fa clear+redirect login, auth endpoints esclusi dal redirect. Commit `5c1c615`.
+- F2-004: `/portale-allievi/profilo` estratto in router pubblico dedicato (auth = magic token); magic-link generator resta protetto JWT. Commit `7cc2b81`.
+- TDD per ogni finding (RED verificato prima del fix). Test: 31+14+4 backend nuovi, 5 frontend nuovi, regressione mirata 128 passed in container, build frontend OK.
+
+### Rotture preesistenti censite (non toccate)
+- pytest host rotto (SQLite + `DEFAULT now()` su email_inbox_items); suite ok in container.
+- jest jsdom rotto (`@tootallnate/once@3` ESM vs `http-proxy-agent@4` nel package-lock preesistente); http.test.js gira in env node.
+
+### Prossimi passi
+- NON fare push finche' la history git non viene ripulita in Ondata 2.
+- Decidere in Ondata 2: fix package-lock (jest jsdom), hunks preesistenti non committati (crud.py utc_now/avviso, main.py redaction).
+
+---
+## SESSIONE 2026-07-05 -- Ondata 1 punto 4 RBAC minimo enforcement reale (Codex)
+
+### Fatto
+- Applicate correzioni matrice post log-only:
+  - `GET /api/v1/reporting/timesheet` consentito anche a `operatore`.
+  - Export Excel piano finanziario consentito anche a `operatore`.
+- Generata password monouso per `operatore` con `backend/reset_password.py`; non registrata nei log permanenti.
+- Verificato login reale `operatore@gestionale.local`: HTTP 200 e ruolo `operatore`.
+- Diagnosticata e corretta anomalia backup `Permission denied` su `/app/backups`:
+  - volume live corretto a owner `1000:999`, permessi `0775`.
+  - `backup_manager.py` usa GNUPGHOME temporanea per cifratura/decifratura GPG.
+  - verifica integrita decripta `.zip.gpg` in directory temporanea prima di testare lo ZIP.
+  - backend e backup scheduler ricreati con `gpg` disponibile.
+- Registrato finding nuovo `NEW-002` in `audit/FINDINGS_NUOVI.md` e `REMEDIATION_LOG.md`.
+- Attivato enforcement reale: `RBAC_ENFORCE=True` nel runtime backend.
+- Creati commit atomici separati:
+  - `f3dae89` fix(SEC-03): add minimal RBAC migration
+  - `9fcfa2a` fix(SEC-03): enforce minimal RBAC matrix
+  - `38d158f` fix(NEW-002): repair encrypted backup creation
+
+### Verifiche
+- Host: `pytest -q tests/test_rbac_minimo_log_only.py tests/test_logging_safety.py tests/test_secret_remediation.py -p no:cacheprovider` -> 75 passed.
+- Container: stesso pytest dentro `pythonpro_backend` -> 75 passed.
+- Smoke enforcement su `admin`, `operatore`, `consultazione`: 200/403 attesi secondo matrice corretta.
+- Backup manuale backend: `.sql.zip.gpg` creato e integrita True.
+- Backup scheduler: `.sql.zip.gpg` creato e integrita True.
+- Backend health OK dopo recreate.
+
+### Pendenti
+- Fermarsi qui come richiesto dopo riepilogo punto 4 completo.
+- Non usare agenti mail o altri flussi con Gmail/OpenClaw/WhatsApp finche' l'utente non conferma l'allineamento esterno.
+- NON fare push finche' la history git non viene ripulita in Ondata 2.
+
+
+---
+## SESSIONE 2026-07-05 -- Ondata 1 punto 4 RBAC minimo fase A log-only (Codex)
+
+### Fatto
+- Letto stato PythonPro e censimento worktree prima di procedere.
+- Verificati utenti live prima della migration:
+  - `admin` / `admin@gestionale.local` / ruolo `admin` / attivo.
+  - `operatore` / `operatore@gestionale.local` / ruolo legacy `user` / attivo.
+- Confermata dall'utente la migration ruoli sicura:
+  - `admin` resta `admin`.
+  - `user` e `manager` -> `operatore`.
+  - `readonly` -> `consultazione`.
+  - `dpo` -> `admin`.
+  - `NULL`/sconosciuti -> `consultazione`.
+  - default nuovi utenti -> `consultazione`.
+- Aggiunta e applicata migration Alembic `052_normalize_user_roles.py`.
+- DB post-migration: 2 utenti attivi, `admin` ruolo `admin`, `operatore` ruolo `operatore`; `users.role` NOT NULL default `consultazione`.
+- Implementato `require_role` centrale in `backend/auth.py`, agganciato in `backend/main.py` agli include protetti.
+- Enforcement reale NON attivo: `RBAC_ENFORCE=False`; i blocchi sono solo loggati come `RBAC WOULD_DENY`.
+- Aggiunto test parametrizzato matrice ruoli in `backend/tests/test_rbac_minimo_log_only.py`.
+- Generato report `audit/RBAC_LOG_ONLY_REPORT.md`.
+- Ricreato `pythonpro_backend` per caricare il codice aggiornato; health OK.
+
+### Verifiche
+- `py_compile` su auth/main/test/script/migration OK.
+- Host: `pytest -q tests/test_rbac_minimo_log_only.py tests/test_logging_safety.py tests/test_secret_remediation.py -p no:cacheprovider` -> 75 passed.
+- Container: stesso pytest dentro `pythonpro_backend` -> 75 passed.
+- Runtime smoke log-only: JWT temporaneo locale per `operatore`, `GET /api/v1/reporting/timesheet` -> 200 ma logga `RBAC WOULD_DENY ... allowed_roles=admin`.
+- `curl http://127.0.0.1:8001/health` -> `{"status":"ok"}`.
+
+### Report blocchi potenziali
+- `consultazione`: 403 potenziale su tutte le scritture operative CRUD.
+- `operatore` e `consultazione`: 403 potenziale su admin/security logs, GDPR export, agenti, export Excel piano finanziario, report timesheet sensibile.
+- Letture operative base: 200 per `admin`, `operatore`, `consultazione`.
+- Report completo: `audit/RBAC_LOG_ONLY_REPORT.md`.
+
+### Pendenti
+- Fermarsi qui e attendere conferma utente prima di attivare enforcement reale.
+- Non usare agenti mail o altri flussi con Gmail/OpenClaw/WhatsApp finche' l'utente non conferma l'allineamento esterno.
+- Il login `operatore` con password bootstrap runtime non risulta valido per l'utente esistente; non e' stato modificato in questa fase.
+- Errore backup emergency shutdown su `/app/backups/... Permission denied` osservato durante recreate; da trattare separatamente.
+- NON fare push finche' la history git non viene ripulita in Ondata 2.
+
+---
+## SESSIONE 2026-07-05 -- Ondata 1 punto 3 logging sicuro (Codex)
+
+### Fatto
+- Confermato che le azioni manuali su Gmail app password, OpenClaw e WhatsApp restano a carico utente.
+- Vincolo operativo registrato: non attivare flussi che usano email/IMAP/SMTP, OpenClaw o WhatsApp finche' l'utente non conferma l'allineamento.
+- Fotografato il worktree sporco pre-punto 3 in `audit/WORKTREE_PREESISTENTE.md` con:
+  - `git status --untracked-files=all`
+  - `git diff --stat`
+  - valutazione per file: lavoro in corso utile / abbandonato / non valutabile.
+- Nessun file preesistente e' stato committato, scartato o ripulito.
+- Segnalato prima dell'edit che `backend/error_handler.py` aveva gia' una modifica preesistente; mantenuta e integrata.
+- Risolto SEC-04 logging sicuro:
+  - `ErrorHandler.log_error` non registra piu' URL completo con query string.
+  - Header completi non vengono piu' loggati; header sensibili (`Authorization`, cookie, API token, ecc.) vengono redatti.
+  - Messaggio errore e traceback vengono filtrati da pattern comuni di token/password/segreti.
+  - `backend/main.py` usa path senza query nei validation error e redige il messaggio degli unhandled error.
+  - `backend/error_handler.py` crea `LOG_DIR` prima di aprire `gestionale_errors.log`.
+- Aggiunto `backend/tests/test_logging_safety.py`.
+- Aggiornato `REMEDIATION_LOG.md`.
+
+### Verifiche
+- `python3 -m py_compile backend/error_handler.py backend/main.py backend/tests/test_logging_safety.py` OK.
+- Host: `pytest -q tests/test_logging_safety.py tests/test_secret_remediation.py -p no:cacheprovider` -> 4 passed.
+- Container: `docker exec pythonpro_backend pytest -q tests/test_logging_safety.py tests/test_secret_remediation.py -p no:cacheprovider` -> 4 passed.
+
+### Pendenti
+- Fermarsi qui prima di proseguire oltre il punto 3.
+- Non usare agenti mail o altri flussi con Gmail/OpenClaw/WhatsApp finche' l'utente non conferma l'allineamento esterno.
+- In Ondata 2 decidere insieme cosa integrare/scartare dal worktree sporco censito.
+- NON fare push finche' la history git non viene ripulita in Ondata 2.
+
+---
 ## SESSIONE 2026-07-05 -- Ondata 1 punto 1 segreti/credenziali (Codex)
 
 ### Fatto
@@ -108,7 +331,7 @@ _Ultimo aggiornamento: 2026-07-05_
   - LAN ufficio: `http://192.168.2.161:3001/`
   - fuori ufficio via Tailscale: `http://100.112.10.69:3001/`
   - backend health via Tailscale: `http://100.112.10.69:8001/health`
-  - login admin runtime: `admin` / `Admin123!RuntimeLocal`
+  - login admin runtime: `admin` / `[REDACTED-password-storica-ruotata]`
 
 ### Pendenti
 - Nessun intervento tecnico richiesto in questa sessione.
@@ -6014,24 +6237,24 @@ Migration Alembic `015_add_collaborator_fk_to_voci_piano.py`.
 
 ### Problema
 - Il frontend su `http://192.168.2.161:3001/` era raggiungibile, ma il backend era stato ripristinato solo dopo aggiunta variabili `.env` runtime e `tmpfs /tmp`.
-- Il login con `admin` / `Admin123!RuntimeLocal` restituiva `401 Username o password non validi`.
+- Il login con `admin` / `[REDACTED-password-storica-ruotata]` restituiva `401 Username o password non validi`.
 
 ### Intervento
 - Verificato che utente `admin` esiste nel DB `gestionale` ed e attivo.
 - Resettata la password di `admin` tramite ORM nel container backend:
   - username: `admin`
-  - password runtime: `Admin123!RuntimeLocal`
+  - password runtime: `[REDACTED-password-storica-ruotata]`
 - Azzerati eventuali tentativi falliti e lock account.
 
 ### Verifiche
-- `curl http://127.0.0.1:8001/api/v1/auth/login` con form `username=admin` e `password=Admin123!RuntimeLocal` -> `200 OK`.
+- `curl http://127.0.0.1:8001/api/v1/auth/login` con form `username=admin` e `password=[REDACTED-password-storica-ruotata]` -> `200 OK`.
 - La risposta API contiene token bearer e ruolo `admin`.
 
 ### Stato
 - Accesso admin ripristinato.
 - Per login UI usare:
   - username: `admin`
-  - password: `Admin123!RuntimeLocal`
+  - password: `[REDACTED-password-storica-ruotata]`
 
 ## Sessione 2026-05-25 - Accesso fuori ufficio via Tailscale
 
@@ -6044,4 +6267,4 @@ Migration Alembic `015_add_collaborator_fk_to_voci_piano.py`.
 ### Uso
 - Da fuori ufficio collegarsi prima a Tailscale con lo stesso account.
 - Aprire `http://100.112.10.69:3001/`.
-- Login admin: `admin` / `Admin123!RuntimeLocal`.
+- Login admin: `admin` / `[REDACTED-password-storica-ruotata]`.
