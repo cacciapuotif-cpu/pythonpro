@@ -37,6 +37,7 @@ require_nodefault() {
 # ── Core app ────────────────────────────────────────────────────────────────
 require_nodefault "JWT_SECRET_KEY"
 require_nodefault "SECRET_KEY"
+require_nodefault "BACKUP_ENCRYPTION_KEY"
 require_var       "DATABASE_URL"
 require_var       "ENVIRONMENT"
 
