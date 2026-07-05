@@ -132,6 +132,7 @@ services:
       # Alembic
       ALEMBIC_CONFIG: /app/alembic.ini
       AUTO_BACKUP_ENABLED: "true"
+      RBAC_ENFORCE: ${RBAC_ENFORCE:-true}
       BACKUP_DIR: /app/backups
       EXPORTS_DIR: /app/exports
       AI_AGENT_LLM_PROVIDER: ${AI_AGENT_LLM_PROVIDER:-none}
