@@ -20,8 +20,8 @@ collaborator_project = Table(
 class AllievoProject(Base):
     __tablename__ = 'allievo_project'
 
-    allievo_id = Column(Integer, ForeignKey('allievi.id', ondelete="CASCADE"), primary_key=True)
-    project_id = Column(Integer, ForeignKey('projects.id', ondelete="CASCADE"), primary_key=True)
+    allievo_id = Column(Integer, ForeignKey('allievi.id', ondelete="CASCADE"), primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey('projects.id', ondelete="CASCADE"), primary_key=True, index=True)
     id = Column(Integer, nullable=True)
     ore_frequentate = Column(Float, default=0.0, nullable=True)
     stato = Column(String(30), default='iscritto', nullable=True)
@@ -116,6 +116,15 @@ class Collaborator(Base):
             return piva_clean
         return piva
 
+    # NB: l'indice PG-only idx_collab_fulltext_search (lower(first_name),
+    # lower(last_name)) vive solo nel DB: usa un cast ::text non valido su
+    # SQLite (usato dai test) ed e' escluso dal confronto autogenerate in
+    # alembic/env.py.
+    __table_args__ = (
+        Index("idx_collab_city", "city"),
+        Index("idx_collab_active_created", "is_active", text("created_at DESC")),
+    )
+
 
 class GDPRConsenso(Base):
     __tablename__ = "gdpr_consensi"
@@ -145,6 +154,10 @@ class SecurityAuditLog(Base):
     dati_dopo = Column(Text, nullable=True)
     ip_address_hash = Column(String(64), nullable=True)
     esito = Column(String(50), nullable=False, default="success", index=True)
+
+    __table_args__ = (
+        Index("ix_audit_log_risorsa", "risorsa_tipo", "risorsa_id"),
+    )
 
 
 class DocumentoRichiesto(Base):
@@ -253,9 +266,9 @@ class Project(Base):
     # Campi per performance
     priority = Column(Integer, default=1, index=True)
     budget = Column(Float)
-    ore_totali = Column(Float, default=0.0)
-    ore_completate = Column(Float, default=0.0)
-    progress_percentage = Column(Float, default=0.0)
+    ore_totali = Column(Float, default=0.0, nullable=False)
+    ore_completate = Column(Float, default=0.0, nullable=False)
+    progress_percentage = Column(Float, default=0.0, nullable=False)
     is_active = Column(Boolean, default=True, index=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
@@ -387,6 +400,8 @@ class Attendance(Base):
             "start_time",
             name="uq_attendance_collaborator_project_date_time",
         ),
+        Index("idx_attendance_overlap_guard", "collaborator_id", "start_time", "end_time"),
+        Index("ix_attendances_collaborator_project_date", "collaborator_id", "project_id", "date"),
     )
 
 class Assignment(Base):
@@ -451,6 +466,7 @@ class Assignment(Base):
         Index('idx_collaborator_project_role', 'collaborator_id', 'project_id', 'role'),
         Index('idx_date_range', 'start_date', 'end_date'),
         Index('idx_active_assignments', 'is_active', 'start_date'),
+        Index('idx_assignment_overlap_guard', 'collaborator_id', 'is_active', 'start_date', 'end_date'),
     )
 
 class ImplementingEntity(Base):
@@ -797,7 +813,7 @@ class PianoFinanziario(Base):
     budget_totale = Column(Float, nullable=False, default=0.0)
     budget_approvato = Column(Float, nullable=False, default=0.0)
     budget_utilizzato = Column(Float, default=0.0)
-    budget_rimanente = Column(Float, default=0.0)
+    budget_rimanente = Column(Float, default=0.0, nullable=False)
 
     # === DATE ===
     data_inizio = Column(DateTime, nullable=False, default=func.now())
@@ -1376,8 +1392,8 @@ class Allievo(Base):
     residenza = Column(String(255), nullable=True)
     cap = Column(String(5), nullable=True)
     citta = Column(String(100), nullable=True, index=True)
-    provincia = Column(String(2), nullable=True)
-    occupato = Column(Boolean, default=False, index=True)
+    provincia = Column(String(2), nullable=True, index=True)
+    occupato = Column(Boolean, default=False, nullable=False, index=True)
     azienda_cliente_id = Column(Integer, ForeignKey("aziende_clienti.id", ondelete="SET NULL"), nullable=True, index=True)
     azienda_sede_operativa_id = Column(Integer, ForeignKey("azienda_cliente_sedi_operative.id", ondelete="SET NULL"), nullable=True, index=True)
     data_assunzione = Column(DateTime, nullable=True, index=True)
@@ -1386,7 +1402,7 @@ class Allievo(Base):
     mansione = Column(String(100), nullable=True)
     livello_inquadramento = Column(String(100), nullable=True)
     note = Column(Text, nullable=True)
-    attivo = Column(Boolean, default=True, index=True)
+    attivo = Column(Boolean, default=True, nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -1450,6 +1466,7 @@ class AziendaClienteProjectLink(Base):
 
     __table_args__ = (
         UniqueConstraint("azienda_cliente_id", "project_id", name="uq_azienda_cliente_project"),
+        Index("idx_azienda_cliente_projects_regime", "regime_aiuto"),
     )
 
 
@@ -1956,8 +1973,8 @@ class AgentRun(Base):
     agent_type = Column(String(100), nullable=False, index=True)
     agent_version = Column(String(20), nullable=False, default="1.0")
     status = Column(String(20), nullable=False, default="running", index=True)
-    started_at = Column(DateTime, nullable=False, default=func.now(), index=True)
-    completed_at = Column(DateTime, nullable=True)
+    started_at = Column(DateTime(timezone=True), nullable=False, default=func.now(), index=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
     triggered_by = Column(String(50), nullable=True)
     trigger_details = Column(Text, nullable=True)
     items_processed = Column(Integer, nullable=False, default=0)
@@ -2014,7 +2031,7 @@ class AgentSuggestion(Base):
     auto_fix_payload = Column(Text, nullable=True)
     confidence_score = Column(Float, nullable=True)
     expires_at = Column(DateTime, nullable=True, index=True)
-    created_at = Column(DateTime, nullable=False, default=func.now(), index=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=func.now(), index=True)
 
     run = relationship("AgentRun", back_populates="suggestions", lazy="select")
     review_actions = relationship(
@@ -2085,7 +2102,7 @@ class AgentCommunicationDraft(Base):
     created_by_user_id = Column(Integer, nullable=True, index=True)
     reviewed_by_user_id = Column(Integer, nullable=True, index=True)
     sent_at = Column(DateTime(timezone=True), nullable=True, index=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     run = relationship("AgentRun", lazy="select")
@@ -2111,7 +2128,12 @@ class EmailInboxItem(Base):
     error_message = Column(Text, nullable=True)
     archived = Column(Boolean, server_default=text("false"), nullable=False, index=True)
     archived_at = Column(DateTime(timezone=True), nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False, index=True)
+
+    __table_args__ = (
+        Index("ix_email_inbox_items_status", "processing_status"),
+        Index("ix_email_inbox_items_entity", "entity_type", "entity_id"),
+    )
 
 
 class TimesheetGenerato(Base):

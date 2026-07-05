@@ -25,6 +25,19 @@ import models
 
 target_metadata = Base.metadata
 
+# Indici PostgreSQL-only mantenuti fuori dai modelli perche' non
+# rappresentabili cross-dialect (i test creano lo schema su SQLite).
+# Vengono esclusi dal confronto autogenerate: esistono nel DB by design.
+DB_MANAGED_INDEX_NAMES = {
+    "idx_collab_fulltext_search",  # lower(first_name::text), lower(last_name::text)
+}
+
+
+def include_name(name, type_, parent_names):
+    if type_ == "index" and name in DB_MANAGED_INDEX_NAMES:
+        return False
+    return True
+
 def run_migrations_offline() -> None:
     url = config.get_main_option("sqlalchemy.url")
     context.configure(
@@ -32,6 +45,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        include_name=include_name,
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -45,7 +59,8 @@ def run_migrations_online() -> None:
     with connectable.connect() as connection:
         context.configure(
             connection=connection,
-            target_metadata=target_metadata
+            target_metadata=target_metadata,
+            include_name=include_name,
         )
         with context.begin_transaction():
             context.run_migrations()

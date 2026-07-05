@@ -278,7 +278,7 @@ class User(Base):
     email = Column(String(100), unique=True, index=True, nullable=False)
     hashed_password = Column(String(100), nullable=False)
     full_name = Column(String(100))
-    role = Column(String(20), default=UserRole.CONSULTAZIONE.value, index=True)
+    role = Column(String(20), default=UserRole.CONSULTAZIONE.value, nullable=False, server_default=UserRole.CONSULTAZIONE.value, index=True)
 
     is_active = Column(Boolean, default=True, index=True)
     is_verified = Column(Boolean, default=False)
