@@ -49,6 +49,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # Installa solo dipendenze runtime (NO build tools)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    gnupg \
     netcat-traditional \
     postgresql-client \
     && rm -rf /var/lib/apt/lists/*
