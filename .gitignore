@@ -12,6 +12,7 @@
 # ⚠️ MAI committare questi file su Git!
 .env
 .env.local
+.env.*
 .env.production
 .env.*.local
 *.pem
@@ -20,6 +21,7 @@
 *.p12
 *.pfx
 secrets/
+secrets.yml
 credentials.json
 service-account.json
 
