@@ -429,30 +429,27 @@ def run_agent_workflow(
         )
 
         created_suggestions: list[models.AgentSuggestion] = []
-        auto_sent_emails = 0
         draft_emails = 0
         discarded_emails = 0
         for item in result.get("suggestions", []):
             payload_dict = item.get("payload") or {}
             confidence = float(item.get("confidence_score", item.get("confidence", 0.0)) or 0.0)
-            mail_recovery_decision = None
-            if (
+            # Gli agenti non inviano mai direttamente: qualunque confidence produce
+            # al massimo una bozza approvabile dal flusso di revisione UI.
+            is_mail_suggestion = (
                 definition["name"] == "mail_recovery"
                 and payload_dict.get("recipient_email")
                 and payload_dict.get("subject")
                 and payload_dict.get("body")
-            ):
-                if confidence < 0.60:
-                    discarded_emails += 1
-                    logger.info(
-                        "mail_recovery scarta email: collaborator=%s confidence=%.2f",
-                        payload_dict.get("recipient_id"),
-                        confidence,
-                    )
-                    continue
-                # A1: gli agenti non inviano piu' automaticamente. Anche con confidence alta
-                # producono solo bozze approvabili dal workflow UI.
-                mail_recovery_decision = "draft"
+            )
+            if is_mail_suggestion and confidence < 0.60:
+                discarded_emails += 1
+                logger.info(
+                    "mail_recovery scarta email: collaborator=%s confidence=%.2f",
+                    payload_dict.get("recipient_id"),
+                    confidence,
+                )
+                continue
 
             # Deduplication: reuse any still-open suggestion of the same type for this entity.
             # In particular, do not recreate a new pending item if the previous request was already sent;
@@ -473,8 +470,6 @@ def run_agent_workflow(
                 existing.description = item["description"]
                 existing.payload = _json_dumps(item.get("payload"))
                 existing.confidence_score = confidence
-                if mail_recovery_decision == "auto_send":
-                    existing.status = "sent"
                 db.flush()
                 suggestion = existing
             else:
@@ -484,7 +479,7 @@ def run_agent_workflow(
                     entity_id=item.get("entity_id"),
                     suggestion_type=item["suggestion_type"],
                     severity=item["severity"],
-                    status="sent" if mail_recovery_decision == "auto_send" else "pending",
+                    status="pending",
                     title=item["title"],
                     description=item["description"],
                     payload=_json_dumps(item.get("payload")),
@@ -494,54 +489,10 @@ def run_agent_workflow(
                 db.flush()
             created_suggestions.append(suggestion)
 
-            if (
-                definition["name"] == "mail_recovery"
-                and payload_dict.get("recipient_email")
-                and payload_dict.get("subject")
-                and payload_dict.get("body")
-            ):
+            if is_mail_suggestion:
                 if not _email_agent_consent_ok(db, payload_dict):
                     discarded_emails += 1
                     suggestion.status = "discarded"
-                    continue
-
-                if mail_recovery_decision == "auto_send":
-                    sent_ok, detail = _send_email(
-                        recipient_email=payload_dict["recipient_email"],
-                        subject=payload_dict["subject"],
-                        body=payload_dict["body"],
-                    )
-                    status_value = "sent" if sent_ok else "draft"
-                    sent_at = utc_now() if sent_ok else None
-                    if sent_ok:
-                        auto_sent_emails += 1
-                    else:
-                        logger.warning(
-                            "mail_recovery auto-send fallito, mantiene bozza: collaborator=%s detail=%s",
-                            payload_dict.get("recipient_id"),
-                            detail,
-                        )
-                    db.add(models.AgentCommunicationDraft(
-                        run_id=run.id,
-                        suggestion_id=suggestion.id,
-                        agent_name=definition["name"],
-                        channel="email",
-                        recipient_type=payload_dict.get("recipient_type") or item["entity_type"],
-                        recipient_id=payload_dict.get("recipient_id"),
-                        recipient_email=payload_dict["recipient_email"],
-                        recipient_name=payload_dict.get("recipient_name"),
-                        subject=payload_dict["subject"],
-                        body=payload_dict["body"],
-                        status=status_value,
-                        sent_at=sent_at,
-                        meta_payload=_json_dumps({
-                            **payload_dict,
-                            "auto_decision": "sent" if sent_ok else "send_failed_draft",
-                            "delivery_detail": detail,
-                            "confidence": confidence,
-                        }),
-                        created_by_user_id=requested_by_user_id,
-                    ))
                     continue
 
                 # Reuse editable drafts attached to the current open suggestion.
@@ -576,7 +527,6 @@ def run_agent_workflow(
         if definition["name"] == "mail_recovery":
             summary = {
                 **summary,
-                "auto_sent_emails": auto_sent_emails,
                 "draft_emails": draft_emails,
                 "discarded_emails": discarded_emails,
             }

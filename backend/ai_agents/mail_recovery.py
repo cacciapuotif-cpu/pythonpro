@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from time_utils import utc_now
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
 import models
 from sqlalchemy.orm import Session
 from .llm import generate_mail_recovery_copy, get_agent_llm_config
+from services.audit_log import write_audit_log
 
 
 def _build_suggestion(
@@ -183,7 +185,7 @@ def run_mail_recovery_agent(
     else:
         query = query.limit(limit)
 
-    now = datetime.utcnow()
+    now = utc_now()
     near_expiry_threshold = now + timedelta(days=30)
     suggestions: list[dict[str, Any]] = []
     llm_config = get_agent_llm_config()
@@ -192,8 +194,13 @@ def run_mail_recovery_agent(
     use_llm_copy = entity_id is not None
 
     for collaborator in query.all():
-        if not getattr(collaborator, "consenso_email_agenti", False):
+        if not bool(getattr(collaborator, "consenso_email_agenti", False)):
             skipped_no_consent += 1
+            write_audit_log(
+                db, user_id=None, azione="mail_recovery_skipped_no_consent",
+                risorsa_tipo="collaborator", risorsa_id=collaborator.id,
+                dati_dopo={"status": "skipped_no_consent"}, esito="skipped_no_consent"
+            )
             if entity_id is not None:
                 return {
                     "status": "skipped",
@@ -325,6 +332,5 @@ def run_mail_recovery_agent(
         "llm_provider": llm_config.provider,
         "llm_enabled": llm_config.enabled,
         "llm_generated_count": llm_generated_count,
-        "skipped_no_consent": skipped_no_consent,
     }
     return {"summary": summary, "suggestions": suggestions}
