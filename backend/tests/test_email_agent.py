@@ -846,6 +846,7 @@ class TestEmailInboxWorker:
             reply_sent = Column(Boolean, default=False)
             reply_sent_at = Column(DateTime)
             error_message = Column(Text)
+            created_at = Column(DateTime)
 
         engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(engine)

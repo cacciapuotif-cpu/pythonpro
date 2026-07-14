@@ -157,10 +157,12 @@ class EmailInboxWorker:
                 f"L'allegato ricevuto ('{unsupported_name}') non e' un PDF ({unsupported_content_type or 'tipo sconosciuto'}).",
                 "Reinvia il documento allegando un file PDF, DOC o DOCX.",
             ]
-            composer = InboxReplyComposer()
-            reply_sent = composer.send_reply(
-                to=sender_email,
-                recipient_name=entity_name,
+            self._create_reply_draft(
+                db,
+                sender_email=sender_email,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                entity_name=entity_name,
                 issues=issues,
                 original_subject=subject,
             )
@@ -183,7 +185,7 @@ class EmailInboxWorker:
                     "extracted_data": body_data,
                     "body_updated_fields": body_updated_fields,
                 },
-                reply_sent=reply_sent,
+                reply_sent=False,
             )
             imap.store(msg_id, "+FLAGS", "\\Seen")
             return
@@ -219,19 +221,20 @@ class EmailInboxWorker:
 
         if doc_result.valid is True:
             processing_status = "valid"
-            reply_sent = False
         elif doc_result.valid is False:
             processing_status = "invalid"
-            composer = InboxReplyComposer()
-            reply_sent = composer.send_reply(
-                to=sender_email,
-                recipient_name=entity_name,
+            self._create_reply_draft(
+                db,
+                sender_email=sender_email,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                entity_name=entity_name,
                 issues=doc_result.issues,
                 original_subject=subject,
             )
         else:
             processing_status = "manual_review"
-            reply_sent = False
+        reply_sent = False
 
         if body_updated_fields and processing_status == "manual_review":
             processing_status = "valid"
@@ -277,6 +280,81 @@ class EmailInboxWorker:
             )
 
         imap.store(msg_id, "+FLAGS", "\\Seen")
+
+    def _create_reply_draft(
+        self,
+        db,
+        *,
+        sender_email: str,
+        entity_type: Optional[str],
+        entity_id: Optional[int],
+        entity_name: str,
+        issues: list,
+        original_subject: str,
+    ) -> None:
+        """Prepara la risposta come bozza approvabile: nessun invio automatico.
+
+        Flusso canonico: AgentRun -> AgentSuggestion -> AgentCommunicationDraft;
+        l'invio avviene solo da apply_workflow_action dopo revisione umana.
+        """
+        from services.inbox_reply_composer import InboxReplyComposer
+
+        try:
+            import models
+
+            subject, body = InboxReplyComposer().compose(
+                recipient_name=entity_name,
+                issues=list(issues or []),
+                original_subject=original_subject,
+            )
+
+            run = models.AgentRun(
+                agent_type="email_intake",
+                status="completed",
+                entity_type=entity_type,
+                entity_id=entity_id,
+                triggered_by="email_inbox_worker",
+                suggestions_count=1,
+            )
+            db.add(run)
+            db.flush()
+
+            issues_text = "; ".join(str(i) for i in issues) if issues else "documento non elaborabile"
+            suggestion = models.AgentSuggestion(
+                run_id=run.id,
+                suggestion_type="inbox_reply_needed",
+                status="pending",
+                severity="medium",
+                entity_type=entity_type or "unknown",
+                entity_id=entity_id,
+                title=f"Risposta da approvare — {entity_name or sender_email}",
+                description=f"Email ricevuta con documento non elaborabile: {issues_text}",
+            )
+            db.add(suggestion)
+            db.flush()
+
+            db.add(models.AgentCommunicationDraft(
+                run_id=run.id,
+                suggestion_id=suggestion.id,
+                agent_name="email_intake",
+                channel="email",
+                recipient_type=entity_type or "unknown",
+                recipient_id=entity_id,
+                recipient_email=sender_email,
+                recipient_name=entity_name or None,
+                subject=subject,
+                body=body,
+                status="draft",
+                meta_payload=json.dumps({
+                    "delivery_mode": "operator_approved",
+                    "issues": [str(i) for i in (issues or [])],
+                    "original_subject": original_subject,
+                }),
+            ))
+            db.commit()
+        except Exception:
+            db.rollback()
+            logger.exception("_create_reply_draft fallita per %s", sender_email)
 
     def _create_auto_update_suggestion(
         self,
@@ -364,12 +442,13 @@ class EmailInboxWorker:
                 INSERT INTO email_inbox_items
                 (message_id, received_at, sender_email, subject, entity_type, entity_id,
                  attachment_path, attachment_name, processing_status, llm_result,
-                 reply_sent, reply_sent_at)
+                 reply_sent, reply_sent_at, created_at)
                 VALUES (:message_id, :received_at, :sender_email, :subject, :entity_type, :entity_id,
                         :attachment_path, :attachment_name, :processing_status, :llm_result,
-                        :reply_sent, :reply_sent_at)
+                        :reply_sent, :reply_sent_at, :created_at)
             """),
             {
+                "created_at": datetime.now(timezone.utc),
                 "message_id": message_id,
                 "received_at": received_at,
                 "sender_email": sender_email,

@@ -14,6 +14,23 @@ class InboxReplyComposer:
             email_sender = EmailSender()
         self._sender = email_sender
 
+    def compose(
+        self,
+        *,
+        recipient_name: str,
+        issues: List[str],
+        original_subject: str,
+    ) -> tuple[str, str]:
+        """Prepara subject e body testuale della richiesta integrazioni, senza inviare."""
+        subject = f"Re: {original_subject} — integrazioni richieste"
+        template = self._sender._load_template("richiesta_integrazioni", "txt")
+        body = template.render(
+            subject=subject,
+            recipient_name=recipient_name or "",
+            issues=issues,
+        )
+        return subject, body
+
     def send_reply(
         self,
         to: str,
