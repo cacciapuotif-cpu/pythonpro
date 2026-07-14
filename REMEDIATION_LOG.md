@@ -414,3 +414,14 @@ Formato: data | finding ID | cosa fatto | file toccati | test/verifiche eseguiti
 - Nota anomalia sanata: la sezione ONDATA-1-GATE precedente riportava un backup gate delle 14:47, anteriore ai commit punto 7 delle 16:25/16:35; il ciclo backup e tutti i gate sono stati rieseguiti in questa sessione a punto 7 interamente committato.
 
 - La dichiarazione finale "SÌ CON RISERVE" della sezione precedente e' CONFERMATA da questa verifica indipendente.
+
+## 2026-07-14 | ONDATA AGENTI | A1 in corso (kill switch, no auto-send, reply draft)
+
+- Contesto: filone dedicato piattaforma agenti. Piano completo in `docs/superpowers/plans/2026-07-14-ondata-agenti.md`. Baseline pre-lavoro: 245 test passed (suite container). Backup DB creato e verificato: `gestionale_backup_manual_20260714_174348.sql.zip.gpg`.
+- Politica worktree pre-esistente (censito in audit/WORKTREE_PREESISTENTE.md): gli hunk agentici conformi alla spec vengono verificati, testati e adottati nei commit atomici; il resto resta non committato.
+- Commit chiusi:
+  - `2387e0c` fix(AGENT-01): kill switch AGENTS_ENABLED + AGENT_<NOME>_ENABLED su tutti i trigger (manuale, sync evento, cron ARQ incluso data_retention_cleanup). Adottato control.py pre-esistente + gate in agent_workflows. 12 test (test_agent_kill_switch.py).
+  - `98b2945` fix(AGENT-02): rimosso percorso auto-send mail_recovery (rami morti auto_send, contatore auto_sent_emails); ogni comunicazione nasce draft e parte solo da apply_workflow_action. Adottato consent-gate con audit in run_mail_recovery_agent. 4 test (test_agent_no_autosend.py).
+  - `91fb9a4` fix(AGENT-03): reply automatica email intake (documento invalido / allegato non supportato) sostituita da AgentRun+Suggestion+Draft approvabile; InboxReplyComposer.compose separato dall'invio; INSERT email_inbox_items con created_at esplicito. 4 test (test_inbox_reply_draft.py).
+- A1 restante: A1.4 (auto-validazione LLM e update anagrafici → proposta con diff campo per campo + apply-fix reale con audit; trigger contract_agent spostato su validazione umana) e A1.5 (FINDINGS_NUOVI: apply-fix finto, data_retention_cleanup side effect automatici, /email-inbox/status cross-process stantio). Poi suite completa e chiusura punto.
+- Nessun push (vincolo Ondata 2 invariato).
