@@ -11,6 +11,8 @@ os.environ.setdefault("DATABASE_URL", "sqlite:////tmp/pythonpro_test.db")
 os.environ.setdefault("LOG_DIR", "/tmp/pythonpro_test_logs")
 os.environ.setdefault("UPLOADS_DIR", "/tmp/pythonpro_test_uploads")
 os.environ.setdefault("EXPORTS_DIR", "/tmp/pythonpro_test_exports")
+os.environ["REDIS_HOST"] = "127.0.0.1"
+os.environ["REDIS_PORT"] = "1"
 os.environ.setdefault("REDIS_PASSWORD", "RedisTest123456!")
 os.environ.setdefault("SMTP_HOST", "smtp.test.local")
 os.environ.setdefault("SMTP_USER", "test@example.com")
@@ -36,7 +38,7 @@ for key in [
 arq_module = types.ModuleType("arq")
 arq_connections = types.ModuleType("arq.connections")
 arq_cron = types.ModuleType("arq.cron")
-arq_connections.RedisSettings = object
+arq_connections.RedisSettings = type("RedisSettings", (), {"__init__": lambda self, **kwargs: None})
 arq_connections.create_pool = lambda *args, **kwargs: None
 arq_cron.cron = lambda *args, **kwargs: (args, kwargs)
 arq_module.connections = arq_connections

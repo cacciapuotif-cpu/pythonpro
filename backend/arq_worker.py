@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+from time_utils import utc_now
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 import httpx
 from arq.connections import RedisSettings
 from arq.cron import cron
 
-from agent_workflows import promote_due_followups
+from agent_workflows import promote_due_followups, _send_email
+from ai_agents.control import agent_enabled, agents_enabled, disabled_reason
 from database import SessionLocal
 
 logger = logging.getLogger(__name__)
@@ -25,7 +27,7 @@ async def process_entity_change_event(ctx: dict[str, Any], payload: dict[str, An
     )
     return {
         "status": "processed",
-        "processed_at": datetime.utcnow().isoformat(),
+        "processed_at": utc_now().isoformat(),
         "payload": payload,
     }
 
@@ -38,7 +40,7 @@ async def send_outbound_webhook(ctx: dict[str, Any], payload: dict[str, Any]) ->
 
     body = {
         "event_type": payload.get("event_type"),
-        "occurred_at": datetime.utcnow().isoformat(),
+        "occurred_at": utc_now().isoformat(),
         "data": payload.get("body", {}),
     }
 
@@ -62,7 +64,7 @@ async def promote_agent_followups(ctx: dict[str, Any]) -> dict[str, Any]:
         return {
             "status": "completed",
             "promoted": promoted,
-            "processed_at": datetime.utcnow().isoformat(),
+            "processed_at": utc_now().isoformat(),
         }
     finally:
         db.close()
@@ -75,6 +77,9 @@ async def poll_email_inbox(ctx: dict[str, Any]) -> dict[str, Any]:
     Interval: every 5 minutes (matches INBOX_POLL_INTERVAL_SECONDS default of 300s).
     """
     import asyncio
+
+    if not agent_enabled("email_intake"):
+        return {"status": "skipped", "reason": disabled_reason("email_intake")}
 
     imap_user = os.getenv("GMAIL_IMAP_USER", "")
     if not imap_user:
@@ -89,7 +94,7 @@ async def poll_email_inbox(ctx: dict[str, Any]) -> dict[str, Any]:
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, worker._run_poll_cycle, db)
         logger.info("poll_email_inbox: ciclo completato")
-        return {"status": "completed", "processed_at": datetime.utcnow().isoformat()}
+        return {"status": "completed", "processed_at": utc_now().isoformat()}
     except Exception as exc:
         logger.exception("poll_email_inbox: errore: %s", exc)
         return {"status": "error", "error": str(exc)}
@@ -98,6 +103,8 @@ async def poll_email_inbox(ctx: dict[str, Any]) -> dict[str, Any]:
 
 
 async def run_mail_recovery_cron(ctx: dict[str, Any]) -> dict[str, Any]:
+    if not agent_enabled("mail_recovery"):
+        return {"status": "skipped", "reason": disabled_reason("mail_recovery")}
     db = SessionLocal()
     try:
         from ai_agents.mail_recovery import run_mail_recovery_agent
@@ -113,6 +120,8 @@ async def run_mail_recovery_cron(ctx: dict[str, Any]) -> dict[str, Any]:
 
 
 async def run_contract_agent_cron(ctx: dict[str, Any]) -> dict[str, Any]:
+    if not agent_enabled("contract_agent"):
+        return {"status": "skipped", "reason": disabled_reason("contract_agent")}
     db = SessionLocal()
     try:
         from ai_agents.contract_agent import run_contract_agent
@@ -128,6 +137,8 @@ async def run_contract_agent_cron(ctx: dict[str, Any]) -> dict[str, Any]:
 
 
 async def run_certification_agent_cron(ctx: dict[str, Any]) -> dict[str, Any]:
+    if not agent_enabled("certification"):
+        return {"status": "skipped", "reason": disabled_reason("certification")}
     db = SessionLocal()
     try:
         from ai_agents.certification_agent import run_certification_agent
@@ -138,6 +149,50 @@ async def run_certification_agent_cron(ctx: dict[str, Any]) -> dict[str, Any]:
     except Exception as exc:
         logger.exception("certification_agent cron error: %s", exc)
         return {"status": "error", "agent": "certification_agent", "error": str(exc)}
+    finally:
+        db.close()
+
+
+async def data_retention_cleanup(ctx: dict[str, Any]) -> dict[str, Any]:
+    """Anonimizza collaboratori non attivi oltre 5 anni dalla fine ultimo rapporto."""
+    if not agents_enabled():
+        return {"status": "skipped", "reason": disabled_reason("data_retention")}
+    db = SessionLocal()
+    try:
+        import models
+        from services.gdpr_service import anonymize_collaborator
+
+        cutoff = utc_now() - timedelta(days=5 * 365)
+        candidates = (
+            db.query(models.Collaborator)
+            .filter(models.Collaborator.anonimizzato.is_(False))
+            .all()
+        )
+        anonymized = 0
+        for collaborator in candidates:
+            last_assignment_end = (
+                db.query(models.Assignment.end_date)
+                .filter(models.Assignment.collaborator_id == collaborator.id)
+                .order_by(models.Assignment.end_date.desc())
+                .first()
+            )
+            if not last_assignment_end or not last_assignment_end[0] or last_assignment_end[0] > cutoff:
+                continue
+            anonymize_collaborator(db, collaborator, user_id=None)
+            anonymized += 1
+        db.commit()
+        admin_email = os.getenv("DATA_RETENTION_REPORT_EMAIL") or os.getenv("SMTP_FROM")
+        if admin_email and anonymized:
+            _send_email(
+                recipient_email=admin_email,
+                subject="Report data retention PythonPro",
+                body=f"Anonimizzati {anonymized} collaboratori oltre retention quinquennale.",
+            )
+        return {"status": "completed", "anonymized": anonymized, "processed_at": utc_now().isoformat()}
+    except Exception as exc:
+        db.rollback()
+        logger.exception("data_retention_cleanup error: %s", exc)
+        return {"status": "error", "error": str(exc)}
     finally:
         db.close()
 
@@ -158,6 +213,7 @@ class WorkerSettings:
         run_mail_recovery_cron,
         run_contract_agent_cron,
         run_certification_agent_cron,
+        data_retention_cleanup,
     ]
     redis_settings = RedisSettings(
         host=os.getenv("REDIS_HOST", "localhost"),
@@ -173,6 +229,7 @@ class WorkerSettings:
         cron(run_mail_recovery_cron, hour={0, 6, 12, 18}, minute=10),
         cron(run_contract_agent_cron, hour={0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22}, minute=20),
         cron(run_certification_agent_cron, hour=9, minute=0),
+        cron(data_retention_cleanup, weekday=6, hour=3, minute=0),
     ]
     on_startup = startup
     max_tries = 3

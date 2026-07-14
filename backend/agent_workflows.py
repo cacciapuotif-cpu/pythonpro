@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from time_utils import utc_now
 import json
 import logging
 import os
@@ -12,7 +13,9 @@ from sqlalchemy.orm import Session
 
 import models
 from ai_agents import get_agent_definition, run_registered_agent
+from ai_agents.control import agent_enabled, agents_enabled, disabled_reason
 from services.whatsapp_sender import send_whatsapp_message
+from services.audit_log import write_audit_log
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +38,7 @@ def _mark_run_failed(db: Session, *, run_id: int, error_message: str) -> models.
     if run is None:
         raise AgentWorkflowExecutionError(error_message)
     run.status = "failed"
-    run.completed_at = datetime.utcnow()
+    run.completed_at = utc_now()
     run.error_message = error_message
     run.suggestions_count = 0
     run.result_summary = _json_dumps({"error": error_message})
@@ -266,11 +269,17 @@ def _ensure_collaborator_draft(
     ).first()
 
     if channel == "whatsapp":
+        if not bool(getattr(collaborator, "consenso_whatsapp_agenti", False)):
+            write_audit_log(db, user_id=requested_by_user_id, azione="agent_draft_skipped_no_whatsapp_consent", risorsa_tipo="collaborator", risorsa_id=collaborator.id, dati_dopo={"status": "skipped_no_consent"}, esito="skipped_no_consent")
+            return None
         if not collaborator.phone:
             return None
         subject, body = _whatsapp_copy_for_suggestion(suggestion, collaborator)
         recipient_address = collaborator.phone
     else:
+        if not bool(getattr(collaborator, "consenso_email_agenti", False)):
+            write_audit_log(db, user_id=requested_by_user_id, azione="agent_draft_skipped_no_email_consent", risorsa_tipo="collaborator", risorsa_id=collaborator.id, dati_dopo={"status": "skipped_no_consent"}, esito="skipped_no_consent")
+            return None
         if not collaborator.email:
             return None
         subject, body = _draft_copy_for_suggestion(suggestion, collaborator)
@@ -353,7 +362,7 @@ def _mark_suggestion_resolved(
         return
     old_status = suggestion.status
     suggestion.status = "completed"
-    suggestion.reviewed_at = datetime.utcnow()
+    suggestion.reviewed_at = utc_now()
     _review_log(db, suggestion_id=suggestion.id, action="auto_resolved", notes=notes, reviewed_by_user_id=None)
     create_audit_log(
         db,
@@ -384,6 +393,8 @@ def run_agent_workflow(
     definition = get_agent_definition(agent_type)
     if not definition:
         raise ValueError("Agente non supportato")
+    if not agent_enabled(agent_type):
+        raise ValueError(disabled_reason(agent_type))
 
     supported_entity_types = definition.get("supported_entity_types") or []
     if entity_type and entity_type not in supported_entity_types:
@@ -439,7 +450,9 @@ def run_agent_workflow(
                         confidence,
                     )
                     continue
-                mail_recovery_decision = "auto_send" if confidence >= 0.85 else "draft"
+                # A1: gli agenti non inviano piu' automaticamente. Anche con confidence alta
+                # producono solo bozze approvabili dal workflow UI.
+                mail_recovery_decision = "draft"
 
             # Deduplication: reuse any still-open suggestion of the same type for this entity.
             # In particular, do not recreate a new pending item if the previous request was already sent;
@@ -499,7 +512,7 @@ def run_agent_workflow(
                         body=payload_dict["body"],
                     )
                     status_value = "sent" if sent_ok else "draft"
-                    sent_at = datetime.utcnow() if sent_ok else None
+                    sent_at = utc_now() if sent_ok else None
                     if sent_ok:
                         auto_sent_emails += 1
                     else:
@@ -568,7 +581,7 @@ def run_agent_workflow(
                 "discarded_emails": discarded_emails,
             }
         run.status = "completed"
-        run.completed_at = datetime.utcnow()
+        run.completed_at = utc_now()
         run.suggestions_count = len(created_suggestions)
         run.result_summary = _json_dumps(summary)
         run.error_message = None
@@ -606,6 +619,10 @@ def sync_collaborator_data_quality(
     requested_by_user_id: Optional[int] = None,
     trigger_source: str = "collaborator_update",
 ) -> Optional[models.AgentRun]:
+    if not agent_enabled("data_quality"):
+        logger.info("sync_collaborator_data_quality skipped: %s", disabled_reason("data_quality"))
+        return None
+
     collaborator = db.query(models.Collaborator).filter(models.Collaborator.id == collaborator_id).first()
     if collaborator is None or not collaborator.is_active:
         return None
@@ -691,7 +708,10 @@ def sync_collaborator_data_quality(
 
 
 def promote_due_followups(db: Session) -> int:
-    threshold = datetime.utcnow() - timedelta(days=7)
+    if not agents_enabled():
+        logger.info("promote_due_followups skipped: %s", disabled_reason("followups"))
+        return 0
+    threshold = utc_now() - timedelta(days=7)
     due_count = 0
     drafts = db.query(models.AgentCommunicationDraft).filter(
         models.AgentCommunicationDraft.status == "sent",
@@ -773,7 +793,7 @@ def apply_workflow_action(
             raise ValueError(f"Nessuna comunicazione {selected_channel} disponibile per questo suggerimento")
         sent_ok, detail, delivery_meta = _deliver_draft(draft)
         meta = _parse_json_payload(draft.meta_payload)
-        meta["last_delivery_attempt_at"] = datetime.utcnow().isoformat()
+        meta["last_delivery_attempt_at"] = utc_now().isoformat()
         meta["last_delivery_detail"] = detail
         meta["delivery_attempts"] = int(meta.get("delivery_attempts") or 0) + 1
         meta.update({key: value for key, value in delivery_meta.items() if value is not None})
@@ -781,12 +801,12 @@ def apply_workflow_action(
         draft.reviewed_by_user_id = reviewed_by_user_id
         if sent_ok:
             draft.status = "sent"
-            draft.sent_at = datetime.utcnow()
+            draft.sent_at = utc_now()
             suggestion.status = "sent"
         else:
             draft.status = "approved"
             suggestion.status = "approved"
-        suggestion.reviewed_at = datetime.utcnow()
+        suggestion.reviewed_at = utc_now()
         suggestion.reviewed_by_user_id = reviewed_by_user_id
         review_action = f"{normalized_action}_{draft.channel}"
         if normalized_action == "remind" and sent_ok:
@@ -794,7 +814,7 @@ def apply_workflow_action(
         _review_log(db, suggestion_id=suggestion.id, action=review_action, notes=notes or detail, reviewed_by_user_id=reviewed_by_user_id)
     elif normalized_action == "wait":
         suggestion.status = "waiting"
-        suggestion.reviewed_at = datetime.utcnow()
+        suggestion.reviewed_at = utc_now()
         suggestion.reviewed_by_user_id = reviewed_by_user_id
         drafts = db.query(models.AgentCommunicationDraft).filter(
             models.AgentCommunicationDraft.suggestion_id == suggestion.id
@@ -806,7 +826,7 @@ def apply_workflow_action(
         _review_log(db, suggestion_id=suggestion.id, action="waiting", notes=notes, reviewed_by_user_id=reviewed_by_user_id)
     elif normalized_action == "close":
         suggestion.status = "completed"
-        suggestion.reviewed_at = datetime.utcnow()
+        suggestion.reviewed_at = utc_now()
         suggestion.reviewed_by_user_id = reviewed_by_user_id
         drafts = db.query(models.AgentCommunicationDraft).filter(
             models.AgentCommunicationDraft.suggestion_id == suggestion.id
