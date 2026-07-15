@@ -425,3 +425,16 @@ Formato: data | finding ID | cosa fatto | file toccati | test/verifiche eseguiti
   - `91fb9a4` fix(AGENT-03): reply automatica email intake (documento invalido / allegato non supportato) sostituita da AgentRun+Suggestion+Draft approvabile; InboxReplyComposer.compose separato dall'invio; INSERT email_inbox_items con created_at esplicito. 4 test (test_inbox_reply_draft.py).
 - A1 restante: A1.4 (auto-validazione LLM e update anagrafici → proposta con diff campo per campo + apply-fix reale con audit; trigger contract_agent spostato su validazione umana) e A1.5 (FINDINGS_NUOVI: apply-fix finto, data_retention_cleanup side effect automatici, /email-inbox/status cross-process stantio). Poi suite completa e chiusura punto.
 - Nessun push (vincolo Ondata 2 invariato).
+
+## 2026-07-15 | ONDATA AGENTI | A1 CHIUSO (A1.4 proposta+apply reale, A1.5 findings)
+
+- **A1.4 — `cc98924` fix(AGENT-04)**: documenti e anagrafiche solo per proposta, apply-fix reale con audit.
+  - `document_processor.py`: rimossi override `False->True` in `_parse_llm_result_dict` e auto-validazione `confidence>=0.85` in `_apply_confidence_decision`.
+  - `document_intake_agent.py`: `apply_document_result` non scrive più campi collaboratore/azienda (fix AI-01) e non valida documenti; documento resta `caricato`, proposte come diff campo per campo (AgentSuggestion `document_field_updates`, `auto_fix_payload` = field_diff JSON); trigger contract_agent parte solo da validazione umana (`routers/documenti_richiesti.py`).
+  - `email_inbox_worker.py`: dati dal body email diventano proposta nello stesso diff (`_build_body_proposals`); rimossi stato `auto_processed` e `_create_auto_update_suggestion`.
+  - `services/agent_apply_service.py` (nuovo): `apply_field_update_suggestion` con whitelist campi per entity_type, skip valori stantii (ricontrollo valore attuale), `AuditLog` per campo, risoluzione follow-up `request_missing_collaborator_data` pendenti.
+  - `routers/agents.py`: apply-fix applica DAVVERO il diff (chiude NEW-005); payload non strutturato → 400. Adottati nello stesso commit gli hunk RBAC pre-esistenti del worktree (`require_agents_execute/write` = ADMIN|MANAGER, nota: più restrittivi degli endpoint prima aperti; riconciliazione con matrice RBAC al GATE A5a).
+  - Test: `test_document_intake_proposal.py` nuovo (11 test), `test_email_agent.py` aggiornato al comportamento a proposta.
+- **A1.5**: `audit/FINDINGS_NUOVI.md` aggiornato con NEW-005 (apply-fix fittizio, alta — chiuso da AGENT-04), NEW-006 (data_retention_cleanup anonimizza+invia email automaticamente, alta — mitigato dal kill switch AGENT-01, conversione a proposta rinviata ad A3), NEW-007 (/email-inbox/status legge stato in-process stantio, media — fix pianificato A2.3).
+- Gate di chiusura A1: suite completa in container **276 passed** (baseline 245; +31 dai test AGENT-01..04).
+- Nessun push (vincolo Ondata 2 invariato).
