@@ -136,15 +136,23 @@ async def run_mail_recovery_cron(ctx: dict[str, Any]) -> dict[str, Any]:
 
 
 async def run_contract_agent_cron(ctx: dict[str, Any]) -> dict[str, Any]:
+    # AGENT-09: via workflow persistente (come mail_recovery in AGENT-07).
     if not agent_enabled("contract_agent"):
         return {"status": "skipped", "reason": disabled_reason("contract_agent")}
     db = SessionLocal()
     try:
-        from ai_agents.contract_agent import run_contract_agent
+        from agent_workflows import run_agent_workflow
 
-        result = run_contract_agent(db)
-        logger.info("contract_agent cron completed: %s", result)
-        return {"status": "completed", "agent": "contract_agent", "result": result}
+        run = run_agent_workflow(db, agent_type="contract_agent", auto_mode=True)
+        logger.info(
+            "contract_agent cron completed: run_id=%s status=%s", run.id, run.status
+        )
+        return {
+            "status": "completed",
+            "agent": "contract_agent",
+            "run_id": run.id,
+            "run_status": run.status,
+        }
     except Exception as exc:
         logger.exception("contract_agent cron error: %s", exc)
         return {"status": "error", "agent": "contract_agent", "error": str(exc)}
@@ -153,18 +161,26 @@ async def run_contract_agent_cron(ctx: dict[str, Any]) -> dict[str, Any]:
 
 
 async def run_certification_agent_cron(ctx: dict[str, Any]) -> dict[str, Any]:
+    # AGENT-09: via workflow persistente (come mail_recovery in AGENT-07).
     if not agent_enabled("certification"):
         return {"status": "skipped", "reason": disabled_reason("certification")}
     db = SessionLocal()
     try:
-        from ai_agents.certification_agent import run_certification_agent
+        from agent_workflows import run_agent_workflow
 
-        result = run_certification_agent(db)
-        logger.info("certification_agent cron completed: %s", result)
-        return {"status": "completed", "agent": "certification_agent", "result": result}
+        run = run_agent_workflow(db, agent_type="certification", auto_mode=True)
+        logger.info(
+            "certification cron completed: run_id=%s status=%s", run.id, run.status
+        )
+        return {
+            "status": "completed",
+            "agent": "certification",
+            "run_id": run.id,
+            "run_status": run.status,
+        }
     except Exception as exc:
-        logger.exception("certification_agent cron error: %s", exc)
-        return {"status": "error", "agent": "certification_agent", "error": str(exc)}
+        logger.exception("certification cron error: %s", exc)
+        return {"status": "error", "agent": "certification", "error": str(exc)}
     finally:
         db.close()
 

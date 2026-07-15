@@ -1,18 +1,49 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from typing import Any, Optional
 
 from sqlalchemy import func, select
 
 import models
-from .registry import BaseAgent, AgentRunResult, agent_registry
+
+
+@dataclass
+class AgentRunResult:
+    items_processed: int
+    items_with_issues: int
+    suggestions: list[dict[str, Any]] = field(default_factory=list)
+    error: Optional[str] = None
 
 
 _FISCAL_CODE_PATTERN = re.compile(r"^[A-Z]{6}[0-9LMNPQRSTUV]{2}[ABCDEHLMPRST][0-9LMNPQRSTUV]{2}[A-Z][0-9LMNPQRSTUV]{3}[A-Z]$")
+_ODD_MAP = {c: i for i, c in enumerate("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ")}
+_EVEN_MAP = {**{str(i): i for i in range(10)}, **{chr(ord("A") + i): i for i in range(26)}}
+_ODD_VALUES = {
+    "0": 1, "1": 0, "2": 5, "3": 7, "4": 9, "5": 13, "6": 15, "7": 17, "8": 19, "9": 21,
+    "A": 1, "B": 0, "C": 5, "D": 7, "E": 9, "F": 13, "G": 15, "H": 17, "I": 19, "J": 21,
+    "K": 2, "L": 4, "M": 18, "N": 20, "O": 11, "P": 3, "Q": 6, "R": 8, "S": 12, "T": 14,
+    "U": 16, "V": 10, "W": 22, "X": 25, "Y": 24, "Z": 23,
+}
+_CHECK_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 
-class DataQualityAgent(BaseAgent):
+def is_valid_codice_fiscale(value: str | None) -> bool:
+    fiscal_code = (value or "").strip().upper()
+    if not _FISCAL_CODE_PATTERN.match(fiscal_code):
+        return False
+    total = 0
+    for index, char in enumerate(fiscal_code[:15], start=1):
+        if index % 2 == 1:
+            total += _ODD_VALUES[char]
+        else:
+            total += _EVEN_MAP[char]
+    return _CHECK_CHARS[total % 26] == fiscal_code[-1]
+
+
+class DataQualityAgent:
     agent_type = "data_quality"
     version = "1.0"
     description = "Verifica completezza e coerenza dati anagrafici"
@@ -35,6 +66,7 @@ class DataQualityAgent(BaseAgent):
             if not (collaborator.curriculum_path or collaborator.curriculum_filename):
                 missing_documents.append("Curriculum")
 
+
             if missing_documents:
                 suggestions.append({
                     "suggestion_type": "missing_identity_document",
@@ -50,7 +82,7 @@ class DataQualityAgent(BaseAgent):
 
             missing_fields = []
             fiscal_code = (collaborator.fiscal_code or "").strip().upper()
-            if not fiscal_code or not _FISCAL_CODE_PATTERN.match(fiscal_code):
+            if not is_valid_codice_fiscale(fiscal_code):
                 missing_fields.append("codice fiscale")
             if not collaborator.birth_date:
                 missing_fields.append("data di nascita")
@@ -136,6 +168,3 @@ class DataQualityAgent(BaseAgent):
             suggestions=suggestions,
             error=None,
         )
-
-
-agent_registry.register(DataQualityAgent())

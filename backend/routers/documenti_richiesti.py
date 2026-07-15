@@ -15,19 +15,28 @@ router = APIRouter(tags=["Documenti Richiesti"])
 
 
 def _trigger_contract_agent_for_document(db: Session, documento) -> None:
+    # AGENT-09: trigger via workflow persistente (AgentRun tracciato),
+    # non piu' chiamata diretta all'agente.
     if not documento or documento.stato != "validato":
         return
     doc_id = documento.id
     collaboratore_id = documento.collaboratore_id
     try:
-        from ai_agents.contract_agent import run_contract_agent_for_collaborator
+        from agent_workflows import run_agent_workflow
 
-        result = run_contract_agent_for_collaborator(db, collaboratore_id)
+        run = run_agent_workflow(
+            db,
+            agent_type="contract_agent",
+            entity_type="collaborator",
+            entity_id=collaboratore_id,
+            input_payload={"trigger_source": "document_validated", "documento_id": doc_id},
+            auto_mode=True,
+        )
         logger.info(
-            "DocumentiRichiesti: contract_agent trigger doc=%s collaborator=%s result=%s",
+            "DocumentiRichiesti: contract_agent trigger doc=%s collaborator=%s run_id=%s",
             doc_id,
             collaboratore_id,
-            result,
+            run.id,
         )
     except Exception as exc:
         db.rollback()

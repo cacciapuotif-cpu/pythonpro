@@ -13,7 +13,6 @@ import schemas
 from agent_workflows import AgentWorkflowExecutionError, apply_workflow_action, run_agent_workflow
 from ai_agents import list_agent_definitions
 from ai_agents.llm import probe_agent_llm_health
-from ai_agents.registry import agent_registry
 from auth import User, UserRole, get_current_user
 from database import get_db
 
@@ -99,56 +98,32 @@ def _normalize_accept_workflow_action(action: Optional[str]) -> str:
     return normalized
 
 
-@router.get("/")
-def list_registered_agents(current_user: User = Depends(get_current_user)):
-    registered = {
-        item.get("agent_type"): item
-        for item in agent_registry.list_agents()
-        if item.get("agent_type")
+def _catalog_entry(definition: dict) -> dict:
+    return {
+        "name": definition["name"],
+        "label": definition["name"].replace("_", " ").title(),
+        "description": definition.get("description") or "",
+        "supported_entity_types": definition.get("supported_entity_types") or [],
+        "agent_type": definition["name"],
+        "version": definition.get("version", "1.0"),
+        "triggers": definition.get("triggers") or [],
+        "kill_switch_env": definition.get("kill_switch_env"),
+        "allowed_roles": definition.get("allowed_roles") or [],
     }
 
-    catalog = []
-    for definition in list_agent_definitions():
-        registered_item = registered.get(definition["name"], {})
-        catalog.append({
-            "name": definition["name"],
-            "label": definition["name"].replace("_", " ").title(),
-            "description": definition.get("description") or registered_item.get("description") or "",
-            "supported_entity_types": definition.get("supported_entity_types") or [],
-            "agent_type": definition["name"],
-            "version": registered_item.get("version", "1.0"),
-        })
 
-    for agent_type, registered_item in registered.items():
-        if any(item["name"] == agent_type for item in catalog):
-            continue
-        catalog.append({
-            "name": agent_type,
-            "label": agent_type.replace("_", " ").title(),
-            "description": registered_item.get("description") or "",
-            "supported_entity_types": [],
-            "agent_type": agent_type,
-            "version": registered_item.get("version", "1.0"),
-        })
-
-    return catalog
+@router.get("/")
+def list_registered_agents(current_user: User = Depends(get_current_user)):
+    # AGENT-09: catalogo dal solo registry unico dichiarativo (ai_agents).
+    return [_catalog_entry(definition) for definition in list_agent_definitions()]
 
 
 @router.get("/{agent_type}/info")
 def get_agent_info(agent_type: str, current_user: User = Depends(get_current_user)):
     for definition in list_agent_definitions():
         if definition["name"] == agent_type:
-            return {
-                "name": definition["name"],
-                "label": definition["name"].replace("_", " ").title(),
-                "description": definition.get("description") or "",
-                "supported_entity_types": definition.get("supported_entity_types") or [],
-                "agent_type": definition["name"],
-            }
-    try:
-        return agent_registry.get(agent_type).get_info()
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+            return _catalog_entry(definition)
+    raise HTTPException(status_code=404, detail=f"Agente non registrato: {agent_type}")
 
 
 @router.get("/llm/health", response_model=schemas.AgentLlmHealth)

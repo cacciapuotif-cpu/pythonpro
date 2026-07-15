@@ -1,15 +1,16 @@
 """
 Agente Certification.
-Verifica la frequenza degli allievi e decide se emettere l'attestato.
+Verifica la frequenza degli allievi e propone l'emissione dell'attestato.
 La soglia minima di frequenza viene letta dall'avviso del progetto.
 Default: 70% se non specificato dall'avviso.
+
+Il collector NON scrive su DB: ritorna {"summary", "suggestions"} e la
+persistenza (AgentRun + AgentSuggestion) avviene solo dentro
+`agent_workflows.run_agent_workflow`.
 """
 from __future__ import annotations
 
-from time_utils import utc_now
-import json
 import logging
-from datetime import datetime
 from typing import Any, Optional
 
 import models
@@ -51,23 +52,14 @@ def _calcola_ore_progetto(db: Session, project_id: int) -> float:
     return float(result or 0)
 
 
-def run_certification_agent(
+def collect_certification_suggestions(
     db: Session,
     *,
     project_id: Optional[int] = None,
 ) -> dict[str, Any]:
     """
-    Verifica frequenza allievi e genera suggerimenti attestato.
+    Verifica frequenza allievi e propone suggerimenti attestato.
     """
-    agent_run = models.AgentRun(
-        agent_type="certification",
-        status="running",
-        started_at=utc_now(),
-        triggered_by="api",
-    )
-    db.add(agent_run)
-    db.flush()
-
     query = db.query(models.Project).filter(
         models.Project.status == "active"
     )
@@ -76,6 +68,7 @@ def run_certification_agent(
 
     projects = query.all()
 
+    suggestions: list[dict[str, Any]] = []
     attestati_pronti = 0
     frequenza_insufficiente = 0
     nessuna_presenza = 0
@@ -133,16 +126,23 @@ def run_certification_agent(
                 allievo.cognome or ""
             ).strip()
 
+            payload = {
+                "allievo_id": link.allievo_id,
+                "project_id": project.id,
+                "ore_frequentate": ore_frequentate,
+                "ore_totali": ore_totali,
+                "percentuale": round(percentuale * 100, 1),
+                "soglia": round(soglia * 100, 1),
+            }
+
             if percentuale >= soglia:
-                suggestion = models.AgentSuggestion(
-                    run_id=agent_run.id,
-                    entity_type="allievo_project",
-                    entity_id=link.allievo_id,
-                    suggestion_type="attestato_pronto",
-                    severity="low",
-                    status="pending",
-                    title="Attestato pronto — {}".format(nome_allievo),
-                    description=(
+                suggestions.append({
+                    "entity_type": "allievo_project",
+                    "entity_id": link.allievo_id,
+                    "suggestion_type": "attestato_pronto",
+                    "severity": "low",
+                    "title": "Attestato pronto — {}".format(nome_allievo),
+                    "description": (
                         "{} ha frequentato {:.0f}% delle ore ({:.1f}/{:.1f}h) "
                         "del progetto {}. Soglia richiesta: {:.0f}%. "
                         "Attestato può essere emesso."
@@ -154,29 +154,18 @@ def run_certification_agent(
                         project.name,
                         soglia * 100,
                     ),
-                    confidence=0.95,
-                    payload=json.dumps({
-                        "allievo_id": link.allievo_id,
-                        "project_id": project.id,
-                        "ore_frequentate": ore_frequentate,
-                        "ore_totali": ore_totali,
-                        "percentuale": round(percentuale * 100, 1),
-                        "soglia": round(soglia * 100, 1),
-                    }),
-                    created_at=utc_now(),
-                )
-                db.add(suggestion)
+                    "confidence": 0.95,
+                    "payload": payload,
+                })
                 attestati_pronti += 1
             else:
-                suggestion = models.AgentSuggestion(
-                    run_id=agent_run.id,
-                    entity_type="allievo_project",
-                    entity_id=link.allievo_id,
-                    suggestion_type="frequenza_insufficiente",
-                    severity="high",
-                    status="pending",
-                    title="Frequenza insufficiente — {}".format(nome_allievo),
-                    description=(
+                suggestions.append({
+                    "entity_type": "allievo_project",
+                    "entity_id": link.allievo_id,
+                    "suggestion_type": "frequenza_insufficiente",
+                    "severity": "high",
+                    "title": "Frequenza insufficiente — {}".format(nome_allievo),
+                    "description": (
                         "{} ha frequentato solo {:.0f}% delle ore ({:.1f}/{:.1f}h) "
                         "del progetto {}. Soglia richiesta: {:.0f}%. "
                         "Attestato NON può essere emesso."
@@ -188,30 +177,16 @@ def run_certification_agent(
                         project.name,
                         soglia * 100,
                     ),
-                    confidence=0.95,
-                    payload=json.dumps({
-                        "allievo_id": link.allievo_id,
-                        "project_id": project.id,
-                        "ore_frequentate": ore_frequentate,
-                        "ore_totali": ore_totali,
-                        "percentuale": round(percentuale * 100, 1),
-                        "soglia": round(soglia * 100, 1),
-                    }),
-                    created_at=utc_now(),
-                )
-                db.add(suggestion)
+                    "confidence": 0.95,
+                    "payload": payload,
+                })
                 frequenza_insufficiente += 1
 
-    agent_run.status = "completed"
-    agent_run.completed_at = utc_now()
-    agent_run.items_processed = totale_allievi
-    agent_run.suggestions_created = attestati_pronti + frequenza_insufficiente
-    db.commit()
-
-    return {
+    summary = {
         "progetti_scansionati": len(projects),
         "allievi_verificati": totale_allievi,
         "attestati_pronti": attestati_pronti,
         "frequenza_insufficiente": frequenza_insufficiente,
         "nessuna_presenza": nessuna_presenza,
     }
+    return {"summary": summary, "suggestions": suggestions}

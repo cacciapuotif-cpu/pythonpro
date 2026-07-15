@@ -9,7 +9,7 @@ Il contract_agent parte solo dalla validazione umana del documento.
 from __future__ import annotations
 
 import json
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
@@ -204,19 +204,20 @@ class TestIntakeProposalOnly:
         db = make_db()
         make_collaborator(db)
 
-        with patch("ai_agents.contract_agent.run_contract_agent_for_collaborator") as mock_contract:
+        with patch("agent_workflows.run_agent_workflow") as mock_workflow:
             outcome = run_intake(db, intake_result(valid=True))
-            mock_contract.assert_not_called()
+            mock_workflow.assert_not_called()
 
         from routers.documenti_richiesti import DocumentoReviewPayload, valida_documento
 
-        with patch("ai_agents.contract_agent.run_contract_agent_for_collaborator", return_value={"ok": True}) as mock_contract:
+        with patch("agent_workflows.run_agent_workflow", return_value=MagicMock(id=1, status="completed")) as mock_workflow:
             valida_documento(
                 outcome.documento_richiesto_id,
                 DocumentoReviewPayload(validato_da="operatore"),
                 db,
             )
-            mock_contract.assert_called_once()
+            mock_workflow.assert_called_once()
+            assert mock_workflow.call_args.kwargs["agent_type"] == "contract_agent"
 
         documento = db.query(models.DocumentoRichiesto).filter_by(id=outcome.documento_richiesto_id).first()
         assert documento.stato == "validato"

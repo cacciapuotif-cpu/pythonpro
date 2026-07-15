@@ -6,6 +6,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
 from database import get_db
 from models import Assignment, Collaborator, Project, ImplementingEntity, AgentSuggestion, VocePianoFinanziario
+from routers.agents import require_agents_execute
 from contract_generator import ContractGenerator
 import io
 
@@ -80,20 +81,40 @@ def _financial_html_block(context: dict) -> str:
 def run_contract_generator(
     project_id: int = None,
     db: Session = Depends(get_db),
+    current_user=Depends(require_agents_execute),
 ):
-    from ai_agents.contract_agent import run_contract_agent
-    result = run_contract_agent(db, project_id=project_id)
-    return result
+    # AGENT-09: via workflow persistente; stesso gate RBAC di /agents/run
+    # (riconciliazione matrice al GATE A5a).
+    from agent_workflows import run_agent_workflow
+
+    run = run_agent_workflow(
+        db,
+        agent_type="contract_agent",
+        entity_type="project" if project_id else None,
+        entity_id=project_id,
+        requested_by_user_id=getattr(current_user, "id", None),
+    )
+    return {"run_id": run.id, "status": run.status, "result_summary": run.result_summary}
 
 
 @router.post("/agents/certification/run")
 def run_certification(
     project_id: int = None,
     db: Session = Depends(get_db),
+    current_user=Depends(require_agents_execute),
 ):
-    from ai_agents.certification_agent import run_certification_agent
-    result = run_certification_agent(db, project_id=project_id)
-    return result
+    # AGENT-09: via workflow persistente; stesso gate RBAC di /agents/run
+    # (riconciliazione matrice al GATE A5a).
+    from agent_workflows import run_agent_workflow
+
+    run = run_agent_workflow(
+        db,
+        agent_type="certification",
+        entity_type="project" if project_id else None,
+        entity_id=project_id,
+        requested_by_user_id=getattr(current_user, "id", None),
+    )
+    return {"run_id": run.id, "status": run.status, "result_summary": run.result_summary}
 
 
 @router.get("/assignments/{assignment_id}/contract")
