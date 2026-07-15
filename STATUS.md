@@ -1,5 +1,92 @@
 # PythonPro — Status & Development Context
-_Ultimo aggiornamento: 2026-07-05_
+_Ultimo aggiornamento: 2026-07-15_
+
+---
+## SESSIONE 2026-07-15 -- ONDATA AGENTI A1.4: intake documenti solo per proposta (Claude)
+
+### Fatto (codice scritto e testato, NON ancora committato)
+- **A1.4 (AGENT-04)** implementato su branch `claude/platform-audit-compliance-XnH86`:
+  - `backend/ai_agents/document_processor.py`: rimosso override `False->True` in `_parse_llm_result_dict` e auto-validazione `confidence>=0.85` in `_apply_confidence_decision` (la classificazione LLM resta com'è, senza effetti).
+  - `backend/services/agent_apply_service.py` (NUOVO): formato payload `field_diff`, `create_field_update_suggestion` (AgentRun + AgentSuggestion `document_field_updates` pending con diff campo per campo), `apply_field_update_suggestion` (whitelist campi per entity_type, skip valori stantii, AuditLog per campo, risolve `request_missing_collaborator_data` pendenti).
+  - `backend/services/document_intake_agent.py`: `apply_document_result` non scrive più campi collaboratore/azienda (fix AI-01) e non valida documenti — documento sempre `caricato`, classificazione LLM solo in `note_operatore`; proposte via `_build_collaborator_proposals`/`_build_company_proposals`; trigger contract_agent rimosso da qui (resta solo su validazione umana in `routers/documenti_richiesti.py`, già a HEAD).
+  - `backend/services/email_inbox_worker.py`: `_apply_body_extracted_data` -> `_build_body_proposals` (nessuna scrittura); rimossi `auto_processed` e `_create_auto_update_suggestion`; body-only email -> suggestion proposta se l'intake non ne ha creata una.
+  - `backend/routers/agents.py`: apply-fix REALE via `agent_apply_service` (prima era finto: marcava implemented senza applicare); payload non strutturato -> 400; review action con esito reale. NB: il diff del file include anche gli hunk RBAC pre-esistenti (`require_agents_execute/write`) da adottare nel commit con nota (fatto #11 del piano).
+  - Test: NUOVO `backend/tests/test_document_intake_proposal.py` (11 test, tutti i nomi del piano); aggiornati i test vecchio-comportamento in `backend/tests/test_email_agent.py` (auto-apply -> proposta). Mirati: 40+38 verdi.
+- **A1.5 parziale**: `audit/FINDINGS_NUOVI.md` aggiornato con NEW-005 (apply-fix finto), NEW-006 (data_retention_cleanup side effect), NEW-007 (/email-inbox/status stantio).
+
+### Fatto (ripresa 2026-07-15, seconda sessione) — A1 e A2 CHIUSI
+- Suite completa verificata verde (276 passed), poi commit `cc98924` fix(AGENT-04) — inclusi `agent_apply_service.py` e `test_document_intake_proposal.py` (prima untracked) e hunk RBAC pre-esistenti di `routers/agents.py` adottati con nota (riconciliazione al GATE A5a).
+- `4b23e1c` docs: REMEDIATION_LOG sezione chiusura A1 (A1.4+A1.5), findings NEW-005/006/007.
+- `ad63663` fix(AGENT-06): `import auth` in arq_worker — tabella users nella metadata del processo ARQ, promote_agent_followups non fallisce più con NoReferencedTableError. Test `test_arq_worker_context.py`.
+- `4b88a74` fix(AGENT-07): cron mail_recovery via `run_agent_workflow(auto_mode=True)`, AgentRun tracciato con trigger_mode automatic. Bypass residui censiti nel log (contract/certification/sprint7/jobs → A3). Test `test_mail_recovery_cron.py`.
+- `eff29b7` fix(AGENT-08): IMAP resiliente — `services/inbox_status_store.py` (Redis + fallback in-memory), backoff 5m x2 cap 6h, classificazione auth_failed/error, `/email-inbox/status` da store condiviso (chiude NEW-007), `POST /email-inbox/imap/test` admin. Test `test_imap_resilience.py` (10 test).
+- Gate A2: suite completa **290 passed**.
+
+### Pendenti (ripresa)
+1. **A3 registry unico — GATE UTENTE**: preparare e presentare mappa migrazione agente-per-agente (contract_generator→contract_agent, certification, sprint7, jobs/run_agents.py, trigger intake) PRIMA di toccare registry.py legacy.
+2. Poi A4 (robustezza LLM), A5 (RBAC GATE matrice + system-health), A6 (e2e), GATE finale.
+- Nota: endpoint `/email-inbox/items/{id}/assign` ora produce proposta invece di validare direttamente (flusso canonico: validazione umana via documenti-richiesti).
+- Nota runtime: worker ARQ e backend montano il worktree come volume; per attivare AGENT-06/07/08 a runtime serve riavvio dei container (`docker compose restart backend arq_worker`) — non eseguito.
+
+---
+## SESSIONE 2026-07-14 -- Spiegazione workflow agenti e collegamenti pagine (Codex)
+
+### Fatto
+- Ricostruiti i collegamenti singoli tra agenti, pagine React, router backend, scheduler ARQ, documenti collaboratore, cockpit e Sprint7.
+- Nessuna modifica applicativa; solo preparazione spiegazione funzionale/architetturale per utente.
+
+### Pendenti
+- Restano validi i pendenti della precedente analisi agenti: IMAP Gmail AUTHENTICATIONFAILED, follow-up ARQ con metadata SQLAlchemy incompleta, WhatsApp outbound disabilitato, revisione policy auto-send/auto-validazione.
+
+---
+## SESSIONE 2026-07-14 -- Analisi piattaforma agenti PythonPro (Codex)
+
+### Fatto
+- Analizzata la parte agenti senza modifiche applicative: backend workflow, registry agenti, ARQ worker, inbox email/IMAP, LLM, WhatsApp, modelli DB e UI React.
+- Verificato runtime: `pythonpro_backend`, `pythonpro_arq_worker`, `pythonpro_db`, `pythonpro_redis` e `ollama` risultano attivi; `/health` backend OK.
+- LLM agenti configurato su `ollama` con modello `qwen2.5:1.5b`; health runtime OK (`/api/tags` 200 via `host.docker.internal:11434`).
+- Config attuale: `ENABLE_EMAIL=true`, SMTP Gmail configurato, IMAP Gmail configurato; `ENABLE_WHATSAPP=false` nel container, quindi invio WhatsApp disabilitato anche se provider Meta/webhook sono predisposti.
+- Stato DB rilevato: `agent_runs` presenti per `contract_agent`, `certification`, `data_quality`, `email_intake`, `mail_recovery`; suggestion aperte: `pending=61`, `sent=38`, `approved=1`, `completed=441`; inbox email storica: 9 item (`valid=6`, `manual_review=2`, `auto_processed=1`).
+- Problemi runtime rilevati nei log ARQ: `EmailInboxWorker` fallisce login IMAP con `AUTHENTICATIONFAILED`; `promote_agent_followups` fallisce con `NoReferencedTableError` su FK `agent_review_actions.reviewed_by_user_id -> users` nel processo worker.
+- Nota architetturale: il DB contiene la tabella `users`; l errore del worker sembra dovuto a metadata SQLAlchemy incompleta/import del modello `auth.User` nel contesto ARQ, non a tabella mancante.
+
+### Pendenti
+- Ripristinare/aggiornare credenziali Gmail IMAP app password se si vuole riattivare intake automatico email.
+- Correggere wiring/import del worker ARQ per `promote_agent_followups`, o evitare commit di `AgentReviewAction` finche la metadata include `users`.
+- Valutare il cron `run_mail_recovery_cron`: oggi chiama direttamente `run_mail_recovery_agent` e non il workflow persistente, quindi non crea nuovi `AgentRun`/`AgentSuggestion` visibili in dashboard.
+- Per produzione interna/SaaS: rivedere auto-send email, auto-validazione documenti LLM e aggiornamenti automatici anagrafiche da documenti prima di affidarsi agli agenti senza supervisione.
+
+---
+## SESSIONE 2026-07-14 -- Reset credenziali admin PythonPro (Codex)
+
+### Fatto
+- Rigenerata nuova password monouso per admin tramite `backend/reset_password.py` dentro `pythonpro_backend`.
+- Verificato login reale via API `POST /api/v1/auth/login`: HTTP 200, username `admin`, ruolo `admin`.
+- File temporaneo della verifica login rimosso da `/tmp`.
+- Password comunicata solo in chat utente e non registrata nello status.
+
+### Pendenti
+- Usare username `admin`; non usare email come username di login.
+- Dopo accesso, cambiare password da interfaccia se disponibile o richiedere nuova rigenerazione controllata.
+
+---
+## SESSIONE 2026-07-14 -- Fix CORS IP LAN 192.168.2.41 e ripristino runtime (Codex)
+
+### Fatto
+- Confermato percorso attivo `/DATA/progetti/pythonpro` e letto `STATUS.md`.
+- Diagnosticato CORS browser: origin `http://192.168.2.41:3001` assente da `CORS_ALLOWED_ORIGINS`.
+- Creato backup `.env.bak_20260714_cors_192_168_2_41` e aggiunto `http://192.168.2.41:3001` alla allowlist CORS.
+- Ricreato il backend; emersi problemi permessi post-riavvio sui volumi Docker: PostgreSQL `PGDATA` owner errato e volumi backend scrivibili non accessibili da `appuser`.
+- Corretto owner `pythonpro_db_data` a `70:70` e volumi `pythonpro_backend_logs`, `pythonpro_backend_uploads`, `pythonpro_backend_backups`, `pythonpro_exports_data` a `1000:999`.
+- Riavviati `db` e `backend`: entrambi healthy.
+
+### Verifiche
+- `/health` locale: `{"status":"ok"}`.
+- Test CORS con `Origin: http://192.168.2.41:3001`: HTTP 200 e `access-control-allow-origin: http://192.168.2.41:3001`.
+
+### Pendenti
+- Se il browser mantiene errore vecchio, fare hard refresh o svuotare cache/service worker.
+- Monitorare se dopo futuri reboot i volumi Docker tornano con owner errato; in quel caso serve fix persistente sullo storage/daemon Docker.
 
 ---
 ## SESSIONE 2026-07-05 -- Chiusura Ondata 1: ripresa, verifica indipendente, gate confermato (Claude)
