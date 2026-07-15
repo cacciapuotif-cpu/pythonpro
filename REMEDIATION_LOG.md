@@ -477,3 +477,14 @@ Formato: data | finding ID | cosa fatto | file toccati | test/verifiche eseguiti
 - Gate di chiusura A4: suite completa in container **312 passed**.
 - Prossimo: A5b system-health + A5c error surface (A5a matrice RBAC resta GATE utente), A6 e2e, GATE finale.
 - Nessun push (vincolo Ondata 2 invariato).
+
+## 2026-07-15 | ONDATA AGENTI | A5b/A5c + A6 CHIUSI — GATE finale parziale (resta A5a)
+
+- **A5b/A5c — `b891922` fix(AGENT-12)**: `GET /api/v1/agents/system-health` — per agente enabled/kill switch/trigger/schedulazione cron + ultimo run con esito ed error_message (A5c); stato inbox IMAP dallo store condiviso; LLM health; coda ARQ (redis ping + depth, degradazione pulita). email_intake incluso. 3 test. Pannello frontend rinviato al GATE A5a (si integra con la matrice; AgentsManager.js ha inoltre lavoro pre-esistente non committato).
+- **A6 — `b78bddb` fix(AGENT-13)**: `test_agents_e2e.py` con i 6 flussi canonici (mock smtplib.SMTP, IMAP fixture, LLM monkeypatch): mail_recovery proposta→approvazione→invio; intake valido→proposta→apply-fix reale con audit; intake invalido→reply bozza zero invii; validazione umana→contract_agent via workflow; certification senza side effect; kill switch globale blocca tutto.
+- **Verifiche GATE finale eseguite**:
+  - Suite completa container: **321 passed** (baseline ondata: 245).
+  - Grep bypass: zero chiamate `run_*_agent(` fuori dal dispatch del workflow; `agent_registry`/`BaseAgent`/`registry.py` assenti dal codice applicativo.
+  - Zero side effect non approvati: dimostrato dai test A1 (kill switch, no autosend, reply draft, proposta con diff) e dagli e2e A6.
+- **Residuo per la dichiarazione finale di conformità: A5a (GATE utente)** — matrice RBAC proposta all'utente; dopo conferma: enforcement ruoli su agents/inbox/sprint7 + pannello system-health in AgentsManager.
+- Nessun push (vincolo Ondata 2 invariato).

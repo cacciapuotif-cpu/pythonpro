@@ -26,9 +26,15 @@ _Ultimo aggiornamento: 2026-07-15_
 - `0361391` fix(AGENT-09): registry unico dichiarativo in `_AGENT_DEFINITIONS` (triggers, kill_switch_env, allowed_roles, runner); contract/certification riscritti come collector puri, AgentRun solo dal workflow; cron ARQ + sprint7 (ora con gate RBAC, prima senza auth) + trigger validazione documento → run_agent_workflow; eliminati `ai_agents/registry.py` e `jobs/run_agents.py`; `AGENTS_PLATFORM.md` guida; adottato hunk pre-esistente `is_valid_codice_fiscale` con test.
 - Gate A3: suite completa **299 passed**.
 
+### Fatto (quarta sessione 2026-07-15) — A4, A5b/A5c, A6 CHIUSI
+- `2e82f0e` fix(AGENT-11): robustezza LLM — retry (max 2, backoff) su timeout/5xx/malformato, schemi Pydantic MailCopy/DocumentResult, fallback (mail deterministico, documenti manual_review mai persi), prompt versionati in `ai_agents/prompts/`, log strutturato `agent_llm_call` senza PII, needs_careful_review su confidence < 0.60. Adottati hunk pseudonymize_prompt pre-esistenti.
+- `b891922` fix(AGENT-12): `GET /agents/system-health` (per agente ultimo run/esito/schedulazione + inbox IMAP da store + LLM health + coda ARQ); error_message run esposto (A5c backend).
+- `b78bddb` fix(AGENT-13): `test_agents_e2e.py` — 6 flussi canonici, mock SMTP/IMAP/LLM.
+- Suite finale: **321 passed**. Grep bypass: pulito.
+
 ### Pendenti (ripresa)
-1. A4 robustezza LLM (retry+backoff, schema Pydantic output, fallback, prompt versionati, log senza PII).
-2. A5 (GATE matrice RBAC su A5a; system-health endpoint; error surface UI), A6 (e2e), GATE finale.
+1. **A5a — GATE UTENTE**: matrice RBAC proposta (OPERATORE: review/approve/send/inbox; ADMIN: run manuale, trigger-poll, imap/test, config). Dopo conferma: enforcement + pannello system-health in AgentsManager (frontend).
+2. GATE finale: dichiarazione conformità SÌ/NO dopo A5a.
 - Nota: endpoint `/email-inbox/items/{id}/assign` ora produce proposta invece di validare direttamente (flusso canonico: validazione umana via documenti-richiesti).
 - Nota runtime: worker ARQ e backend montano il worktree come volume; per attivare AGENT-06/07/08 a runtime serve riavvio dei container (`docker compose restart backend arq_worker`) — non eseguito.
 
