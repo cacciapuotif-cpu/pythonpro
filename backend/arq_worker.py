@@ -109,18 +109,28 @@ async def poll_email_inbox(ctx: dict[str, Any]) -> dict[str, Any]:
 
 
 async def run_mail_recovery_cron(ctx: dict[str, Any]) -> dict[str, Any]:
+    # AGENT-07: passa dal workflow persistente (AgentRun + suggestions
+    # tracciati, trigger_mode=automatic) invece della chiamata diretta
+    # all'agente, invisibile in dashboard.
     if not agent_enabled("mail_recovery"):
         return {"status": "skipped", "reason": disabled_reason("mail_recovery")}
     db = SessionLocal()
     try:
-        from ai_agents.mail_recovery import run_mail_recovery_agent
+        from agent_workflows import run_agent_workflow
 
-        result = run_mail_recovery_agent(db)
-        logger.info("mail_recovery_agent cron completed: %s", result)
-        return {"status": "completed", "agent": "mail_recovery_agent", "result": result}
+        run = run_agent_workflow(db, agent_type="mail_recovery", auto_mode=True)
+        logger.info(
+            "mail_recovery cron completed: run_id=%s status=%s", run.id, run.status
+        )
+        return {
+            "status": "completed",
+            "agent": "mail_recovery",
+            "run_id": run.id,
+            "run_status": run.status,
+        }
     except Exception as exc:
-        logger.exception("mail_recovery_agent cron error: %s", exc)
-        return {"status": "error", "agent": "mail_recovery_agent", "error": str(exc)}
+        logger.exception("mail_recovery cron error: %s", exc)
+        return {"status": "error", "agent": "mail_recovery", "error": str(exc)}
     finally:
         db.close()
 
