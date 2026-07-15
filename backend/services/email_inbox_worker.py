@@ -293,6 +293,7 @@ class EmailInboxWorker:
                 "doc_type": doc_result.doc_type,
                 "issues": doc_result.issues,
                 "extracted_data": doc_result.extracted_data,
+                "prompt_version": getattr(doc_result, "prompt_version", None),
                 "proposed_fields": list(getattr(intake_outcome, "proposed_fields", []) or []),
                 "intake_outcome": intake_outcome.to_dict(),
             },

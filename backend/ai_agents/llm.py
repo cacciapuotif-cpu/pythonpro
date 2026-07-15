@@ -3,12 +3,21 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Callable, Optional, TypeVar
 
 import httpx
 
+from services.llm_privacy import pseudonymize_prompt
+
 logger = logging.getLogger(__name__)
+
+# AGENT-11: retry breve su timeout/5xx/output malformato, poi fallback.
+LLM_RETRY_MAX = 2
+LLM_RETRY_BACKOFF_SECONDS: tuple[float, ...] = (0.5, 1.0)
+
+_T = TypeVar("_T")
 
 
 @dataclass
@@ -18,6 +27,101 @@ class AgentLlmResult:
     provider: str
     model: Optional[str] = None
     raw_text: Optional[str] = None
+    prompt_version: Optional[str] = None
+
+
+def _is_retryable_llm_error(exc: Exception) -> bool:
+    if isinstance(exc, httpx.TimeoutException):
+        return True
+    if isinstance(exc, httpx.TransportError):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code >= 500
+    # Output malformato (JSON invalido, schema non rispettato): vale la pena ritentare.
+    if isinstance(exc, ValueError):
+        return True
+    return False
+
+
+def _log_llm_call(
+    *,
+    agent: str,
+    provider: str,
+    model: Optional[str],
+    prompt_version: Optional[str],
+    attempt: int,
+    outcome: str,
+    duration_ms: int,
+    error_class: Optional[str] = None,
+) -> None:
+    """Log strutturato per chiamata LLM. MAI contenuti di prompt o documenti."""
+    logger.info(
+        "agent_llm_call %s",
+        json.dumps(
+            {
+                "agent": agent,
+                "provider": provider,
+                "model": model,
+                "prompt_version": prompt_version,
+                "attempt": attempt,
+                "outcome": outcome,
+                "duration_ms": duration_ms,
+                "error_class": error_class,
+            },
+            ensure_ascii=True,
+        ),
+    )
+
+
+def call_llm_with_retry(
+    call: Callable[[], _T],
+    *,
+    agent: str,
+    prompt_version: Optional[str] = None,
+) -> _T:
+    """Esegue una chiamata LLM con retry (max LLM_RETRY_MAX) e backoff breve.
+
+    Ritenta su timeout, errori di trasporto, 5xx e output malformato
+    (ValueError). Esauriti i retry rilancia l'ultima eccezione: la gestione
+    del fallback resta al chiamante (mail: deterministico; documenti:
+    manual_review).
+    """
+    config = get_agent_llm_config()
+    attempts = LLM_RETRY_MAX + 1
+    for attempt in range(1, attempts + 1):
+        started = time.monotonic()
+        try:
+            result = call()
+        except Exception as exc:
+            duration_ms = int((time.monotonic() - started) * 1000)
+            retryable = _is_retryable_llm_error(exc)
+            _log_llm_call(
+                agent=agent,
+                provider=config.provider,
+                model=config.model,
+                prompt_version=prompt_version,
+                attempt=attempt,
+                outcome="retry" if (retryable and attempt < attempts) else "failed",
+                duration_ms=duration_ms,
+                error_class=exc.__class__.__name__,
+            )
+            if not retryable or attempt >= attempts:
+                raise
+            backoff = LLM_RETRY_BACKOFF_SECONDS[min(attempt - 1, len(LLM_RETRY_BACKOFF_SECONDS) - 1)]
+            time.sleep(backoff)
+            continue
+        duration_ms = int((time.monotonic() - started) * 1000)
+        _log_llm_call(
+            agent=agent,
+            provider=config.provider,
+            model=config.model,
+            prompt_version=prompt_version,
+            attempt=attempt,
+            outcome="ok",
+            duration_ms=duration_ms,
+        )
+        return result
+    raise RuntimeError("unreachable")  # pragma: no cover
 
 
 @dataclass
@@ -119,40 +223,34 @@ def generate_mail_recovery_copy(
         "fallback_body": fallback_body,
     }
 
+    from .prompts import mail_recovery_v1
+
     context_instructions = _build_mail_context_instructions(
         context_label=context_label,
         missing_fields=missing_fields or [],
         days_to_expiry=days_to_expiry,
     )
-    system_prompt = (
-        "Sei un assistente per comunicazioni amministrative di un gestionale HR italiano. "
-        "Scrivi email in italiano corretto, naturale, professionale e sintetico. "
-        "Non inventare dati, ruoli, scadenze, procedure o riferimenti normativi non presenti nel contesto. "
-        "Non fare domande inutili e non aggiungere firme generiche tipo 'Il nostro team'. "
-        "Mantieni il focus solo sulla richiesta amministrativa. "
-        "Rispondi esclusivamente in JSON valido con chiavi stringa subject e body."
-    )
-    user_prompt = (
-        "Genera una bozza email migliorata per recupero dati o documenti.\n"
-        "Vincoli obbligatori:\n"
-        "- usa un saluto iniziale con il nome del collaboratore\n"
-        "- massimo 3 paragrafi brevi\n"
-        "- indica con precisione cosa manca o cosa deve essere aggiornato\n"
-        "- chiudi con una call to action semplice: chiedi di rispondere inviando i dati o il documento aggiornato\n"
-        "- nessuna firma finale, nessun slogan, nessuna frase autocelebrativa\n"
-        "- non chiedere informazioni diverse da quelle presenti nel contesto\n\n"
-        f"Istruzioni specifiche:\n{context_instructions}\n\n"
-        f"Contesto strutturato:\n{json.dumps(prompt_payload, ensure_ascii=True, default=str)}\n\n"
-        'Formato atteso:\n{"subject":"...","body":"..."}'
+    system_prompt = mail_recovery_v1.SYSTEM_PROMPT
+    user_prompt = mail_recovery_v1.build_user_prompt(
+        context_instructions=context_instructions,
+        prompt_payload_json=json.dumps(prompt_payload, ensure_ascii=True, default=str),
     )
 
-    try:
-        result: Optional[AgentLlmResult] = None
+    def _invoke() -> AgentLlmResult:
         if config.provider == "ollama":
-            result = _call_ollama(config, system_prompt=system_prompt, user_prompt=user_prompt)
-        elif config.provider == "openclaw":
-            result = _call_openclaw(config, system_prompt=system_prompt, user_prompt=user_prompt)
-        if result and _is_mail_copy_acceptable(
+            return _call_ollama(config, system_prompt=system_prompt, user_prompt=user_prompt)
+        if config.provider == "openclaw":
+            return _call_openclaw(config, system_prompt=system_prompt, user_prompt=user_prompt)
+        raise RuntimeError(f"Provider LLM non supportato: {config.provider}")
+
+    try:
+        result = call_llm_with_retry(
+            _invoke,
+            agent="mail_recovery",
+            prompt_version=mail_recovery_v1.PROMPT_VERSION,
+        )
+        result.prompt_version = mail_recovery_v1.PROMPT_VERSION
+        if _is_mail_copy_acceptable(
             context_label=context_label,
             body=result.body,
             missing_fields=missing_fields or [],
@@ -160,7 +258,7 @@ def generate_mail_recovery_copy(
             return result
         logger.warning("LLM agent fallback attivato su provider %s: output non conforme ai controlli minimi", config.provider)
     except Exception as exc:
-        logger.warning("LLM agent fallback attivato su provider %s: %s", config.provider, exc)
+        logger.warning("LLM agent fallback attivato su provider %s: %s", config.provider, exc.__class__.__name__)
     return None
 
 
@@ -214,11 +312,12 @@ def call_ollama_json(
         if config.openclaw_api_key:
             headers["Authorization"] = f"Bearer {config.openclaw_api_key}"
 
+        private_prompt = pseudonymize_prompt(user_prompt)
         payload = {
             "model": config.model,
             "messages": [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
+                {"role": "user", "content": private_prompt.text},
             ],
             "temperature": 0.1,
         }
@@ -236,6 +335,7 @@ def call_ollama_json(
         raw_text = ""
         if choices:
             raw_text = (((choices[0] or {}).get("message") or {}).get("content") or "").strip()
+        raw_text = private_prompt.restore(raw_text)
     else:
         raise RuntimeError(f"Provider LLM non supportato: {config.provider}")
 
@@ -280,7 +380,8 @@ def _call_ollama(config: AgentLlmConfig, *, system_prompt: str, user_prompt: str
 
     raw_text = ((data.get("message") or {}).get("content") or "").strip()
     parsed = _parse_json_object(raw_text)
-    subject, body = _normalize_mail_copy(parsed.get("subject"), parsed.get("body"))
+    copy = _validate_mail_copy(parsed)
+    subject, body = _normalize_mail_copy(copy.subject, copy.body)
     return AgentLlmResult(
         subject=subject,
         body=body,
@@ -300,11 +401,12 @@ def _call_openclaw(config: AgentLlmConfig, *, system_prompt: str, user_prompt: s
     if config.openclaw_api_key:
         headers["Authorization"] = f"Bearer {config.openclaw_api_key}"
 
+    private_prompt = pseudonymize_prompt(user_prompt)
     payload = {
         "model": config.model,
         "messages": [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
+            {"role": "user", "content": private_prompt.text},
         ],
         "temperature": 0.3,
     }
@@ -322,8 +424,10 @@ def _call_openclaw(config: AgentLlmConfig, *, system_prompt: str, user_prompt: s
     raw_text = ""
     if choices:
         raw_text = (((choices[0] or {}).get("message") or {}).get("content") or "").strip()
+    raw_text = private_prompt.restore(raw_text)
     parsed = _parse_json_object(raw_text)
-    subject, body = _normalize_mail_copy(parsed.get("subject"), parsed.get("body"))
+    copy = _validate_mail_copy(parsed)
+    subject, body = _normalize_mail_copy(copy.subject, copy.body)
     return AgentLlmResult(
         subject=subject,
         body=body,
@@ -420,9 +524,21 @@ def _parse_json_object(raw_text: str) -> dict[str, Any]:
 
     if not isinstance(parsed, dict):
         raise ValueError("Risposta LLM JSON non oggetto")
-    if not parsed.get("subject") or not parsed.get("body"):
-        raise ValueError("Risposta LLM JSON priva di subject/body")
     return parsed
+
+
+def _validate_mail_copy(parsed: dict):
+    """Valida l'output mail con MailCopySchema; malformato -> ValueError (retry)."""
+    from pydantic import ValidationError
+
+    from .llm_schemas import MailCopySchema
+
+    try:
+        return MailCopySchema.model_validate(parsed)
+    except ValidationError as exc:
+        raise ValueError(
+            f"Output LLM non conforme a MailCopySchema ({exc.error_count()} errori)"
+        ) from exc
 
 
 def _build_mail_context_instructions(

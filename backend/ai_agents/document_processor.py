@@ -83,6 +83,7 @@ class DocumentResult:
     extracted_data: Dict[str, Any] = field(default_factory=dict)
     raw_llm_output: Optional[str] = None
     confidence: float = 0.0        # 0.0-1.0: >=0.85 classificazione affidabile, 0.60-0.85 revisione umana, <0.60 rifiuto
+    prompt_version: Optional[str] = None
 
 
 class DocumentProcessor:
@@ -92,8 +93,10 @@ class DocumentProcessor:
         entity_name: str,
         expected_doc_type: str,
     ) -> DocumentResult:
+        from .prompts.document_processor_v1 import PROMPT_VERSION
+
         if not file_path:
-            return DocumentResult(valid=None, doc_type="none")
+            return DocumentResult(valid=None, doc_type="none", prompt_version=PROMPT_VERSION)
 
         text_content = _extract_text(file_path)
 
@@ -105,13 +108,25 @@ class DocumentProcessor:
                 expected_doc_type=expected_doc_type,
             )
         except Exception as exc:
-            logger.warning("DocumentProcessor: LLM non disponibile (%s), manual review", exc)
-            return DocumentResult(valid=None, doc_type=expected_doc_type, raw_llm_output=None)
+            # Retry gia' esauriti in call_llm_for_document: il documento non
+            # viene mai perso, va in revisione manuale (valid=None).
+            logger.warning(
+                "DocumentProcessor: LLM non disponibile o output malformato (%s), manual review",
+                exc.__class__.__name__,
+            )
+            return DocumentResult(
+                valid=None,
+                doc_type=expected_doc_type,
+                raw_llm_output=None,
+                prompt_version=PROMPT_VERSION,
+            )
 
         if isinstance(data, str):
-            return _apply_confidence_decision(_parse_llm_result(data, expected_doc_type))
-
-        return _apply_confidence_decision(_parse_llm_result_dict(data, expected_doc_type))
+            result = _apply_confidence_decision(_parse_llm_result(data, expected_doc_type))
+        else:
+            result = _apply_confidence_decision(_parse_llm_result_dict(data, expected_doc_type))
+        result.prompt_version = PROMPT_VERSION
+        return result
 
 
 def call_llm_for_document(
@@ -122,37 +137,44 @@ def call_llm_for_document(
     expected_doc_type: str,
 ) -> dict:
     """
-    Chiama il provider LLM configurato e ritorna un dizionario JSON.
-    Lancia eccezione se LLM non disponibile o timeout.
+    Chiama il provider LLM configurato (con retry) e ritorna un dizionario
+    validato da DocumentResultSchema. Lancia eccezione se LLM non disponibile,
+    timeout o output malformato dopo i retry.
     """
-    from .llm import call_ollama_json
+    from pydantic import ValidationError
+
+    from .llm import call_llm_with_retry, call_ollama_json
+    from .llm_schemas import DocumentResultSchema
+    from .prompts import document_processor_v1
 
     filename = Path(file_path).name
     normalized_doc_type = (expected_doc_type or "").strip().lower().replace(" ", "_")
     extraction_hint = DOC_TYPE_EXTRACTION_HINTS.get(normalized_doc_type, {})
 
-    system_prompt = (
-        "Sei un assistente per la verifica di documenti amministrativi italiani. "
-        "Analizza il documento e rispondi SOLO con JSON valido. "
-        "Non aggiungere testo fuori dal JSON."
-    )
-    user_prompt = (
-        f"Documento: '{filename}'\n"
-        f"Mittente: {entity_name}\n"
-        f"Tipo atteso: {expected_doc_type}\n"
-        f"Contenuto (parziale):\n{text_content[:2000]}\n\n"
-        "Rispondi SOLO con JSON nel formato:\n"
-        + json.dumps({
-            "valid": True,
-            "doc_type": expected_doc_type,
-            "confidence": 0.9,
-            "issues": [],
-            "extracted_data": extraction_hint,
-        }, ensure_ascii=True)
-        + "\n\nDove confidence va da 0.0 a 1.0: 0.9+=valido certo, 0.7-0.9=probabilmente valido, 0.5-0.7=incerto, sotto 0.5=non valido"
+    system_prompt = document_processor_v1.SYSTEM_PROMPT
+    user_prompt = document_processor_v1.build_user_prompt(
+        filename=filename,
+        entity_name=entity_name,
+        expected_doc_type=expected_doc_type,
+        text_content=text_content,
+        extraction_hint=extraction_hint,
     )
 
-    return call_ollama_json(system_prompt=system_prompt, user_prompt=user_prompt)
+    def _invoke() -> dict:
+        data = call_ollama_json(system_prompt=system_prompt, user_prompt=user_prompt)
+        try:
+            validated = DocumentResultSchema.model_validate(data)
+        except ValidationError as exc:
+            raise ValueError(
+                f"Output LLM non conforme a DocumentResultSchema ({exc.error_count()} errori)"
+            ) from exc
+        return validated.model_dump()
+
+    return call_llm_with_retry(
+        _invoke,
+        agent="document_processor",
+        prompt_version=document_processor_v1.PROMPT_VERSION,
+    )
 
 
 def _infer_confidence(valid: Optional[bool], issues: list) -> float:

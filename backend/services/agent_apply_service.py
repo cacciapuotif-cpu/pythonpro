@@ -130,25 +130,39 @@ def create_field_update_suggestion(
     db.add(run)
     db.flush()
 
+    # AGENT-11: confidence bassa (globale o su singolo campo) -> il revisore
+    # deve guardare con attenzione: priorita' alta + flag nel payload.
+    field_confidences = [
+        change.get("confidence")
+        for change in changes
+        if change.get("confidence") is not None
+    ]
+    needs_careful_review = bool(
+        (confidence is not None and confidence < 0.60)
+        or any(value < 0.60 for value in field_confidences)
+    )
+
     payload = {
         "kind": PAYLOAD_KIND,
         "entity_type": entity_type,
         "entity_id": entity_id,
         "changes": changes,
         "source": source or {},
+        "needs_careful_review": needs_careful_review,
     }
     fields_desc = ", ".join(change["field"] for change in changes)
     display_name = entity_name or f"{entity_type} {entity_id}"
+    priority = "high" if needs_careful_review else "medium"
     suggestion = models.AgentSuggestion(
         run_id=run.id,
         suggestion_type=SUGGESTION_TYPE_FIELD_UPDATES,
         status="pending",
-        severity="medium",
+        severity=priority,
         entity_type=entity_type,
         entity_id=entity_id,
         title=f"Aggiornamento dati proposto — {display_name}",
         description=f"Campi proposti da documento/email: {fields_desc}",
-        priority="medium",
+        priority=priority,
         auto_fix_available=True,
         auto_fix_payload=json.dumps(payload, ensure_ascii=True),
         confidence_score=confidence,
