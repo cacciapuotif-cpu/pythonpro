@@ -1752,9 +1752,20 @@ class EmailInboxListResponse(BaseModel):
 
 
 class EmailInboxStatusResponse(BaseModel):
-    running: bool
+    running: bool = False
+    state: str = "unknown"
+    message: Optional[str] = None
     last_poll_at: Optional[str] = None
     last_error: Optional[str] = None
+    failed_attempts: int = 0
+    next_retry_at: Optional[str] = None
+    last_success_at: Optional[str] = None
+
+
+class EmailInboxImapTestResponse(BaseModel):
+    success: bool
+    state: str
+    detail: Optional[str] = None
 
 
 class EmailInboxAssignPayload(BaseModel):

@@ -63,16 +63,37 @@ class EmailInboxWorker:
             logger.info("EmailInboxWorker: thread terminato")
 
     def _run_poll_cycle(self, db) -> None:
+        from services import inbox_status_store as status_store
+
         if not self.imap_user or not self.imap_password:
+            status_store.record_disabled("credenziali IMAP non configurate")
             logger.warning("EmailInboxWorker: credenziali IMAP non configurate, skip")
+            return
+
+        skip, retry_at = status_store.should_skip()
+        if skip:
+            logger.info(
+                "EmailInboxWorker: backoff attivo dopo errori di login, skip fino a %s",
+                retry_at,
+            )
             return
 
         try:
             imap = imaplib.IMAP4_SSL(self.imap_host, self.imap_port)
             imap.login(self.imap_user, self.imap_password)
         except Exception as exc:
-            logger.warning("EmailInboxWorker: connessione IMAP fallita: %s", exc)
+            kind = _classify_login_error(exc)
+            status = status_store.record_failure(str(exc), kind=kind)
+            logger.warning(
+                "EmailInboxWorker: connessione IMAP fallita (%s, tentativo %s, prossimo retry %s): %s",
+                kind,
+                status["failed_attempts"],
+                status["next_retry_at"],
+                exc,
+            )
             return
+
+        status_store.record_success()
 
         try:
             imap.select("INBOX")
@@ -421,13 +442,53 @@ class EmailInboxWorker:
         )
         db.commit()
 
+    def test_login(self) -> dict:
+        """Tenta il login IMAP e aggiorna lo store condiviso.
+
+        Riporta solo l'esito: nessuna credenziale nella risposta.
+        """
+        from services import inbox_status_store as status_store
+
+        if not self.imap_user or not self.imap_password:
+            status = status_store.record_disabled("credenziali IMAP non configurate")
+            return {"success": False, "state": status["state"], "detail": status["last_error"]}
+
+        try:
+            imap = imaplib.IMAP4_SSL(self.imap_host, self.imap_port)
+            imap.login(self.imap_user, self.imap_password)
+            try:
+                imap.logout()
+            except Exception:
+                pass
+        except Exception as exc:
+            kind = _classify_login_error(exc)
+            status = status_store.record_failure(str(exc), kind=kind)
+            return {"success": False, "state": status["state"], "detail": str(exc)}
+
+        status = status_store.record_success()
+        return {"success": True, "state": status["state"], "detail": None}
+
     def _get_db(self):
         from database import SessionLocal
         return SessionLocal()
 
 
+def _classify_login_error(exc: Exception) -> str:
+    text = str(exc).upper()
+    if "AUTHENTICATIONFAILED" in text or "AUTHENTICATION FAILED" in text:
+        return "auth_failed"
+    return "error"
+
+
 def get_worker_status() -> dict:
-    return dict(_WORKER_STATUS)
+    from services import inbox_status_store
+
+    status = inbox_status_store.get_status()
+    return {
+        "running": bool(_WORKER_STATUS.get("running")),
+        "message": inbox_status_store.status_message(status),
+        **status,
+    }
 
 
 def start_email_inbox_worker() -> None:

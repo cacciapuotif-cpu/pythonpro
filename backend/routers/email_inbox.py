@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 import models
 import schemas
 from agent_workflows import create_audit_log, sync_collaborator_data_quality
-from auth import get_current_user
+from auth import get_admin_user, get_current_user
 from database import get_db
 from services.document_intake_agent import DocumentIntakeAgent
 
@@ -265,8 +265,19 @@ def trigger_poll(
 
 @router.get("/status", response_model=schemas.EmailInboxStatusResponse)
 def get_status(current_user=Depends(get_current_user)):
+    """Stato inbox dal store condiviso (aggiornato dal processo worker ARQ)."""
     from services.email_inbox_worker import get_worker_status
     return get_worker_status()
+
+
+@router.post("/imap/test", response_model=schemas.EmailInboxImapTestResponse)
+def test_imap_connection(current_user=Depends(get_admin_user)):
+    """Admin: tenta il login IMAP con le credenziali configurate e riporta
+    l'esito. Nessuna credenziale nella risposta; lo store condiviso viene
+    aggiornato (reset backoff su successo)."""
+    from services.email_inbox_worker import EmailInboxWorker
+
+    return EmailInboxWorker().test_login()
 
 
 def _resolve_related_mail_recovery_suggestions(
