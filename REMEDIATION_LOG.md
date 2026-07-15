@@ -488,3 +488,29 @@ Formato: data | finding ID | cosa fatto | file toccati | test/verifiche eseguiti
   - Zero side effect non approvati: dimostrato dai test A1 (kill switch, no autosend, reply draft, proposta con diff) e dagli e2e A6.
 - **Residuo per la dichiarazione finale di conformità: A5a (GATE utente)** — matrice RBAC proposta all'utente; dopo conferma: enforcement ruoli su agents/inbox/sprint7 + pannello system-health in AgentsManager.
 - Nessun push (vincolo Ondata 2 invariato).
+
+## 2026-07-15 | ONDATA AGENTI | A5a CHIUSO — ONDATA COMPLETATA, dichiarazione finale
+
+- GATE A5a: matrice RBAC confermata dall'utente ("ok confermo").
+- **A5a — `77d2406` fix(AGENT-14)**: enforcement matrice nel middleware `require_role` (`auth.rbac_allowed_roles`) e nelle dipendenze (`require_agents_execute`=ADMIN, `require_agents_write`=OPERATORE+ADMIN, normalize_role per i ruoli legacy). GET piattaforma agenti aperti a tutti i ruoli autenticati; review/inbox=OPERATORE+; run manuale/trigger-poll/imap-test=ADMIN. 53 test matrice (`test_agents_rbac_matrix.py`). Pannello "Stato sistema agenti" in AgentsManager (UI di A5b/A5c). Adottati hunk frontend pre-esistenti (guard anti-doppio-invio; DOMPurify su payload LLM).
+
+### GATE FINALE — verifiche
+
+1. Suite completa container: **374 passed, 0 failed** (baseline inizio ondata: 245).
+2. Grep bypass: zero chiamate `run_*_agent(` fuori dal dispatch del workflow (`agent_workflows.run_registered_agent`); `agent_registry`/`BaseAgent`/`registry.py` assenti dal codice applicativo.
+3. Zero side effect senza approvazione umana: dimostrato da test A1 (kill switch 12, no-autosend 4, reply draft 4, proposta con diff 11) + e2e A6 (6 flussi, mock SMTP/IMAP/LLM: nessun invio, nessuna scrittura anagrafica, nessuna validazione documento senza azione umana).
+4. REMEDIATION_LOG completo: sezioni A1..A6 + GATE A3 e A5a documentati.
+5. Build frontend compilata (warning pre-esistente HomeCockpit fuori scope).
+
+### Dichiarazione finale di conformità
+
+**SÌ** — la piattaforma agenti è conforme al flusso canonico
+`trigger → AgentRun → AgentSuggestion → [Draft] → revisione umana → AgentReviewAction + audit → stato`,
+con zero side effect esterni senza approvazione umana, kill switch globale e per-agente su tutti i trigger, registry unico dichiarativo, layer LLM robusto (retry/schema/fallback/prompt versionati/log senza PII), stato operativo osservabile (system-health, store IMAP condiviso) e RBAC secondo matrice confermata.
+
+**Riserve (fuori scope ondata, già censite):**
+- NEW-006: `data_retention_cleanup` resta side effect automatico mitigato dal kill switch — conversione a flusso proposta/approvazione da pianificare.
+- Enforcement RBAC dipende da `RBAC_ENFORCE=true` a runtime (attivo da Ondata 1).
+- I fix diventano attivi a runtime solo dopo `docker compose restart backend arq_worker` (worktree montato come volume) e rebuild immagine frontend per il pannello.
+- Vincoli Ondata 2 invariati: NIENTE push finché la history non è ripulita.
+- Nessun push eseguito.

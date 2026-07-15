@@ -32,9 +32,14 @@ _Ultimo aggiornamento: 2026-07-15_
 - `b78bddb` fix(AGENT-13): `test_agents_e2e.py` — 6 flussi canonici, mock SMTP/IMAP/LLM.
 - Suite finale: **321 passed**. Grep bypass: pulito.
 
+### Fatto (quinta sessione 2026-07-15) — A5a CHIUSO, ONDATA AGENTI COMPLETATA
+- GATE A5a confermato dall'utente. `77d2406` fix(AGENT-14): matrice RBAC nel middleware require_role + dipendenze (execute=ADMIN, write=OPERATORE+ADMIN, GET tutti i ruoli); 53 test matrice; pannello "Stato sistema agenti" in AgentsManager; adottati hunk frontend pre-esistenti (anti-doppio-invio, DOMPurify).
+- **GATE FINALE superato: dichiarazione conformità SÌ** (dettaglio e riserve in REMEDIATION_LOG.md, sezione A5a/ONDATA COMPLETATA). Suite finale: **374 passed**. Build frontend ok.
+
 ### Pendenti (ripresa)
-1. **A5a — GATE UTENTE**: matrice RBAC proposta (OPERATORE: review/approve/send/inbox; ADMIN: run manuale, trigger-poll, imap/test, config). Dopo conferma: enforcement + pannello system-health in AgentsManager (frontend).
-2. GATE finale: dichiarazione conformità SÌ/NO dopo A5a.
+1. Attivazione runtime: `docker compose restart backend arq_worker` + rebuild immagine frontend (worktree = volume; NON eseguito).
+2. NEW-006 (data_retention_cleanup → flusso proposta) da pianificare fuori ondata.
+3. Vincoli invariati: MAI push finché history non ripulita (Ondata 2).
 - Nota: endpoint `/email-inbox/items/{id}/assign` ora produce proposta invece di validare direttamente (flusso canonico: validazione umana via documenti-richiesti).
 - Nota runtime: worker ARQ e backend montano il worktree come volume; per attivare AGENT-06/07/08 a runtime serve riavvio dei container (`docker compose restart backend arq_worker`) — non eseguito.
 
