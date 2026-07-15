@@ -463,3 +463,17 @@ Formato: data | finding ID | cosa fatto | file toccati | test/verifiche eseguiti
 - Gate di chiusura A3: suite completa in container **299 passed**.
 - Prossimo: A4 robustezza LLM; poi A5 (GATE matrice RBAC su A5a), A6 e2e, GATE finale.
 - Nessun push (vincolo Ondata 2 invariato).
+
+## 2026-07-15 | ONDATA AGENTI | A4 CHIUSO (robustezza LLM)
+
+- **A4 — `2e82f0e` fix(AGENT-11)**: retry, schema, fallback, prompt versionati, log senza PII.
+  - `call_llm_with_retry`: max 2 retry con backoff breve (0.5s/1s) su timeout/trasporto/5xx/output malformato; 4xx non ritentato.
+  - Schemi Pydantic `MailCopySchema`/`DocumentResultSchema` (`ai_agents/llm_schemas.py`): output malformato → ValueError → retry → fallback. Mail: fallback deterministico del chiamante (invariato). Documenti: manual_review (valid=None), mai persi.
+  - Prompt versionati in `ai_agents/prompts/` (`mail_recovery_v1`, `document_processor_v1`); `DocumentResult.prompt_version` registrata su ogni esito e salvata nel `llm_result` degli item inbox.
+  - Log strutturato `agent_llm_call` per chiamata: agent, provider, model, prompt_version, attempt, outcome, duration_ms, error_class — mai contenuti prompt/documenti (test anti-PII).
+  - Confidence < 0.60 (globale o per campo) → suggestion `priority/severity=high` + flag `needs_careful_review` nel payload field_diff.
+  - Hunk pre-esistenti adottati con nota: `pseudonymize_prompt` (llm_privacy) sul percorso openclaw di `call_ollama_json`/`_call_openclaw` — coerente col requisito niente PII verso gateway esterni.
+  - Test: `test_llm_robustness.py` (13 test).
+- Gate di chiusura A4: suite completa in container **312 passed**.
+- Prossimo: A5b system-health + A5c error surface (A5a matrice RBAC resta GATE utente), A6 e2e, GATE finale.
+- Nessun push (vincolo Ondata 2 invariato).
