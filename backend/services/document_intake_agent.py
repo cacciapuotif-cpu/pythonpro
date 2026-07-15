@@ -67,7 +67,8 @@ class DocumentIntakeOutcome:
     processing_status: str
     documento_richiesto_id: Optional[int] = None
     created_documento_richiesto: bool = False
-    collaborator_updated_fields: list[str] = field(default_factory=list)
+    proposed_fields: list[str] = field(default_factory=list)
+    suggestion_id: Optional[int] = None
     note: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
@@ -174,38 +175,51 @@ class DocumentIntakeAgent:
         if expiry_date:
             documento.data_scadenza = expiry_date
 
-        updated_fields: list[str] = []
-        if result.valid is True:
-            documento.stato = "validato"
-            documento.validato_da = "email_agent"
-            documento.validato_il = datetime.now()
-            documento.note_operatore = None
-            updated_fields = self._apply_collaborator_updates(
-                collaborator,
-                doc_type=resolved_doc_type,
-                attachment_path=attachment_path,
-                attachment_name=attachment_name,
-                extracted_data=extracted,
-                expiry_date=expiry_date,
+        # Il documento resta "caricato" fino a validazione umana (routers/documenti_richiesti.py);
+        # la classificazione LLM finisce solo nelle note operatore.
+        documento.stato = "caricato"
+        documento.validato_da = None
+        documento.validato_il = None
+        if result.valid is False:
+            documento.note_operatore = (
+                "; ".join(result.issues)[:2000] if result.issues else "LLM: documento segnalato come non valido"
             )
-        elif result.valid is False:
-            documento.stato = "rifiutato"
-            documento.validato_da = None
-            documento.validato_il = None
-            documento.note_operatore = "; ".join(result.issues)[:2000] if result.issues else "Documento rifiutato automaticamente"
+        elif result.valid is True:
+            documento.note_operatore = "LLM: documento classificato valido, in attesa di validazione umana"
         else:
-            documento.stato = "caricato"
-            documento.validato_da = None
-            documento.validato_il = None
             documento.note_operatore = "Richiede revisione manuale"
 
         db.add(documento)
-        db.add(collaborator)
         db.commit()
         db.refresh(documento)
-        contract_trigger_result = None
-        if documento.stato == "validato":
-            contract_trigger_result = self._trigger_contract_agent(db, entity_id)
+
+        changes = self._build_collaborator_proposals(
+            collaborator,
+            doc_type=resolved_doc_type,
+            attachment_path=attachment_path,
+            attachment_name=attachment_name,
+            extracted_data=extracted,
+            expiry_date=expiry_date,
+            confidence=getattr(result, "confidence", None),
+        )
+        suggestion = None
+        if changes:
+            from services.agent_apply_service import create_field_update_suggestion
+
+            suggestion = create_field_update_suggestion(
+                db,
+                entity_type="collaborator",
+                entity_id=entity_id,
+                entity_name=f"{collaborator.first_name or ''} {collaborator.last_name or ''}".strip(),
+                changes=changes,
+                source={
+                    "doc_type": resolved_doc_type,
+                    "documento_richiesto_id": documento.id,
+                    "attachment_name": attachment_name,
+                },
+                confidence=getattr(result, "confidence", None),
+                triggered_by="document_intake_agent",
+            )
 
         return DocumentIntakeOutcome(
             expected_doc_type=expected_doc_type,
@@ -213,22 +227,9 @@ class DocumentIntakeAgent:
             processing_status=self._status_from_validity(result.valid),
             documento_richiesto_id=documento.id,
             created_documento_richiesto=created_documento,
-            collaborator_updated_fields=updated_fields,
-            note=f"contract_agent={contract_trigger_result}" if contract_trigger_result else None,
+            proposed_fields=[change["field"] for change in changes],
+            suggestion_id=suggestion.id if suggestion else None,
         )
-
-    def _trigger_contract_agent(self, db, collaboratore_id: int) -> Optional[dict]:
-        try:
-            from ai_agents.contract_agent import run_contract_agent_for_collaborator
-
-            return run_contract_agent_for_collaborator(db, collaboratore_id)
-        except Exception as exc:
-            logger.exception(
-                "DocumentIntakeAgent: trigger contract_agent fallito per collaboratore %s: %s",
-                collaboratore_id,
-                exc,
-            )
-            return None
 
     def _find_or_create_documento_richiesto(self, db, *, collaboratore_id: int, doc_type: str, expected_doc_type: str):
         candidate_types = []
@@ -261,7 +262,7 @@ class DocumentIntakeAgent:
         db.flush()
         return documento, True
 
-    def _apply_collaborator_updates(
+    def _build_collaborator_proposals(
         self,
         collaborator,
         *,
@@ -270,76 +271,55 @@ class DocumentIntakeAgent:
         attachment_name: Optional[str],
         extracted_data: Dict[str, Any],
         expiry_date: Optional[datetime],
-    ) -> list[str]:
-        updated_fields: list[str] = []
+        confidence: Optional[float],
+    ) -> list[dict]:
+        """Calcola il diff campo per campo (valore attuale -> proposto). Nessuna scrittura."""
+        proposals: Dict[str, Any] = {}
 
         if doc_type == "documento_identita":
-            collaborator.documento_identita_path = attachment_path
-            collaborator.documento_identita_filename = attachment_name
-            collaborator.documento_identita_uploaded_at = datetime.now()
-            collaborator.documento_identita_scadenza = expiry_date
-            updated_fields.extend([
-                "documento_identita_path",
-                "documento_identita_filename",
-                "documento_identita_uploaded_at",
-                "documento_identita_scadenza",
-            ])
+            proposals["documento_identita_path"] = attachment_path
+            proposals["documento_identita_filename"] = attachment_name
+            proposals["documento_identita_scadenza"] = expiry_date
         elif doc_type == "curriculum":
-            collaborator.curriculum_path = attachment_path
-            collaborator.curriculum_filename = attachment_name
-            collaborator.curriculum_uploaded_at = datetime.now()
-            updated_fields.extend([
-                "curriculum_path",
-                "curriculum_filename",
-                "curriculum_uploaded_at",
-            ])
+            proposals["curriculum_path"] = attachment_path
+            proposals["curriculum_filename"] = attachment_name
 
-            profile = self._clean_optional_text(
+            proposals["profilo_professionale"] = self._clean_optional_text(
                 extracted_data.get("profilo_professionale") or extracted_data.get("profile")
             )
-            if profile and not collaborator.profilo_professionale:
-                collaborator.profilo_professionale = profile
-                updated_fields.append("profilo_professionale")
 
             skills = extracted_data.get("competenze_principali") or extracted_data.get("skills")
-            if skills and not collaborator.competenze_principali:
-                if isinstance(skills, list):
-                    collaborator.competenze_principali = ", ".join(str(item).strip() for item in skills if str(item).strip())
-                else:
-                    collaborator.competenze_principali = str(skills).strip()
-                if collaborator.competenze_principali:
-                    updated_fields.append("competenze_principali")
+            if isinstance(skills, list):
+                skills = ", ".join(str(item).strip() for item in skills if str(item).strip())
+            proposals["competenze_principali"] = self._clean_optional_text(skills)
 
-            education = self._clean_optional_text(extracted_data.get("education") or extracted_data.get("titolo_studio"))
-            if education and not collaborator.education:
-                collaborator.education = education
-                updated_fields.append("education")
+            proposals["education"] = self._clean_optional_text(
+                extracted_data.get("education") or extracted_data.get("titolo_studio")
+            )
 
         fiscal_code = self._clean_optional_text(extracted_data.get("fiscal_code") or extracted_data.get("codice_fiscale"))
         if fiscal_code:
-            fiscal_code = fiscal_code.upper().replace(" ", "")
-            if not collaborator.fiscal_code:
-                collaborator.fiscal_code = fiscal_code
-                updated_fields.append("fiscal_code")
-            elif collaborator.fiscal_code.upper() != fiscal_code:
-                logger.warning(
-                    "DocumentIntakeAgent: fiscal code estratto %s diverso da collaboratore %s (%s), skip overwrite",
-                    fiscal_code,
-                    collaborator.id,
-                    collaborator.fiscal_code,
-                )
+            proposals["fiscal_code"] = fiscal_code.upper().replace(" ", "")
 
         partita_iva = self._clean_optional_text(extracted_data.get("partita_iva") or extracted_data.get("vat_number"))
-        if partita_iva and not collaborator.partita_iva:
-            collaborator.partita_iva = partita_iva.replace("IT", "").replace(" ", "")
-            updated_fields.append("partita_iva")
+        if partita_iva:
+            proposals["partita_iva"] = partita_iva.replace("IT", "").replace(" ", "")
 
         phone = self._clean_optional_text(extracted_data.get("phone") or extracted_data.get("telefono"))
-        if phone and not collaborator.phone:
-            collaborator.phone = phone
-            updated_fields.append("phone")
+        if phone:
+            proposals["phone"] = phone
 
-        return updated_fields
+        from services.agent_apply_service import build_change, serialize_value
+
+        changes: list[dict] = []
+        for field_name, proposed in proposals.items():
+            if proposed is None:
+                continue
+            current = getattr(collaborator, field_name, None)
+            if serialize_value(current) == serialize_value(proposed):
+                continue
+            changes.append(build_change(field_name, current, proposed, confidence))
+        return changes
 
     def _apply_company_document_result(
         self,
@@ -360,29 +340,75 @@ class DocumentIntakeAgent:
             )
 
         extracted = dict(getattr(result, "extracted_data", {}) or {})
-        updated_fields = self._apply_company_updates(
+        changes = self._build_company_proposals(
             azienda,
             doc_type=resolved_doc_type,
             extracted_data=extracted,
+            confidence=getattr(result, "confidence", None),
         )
-        db.add(azienda)
-        db.commit()
+        suggestion = None
+        if changes:
+            from services.agent_apply_service import create_field_update_suggestion
+
+            suggestion = create_field_update_suggestion(
+                db,
+                entity_type="azienda_cliente",
+                entity_id=entity_id,
+                entity_name=azienda.ragione_sociale,
+                changes=changes,
+                source={"doc_type": resolved_doc_type},
+                confidence=getattr(result, "confidence", None),
+                triggered_by="document_intake_agent",
+            )
 
         return DocumentIntakeOutcome(
             expected_doc_type=expected_doc_type,
             resolved_doc_type=resolved_doc_type,
             processing_status=self._status_from_validity(result.valid),
-            collaborator_updated_fields=updated_fields,
-            note="azienda_cliente aggiornato da documento" if updated_fields else None,
+            proposed_fields=[change["field"] for change in changes],
+            suggestion_id=suggestion.id if suggestion else None,
+            note="proposta aggiornamento azienda_cliente" if changes else None,
         )
 
-    def _apply_company_updates(
+    def _build_company_proposals(
         self,
         azienda,
         *,
         doc_type: str,
         extracted_data: Dict[str, Any],
-    ) -> list[str]:
+        confidence: Optional[float],
+    ) -> list[dict]:
+        desired = self._company_desired_updates(azienda, doc_type=doc_type, extracted_data=extracted_data)
+
+        from services.agent_apply_service import build_change, serialize_value
+
+        changes: list[dict] = []
+        for field_name, value in desired.items():
+            if value is None:
+                continue
+            normalized_value = value
+            if field_name == "partita_iva":
+                normalized_value = value.replace("IT", "").replace(" ", "")
+            elif field_name in {"codice_fiscale", "legale_rappresentante_codice_fiscale"}:
+                normalized_value = value.replace(" ", "").upper()
+            elif field_name == "provincia":
+                normalized_value = value.upper()
+            elif field_name == "note":
+                normalized_value = self._merge_note(getattr(azienda, "note", None), value)
+
+            current = getattr(azienda, field_name, None)
+            if serialize_value(current) == serialize_value(normalized_value):
+                continue
+            changes.append(build_change(field_name, current, normalized_value, confidence))
+        return changes
+
+    def _company_desired_updates(
+        self,
+        azienda,
+        *,
+        doc_type: str,
+        extracted_data: Dict[str, Any],
+    ) -> Dict[str, Optional[str]]:
         if doc_type == "visura_camerale":
             updates = {
                 "ragione_sociale": self._clean_optional_text(extracted_data.get("ragione_sociale") or extracted_data.get("company_name")),
@@ -404,7 +430,7 @@ class DocumentIntakeAgent:
                 "attivita_erogate": self._clean_optional_text(extracted_data.get("oggetto_sociale") or extracted_data.get("attivita_erogate") or extracted_data.get("company_activity")),
                 "note": self._build_company_note(doc_type, extracted_data),
             }
-            return self._apply_company_field_updates(azienda, updates)
+            return updates
 
         if doc_type == "certificato_attribuzione_partita_iva":
             updates = {
@@ -418,7 +444,7 @@ class DocumentIntakeAgent:
                 "attivita_erogate": self._clean_optional_text(extracted_data.get("attivita_erogate") or extracted_data.get("attivita") or extracted_data.get("company_activity")),
                 "note": self._build_company_note(doc_type, extracted_data),
             }
-            return self._apply_company_field_updates(azienda, updates)
+            return updates
 
         if doc_type in {"statuto", "atto_costitutivo"}:
             updates = {
@@ -428,7 +454,7 @@ class DocumentIntakeAgent:
                 "attivita_erogate": self._clean_optional_text(extracted_data.get("oggetto_sociale") or extracted_data.get("company_activity")),
                 "note": self._build_company_note(doc_type, extracted_data),
             }
-            return self._apply_company_field_updates(azienda, updates)
+            return updates
 
         if doc_type == "durc":
             updates = {
@@ -440,7 +466,7 @@ class DocumentIntakeAgent:
                 "telefono": self._clean_optional_text(extracted_data.get("telefono") or extracted_data.get("phone")),
                 "note": self._build_company_note(doc_type, extracted_data),
             }
-            return self._apply_company_field_updates(azienda, updates)
+            return updates
 
         generic_fields = {
             "ragione_sociale": self._clean_optional_text(extracted_data.get("ragione_sociale") or extracted_data.get("company_name")),
@@ -451,28 +477,7 @@ class DocumentIntakeAgent:
             "telefono": self._clean_optional_text(extracted_data.get("telefono") or extracted_data.get("phone")),
             "note": self._build_company_note(doc_type, extracted_data),
         }
-        return self._apply_company_field_updates(azienda, generic_fields)
-
-    def _apply_company_field_updates(self, azienda, updates: Dict[str, Optional[str]]) -> list[str]:
-        updated_fields: list[str] = []
-        for field_name, value in updates.items():
-            if value is None:
-                continue
-            normalized_value = value
-            if field_name == "partita_iva":
-                normalized_value = value.replace("IT", "").replace(" ", "")
-            elif field_name in {"codice_fiscale", "legale_rappresentante_codice_fiscale"}:
-                normalized_value = value.replace(" ", "").upper()
-            elif field_name == "provincia":
-                normalized_value = value.upper()
-            elif field_name == "note":
-                normalized_value = self._merge_note(getattr(azienda, "note", None), value)
-
-            if getattr(azienda, field_name, None) != normalized_value:
-                setattr(azienda, field_name, normalized_value)
-                updated_fields.append(field_name)
-
-        return updated_fields
+        return generic_fields
 
     def _build_company_note(self, doc_type: str, extracted_data: Dict[str, Any]) -> Optional[str]:
         relevant = {

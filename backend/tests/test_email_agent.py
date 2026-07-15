@@ -461,6 +461,8 @@ class TestDocumentIntakeAgent:
                 models.DocumentoRichiesto.__table__,
                 models.EmailInboxItem.__table__,
                 models.AziendaCliente.__table__,
+                models.AgentRun.__table__,
+                models.AgentSuggestion.__table__,
             ],
         )
         db = Session(engine)
@@ -500,7 +502,7 @@ class TestDocumentIntakeAgent:
 
         assert inferred == "documento_identita"
 
-    def test_valid_curriculum_updates_document_and_collaborator(self):
+    def test_valid_curriculum_creates_proposal_without_touching_collaborator(self):
         from ai_agents.document_processor import DocumentResult
         from services.document_intake_agent import DocumentIntakeAgent
 
@@ -534,13 +536,22 @@ class TestDocumentIntakeAgent:
         assert outcome.processing_status == "valid"
         assert outcome.resolved_doc_type == "curriculum"
         assert documento is not None
-        assert documento.stato == "validato"
-        assert collaborator.curriculum_filename == "cv.pdf"
-        assert collaborator.curriculum_path == "/tmp/cv.pdf"
-        assert collaborator.profilo_professionale == "Project manager digitale"
-        assert "Python" in collaborator.competenze_principali
+        assert documento.stato == "caricato"
+        assert documento.validato_da is None
+        # nessuna scrittura diretta sul collaboratore: solo proposta
+        assert collaborator.curriculum_filename is None
+        assert collaborator.curriculum_path is None
+        assert collaborator.profilo_professionale is None
+        assert collaborator.competenze_principali is None
 
-    def test_invalid_identity_document_marks_requirement_rejected(self):
+        assert outcome.suggestion_id is not None
+        suggestion = db.query(models.AgentSuggestion).filter_by(id=outcome.suggestion_id).first()
+        assert suggestion.suggestion_type == "document_field_updates"
+        assert suggestion.status == "pending"
+        assert "profilo_professionale" in outcome.proposed_fields
+        assert "curriculum_path" in outcome.proposed_fields
+
+    def test_invalid_identity_document_stays_caricato_with_issues(self):
         import models
         from ai_agents.document_processor import DocumentResult
         from services.document_intake_agent import DocumentIntakeAgent
@@ -575,10 +586,17 @@ class TestDocumentIntakeAgent:
 
         documento = db.query(models.DocumentoRichiesto).filter(models.DocumentoRichiesto.collaboratore_id == 1).first()
         assert outcome.processing_status == "invalid"
-        assert documento.stato == "rifiutato"
+        assert documento.stato == "caricato"
+        assert documento.validato_da is None
         assert "scaduto" in (documento.note_operatore or "")
 
-    def test_visura_camerale_updates_azienda_cliente(self):
+    def _get_proposed(self, db, suggestion_id):
+        import models
+        suggestion = db.query(models.AgentSuggestion).filter_by(id=suggestion_id).first()
+        payload = json.loads(suggestion.auto_fix_payload)
+        return {change["field"]: change["proposed"] for change in payload["changes"]}
+
+    def test_visura_camerale_proposes_azienda_updates(self):
         import models
         from ai_agents.document_processor import DocumentResult
         from services.document_intake_agent import DocumentIntakeAgent
@@ -628,17 +646,24 @@ class TestDocumentIntakeAgent:
 
         refreshed = db.query(models.AziendaCliente).filter(models.AziendaCliente.id == 55).first()
         assert outcome.processing_status == "valid"
-        assert refreshed.ragione_sociale == "Azienda Demo SRL"
-        assert refreshed.settore_ateco == "62.01"
-        assert refreshed.indirizzo == "Via Roma 1"
-        assert refreshed.citta == "Milano"
-        assert refreshed.cap == "20100"
-        assert refreshed.provincia == "MI"
-        assert refreshed.pec == "pec@aziendademo.it"
-        assert refreshed.legale_rappresentante_nome == "Mario"
-        assert refreshed.attivita_erogate == "Consulenza informatica"
+        # nessuna scrittura diretta: azienda invariata, aggiornamenti solo proposti
+        assert refreshed.ragione_sociale == "Azienda Demo"
+        assert refreshed.settore_ateco is None
+        assert refreshed.indirizzo is None
 
-    def test_durc_updates_company_generic_fields_and_audit_note(self):
+        assert outcome.suggestion_id is not None
+        proposed = self._get_proposed(db, outcome.suggestion_id)
+        assert proposed["ragione_sociale"] == "Azienda Demo SRL"
+        assert proposed["settore_ateco"] == "62.01"
+        assert proposed["indirizzo"] == "Via Roma 1"
+        assert proposed["citta"] == "Milano"
+        assert proposed["cap"] == "20100"
+        assert proposed["provincia"] == "MI"
+        assert proposed["pec"] == "pec@aziendademo.it"
+        assert proposed["legale_rappresentante_nome"] == "Mario"
+        assert proposed["attivita_erogate"] == "Consulenza informatica"
+
+    def test_durc_proposes_company_generic_fields_and_audit_note(self):
         import models
         from ai_agents.document_processor import DocumentResult
         from services.document_intake_agent import DocumentIntakeAgent
@@ -681,12 +706,16 @@ class TestDocumentIntakeAgent:
 
         refreshed = db.query(models.AziendaCliente).filter(models.AziendaCliente.id == 77).first()
         assert outcome.processing_status == "valid"
-        assert refreshed.pec == "pec@beta.it"
-        assert refreshed.note is not None
-        assert "[durc]" in refreshed.note
-        assert "numero_protocollo=DURC-12345" in refreshed.note
+        assert refreshed.pec is None
+        assert refreshed.note is None
 
-    def test_certificato_attribuzione_partita_iva_updates_company_address_fields(self):
+        assert outcome.suggestion_id is not None
+        proposed = self._get_proposed(db, outcome.suggestion_id)
+        assert proposed["pec"] == "pec@beta.it"
+        assert "[durc]" in proposed["note"]
+        assert "numero_protocollo=DURC-12345" in proposed["note"]
+
+    def test_certificato_attribuzione_partita_iva_proposes_company_address_fields(self):
         import models
         from ai_agents.document_processor import DocumentResult
         from services.document_intake_agent import DocumentIntakeAgent
@@ -730,14 +759,19 @@ class TestDocumentIntakeAgent:
 
         refreshed = db.query(models.AziendaCliente).filter(models.AziendaCliente.id == 88).first()
         assert outcome.processing_status == "valid"
-        assert refreshed.ragione_sociale == "Gamma Consulting SRL"
-        assert refreshed.indirizzo == "Via Milano 10"
-        assert refreshed.citta == "Torino"
-        assert refreshed.cap == "10121"
-        assert refreshed.provincia == "TO"
-        assert refreshed.attivita_erogate == "Servizi consulenziali"
+        assert refreshed.ragione_sociale == "Gamma SRL"
+        assert refreshed.indirizzo is None
 
-    def test_statuto_updates_company_activity_and_note(self):
+        assert outcome.suggestion_id is not None
+        proposed = self._get_proposed(db, outcome.suggestion_id)
+        assert proposed["ragione_sociale"] == "Gamma Consulting SRL"
+        assert proposed["indirizzo"] == "Via Milano 10"
+        assert proposed["citta"] == "Torino"
+        assert proposed["cap"] == "10121"
+        assert proposed["provincia"] == "TO"
+        assert proposed["attivita_erogate"] == "Servizi consulenziali"
+
+    def test_statuto_proposes_company_activity_and_note(self):
         import models
         from ai_agents.document_processor import DocumentResult
         from services.document_intake_agent import DocumentIntakeAgent
@@ -777,10 +811,15 @@ class TestDocumentIntakeAgent:
 
         refreshed = db.query(models.AziendaCliente).filter(models.AziendaCliente.id == 99).first()
         assert outcome.processing_status == "valid"
-        assert refreshed.ragione_sociale == "Delta Tech SRL"
-        assert refreshed.attivita_erogate == "Sviluppo software e consulenza IT"
-        assert refreshed.note is not None
-        assert "[statuto]" in refreshed.note
+        assert refreshed.ragione_sociale == "Delta SRL"
+        assert refreshed.attivita_erogate is None
+        assert refreshed.note is None
+
+        assert outcome.suggestion_id is not None
+        proposed = self._get_proposed(db, outcome.suggestion_id)
+        assert proposed["ragione_sociale"] == "Delta Tech SRL"
+        assert proposed["attivita_erogate"] == "Sviluppo software e consulenza IT"
+        assert "[statuto]" in proposed["note"]
 
 
 # ===========================================================

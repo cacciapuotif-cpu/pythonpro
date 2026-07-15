@@ -1,6 +1,6 @@
 import logging
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -14,11 +14,26 @@ from agent_workflows import AgentWorkflowExecutionError, apply_workflow_action, 
 from ai_agents import list_agent_definitions
 from ai_agents.llm import probe_agent_llm_health
 from ai_agents.registry import agent_registry
+from auth import User, UserRole, get_current_user
 from database import get_db
 
 router = APIRouter(prefix="/api/v1/agents", tags=["Agents"])
 suggestion_actions_router = APIRouter(prefix="/api/v1/agent-suggestions", tags=["Agent Suggestions"])
 logger = logging.getLogger(__name__)
+
+
+def _require_agent_role(current_user: User) -> User:
+    if current_user.role not in {UserRole.ADMIN.value, UserRole.MANAGER.value}:
+        raise HTTPException(status_code=403, detail="Permesso agenti richiesto")
+    return current_user
+
+
+def require_agents_execute(current_user: User = Depends(get_current_user)) -> User:
+    return _require_agent_role(current_user)
+
+
+def require_agents_write(current_user: User = Depends(get_current_user)) -> User:
+    return _require_agent_role(current_user)
 
 
 class SuggestionReviewPayload(BaseModel):
@@ -85,7 +100,7 @@ def _normalize_accept_workflow_action(action: Optional[str]) -> str:
 
 
 @router.get("/")
-def list_registered_agents():
+def list_registered_agents(current_user: User = Depends(get_current_user)):
     registered = {
         item.get("agent_type"): item
         for item in agent_registry.list_agents()
@@ -120,7 +135,7 @@ def list_registered_agents():
 
 
 @router.get("/{agent_type}/info")
-def get_agent_info(agent_type: str):
+def get_agent_info(agent_type: str, current_user: User = Depends(get_current_user)):
     for definition in list_agent_definitions():
         if definition["name"] == agent_type:
             return {
@@ -137,12 +152,12 @@ def get_agent_info(agent_type: str):
 
 
 @router.get("/llm/health", response_model=schemas.AgentLlmHealth)
-def get_llm_health():
+def get_llm_health(current_user: User = Depends(get_current_user)):
     return probe_agent_llm_health()
 
 
 @router.post("/run", response_model=schemas.AgentRun)
-def run_agent_via_workflow(payload: schemas.AgentRunRequest, db: Session = Depends(get_db)):
+def run_agent_via_workflow(payload: schemas.AgentRunRequest, db: Session = Depends(get_db), current_user: User = Depends(require_agents_execute)):
     normalized_entity_type = payload.entity_type
     if normalized_entity_type:
         normalized_entity_type = normalized_entity_type.strip().lower()
@@ -166,7 +181,7 @@ def run_agent_via_workflow(payload: schemas.AgentRunRequest, db: Session = Depen
 
 
 @router.post("/{agent_type}/run", response_model=schemas.AgentRun)
-def run_agent_manually(agent_type: str, db: Session = Depends(get_db)):
+def run_agent_manually(agent_type: str, db: Session = Depends(get_db), current_user: User = Depends(require_agents_execute)):
     try:
         run = run_agent_workflow(
             db,
@@ -192,6 +207,7 @@ def list_agent_runs(
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     try:
         query = _run_query(db)
@@ -215,7 +231,7 @@ def list_agent_runs(
 
 
 @router.get("/runs/{run_id}", response_model=schemas.AgentRunWithSuggestions)
-def get_run_detail(run_id: int, db: Session = Depends(get_db)):
+def get_run_detail(run_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     run = crud.get_agent_run(db, run_id)
     if not run:
         raise HTTPException(status_code=404, detail="Run agente non trovato")
@@ -232,6 +248,7 @@ def list_suggestions(
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     try:
         query = _suggestion_query(db, include_review_actions=False)
@@ -250,12 +267,12 @@ def list_suggestions(
 
 
 @router.get("/suggestions/pending", response_model=List[schemas.AgentSuggestion])
-def list_pending_suggestions(db: Session = Depends(get_db)):
+def list_pending_suggestions(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     return crud.get_pending_suggestions(db)
 
 
 @router.get("/suggestions/{suggestion_id}", response_model=schemas.AgentSuggestionWithDetails)
-def get_suggestion_detail(suggestion_id: int, db: Session = Depends(get_db)):
+def get_suggestion_detail(suggestion_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     suggestion = crud.get_suggestion(db, suggestion_id)
     if not suggestion:
         raise HTTPException(status_code=404, detail="Suggerimento non trovato")
@@ -267,6 +284,7 @@ def review_suggestion(
     suggestion_id: int,
     payload: SuggestionReviewPayload,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_agents_write),
 ):
     suggestion = crud.get_suggestion(db, suggestion_id)
     if not suggestion:
@@ -293,6 +311,7 @@ def accept_suggestion(
     suggestion_id: int,
     payload: schemas.AgentWorkflowActionRequest,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_agents_write),
 ):
     try:
         return apply_workflow_action(
@@ -311,6 +330,7 @@ def reject_suggestion(
     suggestion_id: int,
     payload: schemas.AgentWorkflowActionRequest,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_agents_write),
 ):
     review_payload = SuggestionReviewPayload(
         action="rejected",
@@ -325,6 +345,7 @@ def workflow_suggestion(
     suggestion_id: int,
     payload: schemas.AgentWorkflowActionRequest,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_agents_write),
 ):
     try:
         return apply_workflow_action(
@@ -339,32 +360,36 @@ def workflow_suggestion(
 
 
 @router.post("/suggestions/{suggestion_id}/apply-fix", response_model=schemas.AgentSuggestionWithDetails)
-def apply_suggestion_fix(suggestion_id: int, db: Session = Depends(get_db)):
+def apply_suggestion_fix(suggestion_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_agents_write)):
+    from services.agent_apply_service import apply_field_update_suggestion
+
     suggestion = crud.get_suggestion(db, suggestion_id)
     if not suggestion:
         raise HTTPException(status_code=404, detail="Suggerimento non trovato")
     if not suggestion.auto_fix_available:
         raise HTTPException(status_code=400, detail="Auto-fix non disponibile per questo suggerimento")
+    if suggestion.status not in ("pending", "approved"):
+        raise HTTPException(status_code=400, detail=f"Suggerimento in stato '{suggestion.status}', non applicabile")
 
-    result_message = "Auto-fix applicato"
-    if suggestion.auto_fix_payload:
-        try:
-            payload_preview = json.loads(suggestion.auto_fix_payload)
-            result_message = f"Auto-fix applicato con payload: {payload_preview}"
-        except json.JSONDecodeError:
-            result_message = "Auto-fix applicato con payload non JSON"
+    reviewer_id = getattr(current_user, "id", None)
+    try:
+        apply_result = apply_field_update_suggestion(db, suggestion, user_id=reviewer_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
+    applied = apply_result["applied"]
     crud.create_review_action(
         db=db,
         suggestion_id=suggestion_id,
-        action="implemented",
-        reviewed_by_user_id=None,
+        action="implemented" if applied else "apply_fix_no_changes",
+        reviewed_by_user_id=reviewer_id,
         notes="Applicazione auto-fix",
-        auto_fix_applied=True,
-        result_success=True,
-        result_message=result_message,
+        auto_fix_applied=bool(applied),
+        result_success=bool(applied),
+        result_message=json.dumps(apply_result, ensure_ascii=True),
     )
-    crud.update_suggestion_status(db, suggestion_id, "implemented")
+    if applied:
+        crud.update_suggestion_status(db, suggestion_id, "implemented")
     return crud.get_suggestion(db, suggestion_id)
 
 
@@ -376,6 +401,7 @@ def list_communications(
     skip: int = 0,
     limit: int = 200,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     query = db.query(models.AgentCommunicationDraft)
     if agent_name:
@@ -391,6 +417,7 @@ def list_communications(
 def create_communication_draft(
     payload: schemas.AgentCommunicationDraftCreate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_agents_write),
 ):
     draft = models.AgentCommunicationDraft(
         run_id=payload.run_id,
@@ -418,6 +445,7 @@ def update_communication_status(
     draft_id: int,
     payload: CommunicationStatusPayload,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_agents_write),
 ):
     draft = db.query(models.AgentCommunicationDraft).filter(models.AgentCommunicationDraft.id == draft_id).first()
     if not draft:
@@ -426,7 +454,7 @@ def update_communication_status(
     draft.status = payload.status
     draft.reviewed_by_user_id = payload.reviewed_by_user_id
     if payload.status == "sent" and draft.sent_at is None:
-        draft.sent_at = datetime.utcnow()
+        draft.sent_at = datetime.now(timezone.utc)
 
     db.commit()
     db.refresh(draft)
@@ -438,6 +466,7 @@ def send_suggestion_email(
     suggestion_id: int,
     payload: SendEmailPayload,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_agents_write),
 ):
     try:
         return apply_workflow_action(
@@ -454,7 +483,7 @@ def send_suggestion_email(
 
 
 @router.post("/suggestions/bulk-review", response_model=List[schemas.AgentSuggestion])
-def bulk_review_suggestions(payload: BulkReviewPayload, db: Session = Depends(get_db)):
+def bulk_review_suggestions(payload: BulkReviewPayload, db: Session = Depends(get_db), current_user: User = Depends(require_agents_write)):
     normalized_action = _normalize_review_action(payload.action)
     next_status = _map_action_to_status(normalized_action)
 

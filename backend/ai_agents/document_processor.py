@@ -82,7 +82,7 @@ class DocumentResult:
     issues: List[str] = field(default_factory=list)
     extracted_data: Dict[str, Any] = field(default_factory=dict)
     raw_llm_output: Optional[str] = None
-    confidence: float = 0.0        # 0.0-1.0: soglia auto-apply=0.85, conferma=0.60
+    confidence: float = 0.0        # 0.0-1.0: >=0.85 classificazione affidabile, 0.60-0.85 revisione umana, <0.60 rifiuto
 
 
 class DocumentProcessor:
@@ -202,13 +202,6 @@ def _parse_llm_result_dict(data: dict, expected_doc_type: str) -> DocumentResult
     else:
         confidence = _infer_confidence(valid, issues)
 
-    if confidence >= 0.85 and not issues and valid is False:
-        logger.debug(
-            "DocumentProcessor: confidence %.2f alta con zero issues, override valid False -> True",
-            confidence,
-        )
-        valid = True
-
     return DocumentResult(
         valid=valid,
         doc_type=str(data.get("doc_type") or expected_doc_type),
@@ -249,10 +242,10 @@ def _apply_confidence_decision(result: DocumentResult) -> DocumentResult:
         return result
 
     if result.confidence >= 0.85:
-        result.valid = True
         logger.info(
-            "DocumentProcessor: confidence %.2f -> auto-validato (%s)",
+            "DocumentProcessor: confidence %.2f -> classificazione LLM mantenuta (valid=%s), nessuna auto-validazione (%s)",
             result.confidence,
+            result.valid,
             result.doc_type,
         )
         return result

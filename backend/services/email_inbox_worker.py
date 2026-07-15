@@ -1,7 +1,6 @@
 """Worker IMAP polling per email in arrivo con allegati documenti."""
 from __future__ import annotations
 
-from time_utils import utc_now
 import email
 import imaplib
 import json
@@ -134,7 +133,7 @@ class EmailInboxWorker:
         entity_name = _get_entity_name(db, entity_type, entity_id)
         body_text = extract_email_body_text(msg)
         body_data = extract_structured_contact_data(body_text)
-        body_updated_fields = _apply_body_extracted_data(
+        body_proposals = _build_body_proposals(
             db,
             entity_type=entity_type,
             entity_id=entity_id,
@@ -142,11 +141,11 @@ class EmailInboxWorker:
         )
         if body_data:
             logger.info(
-                "EmailInboxWorker: dati body estratti per %s/%s: %s; campi aggiornati: %s",
+                "EmailInboxWorker: dati body estratti per %s/%s: %s; campi proposti: %s",
                 entity_type,
                 entity_id,
                 sorted(body_data.keys()),
-                body_updated_fields,
+                [change["field"] for change in body_proposals],
             )
 
         unsupported_attachment = _find_unsupported_meaningful_attachment(msg)
@@ -166,6 +165,13 @@ class EmailInboxWorker:
                 issues=issues,
                 original_subject=subject,
             )
+            self._create_body_proposal_suggestion(
+                db,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                entity_name=entity_name,
+                body_proposals=body_proposals,
+            )
             self._save_record(
                 db,
                 message_id=message_id,
@@ -176,14 +182,14 @@ class EmailInboxWorker:
                 entity_id=entity_id,
                 attachment_path=None,
                 attachment_name=unsupported_name,
-                processing_status="invalid" if not body_updated_fields else "valid",
+                processing_status="invalid",
                 llm_result={
                     "raw_llm_output": None,
                     "valid": False,
                     "doc_type": "unsupported_attachment",
                     "issues": issues,
                     "extracted_data": body_data,
-                    "body_updated_fields": body_updated_fields,
+                    "proposed_fields": [change["field"] for change in body_proposals],
                 },
                 reply_sent=False,
             )
@@ -236,16 +242,18 @@ class EmailInboxWorker:
             processing_status = "manual_review"
         reply_sent = False
 
-        if body_updated_fields and processing_status == "manual_review":
-            processing_status = "valid"
+        # Se l'intake non ha creato una proposta (es. nessun allegato persistito),
+        # i dati estratti dal body diventano comunque proposta da approvare.
+        if body_proposals and not intake_outcome.suggestion_id:
+            self._create_body_proposal_suggestion(
+                db,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                entity_name=entity_name,
+                body_proposals=body_proposals,
+            )
 
-        auto_updated = bool(
-            body_updated_fields or intake_outcome.collaborator_updated_fields
-        )
-        if auto_updated and intake_outcome.processing_status in ("manual_review", "valid", None):
-            final_status = "auto_processed"
-        else:
-            final_status = intake_outcome.processing_status or processing_status
+        final_status = intake_outcome.processing_status or processing_status
 
         self._save_record(
             db,
@@ -262,24 +270,41 @@ class EmailInboxWorker:
                 "raw_llm_output": doc_result.raw_llm_output,
                 "valid": doc_result.valid,
                 "doc_type": doc_result.doc_type,
-                    "issues": doc_result.issues,
-                    "extracted_data": doc_result.extracted_data,
-                    "body_updated_fields": body_updated_fields,
-                    "intake_outcome": intake_outcome.to_dict(),
-                },
+                "issues": doc_result.issues,
+                "extracted_data": doc_result.extracted_data,
+                "proposed_fields": list(getattr(intake_outcome, "proposed_fields", []) or []),
+                "intake_outcome": intake_outcome.to_dict(),
+            },
             reply_sent=reply_sent,
         )
 
-        if final_status in ("valid", "auto_processed") and entity_type == "collaborator" and entity_id:
-            self._create_auto_update_suggestion(
+        imap.store(msg_id, "+FLAGS", "\\Seen")
+
+    def _create_body_proposal_suggestion(
+        self,
+        db,
+        *,
+        entity_type: Optional[str],
+        entity_id: Optional[int],
+        entity_name: str,
+        body_proposals: list,
+    ) -> None:
+        if not body_proposals or entity_type != "collaborator" or not entity_id:
+            return
+        try:
+            from services.agent_apply_service import create_field_update_suggestion
+
+            create_field_update_suggestion(
                 db,
+                entity_type=entity_type,
                 entity_id=entity_id,
                 entity_name=entity_name,
-                updated_fields=body_updated_fields + intake_outcome.collaborator_updated_fields,
-                doc_type=intake_outcome.resolved_doc_type,
+                changes=list(body_proposals),
+                source={"origin": "email_body"},
             )
-
-        imap.store(msg_id, "+FLAGS", "\\Seen")
+        except Exception:
+            db.rollback()
+            logger.exception("_create_body_proposal_suggestion fallita per %s/%s", entity_type, entity_id)
 
     def _create_reply_draft(
         self,
@@ -355,75 +380,6 @@ class EmailInboxWorker:
         except Exception:
             db.rollback()
             logger.exception("_create_reply_draft fallita per %s", sender_email)
-
-    def _create_auto_update_suggestion(
-        self,
-        db,
-        *,
-        entity_id: int,
-        entity_name: str,
-        updated_fields: list,
-        doc_type: str,
-    ) -> None:
-        try:
-            import models
-            from datetime import datetime
-
-            collab = db.query(models.Collaborator).filter(models.Collaborator.id == entity_id).first()
-            display_name = entity_name or (
-                f"{collab.first_name} {collab.last_name}" if collab else f"collaboratore {entity_id}"
-            )
-
-            # Close pending "request_missing_collaborator_data" suggestions for this collaborator
-            pending = (
-                db.query(models.AgentSuggestion)
-                .filter(
-                    models.AgentSuggestion.entity_type == "collaborator",
-                    models.AgentSuggestion.entity_id == entity_id,
-                    models.AgentSuggestion.suggestion_type == "request_missing_collaborator_data",
-                    models.AgentSuggestion.status == "pending",
-                )
-                .all()
-            )
-            for s in pending:
-                s.status = "resolved"
-                s.reviewed_at = utc_now()
-            if pending:
-                db.commit()
-
-            # Create AgentRun for this auto-intake event
-            run = models.AgentRun(
-                agent_type="email_intake",
-                status="completed",
-                entity_type="collaborator",
-                entity_id=entity_id,
-                triggered_by="email_inbox_worker",
-                items_processed=1,
-                suggestions_created=1,
-            )
-            db.add(run)
-            db.commit()
-            db.refresh(run)
-
-            fields_desc = ", ".join(updated_fields) if updated_fields else doc_type
-            suggestion = models.AgentSuggestion(
-                run_id=run.id,
-                suggestion_type="auto_update_applied",
-                status="completed",
-                severity="low",
-                entity_type="collaborator",
-                entity_id=entity_id,
-                title=f"Dati auto-aggiornati — {display_name}",
-                description=f"Aggiornamento automatico da email: {fields_desc}",
-                priority="low",
-                auto_fix_available=False,
-            )
-            db.add(suggestion)
-            run.suggestions_count = 1
-            db.add(run)
-            db.commit()
-        except Exception:
-            logger.exception("_create_auto_update_suggestion fallita per collaborator %s", entity_id)
 
     def _is_already_processed(self, db, message_id: str) -> bool:
         from sqlalchemy import text
@@ -517,17 +473,19 @@ def _find_unsupported_meaningful_attachment(msg: Message) -> Optional[tuple[str,
     return None
 
 
-def _apply_body_extracted_data(db, *, entity_type: Optional[str], entity_id: Optional[int], extracted_data: dict) -> list[str]:
+def _build_body_proposals(db, *, entity_type: Optional[str], entity_id: Optional[int], extracted_data: dict) -> list[dict]:
+    """Calcola le proposte di aggiornamento dai dati del body email. Nessuna scrittura diretta."""
     if entity_type != "collaborator" or not entity_id or not extracted_data:
         return []
 
     import models
+    from services.agent_apply_service import build_change
 
     collaborator = db.query(models.Collaborator).filter(models.Collaborator.id == entity_id).first()
     if not collaborator:
         return []
 
-    updated: list[str] = []
+    proposals: list[dict] = []
 
     partita_iva = _normalize_vat(extracted_data.get("partita_iva"))
     if partita_iva and not collaborator.partita_iva:
@@ -539,23 +497,17 @@ def _apply_body_extracted_data(db, *, entity_type: Optional[str], entity_id: Opt
         if conflict:
             logger.warning("EmailInboxWorker: partita IVA %s gia presente su collaborator %s, skip", partita_iva, conflict.id)
         else:
-            collaborator.partita_iva = partita_iva
-            updated.append("partita_iva")
+            proposals.append(build_change("partita_iva", collaborator.partita_iva, partita_iva, None))
 
     fiscal_code = _normalize_fiscal_code(extracted_data.get("codice_fiscale") or extracted_data.get("fiscal_code"))
     if fiscal_code and not collaborator.fiscal_code:
-        collaborator.fiscal_code = fiscal_code
-        updated.append("fiscal_code")
+        proposals.append(build_change("fiscal_code", collaborator.fiscal_code, fiscal_code, None))
 
     phone = _normalize_phone(extracted_data.get("phone") or extracted_data.get("telefono"))
     if phone and not collaborator.phone:
-        collaborator.phone = phone
-        updated.append("phone")
+        proposals.append(build_change("phone", collaborator.phone, phone, None))
 
-    if updated:
-        db.add(collaborator)
-        db.commit()
-    return updated
+    return proposals
 
 
 def _normalize_vat(value: Optional[str]) -> Optional[str]:
