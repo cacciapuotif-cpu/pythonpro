@@ -121,9 +121,17 @@ RBAC_LOG_ONLY_EVENTS: list[dict[str, Any]] = []
 ADMIN_ONLY_PREFIXES = (
     "/api/v1/admin",
     "/api/v1/gdpr",
+)
+# Matrice A5a (GATE confermato 2026-07-15): GET consultabili da tutti i ruoli,
+# review/approve/send/inbox = OPERATORE+, run manuale e strumenti tecnici = ADMIN.
+AGENT_PLATFORM_PREFIXES = (
     "/api/v1/agents",
     "/api/v1/agent-suggestions",
     "/api/v1/email-inbox",
+)
+AGENT_PLATFORM_ADMIN_ONLY_PATHS = (
+    "/api/v1/email-inbox/trigger-poll",
+    "/api/v1/email-inbox/imap/test",
 )
 OPERATIONAL_PREFIXES = (
     "/api/v1/collaborators",
@@ -182,10 +190,25 @@ def _path_starts_with_any(path: str, prefixes: Iterable[str]) -> bool:
     return any(path.startswith(prefix) for prefix in prefixes)
 
 
+def _agent_platform_allowed_roles(method: str, path: str) -> set[str]:
+    if method in SAFE_METHODS:
+        return {UserRole.ADMIN.value, UserRole.OPERATORE.value, UserRole.CONSULTAZIONE.value}
+    # Run manuale agenti: /api/v1/agents/run e /api/v1/agents/<tipo>/run
+    # (copre anche gli endpoint sprint7 contract-generator/certification).
+    if path == "/api/v1/agents/run" or (path.startswith("/api/v1/agents/") and path.endswith("/run")):
+        return {UserRole.ADMIN.value}
+    if path in AGENT_PLATFORM_ADMIN_ONLY_PATHS:
+        return {UserRole.ADMIN.value}
+    # Review/approve/reject/send/apply-fix e azioni inbox: operatori.
+    return {UserRole.ADMIN.value, UserRole.OPERATORE.value}
+
+
 def rbac_allowed_roles(method: str, path: str) -> set[str]:
     method = method.upper()
     if _path_matches(path, ADMIN_ONLY_PREFIXES):
         return {UserRole.ADMIN.value}
+    if _path_matches(path, AGENT_PLATFORM_PREFIXES):
+        return _agent_platform_allowed_roles(method, path)
     if method in SAFE_METHODS and (
         path in OPERATORE_ALLOWED_SENSITIVE_GET_PATHS
         or any(path.endswith(suffix) for suffix in OPERATORE_ALLOWED_SENSITIVE_GET_SUFFIXES)

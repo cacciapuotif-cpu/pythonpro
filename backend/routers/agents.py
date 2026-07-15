@@ -13,7 +13,7 @@ import schemas
 from agent_workflows import AgentWorkflowExecutionError, apply_workflow_action, run_agent_workflow
 from ai_agents import list_agent_definitions
 from ai_agents.llm import probe_agent_llm_health
-from auth import User, UserRole, get_current_user
+from auth import User, UserRole, get_current_user, normalize_role
 from database import get_db
 
 router = APIRouter(prefix="/api/v1/agents", tags=["Agents"])
@@ -21,18 +21,19 @@ suggestion_actions_router = APIRouter(prefix="/api/v1/agent-suggestions", tags=[
 logger = logging.getLogger(__name__)
 
 
-def _require_agent_role(current_user: User) -> User:
-    if current_user.role not in {UserRole.ADMIN.value, UserRole.MANAGER.value}:
-        raise HTTPException(status_code=403, detail="Permesso agenti richiesto")
+# Matrice A5a (GATE confermato 2026-07-15):
+# - execute (run manuale agenti, strumenti tecnici): solo ADMIN
+# - write (review/approve/reject/send/apply-fix, comunicazioni): OPERATORE e ADMIN
+def require_agents_execute(current_user: User = Depends(get_current_user)) -> User:
+    if normalize_role(current_user.role) != UserRole.ADMIN.value:
+        raise HTTPException(status_code=403, detail="Esecuzione agenti riservata agli amministratori")
     return current_user
 
 
-def require_agents_execute(current_user: User = Depends(get_current_user)) -> User:
-    return _require_agent_role(current_user)
-
-
 def require_agents_write(current_user: User = Depends(get_current_user)) -> User:
-    return _require_agent_role(current_user)
+    if normalize_role(current_user.role) not in {UserRole.ADMIN.value, UserRole.OPERATORE.value}:
+        raise HTTPException(status_code=403, detail="Permesso operatore richiesto per le azioni agenti")
+    return current_user
 
 
 class SuggestionReviewPayload(BaseModel):

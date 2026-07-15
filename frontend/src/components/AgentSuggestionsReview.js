@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import DOMPurify from 'dompurify';
 import {
   applyAgentSuggestionFix,
   bulkReviewAgentSuggestions,
@@ -22,6 +23,7 @@ const PRIORITY_META = {
 const STATUS_OPTIONS = ['pending', 'approved', 'rejected', 'implemented'];
 const PRIORITY_OPTIONS = ['critical', 'high', 'medium', 'low'];
 const ENTITY_OPTIONS = ['collaborator', 'project', 'assignment', 'attendance', 'document'];
+const sanitizeLlmText = (value) => DOMPurify.sanitize(String(value || ''), { ALLOWED_TAGS: [] });
 
 const overlayStyle = {
   position: 'fixed',
@@ -490,7 +492,7 @@ export default function AgentSuggestionsReview({ currentUser = null }) {
                 <strong>Auto-fix</strong>
                 <p>{detailSuggestion.auto_fix_available ? 'Disponibile' : 'Non disponibile'}</p>
                 {detailSuggestion.auto_fix_payload ? (
-                  <pre className="agents-code-block">{detailSuggestion.auto_fix_payload}</pre>
+                  <pre className="agents-code-block">{sanitizeLlmText(detailSuggestion.auto_fix_payload)}</pre>
                 ) : null}
               </div>
             </div>

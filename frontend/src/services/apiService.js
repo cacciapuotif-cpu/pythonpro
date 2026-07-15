@@ -680,6 +680,8 @@ export const getAgentInfo = (agentType) =>
   http.get(`/agents/${agentType}/info`).then(r => r.data);
 export const getAgentLlmHealth = () =>
   http.get('/agents/llm/health').then(r => r.data);
+export const getAgentsSystemHealth = () =>
+  http.get('/agents/system-health').then(r => r.data);
 export const runAgent = (data) =>
   http.post('/agents/run', data, { timeout: 180000 }).then(r => r.data);
 export const runAgentByType = (agentType) =>

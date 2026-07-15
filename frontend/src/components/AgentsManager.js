@@ -4,6 +4,7 @@ import {
   downloadEmailInboxAttachment,
   getAgentCommunications,
   getAgentLlmHealth,
+  getAgentsSystemHealth,
   getAgentSuggestions,
   getCollaborators,
   getEmailInboxItems,
@@ -78,6 +79,8 @@ export default function AgentsManager({ currentUser }) {
   const [emailInboxItems, setEmailInboxItems] = useState([]);
   const [collaborators, setCollaborators] = useState([]);
   const [llmHealth, setLlmHealth] = useState(null);
+  const [systemHealth, setSystemHealth] = useState(null);
+  const [healthOpen, setHealthOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(null);
   const [error, setError] = useState(null);
@@ -165,19 +168,21 @@ export default function AgentsManager({ currentUser }) {
     setLoading(true);
     setError(null);
     try {
-      const [sugg, comms, inbox, archived, collab, llm] = await Promise.all([
+      const [sugg, comms, inbox, archived, collab, llm, health] = await Promise.all([
         getAgentSuggestions({ limit: 200 }),
         getAgentCommunications({ limit: 200 }),
         getEmailInboxItems({ limit: 200, archived: false }),
         getEmailInboxItems({ limit: 200, archived: true }),
         getCollaborators({}, { limit: 300 }),
         getAgentLlmHealth(),
+        getAgentsSystemHealth().catch(() => null),
       ]);
       setSuggestions(Array.isArray(sugg) ? sugg : []);
       setCommunications(Array.isArray(comms) ? comms : []);
       setEmailInboxItems([...(inbox?.items || []), ...(archived?.items || [])]);
       setCollaborators(Array.isArray(collab) ? collab : []);
       setLlmHealth(llm || null);
+      setSystemHealth(health || null);
     } catch (e) {
       setError(e?.response?.data?.detail || 'Errore nel caricamento della sezione Agenti.');
     } finally {
@@ -199,6 +204,7 @@ export default function AgentsManager({ currentUser }) {
   };
 
   const handleSendEmail = useCallback(async (suggestionId) => {
+    if (actionLoading) return;
     setActionLoading(`send-${suggestionId}`);
     setError(null);
     try {
@@ -213,7 +219,7 @@ export default function AgentsManager({ currentUser }) {
     } finally {
       setActionLoading(null);
     }
-  }, [currentUser?.id, loadData, showToast]);
+  }, [actionLoading, currentUser?.id, loadData, showToast]);
 
   const handleManualField = useCallback((itemId, field, value) => {
     setManualFields((prev) => ({
@@ -347,6 +353,58 @@ export default function AgentsManager({ currentUser }) {
 
       {message && <div className={`am-toast am-toast-${message.kind}`}>{message.text}</div>}
       {error && <div className="am-error">{error}</div>}
+
+      {systemHealth && (
+        <div className="am-card" style={{ marginBottom: 12 }}>
+          <button
+            className="am-btn-ghost"
+            onClick={() => setHealthOpen((prev) => !prev)}
+            aria-expanded={healthOpen}
+          >
+            {healthOpen ? '▾' : '▸'} Stato sistema agenti
+            {!systemHealth.agents_enabled && ' — KILL SWITCH GLOBALE ATTIVO'}
+            {systemHealth.inbox?.state && systemHealth.inbox.state !== 'connected' && ` — ${systemHealth.inbox.message || systemHealth.inbox.state}`}
+          </button>
+          {healthOpen && (
+            <div style={{ padding: '8px 12px' }}>
+              <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ textAlign: 'left' }}>
+                    <th>Agente</th>
+                    <th>Attivo</th>
+                    <th>Schedulazione</th>
+                    <th>Ultimo run</th>
+                    <th>Esito</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(systemHealth.agents || []).map((agent) => (
+                    <tr key={agent.name}>
+                      <td>{agent.name}</td>
+                      <td>{agent.enabled ? 'sì' : 'NO'}</td>
+                      <td>{agent.schedule || '-'}</td>
+                      <td>{formatDateTime(agent.last_run?.completed_at || agent.last_run?.started_at)}</td>
+                      <td>
+                        {agent.last_run ? agent.last_run.status : 'mai eseguito'}
+                        {agent.last_run?.error_message ? ` — ${agent.last_run.error_message}` : ''}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p style={{ fontSize: 13, marginTop: 8 }}>
+                {systemHealth.inbox?.message || 'Inbox: stato sconosciuto'}
+                {' · '}
+                {systemHealth.llm?.reachable ? `LLM ok (${systemHealth.llm.provider})` : 'LLM non raggiungibile'}
+                {' · '}
+                {systemHealth.arq?.reachable
+                  ? `Coda ARQ ok${systemHealth.arq.queue_depth != null ? ` (depth ${systemHealth.arq.queue_depth})` : ''}`
+                  : 'Coda ARQ non raggiungibile'}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
 
       {loading ? (
         <div className="am-placeholder">Caricamento...</div>
