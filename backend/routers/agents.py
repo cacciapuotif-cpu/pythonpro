@@ -131,6 +131,102 @@ def get_llm_health(current_user: User = Depends(get_current_user)):
     return probe_agent_llm_health()
 
 
+# Schedulazioni cron ARQ (allineate a arq_worker.WorkerSettings.cron_jobs).
+_AGENT_CRON_SCHEDULES = {
+    "mail_recovery": "ogni 6h (00/06/12/18 al minuto 10)",
+    "contract_agent": "ogni 2h (minuto 20)",
+    "certification": "ogni giorno alle 09:00",
+    "email_intake": "polling IMAP ogni 5 minuti",
+    "data_quality": "su evento (aggiornamento collaboratore) e manuale",
+}
+
+
+def _last_run_snapshot(db: Session, agent_type: str) -> Optional[dict]:
+    run = (
+        db.query(models.AgentRun)
+        .filter(models.AgentRun.agent_type == agent_type)
+        .order_by(models.AgentRun.id.desc())
+        .first()
+    )
+    if not run:
+        return None
+    return {
+        "run_id": run.id,
+        "status": run.status,
+        "started_at": run.started_at.isoformat() if run.started_at else None,
+        "completed_at": run.completed_at.isoformat() if run.completed_at else None,
+        "error_message": run.error_message,
+        "suggestions_count": run.suggestions_count,
+    }
+
+
+def _arq_queue_health() -> dict:
+    import os
+
+    try:
+        import redis
+
+        client = redis.Redis(
+            host=os.getenv("REDIS_HOST", "localhost"),
+            port=int(os.getenv("REDIS_PORT", "6379")),
+            db=int(os.getenv("REDIS_DB", "0")),
+            password=os.getenv("REDIS_PASSWORD") or None,
+            socket_connect_timeout=2,
+            socket_timeout=2,
+        )
+        client.ping()
+        queue_key = "arq:queue"
+        try:
+            depth = int(client.zcard(queue_key))
+        except Exception:
+            try:
+                depth = int(client.llen(queue_key))
+            except Exception:
+                depth = None
+        return {"reachable": True, "queue_depth": depth, "detail": "Redis raggiungibile"}
+    except Exception as exc:
+        return {"reachable": False, "queue_depth": None, "detail": f"Redis non raggiungibile: {exc.__class__.__name__}"}
+
+
+@router.get("/system-health")
+def get_agents_system_health(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """A5b: stato operativo piattaforma agenti — per agente ultimo run/esito e
+    schedulazione, stato inbox IMAP (store condiviso), LLM health, coda ARQ."""
+    from dataclasses import asdict
+
+    from ai_agents.control import agent_enabled, agents_enabled
+    from services.email_inbox_worker import get_worker_status
+
+    agents = []
+    for definition in list_agent_definitions():
+        name = definition["name"]
+        agents.append({
+            "name": name,
+            "enabled": agent_enabled(name),
+            "kill_switch_env": definition.get("kill_switch_env"),
+            "triggers": definition.get("triggers") or [],
+            "schedule": _AGENT_CRON_SCHEDULES.get(name),
+            "last_run": _last_run_snapshot(db, name),
+        })
+    # email_intake non e' nel registry (non eseguibile manualmente) ma ha run propri.
+    agents.append({
+        "name": "email_intake",
+        "enabled": agent_enabled("email_intake"),
+        "kill_switch_env": "AGENT_EMAIL_INTAKE_ENABLED",
+        "triggers": ["cron:polling IMAP", "event:email"],
+        "schedule": _AGENT_CRON_SCHEDULES.get("email_intake"),
+        "last_run": _last_run_snapshot(db, "email_intake"),
+    })
+
+    return {
+        "agents_enabled": agents_enabled(),
+        "agents": agents,
+        "inbox": get_worker_status(),
+        "llm": asdict(probe_agent_llm_health()),
+        "arq": _arq_queue_health(),
+    }
+
+
 @router.post("/run", response_model=schemas.AgentRun)
 def run_agent_via_workflow(payload: schemas.AgentRunRequest, db: Session = Depends(get_db), current_user: User = Depends(require_agents_execute)):
     normalized_entity_type = payload.entity_type
