@@ -22,9 +22,13 @@ _Ultimo aggiornamento: 2026-07-15_
 - `eff29b7` fix(AGENT-08): IMAP resiliente — `services/inbox_status_store.py` (Redis + fallback in-memory), backoff 5m x2 cap 6h, classificazione auth_failed/error, `/email-inbox/status` da store condiviso (chiude NEW-007), `POST /email-inbox/imap/test` admin. Test `test_imap_resilience.py` (10 test).
 - Gate A2: suite completa **290 passed**.
 
+### Fatto (terza sessione 2026-07-15) — A3 CHIUSO (GATE superato con conferma utente)
+- `0361391` fix(AGENT-09): registry unico dichiarativo in `_AGENT_DEFINITIONS` (triggers, kill_switch_env, allowed_roles, runner); contract/certification riscritti come collector puri, AgentRun solo dal workflow; cron ARQ + sprint7 (ora con gate RBAC, prima senza auth) + trigger validazione documento → run_agent_workflow; eliminati `ai_agents/registry.py` e `jobs/run_agents.py`; `AGENTS_PLATFORM.md` guida; adottato hunk pre-esistente `is_valid_codice_fiscale` con test.
+- Gate A3: suite completa **299 passed**.
+
 ### Pendenti (ripresa)
-1. **A3 registry unico — GATE UTENTE**: preparare e presentare mappa migrazione agente-per-agente (contract_generator→contract_agent, certification, sprint7, jobs/run_agents.py, trigger intake) PRIMA di toccare registry.py legacy.
-2. Poi A4 (robustezza LLM), A5 (RBAC GATE matrice + system-health), A6 (e2e), GATE finale.
+1. A4 robustezza LLM (retry+backoff, schema Pydantic output, fallback, prompt versionati, log senza PII).
+2. A5 (GATE matrice RBAC su A5a; system-health endpoint; error surface UI), A6 (e2e), GATE finale.
 - Nota: endpoint `/email-inbox/items/{id}/assign` ora produce proposta invece di validare direttamente (flusso canonico: validazione umana via documenti-richiesti).
 - Nota runtime: worker ARQ e backend montano il worktree come volume; per attivare AGENT-06/07/08 a runtime serve riavvio dei container (`docker compose restart backend arq_worker`) — non eseguito.
 

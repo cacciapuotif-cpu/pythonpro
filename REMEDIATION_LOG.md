@@ -447,3 +447,19 @@ Formato: data | finding ID | cosa fatto | file toccati | test/verifiche eseguiti
 - Gate di chiusura A2: suite completa in container **290 passed**.
 - Prossimo: **A3 registry unico — GATE**: presentare mappa migrazione agente-per-agente all'utente prima di toccare `registry.py` legacy.
 - Nessun push (vincolo Ondata 2 invariato).
+
+## 2026-07-15 | ONDATA AGENTI | A3 CHIUSO (registry unico, legacy eliminato) — GATE superato
+
+- GATE A3: mappa migrazione presentata all'utente e confermata ("procedi A3"), inclusa rimozione `jobs/run_agents.py` e refactor AgentRun interno di contract/certification.
+- **A3 — `0361391` fix(AGENT-09)**: registry unico dichiarativo, contract/certification via workflow, rimozione legacy.
+  - `_AGENT_DEFINITIONS` esteso: name, description, supported_entity_types, triggers, kill_switch_env, allowed_roles, version, runner. 4 agenti: data_quality, mail_recovery, contract_agent, certification. Dashboard `/agents/` legge solo il registry unico.
+  - `contract_agent.py`/`certification_agent.py` → collector puri `collect_*_suggestions` (nessuna scrittura DB; AgentRun creato solo da `run_agent_workflow`).
+  - Cron ARQ contract/certification → workflow (`auto_mode=True`). Endpoint sprint7 → workflow + gate `require_agents_execute` (prima SENZA auth). Trigger da validazione umana documento → workflow (`entity_type=collaborator`).
+  - Eliminati `ai_agents/registry.py` e `jobs/run_agents.py` (verificato non referenziato da Makefile/compose/main).
+  - Hunk pre-esistente adottato con nota: `is_valid_codice_fiscale` in data_quality.py (validazione check digit CF) — verificato e coperto da test dedicato.
+  - `AGENTS_PLATFORM.md` (backend root): guida flusso canonico + esempio minimale per nuovi agenti.
+  - Grep di guardia: nessuna chiamata `run_*_agent(` fuori dal dispatch del workflow; `agent_registry`/`BaseAgent` assenti dal codice applicativo.
+  - Test: `test_agents_registry_workflow.py` nuovo (9), `test_document_intake_proposal.py` aggiornato.
+- Gate di chiusura A3: suite completa in container **299 passed**.
+- Prossimo: A4 robustezza LLM; poi A5 (GATE matrice RBAC su A5a), A6 e2e, GATE finale.
+- Nessun push (vincolo Ondata 2 invariato).
