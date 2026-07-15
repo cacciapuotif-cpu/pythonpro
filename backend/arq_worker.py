@@ -14,6 +14,12 @@ from agent_workflows import promote_due_followups, _send_email
 from ai_agents.control import agent_enabled, agents_enabled, disabled_reason
 from database import SessionLocal
 
+# AGENT-06: registra User (auth.py) nella metadata della Base condivisa.
+# AgentReviewAction.reviewed_by_user_id ha FK verso users.id: senza questo
+# import il processo ARQ non ha la tabella users nella metadata e ogni flush
+# di AgentReviewAction fallisce con NoReferencedTableError.
+import auth  # noqa: F401  isort: skip
+
 logger = logging.getLogger(__name__)
 
 
