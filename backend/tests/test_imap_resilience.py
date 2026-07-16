@@ -193,7 +193,12 @@ def api_client():
     app.dependency_overrides.clear()
 
 
-def test_status_endpoint_reads_shared_store(api_client):
+def test_status_endpoint_reads_shared_store(monkeypatch, api_client):
+    # Lo scenario testa lo store condiviso, non il kill switch: con agente
+    # email_intake disabilitato lo status endpoint risponde "disabled" e
+    # maschererebbe lo stato auth_failed oggetto del test.
+    monkeypatch.setenv("AGENTS_ENABLED", "true")
+    monkeypatch.setenv("AGENT_EMAIL_INTAKE_ENABLED", "true")
     inbox_status_store.record_failure("AUTHENTICATIONFAILED", kind="auth_failed")
 
     response = api_client.get("/api/v1/email-inbox/status")

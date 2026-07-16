@@ -68,3 +68,13 @@
 - Descrizione: `GET /api/v1/email-inbox/status` legge `_WORKER_STATUS`, un dict in-process di `services/email_inbox_worker.py`. Il polling reale gira nel processo worker ARQ: il backend API risponde con uno stato che non viene mai aggiornato (sempre "mai eseguito"/vuoto).
 - Impatto: dashboard e operatori vedono uno stato inbox non veritiero; errori IMAP (es. credenziali scadute) invisibili dal backend.
 - Stato: chiuso in AGENT-08 (`eff29b7`) — `services/inbox_status_store.py` condivide lo stato su Redis (fallback in-memory), `/status` legge lo store, backoff esponenziale sugli errori di login e `POST /email-inbox/imap/test` (admin) per la verifica manuale senza esporre credenziali.
+
+## 2026-07-16 | NEW-008 | Suite rotta dal fix runtime pannello inbox post-gate (hunk non committato)
+
+- Area: piattaforma agenti / igiene worktree
+- Severita stimata: media
+- Emerso durante: ONDATA DOMINIO Wave 1, suite completa di chiusura W1.1
+- Descrizione: il "fix runtime pannello inbox" applicato durante l'attivazione runtime agenti del 2026-07-15 (dopo il GATE finale a 374 passed) ha modificato `services/email_inbox_worker.get_worker_status` e `services/inbox_status_store.status_message` nel worktree SENZA commit e senza rieseguire la suite: con kill switch email_intake spento lo status endpoint risponde `disabled` e `test_imap_resilience.py::test_status_endpoint_reads_shared_store` fallisce (`'disabled' != 'auth_failed'`).
+- Impatto: baseline suite non più verde (373/374); il fallimento maschera regressioni vere nelle ondate successive.
+- Fix applicato (Wave 1, fuori perimetro ma necessario per i gate): il test abilita esplicitamente i kill switch (`AGENTS_ENABLED=true`, `AGENT_EMAIL_INTAKE_ENABLED=true`) — testa lo store condiviso, non il kill switch; passa sia con l'hunk pre-esistente sia a HEAD pulito.
+- Residuo: gli hunk runtime di `email_inbox_worker.py`/`inbox_status_store.py` restano non committati (adozione da valutare nel filone agenti, non nel filone dominio).
