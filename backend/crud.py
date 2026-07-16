@@ -13,6 +13,7 @@ import schemas
 import logging
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+from money_utils import quantize_euro, quantize_ore, to_decimal
 from piano_finanziario_config import (
     MACROVOCE_TITLES,
     build_default_voci,
@@ -1412,7 +1413,10 @@ def create_attendance(db: Session, attendance: schemas.AttendanceCreate):
         if not attendance_data.get('hours'):
             start = attendance_data['start_time']
             end = attendance_data['end_time']
-            attendance_data['hours'] = (end - start).total_seconds() / 3600
+            # DOM-11: ore quantizzate a 2 decimali, ROUND_HALF_UP
+            attendance_data['hours'] = quantize_ore(
+                to_decimal((end - start).total_seconds()) / to_decimal(3600)
+            )
 
         # Ottieni e normalizza la data della presenza
         presenza_date = attendance_data['date']
@@ -1506,8 +1510,9 @@ def _recalc_project_progress(db: Session, project_id: int):
         models.Assignment.is_active == True,
     ).scalar() or 0.0
 
-    project.ore_totali = float(total_assigned_hours)
-    project.ore_completate = float(total_hours)
+    # DOM-11: ore quantizzate (le SUM float accumulano errore binario)
+    project.ore_totali = quantize_ore(total_assigned_hours)
+    project.ore_completate = quantize_ore(total_hours)
     if total_assigned_hours > 0:
         project.progress_percentage = min(100.0, (float(total_hours) / float(total_assigned_hours)) * 100.0)
     else:
@@ -1547,6 +1552,8 @@ def _recalc_assignment_hours(db: Session, assignment_id: int):
             models.Attendance.assignment_id == assignment_id
         ).scalar() or 0.0
 
+        # DOM-11: ore quantizzate (le SUM float accumulano errore binario)
+        total_hours = quantize_ore(total_hours)
         assignment.completed_hours = total_hours
         if assignment.assigned_hours and assignment.assigned_hours > 0:
             assignment.progress_percentage = min(100.0, (float(total_hours) / float(assignment.assigned_hours)) * 100.0)
@@ -3689,12 +3696,15 @@ def search_collaborators_paginated(
 # BLOCCO 3 — CATALOGO + LISTINI
 # ─────────────────────────────────────────────
 
-def calcola_prezzo_finale(prezzo_base: float, prezzo_override, sconto_percentuale: float) -> float:
-    """Funzione riutilizzabile: prezzo_override ?? (prezzo_base * (1 - sconto/100))."""
+def calcola_prezzo_finale(prezzo_base, prezzo_override, sconto_percentuale):
+    """Funzione riutilizzabile: prezzo_override ?? (prezzo_base * (1 - sconto/100)).
+
+    DOM-11: accetta indifferentemente Decimal (colonne Numeric) e float
+    (payload API); calcolo in Decimal, quantizzazione unica a 2 decimali."""
     if prezzo_override is not None:
-        return prezzo_override
-    sconto = sconto_percentuale or 0.0
-    return round(prezzo_base * (1 - sconto / 100), 4)
+        return quantize_euro(prezzo_override)
+    sconto = to_decimal(sconto_percentuale)
+    return quantize_euro(to_decimal(prezzo_base) * (1 - sconto / 100))
 
 
 # ── Prodotti ──────────────────────────────────
@@ -4275,11 +4285,12 @@ def _build_voce_payload_from_assignment(
     voce_codice, mansione_label = _normalize_assignment_role_to_voce(assignment.role, set(voice_map.keys()))
     template = voice_map.get(voce_codice) if voce_codice else None
     categoria = _derive_categoria_from_role(assignment.role)
-    assigned_hours = float(assignment.assigned_hours or 0.0)
-    completed_hours = float(assignment.completed_hours or 0.0)
-    hourly_rate = float(assignment.hourly_rate or 0.0)
-    preventivo = round(assigned_hours * hourly_rate, 2)
-    consuntivo = round(completed_hours * hourly_rate, 2)
+    # DOM-11: importi in Decimal, ROUND_HALF_UP (mai round() sui valori economici)
+    assigned_hours = quantize_ore(assignment.assigned_hours)
+    completed_hours = quantize_ore(assignment.completed_hours)
+    hourly_rate = to_decimal(assignment.hourly_rate)
+    preventivo = quantize_euro(assigned_hours * hourly_rate)
+    consuntivo = quantize_euro(completed_hours * hourly_rate)
 
     return {
         "piano_id": piano.id,
@@ -4639,11 +4650,12 @@ def build_effective_piano_rows(piano: models.PianoFinanziario, db: Session | Non
             continue
 
         template = template_map[voce_codice]
-        assigned_hours = float(assignment.assigned_hours or 0.0)
-        effective_hours = float(ore_effettive or 0.0)
-        hourly_rate = float(assignment.hourly_rate or 0.0)
-        preventivo = round(assigned_hours * hourly_rate, 2)
-        consuntivo = round(effective_hours * hourly_rate, 2)
+        # DOM-11: importi in Decimal, ROUND_HALF_UP
+        assigned_hours = quantize_ore(assignment.assigned_hours)
+        effective_hours = quantize_ore(ore_effettive)
+        hourly_rate = to_decimal(assignment.hourly_rate)
+        preventivo = quantize_euro(assigned_hours * hourly_rate)
+        consuntivo = quantize_euro(effective_hours * hourly_rate)
         collaborator_name = " ".join(part for part in [first_name, last_name] if part).strip() or f"Collaboratore {assignment.collaborator_id}"
         edizione_label = (assignment.edizione_label or "").strip() or collaborator_name
 
@@ -4667,10 +4679,10 @@ def build_effective_piano_rows(piano: models.PianoFinanziario, db: Session | Non
             continue
 
         aggregate = fixed_aggregates.setdefault(voce_codice, {
-            "ore": 0.0,
-            "importo_consuntivo": 0.0,
-            "importo_preventivo": 0.0,
-            "importo_presentato": 0.0,
+            "ore": to_decimal(0),
+            "importo_consuntivo": to_decimal(0),
+            "importo_preventivo": to_decimal(0),
+            "importo_presentato": to_decimal(0),
         })
         aggregate["ore"] += assigned_hours
         aggregate["importo_consuntivo"] += consuntivo
@@ -4679,9 +4691,9 @@ def build_effective_piano_rows(piano: models.PianoFinanziario, db: Session | Non
     for row in rows:
         aggregate = fixed_aggregates.get(row["voce_codice"])
         if aggregate:
-            row["ore"] = round(aggregate["ore"], 2)
-            row["importo_consuntivo"] = round(aggregate["importo_consuntivo"], 2)
-            row["importo_preventivo"] = round(aggregate["importo_preventivo"], 2)
+            row["ore"] = quantize_ore(aggregate["ore"])
+            row["importo_consuntivo"] = quantize_euro(aggregate["importo_consuntivo"])
+            row["importo_preventivo"] = quantize_euro(aggregate["importo_preventivo"])
 
     existing_dynamic_rows = [row for row in rows if row["voce_codice"] in dynamic_codes]
     existing_dynamic_index = {
@@ -4750,20 +4762,22 @@ def _normalize_assignment_role_to_voce(role: str | None, available_codes: set[st
 
 
 def build_piano_finanziario_riepilogo(piano: models.PianoFinanziario, db: Session = None) -> dict:
+    # DOM-11: totali in Decimal — le somme float su molte voci accumulano
+    # errore binario che finisce nell'Excel consegnabile.
     totals = {
-        "consuntivo": defaultdict(float),
-        "preventivo": defaultdict(float),
+        "consuntivo": defaultdict(lambda: to_decimal(0)),
+        "preventivo": defaultdict(lambda: to_decimal(0)),
     }
     alerts = []
 
     effective_rows = build_effective_piano_rows(piano, db=db)
 
     for voce in effective_rows:
-        totals["consuntivo"][voce["macrovoce"]] += float(voce["importo_consuntivo"] or 0.0)
-        totals["preventivo"][voce["macrovoce"]] += float(voce["importo_preventivo"] or 0.0)
+        totals["consuntivo"][voce["macrovoce"]] += to_decimal(voce["importo_consuntivo"])
+        totals["preventivo"][voce["macrovoce"]] += to_decimal(voce["importo_preventivo"])
 
-    totale_consuntivo = sum(totals["consuntivo"].values())
-    totale_preventivo = sum(totals["preventivo"].values())
+    totale_consuntivo = sum(totals["consuntivo"].values(), to_decimal(0))
+    totale_preventivo = sum(totals["preventivo"].values(), to_decimal(0))
     contributo_richiesto = totals["consuntivo"]["A"] + totals["consuntivo"]["B"] + totals["consuntivo"]["C"]
     cofinanziamento = totals["consuntivo"]["D"]
 
@@ -4772,11 +4786,11 @@ def build_piano_finanziario_riepilogo(piano: models.PianoFinanziario, db: Sessio
 
     macrovoci = []
     for macrovoce in ["A", "B", "C", "D"]:
-        importo_consuntivo = round(totals["consuntivo"][macrovoce], 2)
-        importo_preventivo = round(totals["preventivo"][macrovoce], 2)
+        importo_consuntivo = quantize_euro(totals["consuntivo"][macrovoce])
+        importo_preventivo = quantize_euro(totals["preventivo"][macrovoce])
         limite = limiti_fondo.get(macrovoce)
-        percentuale_consuntivo = round((importo_consuntivo / totale_consuntivo) * 100, 2) if totale_consuntivo else 0.0
-        percentuale_preventivo = round((importo_preventivo / totale_preventivo) * 100, 2) if totale_preventivo else 0.0
+        percentuale_consuntivo = float(quantize_euro((importo_consuntivo / totale_consuntivo) * 100)) if totale_consuntivo else 0.0
+        percentuale_preventivo = float(quantize_euro((importo_preventivo / totale_preventivo) * 100)) if totale_preventivo else 0.0
         alert_level = "ok"
         sforata = False
 
@@ -4810,8 +4824,8 @@ def build_piano_finanziario_riepilogo(piano: models.PianoFinanziario, db: Sessio
         })
 
     voce_c6 = next((voce for voce in effective_rows if voce["voce_codice"] == "C.6"), None)
-    importo_c6 = float(voce_c6["importo_preventivo"] or 0.0) if voce_c6 else 0.0
-    percentuale_c6 = round((importo_c6 / totale_preventivo) * 100, 2) if totale_preventivo else 0.0
+    importo_c6 = to_decimal(voce_c6["importo_preventivo"]) if voce_c6 else to_decimal(0)
+    percentuale_c6 = float(quantize_euro((importo_c6 / totale_preventivo) * 100)) if totale_preventivo else 0.0
     if totale_preventivo and percentuale_c6 > 10:
         alerts.append({
             "level": "danger",
@@ -4869,9 +4883,9 @@ def build_piano_finanziario_riepilogo(piano: models.PianoFinanziario, db: Sessio
         )
 
         for row in rows:
-            ore = float(row.ore_effettive or 0)
-            costo = round(ore * float(row.hourly_rate or 0), 2)
-            ore_effettive_totali += ore
+            ore = quantize_ore(row.ore_effettive)
+            costo = quantize_euro(ore * to_decimal(row.hourly_rate))
+            ore_effettive_totali = quantize_ore(to_decimal(ore_effettive_totali) + ore)
             voce_codice, role_str = _normalize_assignment_role_to_voce(row.role, available_codes)
             collaborator_name = " ".join(
                 part for part in [row.first_name, row.last_name] if part
@@ -4884,7 +4898,7 @@ def build_piano_finanziario_riepilogo(piano: models.PianoFinanziario, db: Sessio
                 "collaborator_name": collaborator_name,
                 "role": role_str,
                 "n_presenze": int(row.n_presenze or 0),
-                "ore_effettive": round(ore, 2),
+                "ore_effettive": ore,
                 "costo_effettivo": costo,
                 "voce_codice": voce_codice,
                 "voce_label": (
@@ -4904,14 +4918,14 @@ def build_piano_finanziario_riepilogo(piano: models.PianoFinanziario, db: Sessio
 
     return {
         "piano_id": piano.id,
-        "totale_consuntivo": round(totale_consuntivo, 2),
-        "totale_preventivo": round(totale_preventivo, 2),
-        "contributo_richiesto": round(contributo_richiesto, 2),
-        "cofinanziamento": round(cofinanziamento, 2),
+        "totale_consuntivo": quantize_euro(totale_consuntivo),
+        "totale_preventivo": quantize_euro(totale_preventivo),
+        "contributo_richiesto": quantize_euro(contributo_richiesto),
+        "cofinanziamento": quantize_euro(cofinanziamento),
         "macrovoci": macrovoci,
         "alerts": alerts,
         "ore_per_ruolo": ore_per_ruolo,
-        "ore_effettive_totali": round(ore_effettive_totali, 2),
+        "ore_effettive_totali": quantize_ore(ore_effettive_totali),
     }
 
 
@@ -5076,8 +5090,11 @@ def _next_document_number(db: Session, *, document_type: str, anno: int, prefix:
     return anno, prog, numero
 
 
-def _calcola_importo_riga(quantita: float, prezzo_unitario: float, sconto: float) -> float:
-    return round(quantita * prezzo_unitario * (1 - (sconto or 0) / 100), 4)
+def _calcola_importo_riga(quantita, prezzo_unitario, sconto):
+    # DOM-11: calcolo in Decimal, quantizzazione unica a 2 decimali
+    return quantize_euro(
+        to_decimal(quantita) * to_decimal(prezzo_unitario) * (1 - to_decimal(sconto) / 100)
+    )
 
 
 # ── Preventivo CRUD ───────────────────────────

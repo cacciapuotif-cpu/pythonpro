@@ -3,6 +3,7 @@ from sqlalchemy.orm import relationship, validates, foreign
 from sqlalchemy.sql import func
 from sqlalchemy.ext.hybrid import hybrid_property
 from database import Base
+from money_utils import quantize_euro, quantize_ore, to_decimal
 from typing import Optional
 import re
 
@@ -23,7 +24,7 @@ class AllievoProject(Base):
     allievo_id = Column(Integer, ForeignKey('allievi.id', ondelete="CASCADE"), primary_key=True, index=True)
     project_id = Column(Integer, ForeignKey('projects.id', ondelete="CASCADE"), primary_key=True, index=True)
     id = Column(Integer, nullable=True)
-    ore_frequentate = Column(Float, default=0.0, nullable=True)
+    ore_frequentate = Column(Numeric(8, 2), default=0.0, nullable=True)
     stato = Column(String(30), default='iscritto', nullable=True)
     attestato_emesso = Column(Boolean, default=False, nullable=True)
     note = Column(Text, nullable=True)
@@ -258,16 +259,16 @@ class Project(Base):
     delibera_numero = Column(String(20), nullable=True)
     delibera_data = Column(Date, nullable=True)
     data_approvazione = Column(Date, nullable=True)
-    costo_totale = Column(Float, nullable=True)
-    contributo_ente = Column(Float, nullable=True)
-    cofinanziamento = Column(Float, nullable=True)
+    costo_totale = Column(Numeric(12, 2), nullable=True)
+    contributo_ente = Column(Numeric(12, 2), nullable=True)
+    cofinanziamento = Column(Numeric(12, 2), nullable=True)
     convenzione_file_path = Column(String(500), nullable=True)
 
     # Campi per performance
     priority = Column(Integer, default=1, index=True)
-    budget = Column(Float)
-    ore_totali = Column(Float, default=0.0, nullable=False)
-    ore_completate = Column(Float, default=0.0, nullable=False)
+    budget = Column(Numeric(12, 2))
+    ore_totali = Column(Numeric(8, 2), default=0.0, nullable=False)
+    ore_completate = Column(Numeric(8, 2), default=0.0, nullable=False)
     progress_percentage = Column(Float, default=0.0, nullable=False)
     is_active = Column(Boolean, default=True, index=True)
 
@@ -363,11 +364,11 @@ class Attendance(Base):
     date = Column(DateTime, nullable=False, index=True)
     start_time = Column(DateTime, nullable=False)
     end_time = Column(DateTime, nullable=False)
-    hours = Column(Float, nullable=False, index=True)
+    hours = Column(Numeric(6, 2), nullable=False, index=True)
 
     # Campi aggiuntivi per analisi
     notes = Column(Text)
-    overtime_hours = Column(Float, default=0.0)
+    overtime_hours = Column(Numeric(6, 2), default=0.0)
     break_time_minutes = Column(Integer, default=0)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
@@ -418,16 +419,16 @@ class Assignment(Base):
     modulo_formativo_id = Column(Integer, ForeignKey("moduli_formativi.id", ondelete="SET NULL"), nullable=True, index=True)
     materia = Column(String(200), nullable=True)
     modalita_erogazione = Column(String(30), nullable=True, index=True)
-    assigned_hours = Column(Float, nullable=False)
+    assigned_hours = Column(Numeric(8, 2), nullable=False)
     start_date = Column(DateTime, nullable=False, index=True)
     end_date = Column(DateTime, nullable=False, index=True)
     contract_signed_date = Column(DateTime, nullable=True, index=True)
-    hourly_rate = Column(Float, nullable=False)
+    hourly_rate = Column(Numeric(10, 2), nullable=False)
     contract_type = Column(String(50), nullable=True, index=True)  # Tipo contratto: Professionale, Occasionale, Ordine di servizio, Contratto a progetto
     edizione_label = Column(String(100), nullable=True, index=True)
 
     # Campi per tracking avanzato
-    completed_hours = Column(Float, default=0.0)
+    completed_hours = Column(Numeric(8, 2), nullable=False, default=0.0, server_default="0")
     progress_percentage = Column(Float, default=0.0)
     is_active = Column(Boolean, default=True, index=True)
 
@@ -442,7 +443,9 @@ class Assignment(Base):
     # Proprietà calcolate
     @hybrid_property
     def remaining_hours(self):
-        return max(0, self.assigned_hours - self.completed_hours)
+        # completed_hours può essere NULL su dati storici (D2 A2): senza
+        # coalesce la property solleva TypeError (DOM-11).
+        return max(0, (self.assigned_hours or 0) - (self.completed_hours or 0))
 
     @hybrid_property
     def total_cost(self):
@@ -700,12 +703,12 @@ class ProgettoMansioneEnte(Base):
     data_fine = Column(DateTime, nullable=False, index=True)
 
     # === ORE ===
-    ore_previste = Column(Float, nullable=False)  # Ore totali previste per la mansione
-    ore_effettive = Column(Float, default=0.0)    # Ore effettivamente svolte (calcolate da presenze)
+    ore_previste = Column(Numeric(8, 2), nullable=False)  # Ore totali previste per la mansione
+    ore_effettive = Column(Numeric(8, 2), default=0.0)    # Ore effettivamente svolte (calcolate da presenze)
 
     # === DATI ECONOMICI ===
-    tariffa_oraria = Column(Float)  # Tariffa oraria per questa mansione
-    budget_totale = Column(Float)   # Budget totale (ore_previste * tariffa_oraria)
+    tariffa_oraria = Column(Numeric(10, 2))  # Tariffa oraria per questa mansione
+    budget_totale = Column(Numeric(12, 2))   # Budget totale (ore_previste * tariffa_oraria)
 
     # === TIPO CONTRATTO ===
     tipo_contratto = Column(String(50), index=True)
@@ -810,10 +813,10 @@ class PianoFinanziario(Base):
     importo_ammesso = Column(Numeric(12, 2), nullable=True)
 
     # === BUDGET ===
-    budget_totale = Column(Float, nullable=False, default=0.0)
-    budget_approvato = Column(Float, nullable=False, default=0.0)
-    budget_utilizzato = Column(Float, default=0.0)
-    budget_rimanente = Column(Float, default=0.0, nullable=False)
+    budget_totale = Column(Numeric(12, 2), nullable=False, default=0.0)
+    budget_approvato = Column(Numeric(12, 2), nullable=False, default=0.0)
+    budget_utilizzato = Column(Numeric(12, 2), default=0.0)
+    budget_rimanente = Column(Numeric(12, 2), default=0.0, nullable=False)
 
     # === DATE ===
     data_inizio = Column(DateTime, nullable=False, default=func.now())
@@ -885,8 +888,11 @@ class PianoFinanziario(Base):
         ).filter(
             VocePianoFinanziario.piano_id == self.id
         ).scalar()
-        self.budget_utilizzato = float(totale or 0.0)
-        self.budget_rimanente = float(self.budget_totale or 0.0) - self.budget_utilizzato
+        # DOM-11: quantizzazione unica ROUND_HALF_UP a 2 decimali.
+        self.budget_utilizzato = quantize_euro(totale)
+        self.budget_rimanente = quantize_euro(
+            to_decimal(self.budget_totale) - to_decimal(self.budget_utilizzato)
+        )
         return self.budget_utilizzato
 
 
@@ -936,15 +942,15 @@ class VocePianoFinanziario(Base):
     descrizione = Column(Text)
     progetto_label = Column(String(100), nullable=True)
     edizione_label = Column(String(100), nullable=True)
-    ore = Column(Float, nullable=False, default=0.0)
-    ore_previste = Column(Float, nullable=False, default=0.0)
-    ore_effettive = Column(Float, nullable=False, default=0.0)
-    tariffa_oraria = Column(Float, nullable=False, default=0.0)
-    importo_consuntivo = Column(Float, nullable=False, default=0.0)
-    importo_preventivo = Column(Float, nullable=False, default=0.0)
-    importo_approvato = Column(Float, nullable=False, default=0.0)
-    importo_validato = Column(Float, nullable=False, default=0.0)
-    importo_presentato = Column(Float, nullable=False, default=0.0)
+    ore = Column(Numeric(8, 2), nullable=False, default=0.0)
+    ore_previste = Column(Numeric(8, 2), nullable=False, default=0.0)
+    ore_effettive = Column(Numeric(8, 2), nullable=False, default=0.0)
+    tariffa_oraria = Column(Numeric(10, 2), nullable=False, default=0.0)
+    importo_consuntivo = Column(Numeric(12, 2), nullable=False, default=0.0)
+    importo_preventivo = Column(Numeric(12, 2), nullable=False, default=0.0)
+    importo_approvato = Column(Numeric(12, 2), nullable=False, default=0.0)
+    importo_validato = Column(Numeric(12, 2), nullable=False, default=0.0)
+    importo_presentato = Column(Numeric(12, 2), nullable=False, default=0.0)
     stato = Column(String(20), nullable=False, default="previsto", index=True)
     note = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -1034,9 +1040,12 @@ class VocePianoFinanziario(Base):
             Attendance.assignment_id == self.assignment_id
         ).scalar()
 
-        self.ore_effettive = float(ore or 0.0)
-        self.ore = self.ore_effettive
-        self.importo_consuntivo = round(self.ore_effettive * float(self.tariffa_oraria or 0.0), 2)
+        # DOM-11: aritmetica in Decimal con regola unica ROUND_HALF_UP —
+        # mai round() (banker's) sui valori economici.
+        ore_eff = quantize_ore(ore)
+        self.ore_effettive = ore_eff
+        self.ore = ore_eff
+        self.importo_consuntivo = quantize_euro(ore_eff * to_decimal(self.tariffa_oraria))
         self.importo_presentato = self.importo_consuntivo
         if self.importo_consuntivo > 0 and self.stato == "previsto":
             self.stato = "in_corso"
@@ -1054,7 +1063,7 @@ class Prodotto(Base):
     nome = Column(String(200), nullable=False, index=True)
     descrizione = Column(Text)
     tipo = Column(String(30), nullable=False, default='altro', index=True)
-    prezzo_base = Column(Float, nullable=False, default=0.0)
+    prezzo_base = Column(Numeric(12, 2), nullable=False, default=0.0)
     unita_misura = Column(String(50), default='ora')
     attivo = Column(Boolean, default=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -1109,8 +1118,8 @@ class ListinoVoce(Base):
     id = Column(Integer, primary_key=True, index=True)
     listino_id = Column(Integer, ForeignKey("listini.id", ondelete="CASCADE"), nullable=False, index=True)
     prodotto_id = Column(Integer, ForeignKey("prodotti.id", ondelete="CASCADE"), nullable=False, index=True)
-    prezzo_override = Column(Float, nullable=True)          # Se null → usa prezzo_base del prodotto
-    sconto_percentuale = Column(Float, default=0.0)
+    prezzo_override = Column(Numeric(12, 2), nullable=True)          # Se null → usa prezzo_base del prodotto
+    sconto_percentuale = Column(Numeric(5, 2), default=0.0)
     note = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
@@ -1124,8 +1133,9 @@ class ListinoVoce(Base):
         if self.prezzo_override is not None:
             return self.prezzo_override
         if self.prodotto and self.prodotto.prezzo_base is not None:
-            sconto = self.sconto_percentuale or 0.0
-            return self.prodotto.prezzo_base * (1 - sconto / 100)
+            # DOM-11: colonne Numeric -> Decimal; niente aritmetica mista con float
+            sconto = to_decimal(self.sconto_percentuale)
+            return quantize_euro(to_decimal(self.prodotto.prezzo_base) * (1 - sconto / 100))
         return 0.0
 
     @validates('sconto_percentuale')
@@ -1193,7 +1203,7 @@ class Consulente(Base):
     agenzia_id = Column(Integer, ForeignKey("agenzie.id", ondelete="SET NULL"), nullable=True, index=True)
     collaborator_id = Column(Integer, ForeignKey("collaborators.id", ondelete="SET NULL"), nullable=True, unique=True, index=True)
     zona_competenza = Column(String(200))
-    provvigione_percentuale = Column(Float)
+    provvigione_percentuale = Column(Numeric(5, 2))
     note = Column(Text)
     attivo = Column(Boolean, default=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -1462,9 +1472,9 @@ class AziendaClienteProjectLink(Base):
     project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     regime_aiuto = Column(String(30), nullable=True)
-    cofinanziamento_perc = Column(Float, nullable=True)
+    cofinanziamento_perc = Column(Numeric(5, 2), nullable=True)
     dichiarazione_de_minimis = Column(String(500), nullable=True)
-    plafond_dichiarato = Column(Float, nullable=True)
+    plafond_dichiarato = Column(Numeric(12, 2), nullable=True)
     stato = Column(String(30), nullable=True, default='in_attesa')
     note = Column(Text, nullable=True)
 
@@ -1607,10 +1617,10 @@ class PreventivoRiga(Base):
     preventivo_id = Column(Integer, ForeignKey("preventivi.id", ondelete="CASCADE"), nullable=False, index=True)
     prodotto_id = Column(Integer, ForeignKey("prodotti.id", ondelete="RESTRICT"), nullable=True, index=True)
     descrizione_custom = Column(String(400))
-    quantita = Column(Float, nullable=False, default=1.0)
-    prezzo_unitario = Column(Float, nullable=False, default=0.0)   # snapshot al momento della creazione
-    sconto_percentuale = Column(Float, nullable=False, default=0.0)
-    importo = Column(Float, nullable=False, default=0.0)           # calcolato: qty * prezzo * (1 - sconto/100)
+    quantita = Column(Numeric(10, 2), nullable=False, default=1.0)
+    prezzo_unitario = Column(Numeric(12, 2), nullable=False, default=0.0)   # snapshot al momento della creazione
+    sconto_percentuale = Column(Numeric(5, 2), nullable=False, default=0.0)
+    importo = Column(Numeric(12, 2), nullable=False, default=0.0)           # calcolato: qty * prezzo * (1 - sconto/100)
     ordine = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
@@ -2168,9 +2178,9 @@ class DatiRetributivi(Base):
     id = Column(Integer, primary_key=True, index=True)
     allievo_id = Column(Integer, ForeignKey("allievi.id", ondelete="CASCADE"), nullable=False, index=True)
     project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
-    ral_annua = Column(Float, nullable=True)
-    costo_orario = Column(Float, nullable=True)
-    ore_1720 = Column(Float, nullable=True, default=1720)
+    ral_annua = Column(Numeric(12, 2), nullable=True)
+    costo_orario = Column(Numeric(10, 2), nullable=True)
+    ore_1720 = Column(Numeric(8, 2), nullable=True, default=1720)
     busta_paga_path = Column(String(500), nullable=True)
     busta_paga_filename = Column(String(255), nullable=True)
     periodo_riferimento = Column(String(50), nullable=True)
@@ -2199,7 +2209,7 @@ class ModuloFormativo(Base):
     # aula | fad_sincrona | fad_asincrona | training_on_job | propedeutica
     tipo_attivita = Column(String(20), nullable=False, default="formativa", index=True)
     # formativa | propedeutica
-    ore_previste = Column(Float, nullable=True)
+    ore_previste = Column(Numeric(8, 2), nullable=True)
     obiettivo = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
