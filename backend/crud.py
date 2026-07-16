@@ -1467,20 +1467,20 @@ def create_attendance(db: Session, attendance: schemas.AttendanceCreate):
                         f"di attività dell'assegnazione ({periodi})"
                     )
 
+        # DOM-14: presenza e ricalcoli (progetto, assignment, voce, budget piano)
+        # vivono nella STESSA transazione: o si salva tutto o niente.
+        # Nessun errore di ricalcolo viene degradato a warning.
         db_attendance = models.Attendance(**attendance_data)
         db.add(db_attendance)
+        db.flush()
+
+        _recalc_project_progress(db, db_attendance.project_id)
+        if db_attendance.assignment_id:
+            _recalc_assignment_hours(db, db_attendance.assignment_id)
+            _recalc_voce_e_budget(db, assignment_id=db_attendance.assignment_id)
+
         db.commit()
         db.refresh(db_attendance)
-
-        update_project_progress(db, db_attendance.project_id)
-
-        # Aggiorna statistiche dell'assegnazione se presente
-        if db_attendance.assignment_id:
-            update_assignment_hours(db, db_attendance.assignment_id)
-            try:
-                aggiorna_voce_da_presenze(db, assignment_id=db_attendance.assignment_id)
-            except Exception as exc:
-                logger.warning(f"Impossibile aggiornare voce piano da presenza {db_attendance.id}: {exc}")
 
         logger.info(f"Created attendance: {db_attendance.id}")
         return db_attendance
@@ -1489,34 +1489,44 @@ def create_attendance(db: Session, attendance: schemas.AttendanceCreate):
         logger.error(f"Error creating attendance: {e}")
         raise
 
+def _recalc_project_progress(db: Session, project_id: int):
+    """Ricalcola ore e progresso del progetto SENZA commit (DOM-14):
+    partecipa alla transazione del chiamante."""
+    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+    if not project:
+        return None
+
+    db.flush()
+    total_hours = db.query(func.sum(models.Attendance.hours)).filter(
+        models.Attendance.project_id == project_id
+    ).scalar() or 0.0
+
+    total_assigned_hours = db.query(func.sum(models.Assignment.assigned_hours)).filter(
+        models.Assignment.project_id == project_id,
+        models.Assignment.is_active == True,
+    ).scalar() or 0.0
+
+    project.ore_totali = float(total_assigned_hours)
+    project.ore_completate = float(total_hours)
+    if total_assigned_hours > 0:
+        project.progress_percentage = min(100.0, (float(total_hours) / float(total_assigned_hours)) * 100.0)
+    else:
+        project.progress_percentage = 0.0
+
+    logger.info(
+        f"Project {project_id} progress updated: ore_totali={project.ore_totali}, "
+        f"ore_completate={project.ore_completate}, progress={project.progress_percentage:.2f}%"
+    )
+    return project
+
+
 def update_project_progress(db: Session, project_id: int):
     """Ricalcola ore completate e percentuale progresso del progetto."""
     try:
-        project = db.query(models.Project).filter(models.Project.id == project_id).first()
-        if not project:
+        project = _recalc_project_progress(db, project_id)
+        if project is None:
             return None
-
-        total_hours = db.query(func.sum(models.Attendance.hours)).filter(
-            models.Attendance.project_id == project_id
-        ).scalar() or 0.0
-
-        total_assigned_hours = db.query(func.sum(models.Assignment.assigned_hours)).filter(
-            models.Assignment.project_id == project_id,
-            models.Assignment.is_active == True,
-        ).scalar() or 0.0
-
-        project.ore_totali = float(total_assigned_hours)
-        project.ore_completate = float(total_hours)
-        if total_assigned_hours > 0:
-            project.progress_percentage = min(100.0, (float(total_hours) / float(total_assigned_hours)) * 100.0)
-        else:
-            project.progress_percentage = 0.0
-
         db.commit()
-        logger.info(
-            f"Project {project_id} progress updated: ore_totali={project.ore_totali}, "
-            f"ore_completate={project.ore_completate}, progress={project.progress_percentage:.2f}%"
-        )
         return project
     except Exception as e:
         db.rollback()
@@ -1524,28 +1534,36 @@ def update_project_progress(db: Session, project_id: int):
         raise
 
 
+def _recalc_assignment_hours(db: Session, assignment_id: int):
+    """Ricalcola ore completate dell'assegnazione SENZA commit (DOM-14)."""
+    assignment = db.query(models.Assignment).filter(
+        models.Assignment.id == assignment_id,
+        models.Assignment.is_active == True
+    ).first()
+
+    if assignment:
+        db.flush()
+        total_hours = db.query(func.sum(models.Attendance.hours)).filter(
+            models.Attendance.assignment_id == assignment_id
+        ).scalar() or 0.0
+
+        assignment.completed_hours = total_hours
+        if assignment.assigned_hours and assignment.assigned_hours > 0:
+            assignment.progress_percentage = min(100.0, (float(total_hours) / float(assignment.assigned_hours)) * 100.0)
+        else:
+            assignment.progress_percentage = 0.0
+        logger.info(
+            f"Updated assignment {assignment_id}: {total_hours}h completed out of {assignment.assigned_hours}h"
+        )
+    return assignment
+
+
 def update_assignment_hours(db: Session, assignment_id: int):
     """Ricalcola ore completate dell'assegnazione."""
     try:
-        assignment = db.query(models.Assignment).filter(
-            models.Assignment.id == assignment_id,
-            models.Assignment.is_active == True
-        ).first()
-
-        if assignment:
-            total_hours = db.query(func.sum(models.Attendance.hours)).filter(
-                models.Attendance.assignment_id == assignment_id
-            ).scalar() or 0.0
-
-            assignment.completed_hours = total_hours
-            if assignment.assigned_hours and assignment.assigned_hours > 0:
-                assignment.progress_percentage = min(100.0, (float(total_hours) / float(assignment.assigned_hours)) * 100.0)
-            else:
-                assignment.progress_percentage = 0.0
+        assignment = _recalc_assignment_hours(db, assignment_id)
+        if assignment is not None:
             db.commit()
-            logger.info(
-                f"Updated assignment {assignment_id}: {total_hours}h completed out of {assignment.assigned_hours}h"
-            )
         return assignment
     except Exception as e:
         db.rollback()
@@ -1685,50 +1703,55 @@ def update_attendance(db: Session, attendance_id: int, attendance: schemas.Atten
                         f"di attività dell'assegnazione ({periodi})"
                     )
 
-        for key, value in update_data.items():
-            setattr(db_attendance, key, value)
-        db.commit()
-        db.refresh(db_attendance)
+        # DOM-14: modifica presenza e ricalcoli nella STESSA transazione.
+        try:
+            for key, value in update_data.items():
+                setattr(db_attendance, key, value)
+            db.flush()
 
-        if old_project_id != db_attendance.project_id:
-            update_project_progress(db, old_project_id)
-        update_project_progress(db, db_attendance.project_id)
+            if old_project_id != db_attendance.project_id:
+                _recalc_project_progress(db, old_project_id)
+            _recalc_project_progress(db, db_attendance.project_id)
 
-        # Aggiorna statistiche della vecchia assegnazione se è cambiata
-        if old_assignment_id and old_assignment_id != db_attendance.assignment_id:
-            update_assignment_hours(db, old_assignment_id)
-            try:
-                aggiorna_voce_da_presenze(db, assignment_id=old_assignment_id)
-            except Exception as exc:
-                logger.warning(f"Impossibile riallineare la vecchia voce piano dell'assegnazione {old_assignment_id}: {exc}")
+            # Riallinea la vecchia assegnazione se è cambiata
+            if old_assignment_id and old_assignment_id != db_attendance.assignment_id:
+                _recalc_assignment_hours(db, old_assignment_id)
+                _recalc_voce_e_budget(db, assignment_id=old_assignment_id)
 
-        # Aggiorna statistiche della nuova assegnazione
-        if db_attendance.assignment_id:
-            update_assignment_hours(db, db_attendance.assignment_id)
-            try:
-                aggiorna_voce_da_presenze(db, assignment_id=db_attendance.assignment_id)
-            except Exception as exc:
-                logger.warning(f"Impossibile aggiornare la voce piano per l'assegnazione {db_attendance.assignment_id}: {exc}")
+            # Aggiorna statistiche della nuova assegnazione
+            if db_attendance.assignment_id:
+                _recalc_assignment_hours(db, db_attendance.assignment_id)
+                _recalc_voce_e_budget(db, assignment_id=db_attendance.assignment_id)
+
+            db.commit()
+            db.refresh(db_attendance)
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Error updating attendance {attendance_id}: {e}")
+            raise
 
     return db_attendance
 
 def delete_attendance(db: Session, attendance_id: int):
     db_attendance = db.query(models.Attendance).filter(models.Attendance.id == attendance_id).first()
     if db_attendance:
-        project_id = db_attendance.project_id
-        assignment_id = db_attendance.assignment_id
-        db.delete(db_attendance)
-        db.commit()
+        # DOM-14: cancellazione presenza e ricalcoli nella STESSA transazione.
+        try:
+            project_id = db_attendance.project_id
+            assignment_id = db_attendance.assignment_id
+            db.delete(db_attendance)
+            db.flush()
 
-        update_project_progress(db, project_id)
+            _recalc_project_progress(db, project_id)
+            if assignment_id:
+                _recalc_assignment_hours(db, assignment_id)
+                _recalc_voce_e_budget(db, assignment_id=assignment_id)
 
-        # Aggiorna statistiche dell'assegnazione dopo la cancellazione
-        if assignment_id:
-            update_assignment_hours(db, assignment_id)
-            try:
-                aggiorna_voce_da_presenze(db, assignment_id=assignment_id)
-            except Exception as exc:
-                logger.warning(f"Impossibile riallineare la voce piano dopo cancellazione presenza per assegnazione {assignment_id}: {exc}")
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Error deleting attendance {attendance_id}: {e}")
+            raise
 
     return db_attendance
 
@@ -4324,11 +4347,13 @@ def collega_assegnazione_a_piano(db: Session, assignment_id: int):
     return voce
 
 
-def aggiorna_voce_da_presenze(
+def _recalc_voce_e_budget(
     db: Session,
     voce_id: Optional[int] = None,
     assignment_id: Optional[int] = None,
 ):
+    """Riallinea voce piano e budget del piano SENZA commit (DOM-14):
+    partecipa alla transazione del chiamante."""
     db_voce = None
     if voce_id is not None:
         db_voce = get_voce_piano(db, voce_id)
@@ -4342,6 +4367,17 @@ def aggiorna_voce_da_presenze(
     ).first()
     if piano:
         piano.aggiorna_budget_utilizzato(db)
+    return db_voce
+
+
+def aggiorna_voce_da_presenze(
+    db: Session,
+    voce_id: Optional[int] = None,
+    assignment_id: Optional[int] = None,
+):
+    db_voce = _recalc_voce_e_budget(db, voce_id=voce_id, assignment_id=assignment_id)
+    if not db_voce:
+        return None
     db.commit()
     db.refresh(db_voce)
     return db_voce
