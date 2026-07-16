@@ -510,7 +510,12 @@ def test_create_attendance_returns_assignment_range_error_before_overlap():
         email="attendance@example.com",
         fiscal_code="RSSMRA80A01H501A",
     )
-    project = models.Project(name="Progetto Test", status="active")
+    project = models.Project(
+        name="Progetto Test",
+        status="active",
+        start_date=datetime(2026, 4, 1),
+        end_date=datetime(2026, 4, 30),
+    )
     db.add_all([collaborator, project])
     db.commit()
 

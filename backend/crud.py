@@ -1071,6 +1071,28 @@ def _as_day(value: datetime | date) -> date:
     return value
 
 
+class AssignedHoursBelowCompletedError(ValueError):
+    """Ridurre le ore assegnate sotto ore già erogate è un errore 422."""
+
+
+def _validate_attendance_project(db: Session, *, project_id: int, attendance_day: date) -> models.Project:
+    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+    if not project:
+        raise ValueError("Progetto non trovato")
+    if project.status != "active":
+        raise ValueError(f"Il progetto '{project.name}' non è attivo (stato: {project.status})")
+    if project.start_date is None or project.end_date is None:
+        raise ValueError("Il progetto deve avere date di inizio e fine prima di registrare presenze")
+    project_start = _as_day(project.start_date)
+    project_end = _as_day(project.end_date)
+    if attendance_day < project_start or attendance_day > project_end:
+        raise ValueError(
+            f"La data presenza ({attendance_day.strftime('%d/%m/%Y')}) è fuori dal periodo del progetto "
+            f"({project_start.strftime('%d/%m/%Y')} - {project_end.strftime('%d/%m/%Y')})"
+        )
+    return project
+
+
 def _create_audit_log(
     db: Session,
     *,
@@ -1358,6 +1380,10 @@ def validate_attendance_in_assignment_range(
 
 
 def create_attendance(db: Session, attendance: schemas.AttendanceCreate):
+    attendance_day = _as_day(attendance.date)
+    _validate_attendance_project(
+        db, project_id=attendance.project_id, attendance_day=attendance_day
+    )
     try:
         if attendance.assignment_id:
             validate_attendance_in_assignment_range(db, attendance.date, attendance.assignment_id)
@@ -1657,6 +1683,11 @@ def update_attendance(db: Session, attendance_id: int, attendance: schemas.Atten
             from datetime import datetime as dt
             new_date = dt.fromisoformat(new_date)
         new_day = new_date.date() if hasattr(new_date, 'date') else new_date
+        _validate_attendance_project(
+            db,
+            project_id=update_data.get("project_id", db_attendance.project_id),
+            attendance_day=new_day,
+        )
 
         if new_assignment_id:
             _validate_attendance_assignment_date_range(
@@ -1949,6 +1980,8 @@ def create_assignment(db: Session, assignment: schemas.AssignmentCreate):
         db_assignment = models.Assignment(**assignment_data)
         db.add(db_assignment)
         db.flush()  # Ottieni l'ID prima del commit finale
+        _recalc_project_progress(db, assignment.project_id)
+
 
         # Crea relazione many-to-many se non esiste
         collaborator = get_collaborator(db, assignment.collaborator_id)
@@ -1974,6 +2007,7 @@ def create_assignment(db: Session, assignment: schemas.AssignmentCreate):
 def update_assignment(db: Session, assignment_id: int, assignment: schemas.AssignmentUpdate):
     db_assignment = db.query(models.Assignment).filter(models.Assignment.id == assignment_id).first()
     if db_assignment:
+        old_project_id = db_assignment.project_id
         update_data = assignment.dict(exclude_unset=True)
         new_start_date = update_data.get("start_date", db_assignment.start_date)
         new_end_date = update_data.get("end_date", db_assignment.end_date)
@@ -2025,6 +2059,11 @@ def update_assignment(db: Session, assignment_id: int, assignment: schemas.Assig
         new_role = update_data.get("role", db_assignment.role)
         new_rate = update_data.get("hourly_rate", db_assignment.hourly_rate)
         new_hours = update_data.get("assigned_hours", db_assignment.assigned_hours)
+        if to_decimal(new_hours) < to_decimal(db_assignment.completed_hours):
+            raise AssignedHoursBelowCompletedError(
+                f"Le ore assegnate ({new_hours}h) non possono essere inferiori alle ore "
+                f"già completate ({db_assignment.completed_hours}h)"
+            )
         if ("hourly_rate" in update_data or "role" in update_data or
                 "assigned_hours" in update_data or "project_id" in update_data):
             piano = get_piano_by_progetto(db, new_project_id)
@@ -2039,6 +2078,10 @@ def update_assignment(db: Session, assignment_id: int, assignment: schemas.Assig
 
         for key, value in update_data.items():
             setattr(db_assignment, key, value)
+        db.flush()
+        _recalc_project_progress(db, db_assignment.project_id)
+        if old_project_id != db_assignment.project_id:
+            _recalc_project_progress(db, old_project_id)
         db.commit()
         db.refresh(db_assignment)
         try:
@@ -2056,6 +2099,8 @@ def delete_assignment(db: Session, assignment_id: int):
         if attendance_count > 0:
             raise ValueError(f"Impossibile eliminare: {attendance_count} presenze collegate a questa assegnazione.")
         db_assignment.is_active = False
+        db.flush()
+        _recalc_project_progress(db, db_assignment.project_id)
         db.commit()
         db.refresh(db_assignment)
     return db_assignment

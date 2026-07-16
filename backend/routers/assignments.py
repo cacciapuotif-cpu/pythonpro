@@ -316,6 +316,12 @@ def update_assignment(
     """AGGIORNA UNA ASSEGNAZIONE"""
     try:
         db_assignment = crud.update_assignment(db, assignment_id, assignment)
+    except crud.AssignedHoursBelowCompletedError as e:
+        db.rollback()
+        logger.warning(f"Ore assegnazione non valide: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
+        )
     except ValueError as e:
         # DOM-10: massimale/budget violati devono arrivare come errore di
         # business leggibile, non come 500 generico
