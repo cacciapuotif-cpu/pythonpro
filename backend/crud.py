@@ -14,9 +14,9 @@ import logging
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from piano_finanziario_config import (
-    MACROVOCE_LIMITS,
     MACROVOCE_TITLES,
     build_default_voci,
+    get_macrovoce_limits,
     get_voice_template_map,
     is_dynamic_voice,
 )
@@ -4767,11 +4767,14 @@ def build_piano_finanziario_riepilogo(piano: models.PianoFinanziario, db: Sessio
     contributo_richiesto = totals["consuntivo"]["A"] + totals["consuntivo"]["B"] + totals["consuntivo"]["C"]
     cofinanziamento = totals["consuntivo"]["D"]
 
+    # Limiti percentuali per fondo (DOM-05): alert-only in costruzione piano.
+    limiti_fondo = get_macrovoce_limits(getattr(piano, "tipo_fondo", None))
+
     macrovoci = []
     for macrovoce in ["A", "B", "C", "D"]:
         importo_consuntivo = round(totals["consuntivo"][macrovoce], 2)
         importo_preventivo = round(totals["preventivo"][macrovoce], 2)
-        limite = MACROVOCE_LIMITS.get(macrovoce)
+        limite = limiti_fondo.get(macrovoce)
         percentuale_consuntivo = round((importo_consuntivo / totale_consuntivo) * 100, 2) if totale_consuntivo else 0.0
         percentuale_preventivo = round((importo_preventivo / totale_preventivo) * 100, 2) if totale_preventivo else 0.0
         alert_level = "ok"

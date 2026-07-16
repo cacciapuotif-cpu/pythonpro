@@ -9,6 +9,22 @@ MACROVOCE_LIMITS = {
     "D": None,
 }
 
+# Limiti percentuali macrovoce PER FONDO (decisione GATE W1.2 / DOM-05):
+# - la verifica in costruzione piano è alert-only (riepilogo); il blocco
+#   scatterà alla transizione di stato verso inviato/rendicontato (Wave 2.2);
+# - i fondi non ancora censiti usano i limiti Formazienda come default,
+#   in attesa dell'estensione tassonomia tipo_fondo (Wave 2.3);
+# - la regola A>=70/C<=20/D<=10 presente in passato apparteneva a uno schema
+#   di macrovoci di altro fondo (A=erogazione) ed era inconciliabile con
+#   questo template (A=progettazione): eliminata.
+MACROVOCE_LIMITS_BY_FONDO = {
+    "formazienda": MACROVOCE_LIMITS,
+}
+
+
+def get_macrovoce_limits(tipo_fondo):
+    return MACROVOCE_LIMITS_BY_FONDO.get((tipo_fondo or "").lower(), MACROVOCE_LIMITS)
+
 MACROVOCE_TITLES = {
     "A": "Macrovoce A - Progettazione della formazione (max 20%)",
     "B": "Macrovoce B - Erogazione della formazione (max 50%)",
