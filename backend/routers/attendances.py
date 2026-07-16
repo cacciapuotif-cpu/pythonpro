@@ -3,13 +3,15 @@ Router per gestione presenze
 Gestisce registrazione ore lavorate con validazioni avanzate
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime
 import logging
 
 import crud
+import models
 import schemas
 from database import get_db
 from error_handler import BusinessLogicError, SafeTransaction, retry_on_db_error
@@ -19,10 +21,51 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/attendances", tags=["Attendances"])
 
 
+def _validate_ore_voce(db: Session, *, assignment_id: int | None, hours: float, exclude_attendance_id: int | None = None) -> None:
+    if not assignment_id:
+        return
+    voce = db.query(models.VocePianoFinanziario).filter(
+        models.VocePianoFinanziario.assignment_id == assignment_id
+    ).first()
+    if not voce:
+        return
+    query = db.query(func.coalesce(func.sum(models.Attendance.hours), 0.0)).filter(
+        models.Attendance.assignment_id == assignment_id
+    )
+    if exclude_attendance_id is not None:
+        query = query.filter(models.Attendance.id != exclude_attendance_id)
+    total = float(query.scalar() or 0.0) + float(hours or 0.0)
+    limit = float(voce.ore_previste or voce.ore or 0.0)
+    if limit and total > limit:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Ore presenze ({total:g}h) superano ore previste dalla voce ({limit:g}h)",
+        )
+
+
+def _warn_if_budget_superato(db: Session, response: Response, project_id: int) -> None:
+    """DOM-10 (GATE W1.4): consuntivo oltre budget alla registrazione presenza =
+    WARNING, mai blocco — la presenza registra un fatto avvenuto; il taglio si
+    gestisce in rendicontazione. Alert danger anche nel riepilogo piano."""
+    piano = crud.get_piano_by_progetto(db, project_id)
+    if not piano:
+        return
+    budget = float(piano.budget_totale or 0)
+    utilizzato = float(piano.budget_utilizzato or 0)
+    if budget > 0 and utilizzato > budget:
+        msg = (
+            f"Budget piano {piano.id} superato: consuntivo {utilizzato:.2f} EUR "
+            f"su budget {budget:.2f} EUR"
+        )
+        response.headers["X-Budget-Warning"] = msg
+        logger.warning(msg)
+
+
 @router.post("/", response_model=schemas.Attendance, response_model_by_alias=False)
 @retry_on_db_error(max_retries=3)
 def create_attendance(
     attendance: EnhancedAttendanceCreate,
+    response: Response,
     db: Session = Depends(get_db)
 ):
     """
@@ -41,10 +84,12 @@ def create_attendance(
             if not project:
                 raise BusinessLogicError("Progetto non trovato")
 
+            _validate_ore_voce(db, assignment_id=attendance.assignment_id, hours=attendance.hours)
             attendance_data = schemas.AttendanceCreate(**attendance.dict())
             result = crud.create_attendance(db=db, attendance=attendance_data)
             transaction.commit()
 
+            _warn_if_budget_superato(db, response, result.project_id)
             logger.info(f"Presenza registrata con successo: ID {result.id}")
             return result
 
@@ -121,13 +166,21 @@ def read_attendance(
 def update_attendance(
     attendance_id: int,
     attendance: schemas.AttendanceUpdate,
+    response: Response,
     db: Session = Depends(get_db)
 ):
     """AGGIORNA UNA PRESENZA ESISTENTE"""
     try:
+        existing = crud.get_attendance(db, attendance_id=attendance_id)
+        if existing is None:
+            raise HTTPException(status_code=404, detail="Presenza non trovata")
+        assignment_id = attendance.assignment_id if attendance.assignment_id is not None else existing.assignment_id
+        hours = attendance.hours if attendance.hours is not None else existing.hours
+        _validate_ore_voce(db, assignment_id=assignment_id, hours=hours, exclude_attendance_id=attendance_id)
         db_attendance = crud.update_attendance(db, attendance_id, attendance)
         if db_attendance is None:
             raise HTTPException(status_code=404, detail="Presenza non trovata")
+        _warn_if_budget_superato(db, response, db_attendance.project_id)
         return db_attendance
     except HTTPException:
         raise

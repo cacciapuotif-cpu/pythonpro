@@ -1929,6 +1929,18 @@ def create_assignment(db: Session, assignment: schemas.AssignmentCreate):
             assignment_data["materia"] = assignment_data.get("materia") or modulo.materia
             assignment_data["modalita_erogazione"] = assignment_data.get("modalita_erogazione") or modulo.modalita_erogazione
 
+        # DOM-10 (GATE W1.4): massimale tariffa e budget preventivo del piano
+        piano = get_piano_by_progetto(db, assignment.project_id)
+        if piano:
+            _check_massimale_tariffa_assignment(
+                db, piano, assignment_data.get("role"), assignment_data.get("hourly_rate")
+            )
+            _check_budget_preventivo_piano(
+                db,
+                piano,
+                to_decimal(assignment_data.get("assigned_hours")) * to_decimal(assignment_data.get("hourly_rate")),
+            )
+
         # Crea oggetto con i campi iniziali impostati esplicitamente
         assignment_data['completed_hours'] = 0.0
         assignment_data['progress_percentage'] = 0.0
@@ -2008,6 +2020,22 @@ def update_assignment(db: Session, assignment_id: int, assignment: schemas.Assig
                 raise ValueError("Modulo formativo non trovato per questo progetto")
             update_data["materia"] = update_data.get("materia") or modulo.materia
             update_data["modalita_erogazione"] = update_data.get("modalita_erogazione") or modulo.modalita_erogazione
+
+        # DOM-10 (GATE W1.4): massimale tariffa e budget preventivo anche in update
+        new_role = update_data.get("role", db_assignment.role)
+        new_rate = update_data.get("hourly_rate", db_assignment.hourly_rate)
+        new_hours = update_data.get("assigned_hours", db_assignment.assigned_hours)
+        if ("hourly_rate" in update_data or "role" in update_data or
+                "assigned_hours" in update_data or "project_id" in update_data):
+            piano = get_piano_by_progetto(db, new_project_id)
+            if piano:
+                _check_massimale_tariffa_assignment(db, piano, new_role, new_rate)
+                voce_esistente = get_voce_by_assignment(db, assignment_id)
+                vecchio_preventivo = to_decimal(voce_esistente.importo_preventivo) if (
+                    voce_esistente and voce_esistente.piano_id == piano.id
+                ) else to_decimal(db_assignment.assigned_hours) * to_decimal(db_assignment.hourly_rate)
+                nuovo_preventivo = to_decimal(new_hours) * to_decimal(new_rate)
+                _check_budget_preventivo_piano(db, piano, nuovo_preventivo - vecchio_preventivo)
 
         for key, value in update_data.items():
             setattr(db_assignment, key, value)
@@ -4275,6 +4303,58 @@ def _derive_categoria_from_role(role: Optional[str]) -> str:
     return "altro"
 
 
+def get_massimale_orario(db: Session, tipo_fondo: Optional[str], anno: Optional[int], categoria: str):
+    """Massimale orario configurato per (fondo, anno, categoria) — None se non applicabile."""
+    if categoria not in ("docenza", "tutoraggio"):
+        return None
+    massimale = db.query(models.MassimaleFondo).filter(
+        models.MassimaleFondo.tipo_fondo == tipo_fondo,
+        models.MassimaleFondo.anno == anno,
+    ).first()
+    if not massimale:
+        return None
+    return (
+        massimale.massimale_orario_docenza
+        if categoria == "docenza"
+        else massimale.massimale_orario_tutoraggio
+    )
+
+
+def _check_massimale_tariffa_assignment(db: Session, piano, role: Optional[str], hourly_rate) -> None:
+    """DOM-10 (GATE W1.4): tariffa oltre massimale configurato = BLOCCO."""
+    if piano is None or hourly_rate is None:
+        return
+    categoria = _derive_categoria_from_role(role)
+    limite = get_massimale_orario(db, piano.tipo_fondo, piano.anno, categoria)
+    if limite is not None and to_decimal(hourly_rate) > to_decimal(limite):
+        raise ValueError(
+            f"Tariffa oraria {categoria} ({to_decimal(hourly_rate):.2f} €/h) supera il "
+            f"massimale del fondo {piano.tipo_fondo} {piano.anno} ({to_decimal(limite):.2f} €/h)"
+        )
+
+
+def _check_budget_preventivo_piano(db: Session, piano, delta_preventivo, exclude_voce_id: Optional[int] = None) -> None:
+    """DOM-10 (GATE W1.4): il preventivo complessivo del piano non può superare
+    budget_totale (se configurato, cioè > 0). Pianificare oltre il budget
+    approvato è un errore di pianificazione: BLOCCO con importi nel messaggio."""
+    if piano is None:
+        return
+    budget = to_decimal(piano.budget_totale)
+    if budget <= 0:
+        return
+    query = db.query(
+        func.coalesce(func.sum(models.VocePianoFinanziario.importo_preventivo), 0.0)
+    ).filter(models.VocePianoFinanziario.piano_id == piano.id)
+    if exclude_voce_id is not None:
+        query = query.filter(models.VocePianoFinanziario.id != exclude_voce_id)
+    totale = quantize_euro(to_decimal(query.scalar()) + to_decimal(delta_preventivo))
+    if totale > budget:
+        raise ValueError(
+            f"Il preventivo complessivo del piano ({totale:.2f} €) supererebbe "
+            f"il budget totale approvato ({quantize_euro(budget):.2f} €)"
+        )
+
+
 def _build_voce_payload_from_assignment(
     piano: models.PianoFinanziario,
     assignment: models.Assignment,
@@ -4413,6 +4493,9 @@ def create_voce_piano(db: Session, voce: schemas.VocePianoFinanziarioCreate):
     payload.setdefault("progetto_label", None)
     payload.setdefault("edizione_label", None)
 
+    # DOM-10 (GATE W1.4): il preventivo non può superare il budget del piano
+    _check_budget_preventivo_piano(db, piano, payload.get("importo_preventivo") or 0)
+
     db_obj = models.VocePianoFinanziario(**payload)
     db.add(db_obj)
     db.flush()
@@ -4432,6 +4515,14 @@ def update_voce_piano(
         return None
 
     update_data = voce.model_dump(exclude_unset=True)
+
+    # DOM-10 (GATE W1.4): il preventivo non può superare il budget del piano
+    if "importo_preventivo" in update_data:
+        piano = get_piano_finanziario(db, db_obj.piano_id)
+        _check_budget_preventivo_piano(
+            db, piano, update_data["importo_preventivo"] or 0, exclude_voce_id=voce_id
+        )
+
     for key, value in update_data.items():
         setattr(db_obj, key, value)
 
@@ -4844,6 +4935,19 @@ def build_piano_finanziario_riepilogo(piano: models.PianoFinanziario, db: Sessio
             "level": "info",
             "code": "macrovoce_d_cofinanziamento",
             "message": "La Macrovoce D viene conteggiata solo come cofinanziamento aziendale.",
+        })
+
+    # DOM-10 (GATE W1.4): consuntivo oltre budget = alert danger (mai blocco
+    # delle presenze: il taglio si gestisce in rendicontazione)
+    budget_totale_piano = to_decimal(getattr(piano, "budget_totale", 0))
+    if budget_totale_piano > 0 and totale_consuntivo > budget_totale_piano:
+        alerts.append({
+            "level": "danger",
+            "code": "budget_superato",
+            "message": (
+                f"Il consuntivo ({quantize_euro(totale_consuntivo):.2f} €) supera "
+                f"il budget totale del piano ({quantize_euro(budget_totale_piano):.2f} €)."
+            ),
         })
 
     # Aggrega le ore di presenze effettive per ruolo (solo se db disponibile)

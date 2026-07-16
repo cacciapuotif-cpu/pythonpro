@@ -806,7 +806,7 @@ class PianoFinanziario(Base):
     codice_piano = Column(String(100), unique=True, nullable=True, index=True)
     nome = Column(String(200), nullable=False, default="")
     tipo_fondo = Column(String(30), nullable=True, default="altro", index=True)
-    # Valori: "fondimpresa", "fonamcom", "fse", "regionale", "altro"
+    # Valori: "fondimpresa", "fonamcom", "formazienda", "fapi", "fse", "regionale", "altro"
     data_ammissione = Column(Date, nullable=True)
     stato_rendicontazione = Column(String(20), nullable=False, default="bozza", server_default="bozza", index=True)
     codice_progetto_fondo = Column(String(50), nullable=True, index=True)
@@ -849,7 +849,9 @@ class PianoFinanziario(Base):
 
     @validates('tipo_fondo')
     def validate_tipo_fondo(self, key, valore):
-        tipi_validi = ['fondimpresa', 'fonamcom', 'fse', 'regionale', 'altro']
+        # DOM-10: formazienda e fapi aggiunti — senza di essi i piani restavano
+        # 'altro' e il lookup massimali per (tipo_fondo, anno) non matchava mai.
+        tipi_validi = ['fondimpresa', 'fonamcom', 'formazienda', 'fapi', 'fse', 'regionale', 'altro']
         if valore not in tipi_validi:
             raise ValueError(f"tipo_fondo deve essere uno di: {tipi_validi}")
         return valore

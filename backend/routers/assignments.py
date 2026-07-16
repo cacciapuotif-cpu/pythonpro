@@ -314,7 +314,14 @@ def update_assignment(
     db: Session = Depends(get_db)
 ):
     """AGGIORNA UNA ASSEGNAZIONE"""
-    db_assignment = crud.update_assignment(db, assignment_id, assignment)
+    try:
+        db_assignment = crud.update_assignment(db, assignment_id, assignment)
+    except ValueError as e:
+        # DOM-10: massimale/budget violati devono arrivare come errore di
+        # business leggibile, non come 500 generico
+        db.rollback()
+        logger.warning(f"Validazione aggiornamento assegnazione fallita: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
     if db_assignment is None:
         raise HTTPException(status_code=404, detail="Assegnazione non trovata")
     return _normalize_assignment_metrics(db_assignment)

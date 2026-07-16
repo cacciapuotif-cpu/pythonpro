@@ -14,11 +14,33 @@ from openpyxl.styles import Font, PatternFill
 from sqlalchemy.orm import Session
 
 import crud
+import models
 import schemas
 from database import get_db
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/piani-finanziari", tags=["Piani Finanziari"])
+
+
+def _validate_massimale_voce(db: Session, piano, voce_payload) -> None:
+    tariffa = getattr(voce_payload, "tariffa_oraria", None)
+    if tariffa is None:
+        return
+    categoria = (getattr(voce_payload, "categoria", None) or "").lower()
+    if categoria not in {"docenza", "tutoraggio"}:
+        return
+    massimale = db.query(models.MassimaleFondo).filter(
+        models.MassimaleFondo.tipo_fondo == piano.tipo_fondo,
+        models.MassimaleFondo.anno == piano.anno,
+    ).first()
+    if not massimale:
+        return
+    limit = massimale.massimale_orario_docenza if categoria == "docenza" else massimale.massimale_orario_tutoraggio
+    if limit is not None and float(tariffa) > float(limit):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Costo orario {categoria} ({float(tariffa):.2f}) supera massimale fondo ({float(limit):.2f})",
+        )
 
 
 def _build_excel_workbook(piano, riepilogo: dict) -> Workbook:
@@ -126,6 +148,81 @@ def get_piani_finanziari(
         progetto_id=progetto_id,
         stato=stato,
     )
+
+
+@router.get("/violazioni-massimali")
+def report_violazioni_massimali(db: Session = Depends(get_db)):
+    """DOM-10 (GATE W1.4): report delle violazioni massimali ESISTENTI nei dati.
+
+    - violazioni: tariffe (assignment/voce) oltre il massimale configurato
+      per (tipo_fondo, anno) del piano;
+    - non_verificabili: tariffe docenza/tutoraggio che nessun massimale può
+      verificare (fondo senza riga massimali per l'anno) e voci con importi
+      ma categoria assente (esenti dal check).
+    """
+    violazioni = []
+    non_verificabili = []
+
+    piani = db.query(models.PianoFinanziario).all()
+    for piano in piani:
+        assignments = db.query(models.Assignment).filter(
+            models.Assignment.project_id == piano.progetto_id,
+            models.Assignment.is_active == True,
+        ).all()
+        for a in assignments:
+            categoria = crud._derive_categoria_from_role(a.role)
+            if categoria not in ("docenza", "tutoraggio"):
+                continue
+            limite = crud.get_massimale_orario(db, piano.tipo_fondo, piano.anno, categoria)
+            entry = {
+                "piano_id": piano.id,
+                "entita": "assignment",
+                "entita_id": a.id,
+                "categoria": categoria,
+                "tariffa": float(a.hourly_rate or 0),
+            }
+            if limite is None:
+                entry["motivo"] = (
+                    f"nessun massimale configurato per fondo '{piano.tipo_fondo}' anno {piano.anno}"
+                )
+                non_verificabili.append(entry)
+            elif float(a.hourly_rate or 0) > float(limite):
+                entry["massimale"] = float(limite)
+                violazioni.append(entry)
+
+        for voce in piano.voci:
+            tariffa = float(voce.tariffa_oraria or 0)
+            if tariffa <= 0:
+                continue
+            categoria = (voce.categoria or "").lower()
+            entry = {
+                "piano_id": piano.id,
+                "entita": "voce",
+                "entita_id": voce.id,
+                "categoria": categoria or None,
+                "tariffa": tariffa,
+            }
+            if categoria not in ("docenza", "tutoraggio"):
+                if not categoria:
+                    entry["motivo"] = "categoria assente: voce esente dal check massimali"
+                    non_verificabili.append(entry)
+                continue
+            limite = crud.get_massimale_orario(db, piano.tipo_fondo, piano.anno, categoria)
+            if limite is None:
+                entry["motivo"] = (
+                    f"nessun massimale configurato per fondo '{piano.tipo_fondo}' anno {piano.anno}"
+                )
+                non_verificabili.append(entry)
+            elif tariffa > float(limite):
+                entry["massimale"] = float(limite)
+                violazioni.append(entry)
+
+    return {
+        "violazioni": violazioni,
+        "non_verificabili": non_verificabili,
+        "totale_violazioni": len(violazioni),
+        "totale_non_verificabili": len(non_verificabili),
+    }
 
 
 @router.get("/{piano_id}", response_model=schemas.PianoFinanziarioWithVoci)
@@ -259,6 +356,10 @@ def create_voce_piano(
                 detail="Il piano_id del body non coincide con il path",
             )
 
+        piano = crud.get_piano_finanziario(db, piano_id)
+        if not piano:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Piano finanziario non trovato")
+        _validate_massimale_voce(db, piano, voce)
         db_voce = crud.create_voce_piano(db, voce)
         logger.info("Created voce piano finanziario: ID %s", db_voce.id)
         return db_voce
@@ -299,6 +400,11 @@ def update_voce_piano(
                 detail="Voce piano non trovata",
             )
 
+        merged_payload = type("VocePayload", (), {})()
+        for attr in ("tariffa_oraria", "categoria"):
+            value = getattr(voce, attr, None)
+            setattr(merged_payload, attr, value if value is not None else getattr(existing_voce, attr, None))
+        _validate_massimale_voce(db, piano, merged_payload)
         updated = crud.update_voce_piano(db, voce_id, voce)
         return updated
     except ValueError as exc:
