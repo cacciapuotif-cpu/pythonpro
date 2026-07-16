@@ -876,6 +876,10 @@ class PianoFinanziario(Base):
         return valore
 
     def aggiorna_budget_utilizzato(self, db):
+        # La sessione lavora con autoflush=False: le voci modificate in memoria
+        # vanno flushate prima della SUM SQL, altrimenti il totale resta
+        # indietro dell'ultima modifica (DOM-01).
+        db.flush()
         totale = db.query(
             func.coalesce(func.sum(VocePianoFinanziario.importo_consuntivo), 0.0)
         ).filter(
@@ -1021,6 +1025,9 @@ class VocePianoFinanziario(Base):
         if not self.assignment_id:
             return
 
+        # Sessione con autoflush=False: presenze aggiunte/modificate/cancellate
+        # in questa transazione devono essere visibili alla SUM (DOM-01).
+        db.flush()
         ore = db.query(
             func.coalesce(func.sum(Attendance.hours), 0.0)
         ).filter(
