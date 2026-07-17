@@ -608,6 +608,16 @@ con zero side effect esterni senza approvazione umana, kill switch globale e per
 - AGENT_DATA_RETENTION_ENABLED=false resta invariato e il runtime non e stato attivato.
 - Gate mirato: 28 passed. Suite backend completa: 415 passed, 1 skipped, 0 failed.
 - NEW-006 e NEW-009 chiusi. Nessun push eseguito.
+
+## 2026-07-17 | ONDATA ARCHIVIO AVVISI | V2 pipeline ingestione CHIUSA
+
+- Completati AVVISI-02..AVVISI-10: pulizia e segmentazione markdown, storage sorgente/pulito, schemi e prompt LLM versionati, collector puro `avviso_extractor`, orchestrazione stati revisione, apply umano di regole/scadenze validate, endpoint ingest con RBAC/dedup SHA-256 e lista revisioni, directory di staging documentata.
+- Il collector non scrive sul DB: `AgentRun` e `AgentSuggestion` sono persistiti esclusivamente da `run_agent_workflow`. La materializzazione richiede sempre un `user_id` umano e produce dati validati tramite `crud_avvisi`.
+- Kill switch dedicato: `AGENT_AVVISO_EXTRACTOR_ENABLED`; registry verificato a runtime con `avviso_extractor` presente.
+- Nessuna migration necessaria: la pipeline usa lo schema 057 già applicato.
+- Gate finale backend: **468 passed, 1 skipped, 0 failed** su 469 test raccolti. Primo run: una sola aspettativa registry obsoleta in system-health, corretta e poi suite completa rieseguita integralmente verde.
+- Prossimo punto esclusivamente su autorizzazione: GATE V3 architettura ricerca full-text vs pgvector. V4/V5 non avviate.
+- Solo commit atomici locali; nessun push.
 # 2026-07-17 — Wave 2.1 timesheet snapshot immutabile CHIUSA
 
 - Implementato snapshot persistente per versione (`timesheet_righe`, totali e conteggio), generazione auditata con utente autenticato e ricostruzione PDF mancante esclusivamente dallo snapshot.

@@ -6591,6 +6591,28 @@ Migration Alembic `015_add_collaborator_fk_to_voci_piano.py`.
 5. Pendenti fuori ondata: bonifica record `codex.runtime.test.20260715@example.invalid` (rompe `GET /collaborators/`, ~828 err/ora — serve ok utente); backlog hardening utente DB dedicato.
 - Mai push.
 
+## 2026-07-17 — ONDATA ARCHIVIO AVVISI | V2 pipeline ingestione CHIUSA (Codex)
+
+### Fatto
+- Ripresa esatta dal Task 5 Step 3 del piano `docs/superpowers/plans/2026-07-17-avvisi-v2-ingestione.md`, senza riscriverlo e usando `superpowers:executing-plans`.
+- AVVISI-06: creato collector puro `backend/ai_agents/avviso_extractor.py`, registrato `avviso_extractor` con `AGENT_AVVISO_EXTRACTOR_ENABLED`, supporto `avviso_revisione` e test registry/kill switch.
+- AVVISI-07: aggiunte preparazione contenuto e pipeline stati `caricato → pulito → segmentato → in_estrazione → estratto/errore`, con collegamento `extraction_run_id` al run persistito dal workflow.
+- AVVISI-08: apply umano obbligatorio per materializzare e approvare regole/scadenze con `origin_suggestion_id`; nessun dato validato senza revisore.
+- AVVISI-09: endpoint `POST /api/v1/avvisi/{id}/revisioni/ingest` e `GET /api/v1/avvisi/{id}/revisioni`, RBAC admin/manager, dedup SHA-256 e risposta ingest tipizzata.
+- AVVISI-10: creato `imports/avvisi/README.md`; import runtime verificato, registry include `avviso_extractor`.
+- Commit locali: `573b1dd` AVVISI-06, `8756b42` AVVISI-07, `f93604f` AVVISI-08, `07f8fb8` AVVISI-09, `4ee441b` allineamento test system-health. Nessun push.
+
+### Gate
+- Test mirati e regressioni dei singoli task verdi.
+- Suite finale completa: **468 passed, 1 skipped, 0 failed** su 469 raccolti (375.99s nel rerun verde).
+- Nessuna migration: schema 057 già pronto e invariato.
+
+### Prossimo punto / vincoli
+- **V2 dichiarata CHIUSA.** Non iniziare altro senza autorizzazione.
+- Prossimo: GATE V3 architettura ricerca (full-text vs pgvector); solo dopo V4 `avviso_advisor` e V5 ingestione dei 4 avvisi MD reali + `AVVISI_PLATFORM.md`.
+- Pendenti fuori ondata invariati: eventuale bonifica del record test `codex.runtime.test.20260715@example.invalid` solo previa autorizzazione; backlog utente DB applicativo dedicato.
+- Mai push.
+
 ## Aggiornamento post-approvazione
 - GATE approvato e V1 implementato nel worktree; database reale ancora alla migration 056.
 - Modelli, schemi Pydantic e CRUD coprono identità avviso, revisioni immutabili, regole, scadenze, documenti, conoscenza ed esiti; progetti e piani possono fissare la revisione esatta.
