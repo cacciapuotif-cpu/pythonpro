@@ -664,4 +664,10 @@ con zero side effect esterni senza approvazione umana, kill switch globale e per
 - Commit V1: `440cee4 feat(AVVISI-01): introduce modello dati archivio versionato`.
 - **V1 dichiarata CHIUSA.** Prossimo punto: V2 pipeline di ingestione, previa autorizzazione. Nessun push.
 
+## 2026-07-17 | NEW-010 CHIUSO + archiviazione script initdb sperimentale
+
+- **NEW-010 bonifica finale** (decisioni utente al gate): piano 2 → Formazienda 2/2025 (avviso 1, rev. 2, ente/tipo_fondo allineati); piano 7 + progetto 11 MAXI COMMUNICATION → FAPI 2/2025 (avviso 6, rev. 6). Backup pre-bonifica verificato `gestionale_backup_manual_new010_pre_bonifica_20260717_105546.sql.zip.gpg`; script transazionale con guardie di stato atteso e censimento post in `scripts/bonifiche/2026-07-17_new010_bonifica.sql`; post: 0 anomalie, 0 mismatch fondo piano/avviso. NEW-010 chiuso.
+- **Script `docker-entrypoint-initdb.d/010_create_app_user.sh`** (esperimento least-privilege del 29/05, mai montato in docker-compose, `.env` con `DB_APP_USER=admin` quindi inefficace anche se eseguito): archiviato in `/DATA/progetti/pythonpro-local-archive/2026-07-17_initdb_experiment/` (0700/0600). Il DB reale resta con solo ruolo `admin` superuser: il passaggio a utente applicativo dedicato è backlog hardening (richiede strategia grants + DDL per Alembic), non attività di questa ondata.
+- Worktree ora pulito. Nessun push.
+
 ---

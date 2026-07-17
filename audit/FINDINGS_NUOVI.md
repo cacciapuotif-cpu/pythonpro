@@ -96,5 +96,6 @@
 - Descrizione: nel DB 4 piani su 4 hanno `avviso_pf_id` nullo; alcuni metadati testuali del piano indicano inoltre un fondo diverso dall'avviso collegato direttamente al progetto.
 - Impatto: un backfill dedotto dal progetto o dal testo potrebbe associare al piano regole normative errate.
 - Decisione: la migration 057 valorizza la revisione del piano solo quando `avviso_pf_id` è già presente; non esegue inferenze. Nello stato attuale i piani restano scollegati.
-- Stato: aperto; richiede bonifica con verifica umana, fuori dal perimetro V1.
+- Stato: **chiuso il 2026-07-17**.
 - Aggiornamento 2026-07-17: piano 1 collegato a Formazienda 2/2022; progetto 5 e piano 4 corretti a FAPI 4/2025 dopo conferma. Restano aperti piano 2 (contraddizione FAPI/Formazienda) e piano 7 (avviso non identificato).
+- Chiusura 2026-07-17: dopo decisione utente, piano 2 collegato a Formazienda 2/2025 (avviso 1, rev. 2) con ente/tipo_fondo allineati; piano 7 e progetto 11 MAXI COMMUNICATION collegati a FAPI 2/2025 (avviso 6, rev. 6). Script con guardie e censimento post in `scripts/bonifiche/2026-07-17_new010_bonifica.sql`; backup pre-bonifica verificato `gestionale_backup_manual_new010_pre_bonifica_20260717_105546.sql.zip.gpg`; censimenti post = 0 anomalie, 0 mismatch fondo.
