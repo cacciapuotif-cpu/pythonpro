@@ -12,6 +12,22 @@ PII_KEYS = {
     "data_nascita", "ip_address", "token", "password", "secret",
 }
 
+SENSITIVE_FINANCIAL_KEYS = {
+    "ral_annua", "costo_orario", "hourly_rate", "tariffa_oraria",
+    "compenso", "compenso_totale", "retribuzione", "retribuzioni",
+    "busta_paga_path", "busta_paga_filename", "iban",
+}
+
+
+def _is_sensitive_snapshot_key(key: Any) -> bool:
+    normalized = str(key).strip().lower()
+    return (
+        normalized in PII_KEYS
+        or normalized in SENSITIVE_FINANCIAL_KEYS
+        or normalized.endswith("_codice_fiscale")
+        or normalized.endswith("_fiscal_code")
+    )
+
 
 def hash_ip(ip_address: str | None) -> str | None:
     if not ip_address:
@@ -23,7 +39,7 @@ def _redact(value: Any) -> Any:
     if isinstance(value, dict):
         result = {}
         for key, item in value.items():
-            if str(key).lower() in PII_KEYS:
+            if _is_sensitive_snapshot_key(key):
                 result[key] = "***REDACTED***"
             else:
                 result[key] = _redact(item)

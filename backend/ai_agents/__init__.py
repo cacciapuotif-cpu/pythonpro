@@ -20,6 +20,7 @@ from .control import agent_env_name
 from .data_quality import DataQualityAgent
 from .data_retention import collect_data_retention_suggestions
 from .mail_recovery import run_mail_recovery_agent
+from services.security_audit_retention import collect_security_audit_retention_suggestions
 
 
 def _run_data_quality(
@@ -91,7 +92,23 @@ def _run_certification(
 
 
 def _run_data_retention(db, *, entity_type=None, entity_id=None, input_payload=None):
-    return collect_data_retention_suggestions(db, collaborator_id=entity_id if entity_type == "collaborator" else None)
+    if entity_type == "security_audit_log":
+        return collect_security_audit_retention_suggestions(db)
+
+    result = collect_data_retention_suggestions(
+        db, collaborator_id=entity_id if entity_type == "collaborator" else None
+    )
+    if entity_type == "collaborator":
+        return result
+
+    audit_result = collect_security_audit_retention_suggestions(db)
+    result["suggestions"].extend(audit_result["suggestions"])
+    for key in ("items_processed", "items_with_issues", "candidates"):
+        result["summary"][key] = (
+            int(result["summary"].get(key, 0))
+            + int(audit_result["summary"].get(key, 0))
+        )
+    return result
 
 
 def _run_avviso_extractor(db, *, entity_type=None, entity_id=None, input_payload=None):
@@ -143,7 +160,7 @@ _AGENT_DEFINITIONS: dict[str, dict[str, Any]] = {
     "data_retention": {
         "name": "data_retention",
         "description": "Propone anonimizzazioni GDPR oltre il periodo di retention",
-        "supported_entity_types": ["collaborator"],
+        "supported_entity_types": ["collaborator", "security_audit_log"],
         "triggers": ["manual", "cron:domenica 03:00"],
         "kill_switch_env": agent_env_name("data_retention"),
         "allowed_roles": ["admin", "manager"],

@@ -10,6 +10,7 @@ from time_utils import utc_now
 
 RETENTION_KIND = "data_retention_anonymization"
 AVVISO_ESTRAZIONE_KIND = "avviso_estrazione"
+SECURITY_AUDIT_RETENTION_KIND = "security_audit_log_retention_cleanup"
 
 
 def apply_data_retention_suggestion(db, suggestion, *, user_id: Optional[int] = None) -> dict:
@@ -73,6 +74,12 @@ def apply_suggestion(db, suggestion, *, user_id: Optional[int] = None) -> dict:
         return apply_data_retention_suggestion(db, suggestion, user_id=user_id)
     if kind == AVVISO_ESTRAZIONE_KIND:
         return apply_avviso_extraction_suggestion(db, suggestion, user_id=user_id)
+    if kind == SECURITY_AUDIT_RETENTION_KIND:
+        from services.security_audit_retention import apply_security_audit_retention_suggestion
+
+        return apply_security_audit_retention_suggestion(
+            db, suggestion, user_id=user_id
+        )
     from services.agent_apply_service import PAYLOAD_KIND, apply_field_update_suggestion
     if kind == PAYLOAD_KIND:
         return apply_field_update_suggestion(db, suggestion, user_id=user_id)
