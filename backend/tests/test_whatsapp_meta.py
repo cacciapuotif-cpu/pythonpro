@@ -269,6 +269,45 @@ class TestWebhookSignatureVerification:
         )
         assert response.status_code == 403
 
+    def test_tampered_payload_rejected(self, whatsapp_client, monkeypatch):
+        client, _ = whatsapp_client
+        monkeypatch.setenv("WHATSAPP_META_APP_SECRET", self._SECRET)
+        sig = self._make_sig(self._PAYLOAD, self._SECRET)
+
+        response = client.post(
+            "/api/v1/whatsapp/webhook",
+            content=self._PAYLOAD + b" ",
+            headers={"Content-Type": "application/json", "X-Hub-Signature-256": sig},
+        )
+
+        assert response.status_code == 403
+
+    @pytest.mark.parametrize(
+        "signature",
+        ["sha256=not-hex", "sha256=" + "aa" * 31],
+    )
+    def test_malformed_signature_rejected(self, whatsapp_client, monkeypatch, signature):
+        client, _ = whatsapp_client
+        monkeypatch.setenv("WHATSAPP_META_APP_SECRET", self._SECRET)
+
+        response = client.post(
+            "/api/v1/whatsapp/webhook",
+            content=self._PAYLOAD,
+            headers={"Content-Type": "application/json", "X-Hub-Signature-256": signature},
+        )
+
+        assert response.status_code == 403
+
+    def test_non_ascii_signature_rejected_fail_closed(self, monkeypatch):
+        from services.whatsapp_webhook_service import verify_meta_signature
+
+        monkeypatch.setenv("WHATSAPP_META_APP_SECRET", self._SECRET)
+
+        assert verify_meta_signature(
+            raw_body=self._PAYLOAD,
+            signature_header="sha256=" + "é" * 64,
+        ) is False
+
     def test_no_secret_configured_rejected(self, whatsapp_client, monkeypatch):
         """When WHATSAPP_META_APP_SECRET is unset, POST webhook is rejected."""
         client, _ = whatsapp_client

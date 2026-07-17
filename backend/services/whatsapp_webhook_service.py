@@ -36,12 +36,19 @@ def verify_meta_signature(*, raw_body: bytes, signature_header: Optional[str]) -
     if not signature_header.startswith(expected_prefix):
         return False
 
-    received_signature = signature_header[len(expected_prefix):]
+    received_hex = signature_header[len(expected_prefix):]
+    try:
+        received_signature = bytes.fromhex(received_hex)
+    except ValueError:
+        return False
+    if len(received_signature) != hashlib.sha256().digest_size:
+        return False
+
     expected_signature = hmac.new(
         app_secret.encode("utf-8"),
         raw_body,
         hashlib.sha256,
-    ).hexdigest()
+    ).digest()
     return hmac.compare_digest(received_signature, expected_signature)
 
 
