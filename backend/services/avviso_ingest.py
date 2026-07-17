@@ -5,8 +5,12 @@ UPLOAD_DIR con storage key relative compatibili con crud_avvisi._storage_key.
 """
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass
+from pathlib import Path
+
+from file_upload import MAX_FILE_SIZE, UPLOAD_DIR
 
 _HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 _PAGE_ARTIFACT_RE = re.compile(r"^\s*(pagina|pag\.)\s+\d+(\s+di\s+\d+)?\s*$", re.IGNORECASE)
@@ -76,3 +80,41 @@ def segment_markdown(cleaned: str, *, max_chars: int = 8000) -> list[Segment]:
             ordine += 1
             segments.append(Segment(ordine=ordine, titolo=sub_titolo, livello=sub_livello, testo=sub_testo))
     return segments
+
+
+@dataclass(frozen=True)
+class StoredMarkdown:
+    storage_key: str
+    absolute_path: Path
+    sha256: str
+    size_bytes: int
+
+
+def _write_markdown(avviso_id: int, filename: str, contents: bytes) -> StoredMarkdown:
+    storage_key = f"avvisi/{avviso_id}/{filename}"
+    absolute_path = UPLOAD_DIR / storage_key
+    absolute_path.parent.mkdir(parents=True, exist_ok=True)
+    absolute_path.write_bytes(contents)
+    return StoredMarkdown(
+        storage_key=storage_key,
+        absolute_path=absolute_path,
+        sha256=hashlib.sha256(contents).hexdigest(),
+        size_bytes=len(contents),
+    )
+
+
+def save_ingest_markdown(avviso_id: int, original_filename: str, contents: bytes) -> StoredMarkdown:
+    if not (original_filename or "").lower().endswith(".md"):
+        raise ValueError("Sono ammessi solo file markdown (.md)")
+    if len(contents) > MAX_FILE_SIZE:
+        raise ValueError(f"File troppo grande. Massimo: {MAX_FILE_SIZE / 1024 / 1024:.1f}MB")
+    try:
+        contents.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError("Il file markdown deve essere codificato UTF-8") from exc
+    sha = hashlib.sha256(contents).hexdigest()
+    return _write_markdown(avviso_id, f"{sha[:12]}_source.md", contents)
+
+
+def save_cleaned_markdown(avviso_id: int, source_sha256: str, cleaned: str) -> StoredMarkdown:
+    return _write_markdown(avviso_id, f"{source_sha256[:12]}_cleaned.md", cleaned.encode("utf-8"))
