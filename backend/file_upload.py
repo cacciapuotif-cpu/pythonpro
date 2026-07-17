@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 # =================================================================
 
 # Directory base per storage files
-UPLOAD_DIR = Path("uploads")
+UPLOAD_DIR = Path(os.getenv("UPLOADS_DIR", "uploads"))
 DOCUMENTS_DIR = UPLOAD_DIR / "documents"
 CURRICULUM_DIR = UPLOAD_DIR / "curriculum"
 ENTITY_LOGOS_DIR = UPLOAD_DIR / "entity_logos"

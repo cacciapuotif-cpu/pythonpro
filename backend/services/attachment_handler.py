@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from email.message import Message
 from pathlib import Path
 from typing import Optional, Tuple
@@ -24,6 +24,12 @@ PREFERRED_CONTENT_TYPES = {
     "application/pdf": 30,
     "application/msword": 20,
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 20,
+}
+
+FILE_SIGNATURES = {
+    "application/pdf": (b"%PDF-",),
+    "application/msword": (b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1",),
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": (b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08"),
 }
 
 
@@ -67,6 +73,10 @@ class AttachmentHandler:
             if payload is None:
                 continue
 
+            if not _has_valid_magic_bytes(content_type, payload):
+                logger.warning("AttachmentHandler: allegato '%s' non corrisponde ai magic bytes attesi, skip", filename)
+                continue
+
             if len(payload) > self.max_bytes:
                 logger.warning(
                     "AttachmentHandler: allegato '%s' supera %d bytes, skip",
@@ -93,7 +103,7 @@ class AttachmentHandler:
                 raise ValueError(f"entity_type '{entity_type}' causa path traversal")
             dest_dir.mkdir(parents=True, exist_ok=True)
 
-            timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
             safe_name = _sanitize_filename(filename)
             dest_path = dest_dir / f"{timestamp}_{safe_name}"
 
@@ -102,6 +112,13 @@ class AttachmentHandler:
             return str(dest_path), filename
 
         return None
+
+
+def _has_valid_magic_bytes(content_type: str, payload: bytes) -> bool:
+    signatures = FILE_SIGNATURES.get(content_type)
+    if not signatures or not payload:
+        return False
+    return any(payload.startswith(signature) for signature in signatures)
 
 
 def _sanitize_filename(name: str) -> str:
