@@ -247,6 +247,11 @@ class AvvisoRevisioneRead(AvvisoRevisioneCreate):
     created_at: datetime
 
 
+class AvvisoRevisioneIngestResponse(_Schema):
+    revisione: AvvisoRevisioneRead
+    estrazione: Optional[dict[str, Any]] = None
+
+
 class AvvisoRegolaProposal(_Schema):
     categoria: CategoriaRegola
     sottocategoria: Optional[str] = Field(default=None, max_length=80)

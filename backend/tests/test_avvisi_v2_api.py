@@ -1,0 +1,131 @@
+"""ONDATA ARCHIVIO AVVISI — V2: endpoint ingest revisione con app FastAPI minimale."""
+
+from pathlib import Path
+import sys
+
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine, event
+from sqlalchemy.orm import sessionmaker
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+import auth as auth_module
+import models
+from database import Base, get_db
+from routers import avvisi as avvisi_router_module
+from services import avviso_ingest
+from ai_agents import avviso_extractor as extractor_module
+
+
+@pytest.fixture
+def client_factory(tmp_path, monkeypatch):
+    monkeypatch.setattr(avviso_ingest, "UPLOAD_DIR", tmp_path)
+    monkeypatch.setattr(extractor_module, "UPLOAD_DIR", tmp_path)
+    engine = create_engine(
+        "sqlite:///{}".format(tmp_path / "api.db"), connect_args={"check_same_thread": False}
+    )
+
+    @event.listens_for(engine, "connect")
+    def _fk(dbapi_connection, _):
+        dbapi_connection.execute("PRAGMA foreign_keys=ON")
+
+    factory = sessionmaker(bind=engine, autocommit=False, autoflush=False, expire_on_commit=False)
+    Base.metadata.create_all(bind=engine)
+    session = factory()
+
+    def make(role="admin"):
+        user = session.query(auth_module.User).filter(auth_module.User.username == f"u_{role}").first()
+        if user is None:
+            user = auth_module.User(
+                username=f"u_{role}", email=f"{role}@example.com",
+                hashed_password="not-used",
+                role=role, is_active=True,
+            )
+            session.add(user)
+            session.commit()
+            session.refresh(user)
+        app = FastAPI()
+        # il router ha già prefix="/api/v1/avvisi" (backend/routers/avvisi.py:11)
+        app.include_router(avvisi_router_module.router)
+        app.dependency_overrides[get_db] = lambda: session
+        app.dependency_overrides[avvisi_router_module.get_current_user] = lambda: user
+        return TestClient(app), session, user
+    yield make
+    session.close()
+
+
+def _crea_avviso(session):
+    avviso = models.Avviso(
+        codice="1/2026", ente_erogatore="fapi", fondo="fapi", numero="1", anno=2026,
+        titolo="Avviso FAPI 1/2026", stato="bozza",
+    )
+    session.add(avviso)
+    session.commit()
+    return avviso
+
+
+def test_ingest_creates_revision_without_extraction(client_factory, monkeypatch):
+    client, session, _ = client_factory("admin")
+    avviso = _crea_avviso(session)
+    monkeypatch.setenv("AGENT_AVVISO_EXTRACTOR_ENABLED", "false")
+    response = client.post(
+        f"/api/v1/avvisi/{avviso.id}/revisioni/ingest",
+        data={"titolo": "Avviso FAPI 1/2026", "esegui_estrazione": "true"},
+        files={"file": ("avviso.md", b"# Art. 1\nTesto avviso.\n", "text/markdown")},
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["revisione"]["numero_revisione"] == 1
+    assert body["revisione"]["stato_estrazione"] == "segmentato"
+    assert body["estrazione"]["skipped"]
+
+
+def test_ingest_duplicate_sha_returns_409(client_factory, monkeypatch):
+    client, session, _ = client_factory("admin")
+    avviso = _crea_avviso(session)
+    monkeypatch.setenv("AGENT_AVVISO_EXTRACTOR_ENABLED", "false")
+    payload = {"titolo": "Avviso", "esegui_estrazione": "false"}
+    files = {"file": ("avviso.md", b"# Art. 1\nTesto avviso.\n", "text/markdown")}
+    assert client.post(f"/api/v1/avvisi/{avviso.id}/revisioni/ingest", data=payload, files=files).status_code == 201
+    response = client.post(f"/api/v1/avvisi/{avviso.id}/revisioni/ingest", data=payload, files=files)
+    assert response.status_code == 409
+
+
+def test_ingest_rejects_non_admin_manager(client_factory):
+    client, session, _ = client_factory("viewer")
+    avviso = _crea_avviso(session)
+    response = client.post(
+        f"/api/v1/avvisi/{avviso.id}/revisioni/ingest",
+        data={"titolo": "X"},
+        files={"file": ("avviso.md", b"# A\ntesto\n", "text/markdown")},
+    )
+    assert response.status_code == 403
+
+
+def test_ingest_invalid_file_returns_422(client_factory):
+    client, session, _ = client_factory("admin")
+    avviso = _crea_avviso(session)
+    response = client.post(
+        f"/api/v1/avvisi/{avviso.id}/revisioni/ingest",
+        data={"titolo": "X"},
+        files={"file": ("avviso.pdf", b"%PDF-", "application/pdf")},
+    )
+    assert response.status_code == 422
+
+
+def test_list_revisioni_ordered_desc(client_factory, monkeypatch):
+    client, session, _ = client_factory("admin")
+    avviso = _crea_avviso(session)
+    monkeypatch.setenv("AGENT_AVVISO_EXTRACTOR_ENABLED", "false")
+    for i in (1, 2):
+        client.post(
+            f"/api/v1/avvisi/{avviso.id}/revisioni/ingest",
+            data={"titolo": f"Rev {i}", "esegui_estrazione": "false"},
+            files={"file": ("avviso.md", f"# Art. {i}\ntesto {i}\n".encode(), "text/markdown")},
+        )
+    response = client.get(f"/api/v1/avvisi/{avviso.id}/revisioni")
+    assert response.status_code == 200
+    numeri = [r["numero_revisione"] for r in response.json()]
+    assert numeri == [2, 1]
