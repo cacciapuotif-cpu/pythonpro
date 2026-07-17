@@ -4,14 +4,16 @@ GET  /assignments/{id}/timesheet         → genera o scarica timesheet esistent
 POST /assignments/{id}/timesheet/unlock  → sblocca (solo responsabile/admin)
 GET  /projects/{id}/timesheets           → lista timesheet del progetto
 """
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse, FileResponse
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import desc
 from database import get_db
-from models import Assignment, Attendance, ImplementingEntity, TimesheetGenerato, Project
+from auth import get_current_user, normalize_role, UserRole
+from models import Assignment, Attendance, ImplementingEntity, TimesheetGenerato, TimesheetRiga, Project
 from timesheet_generator import TimesheetGenerator
-from datetime import datetime
+from datetime import datetime, timezone
+from decimal import Decimal
 import unicodedata
 import os
 import io
@@ -32,7 +34,7 @@ def _get_assignment_full(db: Session, assignment_id: int):
     ).filter(Assignment.id == assignment_id).first()
 
 
-def _build_timesheet_pdf(db: Session, assignment) -> bytes:
+def _build_timesheet_pdf(db: Session, assignment, presenze=None) -> bytes:
     project = assignment.project
 
     ente_attuatore_nome = None
@@ -60,7 +62,7 @@ def _build_timesheet_pdf(db: Session, assignment) -> bytes:
             designer.collaborator.last_name
         )
 
-    presenze = db.query(Attendance).filter(
+    presenze = presenze if presenze is not None else db.query(Attendance).filter(
         Attendance.assignment_id == assignment.id
     ).order_by(Attendance.date).all()
 
@@ -100,11 +102,25 @@ def _build_timesheet_pdf(db: Session, assignment) -> bytes:
     return pdf_buffer.read()
 
 
+def _snapshot_pdf(db: Session, assignment, timesheet: TimesheetGenerato) -> bytes:
+    righe = db.query(TimesheetRiga).filter(
+        TimesheetRiga.timesheet_id == timesheet.id
+    ).order_by(TimesheetRiga.date, TimesheetRiga.start_time, TimesheetRiga.id).all()
+    return _build_timesheet_pdf(db, assignment, righe)
+
+
+def _write_pdf(path: str, pdf_bytes: bytes) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "wb") as pdf_file:
+        pdf_file.write(pdf_bytes)
+
+
 @router.get("/assignments/{assignment_id}/timesheet")
 def genera_o_scarica_timesheet(
     assignment_id: int,
     rigenera: bool = Query(False, description="Forza rigenerazione anche se esiste PDF bloccato"),
     db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
     assignment = _get_assignment_full(db, assignment_id)
     if not assignment:
@@ -114,7 +130,12 @@ def genera_o_scarica_timesheet(
         TimesheetGenerato.assignment_id == assignment_id
     ).order_by(desc(TimesheetGenerato.generato_il)).first()
 
-    if existing and existing.bloccato and not rigenera:
+    if existing and existing.bloccato:
+        if rigenera:
+            raise HTTPException(
+                status_code=409,
+                detail="Timesheet bloccato: sbloccarlo con motivazione prima di rigenerare",
+            )
         if os.path.exists(existing.pdf_path):
             return FileResponse(
                 path=existing.pdf_path,
@@ -122,31 +143,64 @@ def genera_o_scarica_timesheet(
                 filename=existing.pdf_filename,
             )
 
-    pdf_bytes = _build_timesheet_pdf(db, assignment)
+        pdf_bytes = _snapshot_pdf(db, assignment, existing)
+        _write_pdf(existing.pdf_path, pdf_bytes)
+        return StreamingResponse(
+            io.BytesIO(pdf_bytes),
+            media_type="application/pdf",
+            headers={"Content-Disposition": "attachment; filename={}".format(existing.pdf_filename)},
+        )
+
+    presenze = db.query(Attendance).filter(
+        Attendance.assignment_id == assignment.id
+    ).order_by(Attendance.date, Attendance.start_time, Attendance.id).all()
+    pdf_bytes = _build_timesheet_pdf(db, assignment, presenze)
 
     upload_dir = os.path.join(os.getenv("UPLOADS_DIR", "/app/uploads"), "timesheets")
-    os.makedirs(upload_dir, exist_ok=True)
-
     collab_name = "{}_{}".format(
         _safe_filename(assignment.collaborator.last_name),
         _safe_filename(assignment.collaborator.first_name)
     ).upper()
     ruolo_safe = _safe_filename(assignment.role)[:30]
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     filename = "timesheet_{}_{}_{}.pdf".format(collab_name, ruolo_safe, timestamp)
     pdf_path = os.path.join(upload_dir, filename)
 
-    with open(pdf_path, 'wb') as f:
-        f.write(pdf_bytes)
+    _write_pdf(pdf_path, pdf_bytes)
 
     record = TimesheetGenerato(
         assignment_id=assignment_id,
         pdf_path=pdf_path,
         pdf_filename=filename,
+        generato_da=current_user.username,
+        generato_da_user_id=current_user.id,
         bloccato=True,
+        totale_ore=sum((Decimal(str(p.hours)) for p in presenze), Decimal("0")),
+        presenze_count=len(presenze),
     )
-    db.add(record)
-    db.commit()
+    try:
+        db.add(record)
+        db.flush()
+        db.add_all([
+            TimesheetRiga(
+                timesheet_id=record.id,
+                attendance_id=p.id,
+                date=p.date,
+                start_time=p.start_time,
+                end_time=p.end_time,
+                hours=p.hours,
+                notes=p.notes,
+            )
+            for p in presenze
+        ])
+        db.commit()
+    except Exception:
+        db.rollback()
+        try:
+            os.remove(pdf_path)
+        except FileNotFoundError:
+            pass
+        raise
 
     return StreamingResponse(
         io.BytesIO(pdf_bytes),
@@ -158,9 +212,20 @@ def genera_o_scarica_timesheet(
 @router.post("/assignments/{assignment_id}/timesheet/unlock")
 def sblocca_timesheet(
     assignment_id: int,
-    sbloccato_da: str = Query(..., description="Username di chi sblocca"),
+    payload: dict = Body(...),
     db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
+    if normalize_role(current_user.role) not in {
+        UserRole.ADMIN.value,
+        UserRole.OPERATORE.value,
+    }:
+        raise HTTPException(status_code=403, detail="Permessi insufficienti")
+
+    motivo = str(payload.get("motivo") or "").strip()
+    if not motivo:
+        raise HTTPException(status_code=422, detail="La motivazione dello sblocco è obbligatoria")
+
     existing = db.query(TimesheetGenerato).filter(
         TimesheetGenerato.assignment_id == assignment_id,
         TimesheetGenerato.bloccato == True,
@@ -170,11 +235,18 @@ def sblocca_timesheet(
         raise HTTPException(status_code=404, detail="Nessun timesheet bloccato trovato")
 
     existing.bloccato = False
-    existing.sbloccato_da = sbloccato_da
-    existing.sbloccato_il = datetime.now()
+    existing.sbloccato_da = current_user.username
+    existing.sbloccato_da_user_id = current_user.id
+    existing.sbloccato_il = datetime.now(timezone.utc)
+    existing.sblocco_motivo = motivo
     db.commit()
 
-    return {"message": "Timesheet sbloccato", "assignment_id": assignment_id, "sbloccato_da": sbloccato_da}
+    return {
+        "message": "Timesheet sbloccato",
+        "assignment_id": assignment_id,
+        "sbloccato_da": current_user.username,
+        "motivo": motivo,
+    }
 
 
 @router.get("/projects/{project_id}/timesheets")

@@ -2461,12 +2461,34 @@ class TimesheetGenerato(Base):
     pdf_filename = Column(String(255), nullable=False)
     generato_il = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     generato_da = Column(String(100), nullable=True)
+    generato_da_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     bloccato = Column(Boolean, nullable=False, default=True)
     sbloccato_da = Column(String(100), nullable=True)
+    sbloccato_da_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     sbloccato_il = Column(DateTime(timezone=True), nullable=True)
+    sblocco_motivo = Column(Text, nullable=True)
+    totale_ore = Column(Numeric(8, 2), nullable=False, default=0, server_default="0")
+    presenze_count = Column(Integer, nullable=False, default=0, server_default="0")
     note = Column(Text, nullable=True)
 
     assignment = relationship("Assignment", backref="timesheet_generati", lazy="select")
+    righe = relationship("TimesheetRiga", back_populates="timesheet", cascade="all, delete-orphan", lazy="select")
+
+
+class TimesheetRiga(Base):
+    """Snapshot immutabile di una presenza inclusa in un timesheet."""
+    __tablename__ = "timesheet_righe"
+
+    id = Column(Integer, primary_key=True, index=True)
+    timesheet_id = Column(Integer, ForeignKey("timesheet_generati.id", ondelete="CASCADE"), nullable=False, index=True)
+    attendance_id = Column(Integer, ForeignKey("attendances.id", ondelete="SET NULL"), nullable=True, index=True)
+    date = Column("data", DateTime, nullable=False)
+    start_time = Column(DateTime, nullable=False)
+    end_time = Column(DateTime, nullable=False)
+    hours = Column(Numeric(6, 2), nullable=False)
+    notes = Column(Text, nullable=True)
+
+    timesheet = relationship("TimesheetGenerato", back_populates="righe")
 
 
 class DatiRetributivi(Base):

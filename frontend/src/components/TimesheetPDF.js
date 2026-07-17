@@ -50,9 +50,17 @@ const TimesheetPDF = ({ projectId }) => {
   };
 
   const handleUnlock = async (assignmentId) => {
+    const motivo = window.prompt('Motivo dello sblocco del timesheet:');
+    if (motivo === null) return;
+    if (!motivo.trim()) {
+      setMessage('La motivazione dello sblocco è obbligatoria');
+      return;
+    }
     setUnlocking(prev => ({ ...prev, [assignmentId]: true }));
     try {
-      await http.post(`/assignments/${assignmentId}/timesheet/unlock?sbloccato_da=admin`);
+      await http.post(`/assignments/${assignmentId}/timesheet/unlock`, {
+        motivo: motivo.trim(),
+      });
       setMessage('Timesheet sbloccato');
       setTimeout(() => setMessage(null), 3000);
       await load();

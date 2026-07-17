@@ -1,0 +1,236 @@
+"""Wave 2.1: snapshot immutabile e sblocco auditato dei timesheet."""
+
+from datetime import datetime
+from decimal import Decimal
+from pathlib import Path
+import sys
+
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+import crud
+import models
+import schemas
+from auth import get_current_user
+from database import Base, get_db
+from main import app
+from routers import timesheet as timesheet_router
+
+
+@pytest.fixture
+def db_session(tmp_path):
+    engine = create_engine(
+        "sqlite:///{}".format(tmp_path / "timesheet.db"),
+        connect_args={"check_same_thread": False},
+    )
+    session_factory = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+    session = session_factory()
+    try:
+        yield session
+    finally:
+        session.close()
+        Base.metadata.drop_all(bind=engine)
+        engine.dispose()
+
+
+@pytest.fixture
+def current_user():
+    return type(
+        "TestUser",
+        (),
+        {"id": 91, "username": "wave2-admin", "role": "admin", "is_active": True},
+    )()
+
+
+@pytest.fixture
+def client(db_session, current_user, tmp_path, monkeypatch):
+    def override_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_current_user] = lambda: current_user
+    monkeypatch.setenv("UPLOADS_DIR", str(tmp_path / "uploads"))
+    monkeypatch.setattr(
+        timesheet_router,
+        "_build_timesheet_pdf",
+        lambda db, assignment, presenze=None: (
+            "PDF:" + "|".join(str(p.notes) for p in (presenze or []))
+        ).encode(),
+    )
+    with TestClient(app) as test_client:
+        yield test_client
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def attendance(db_session):
+    collaborator = models.Collaborator(
+        first_name="Ada",
+        last_name="Lovelace",
+        email="ada.timesheet@example.com",
+        fiscal_code="LVLDAX80A01H501Q",
+    )
+    project = models.Project(
+        name="Wave 2",
+        status="active",
+        start_date=datetime(2026, 7, 1),
+        end_date=datetime(2026, 7, 31),
+    )
+    assignment = models.Assignment(
+        collaborator=collaborator,
+        project=project,
+        role="Docente",
+        assigned_hours=Decimal("20"),
+        completed_hours=Decimal("0"),
+        hourly_rate=Decimal("50"),
+        start_date=datetime(2026, 7, 1),
+        end_date=datetime(2026, 7, 31),
+        is_active=True,
+    )
+    presence = models.Attendance(
+        collaborator=collaborator,
+        project=project,
+        assignment=assignment,
+        date=datetime(2026, 7, 10),
+        start_time=datetime(2026, 7, 10, 9),
+        end_time=datetime(2026, 7, 10, 12, 30),
+        hours=Decimal("3.50"),
+        notes="snapshot-originale",
+    )
+    db_session.add(presence)
+    db_session.commit()
+    return presence
+
+
+def _generate(client, attendance):
+    response = client.get("/api/v1/assignments/{}/timesheet".format(attendance.assignment_id))
+    assert response.status_code == 200
+    return response
+
+
+def test_generation_persists_rows_totals_and_actor(client, db_session, attendance):
+    _generate(client, attendance)
+
+    record = db_session.query(models.TimesheetGenerato).one()
+    row = db_session.query(models.TimesheetRiga).one()
+    assert record.bloccato is True
+    assert record.presenze_count == 1
+    assert record.totale_ore == Decimal("3.50")
+    assert record.generato_da == "wave2-admin"
+    assert record.generato_da_user_id == 91
+    assert row.attendance_id == attendance.id
+    assert row.hours == Decimal("3.50")
+    assert row.notes == "snapshot-originale"
+
+
+def test_locked_timesheet_rejects_forced_regeneration(client, attendance):
+    _generate(client, attendance)
+    response = client.get(
+        "/api/v1/assignments/{}/timesheet?rigenera=true".format(attendance.assignment_id)
+    )
+    assert response.status_code == 409
+
+
+def test_unlock_requires_reason_and_uses_authenticated_actor(
+    client, db_session, attendance
+):
+    _generate(client, attendance)
+    url = "/api/v1/assignments/{}/timesheet/unlock".format(attendance.assignment_id)
+    assert client.post(url, json={"motivo": "  "}).status_code == 422
+
+    response = client.post(url, json={"motivo": "Correzione ore firmata"})
+    assert response.status_code == 200
+    record = db_session.query(models.TimesheetGenerato).one()
+    assert record.bloccato is False
+    assert record.sbloccato_da == "wave2-admin"
+    assert record.sbloccato_da_user_id == 91
+    assert record.sblocco_motivo == "Correzione ore firmata"
+    assert record.sbloccato_il is not None
+
+
+def test_unlock_rejects_consultation_role(client, attendance):
+    readonly = type(
+        "ReadOnlyUser",
+        (),
+        {"id": 92, "username": "readonly", "role": "consultazione", "is_active": True},
+    )()
+    _generate(client, attendance)
+    app.dependency_overrides[get_current_user] = lambda: readonly
+    response = client.post(
+        "/api/v1/assignments/{}/timesheet/unlock".format(attendance.assignment_id),
+        json={"motivo": "Tentativo non autorizzato"},
+    )
+    assert response.status_code == 403
+
+
+def test_locked_snapshot_blocks_update_and_delete(db_session, client, attendance):
+    _generate(client, attendance)
+    with pytest.raises(ValueError, match="timesheet bloccato"):
+        crud.update_attendance(
+            db_session, attendance.id, schemas.AttendanceUpdate(notes="modificata")
+        )
+    with pytest.raises(ValueError, match="timesheet bloccato"):
+        crud.delete_attendance(db_session, attendance.id)
+
+
+def test_update_allowed_after_unlock_and_new_generation_is_new_version(
+    client, db_session, attendance
+):
+    _generate(client, attendance)
+    client.post(
+        "/api/v1/assignments/{}/timesheet/unlock".format(attendance.assignment_id),
+        json={"motivo": "Rettifica presenza"},
+    )
+    updated = crud.update_attendance(
+        db_session, attendance.id, schemas.AttendanceUpdate(notes="versione-nuova")
+    )
+    assert updated.notes == "versione-nuova"
+
+    _generate(client, attendance)
+    versions = db_session.query(models.TimesheetGenerato).order_by(
+        models.TimesheetGenerato.id
+    ).all()
+    assert len(versions) == 2
+    assert versions[0].bloccato is False
+    assert versions[1].bloccato is True
+    assert versions[0].righe[0].notes == "snapshot-originale"
+    assert versions[1].righe[0].notes == "versione-nuova"
+
+
+def test_missing_pdf_is_rebuilt_from_snapshot(client, db_session, attendance):
+    _generate(client, attendance)
+    record = db_session.query(models.TimesheetGenerato).one()
+    Path(record.pdf_path).unlink()
+
+    # Simula una modifica esterna: il rebuild deve ignorare la riga live.
+    attendance.notes = "live-mutata"
+    db_session.commit()
+    response = client.get("/api/v1/assignments/{}/timesheet".format(attendance.assignment_id))
+    assert response.status_code == 200
+    assert response.content == b"PDF:snapshot-originale"
+    assert Path(record.pdf_path).read_bytes() == b"PDF:snapshot-originale"
+
+
+def test_new_attendance_can_be_added_while_old_snapshot_is_locked(
+    client, db_session, attendance
+):
+    _generate(client, attendance)
+    second = models.Attendance(
+        collaborator_id=attendance.collaborator_id,
+        project_id=attendance.project_id,
+        assignment_id=attendance.assignment_id,
+        date=datetime(2026, 7, 11),
+        start_time=datetime(2026, 7, 11, 9),
+        end_time=datetime(2026, 7, 11, 11),
+        hours=Decimal("2"),
+        notes="non inclusa",
+    )
+    db_session.add(second)
+    db_session.commit()
+    assert second.id is not None
+    assert db_session.query(models.TimesheetRiga).count() == 1

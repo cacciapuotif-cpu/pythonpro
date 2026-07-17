@@ -1361,6 +1361,26 @@ def validate_attendance_in_assignment_range(
     return True
 
 
+def _ensure_attendance_not_in_locked_timesheet(db: Session, attendance_id: int) -> None:
+    locked = (
+        db.query(models.TimesheetRiga.id)
+        .join(
+            models.TimesheetGenerato,
+            models.TimesheetGenerato.id == models.TimesheetRiga.timesheet_id,
+        )
+        .filter(
+            models.TimesheetRiga.attendance_id == attendance_id,
+            models.TimesheetGenerato.bloccato.is_(True),
+        )
+        .first()
+    )
+    if locked:
+        raise ValueError(
+            "Presenza inclusa in un timesheet bloccato: sbloccare il timesheet "
+            "con motivazione prima di modificarla"
+        )
+
+
 def create_attendance(db: Session, attendance: schemas.AttendanceCreate):
     attendance_day = _as_day(attendance.date)
     _validate_attendance_project(
@@ -1593,6 +1613,8 @@ def update_assignment_progress(db: Session, assignment_id: int):
 def update_attendance(db: Session, attendance_id: int, attendance: schemas.AttendanceUpdate):
     db_attendance = db.query(models.Attendance).filter(models.Attendance.id == attendance_id).first()
     if db_attendance:
+        _ensure_attendance_not_in_locked_timesheet(db, attendance_id)
+    if db_attendance:
         old_assignment_id = db_attendance.assignment_id
         old_project_id = db_attendance.project_id
         old_hours = db_attendance.hours
@@ -1754,6 +1776,8 @@ def update_attendance(db: Session, attendance_id: int, attendance: schemas.Atten
 
 def delete_attendance(db: Session, attendance_id: int):
     db_attendance = db.query(models.Attendance).filter(models.Attendance.id == attendance_id).first()
+    if db_attendance:
+        _ensure_attendance_not_in_locked_timesheet(db, attendance_id)
     if db_attendance:
         # DOM-14: cancellazione presenza e ricalcoli nella STESSA transazione.
         try:
