@@ -4,6 +4,7 @@ Gestisce login, refresh token e info utente corrente
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Form, Request, status
+from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from datetime import timedelta
 import logging
@@ -11,9 +12,10 @@ import logging
 from auth import (
     authenticate_user, SecurityUtils, get_current_user, User,
     ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_DAYS,
-    rate_limit,
+    is_token_revoked, rate_limit, revoke_token, security,
 )
 from database import get_db
+from services.audit_log import write_audit_log
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/auth", tags=["Authentication"])
@@ -33,6 +35,15 @@ async def login(
 
     user = authenticate_user(db, username, password, ip_address, user_agent)
     if not user:
+        write_audit_log(
+            db,
+            user_id=None,
+            azione="auth_login_failed",
+            risorsa_tipo="auth",
+            dati_dopo={"status": "failed"},
+            ip_address=ip_address,
+            esito="failure",
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Username o password non validi"
@@ -47,6 +58,16 @@ async def login(
         expires_delta=timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
     )
 
+    write_audit_log(
+        db,
+        user_id=user.id,
+        azione="auth_login_success",
+        risorsa_tipo="auth",
+        risorsa_id=user.id,
+        dati_dopo={"status": "success", "role": user.role},
+        ip_address=ip_address,
+        esito="success",
+    )
     logger.info(f"Login riuscito per utente: {user.username}")
     return {
         "access_token": access_token,
@@ -76,6 +97,7 @@ def get_me(current_user: User = Depends(get_current_user)):
 @router.post("/refresh")
 @rate_limit(max_requests=20, window_seconds=300)
 def refresh_token(
+    request: Request,
     refresh_token: str = Form(...),
     db: Session = Depends(get_db)
 ):
@@ -94,6 +116,13 @@ def refresh_token(
             detail="Token non è un refresh token"
         )
 
+    jti = payload.get("jti")
+    if is_token_revoked(jti):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token revocato"
+        )
+
     username = payload.get("sub")
     user = db.query(User).filter(User.username == username).first()
     if not user or not user.is_active:
@@ -107,8 +136,41 @@ def refresh_token(
         expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     )
 
+    write_audit_log(
+        db,
+        user_id=user.id,
+        azione="auth_token_refresh",
+        risorsa_tipo="auth",
+        risorsa_id=user.id,
+        dati_dopo={"status": "success"},
+        ip_address=request.client.host if request.client else None,
+    )
+
     return {
         "access_token": new_access_token,
         "token_type": "bearer",
         "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60
     }
+
+
+@router.post("/logout")
+def logout(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db),
+):
+    """Revoca il token corrente fino alla sua naturale scadenza."""
+    payload = SecurityUtils.verify_token(credentials.credentials)
+    revoke_token(payload.get("jti"), payload.get("exp"))
+    username = payload.get("sub")
+    user = db.query(User).filter(User.username == username).first() if username else None
+    write_audit_log(
+        db,
+        user_id=user.id if user else None,
+        azione="auth_logout",
+        risorsa_tipo="auth",
+        risorsa_id=user.id if user else None,
+        dati_dopo={"status": "logged_out"},
+        ip_address=request.client.host if request.client else None,
+    )
+    return {"status": "logged_out"}

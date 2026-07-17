@@ -18,6 +18,15 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+RATE_LIMITS_PER_ENDPOINT = {
+    "/api/v1/auth/login": (5, 60),
+    "/api/v1/auth/refresh": (10, 60),
+    "/api/v1/agents/run": (10, 60),
+    "/api/v1/agents/suggestions/bulk-review": (5, 60),
+    "/api/v1/collaborators/upload": (20, 60),
+    "/api/v1/gdpr/": (3, 60),
+}
+
 class RequestTrackingMiddleware(BaseHTTPMiddleware):
     """Middleware per tracking avanzato delle richieste"""
 
@@ -105,20 +114,21 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         response = await call_next(request)
 
-        # Header di sicurezza
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-XSS-Protection"] = "1; mode=block"
-        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-
-        # CSP per prevenire XSS
+        response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
-            "script-src 'self' 'unsafe-inline'; "
+            "script-src 'self'; "
             "style-src 'self' 'unsafe-inline'; "
-            "img-src 'self' data: https:; "
-            "connect-src 'self'"
+            "img-src 'self' data: blob:; "
+            "connect-src 'self'; "
+            "frame-ancestors 'none'; "
+            "base-uri 'self'; "
+            "form-action 'self'"
         )
 
         return response
@@ -138,32 +148,43 @@ class RateLimitingMiddleware(BaseHTTPMiddleware):
         client_ip = request.client.host if request.client else "unknown"
         current_time = datetime.now()
 
-        # Inizializza tracking per nuovo IP
-        if client_ip not in self.client_requests:
-            self.client_requests[client_ip] = []
+        # Controlla rate limit. I limiti specifici per endpoint devono usare
+        # un bucket separato, altrimenti richieste innocue verso altri path
+        # possono bloccare login/refresh.
+        limit_count = self.requests_per_minute
+        limit_window = 60
+        bucket = "*"
+        for endpoint_prefix, (endpoint_count, endpoint_window) in RATE_LIMITS_PER_ENDPOINT.items():
+            if request.url.path.startswith(endpoint_prefix):
+                limit_count = endpoint_count
+                limit_window = endpoint_window
+                bucket = endpoint_prefix
+                break
 
-        # Pulisci richieste vecchie (oltre 1 minuto)
-        cutoff_time = current_time.timestamp() - 60
-        self.client_requests[client_ip] = [
-            req_time for req_time in self.client_requests[client_ip]
+        client_key = f"{client_ip}:{bucket}"
+        if client_key not in self.client_requests:
+            self.client_requests[client_key] = []
+
+        cutoff_time = current_time.timestamp() - limit_window
+        self.client_requests[client_key] = [
+            req_time for req_time in self.client_requests[client_key]
             if req_time > cutoff_time
         ]
 
-        # Controlla rate limit
-        if len(self.client_requests[client_ip]) >= self.requests_per_minute:
-            logger.warning(f"Rate limit exceeded for {client_ip}")
+        if len(self.client_requests[client_key]) >= limit_count:
+            logger.warning(f"Rate limit exceeded for {client_ip} on {bucket}")
             from fastapi.responses import JSONResponse
             return JSONResponse(
                 status_code=429,
                 content={
                     "error": "Rate limit exceeded",
-                    "retry_after": 60
+                    "retry_after": limit_window
                 },
-                headers={"Retry-After": "60"}
+                headers={"Retry-After": str(limit_window)}
             )
 
         # Aggiungi timestamp richiesta corrente
-        self.client_requests[client_ip].append(current_time.timestamp())
+        self.client_requests[client_key].append(current_time.timestamp())
 
         return await call_next(request)
 

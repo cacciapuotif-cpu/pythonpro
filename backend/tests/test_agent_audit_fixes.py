@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from time_utils import utc_now
 from datetime import datetime
 from datetime import timedelta
 from datetime import timezone
@@ -54,6 +55,7 @@ def test_ensure_collaborator_draft_creates_whatsapp_without_email():
         models.AgentRun.__table__,
         models.AgentSuggestion.__table__,
         models.AgentCommunicationDraft.__table__,
+        models.SecurityAuditLog.__table__,
     )
     collaborator = models.Collaborator(
         first_name="Mario",
@@ -62,6 +64,7 @@ def test_ensure_collaborator_draft_creates_whatsapp_without_email():
         phone="+393331112233",
         fiscal_code="RSSMRA80A01H501Z",
         address="Via Roma 1",
+        consenso_whatsapp_agenti=True,
     )
     db.add(collaborator)
     db.flush()
@@ -109,6 +112,7 @@ def test_ensure_collaborator_draft_keeps_email_blocked_without_email():
         models.AgentRun.__table__,
         models.AgentSuggestion.__table__,
         models.AgentCommunicationDraft.__table__,
+        models.SecurityAuditLog.__table__,
     )
     collaborator = models.Collaborator(
         first_name="Mario",
@@ -117,6 +121,7 @@ def test_ensure_collaborator_draft_keeps_email_blocked_without_email():
         phone="+393331112233",
         fiscal_code="RSSMRA80A01H501Z",
         address="Via Roma 1",
+        consenso_whatsapp_agenti=True,
     )
     db.add(collaborator)
     db.flush()
@@ -204,6 +209,7 @@ def test_run_agent_workflow_marks_run_failed_when_agent_crashes():
         models.AgentRun.__table__,
         models.AgentSuggestion.__table__,
         models.AgentCommunicationDraft.__table__,
+        models.SecurityAuditLog.__table__,
         models.AgentReviewAction.__table__,
         models.AuditLog.__table__,
     )
@@ -293,6 +299,7 @@ def test_promote_due_followups_marks_sent_draft_and_suggestion_as_followup_due()
         models.AgentRun.__table__,
         models.AgentSuggestion.__table__,
         models.AgentCommunicationDraft.__table__,
+        models.SecurityAuditLog.__table__,
         models.AgentReviewAction.__table__,
         models.AuditLog.__table__,
     )
@@ -327,7 +334,7 @@ def test_promote_due_followups_marks_sent_draft_and_suggestion_as_followup_due()
         subject="Richiesta curriculum",
         body="Test",
         status="sent",
-        sent_at=datetime.utcnow() - timedelta(days=8),
+        sent_at=utc_now() - timedelta(days=8),
     )
     db.add(draft)
     db.commit()
@@ -593,7 +600,7 @@ def test_create_piano_finanziario_commits_audit_before_non_blocking_event():
             schemas.PianoFinanziarioCreate(
                 progetto_id=project.id,
                 nome="Piano Test",
-                tipo_fondo="formazienda",
+                tipo_fondo="fondimpresa",
                 budget_totale=1000.0,
                 data_inizio=datetime(2026, 4, 1, 0, 0, 0),
                 data_fine=datetime(2026, 4, 30, 0, 0, 0),
@@ -632,7 +639,7 @@ def test_update_piano_finanziario_commits_data_and_audit_once_before_event():
     piano = models.PianoFinanziario(
         progetto_id=project.id,
         nome="Prima",
-        tipo_fondo="formazienda",
+        tipo_fondo="fondimpresa",
         anno=2026,
         ente_erogatore="Formazienda",
         avviso="",
