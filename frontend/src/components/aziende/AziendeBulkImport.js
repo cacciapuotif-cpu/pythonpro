@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import * as XLSX from 'xlsx';
+import { downloadJsonTemplate, parseExcelFile } from '../../utils/excelUtils';
 import '../collaborators/CollaboratorBulkImport.css';
 
 const COLUMN_MAPPING = {
@@ -59,12 +59,9 @@ export default function AziendeBulkImport({ onImport, onClose, isLoading }) {
 
   const parseFile = (selectedFile) => {
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       try {
-        const data = new Uint8Array(event.target.result);
-        const workbook = XLSX.read(data, { type: 'array' });
-        const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-        const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+        const jsonData = await parseExcelFile(event.target.result);
 
         if (jsonData.length === 0) {
           setErrors(['Il file Excel è vuoto']);
@@ -151,7 +148,7 @@ export default function AziendeBulkImport({ onImport, onClose, isLoading }) {
   };
 
   const downloadTemplate = () => {
-    const ws = XLSX.utils.json_to_sheet([{
+    const templateData = [{
       'Ragione Sociale': 'Azienda Demo Srl',
       'Partita IVA': '12345678901',
       'Codice Fiscale': '12345678901',
@@ -167,11 +164,8 @@ export default function AziendeBulkImport({ onImport, onClose, isLoading }) {
       'Sito Web': 'https://aziendademo.it',
       'Sedi Operative': 'Sede Napoli Centro|Via Toledo 10|Napoli|80134|NA|Reception 2 piano;Sede Caserta|Viale Europa 5|Caserta|81100|CE|Area aule',
       Note: 'Import demo',
-    }]);
-    ws['!cols'] = Object.keys(COLUMN_MAPPING).map(() => ({ wch: 24 }));
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Aziende');
-    XLSX.writeFile(wb, 'template_aziende_clienti.xlsx');
+    }];
+    downloadJsonTemplate(templateData, 'Aziende', 'template_aziende_clienti.xlsx', 24);
   };
 
   return (

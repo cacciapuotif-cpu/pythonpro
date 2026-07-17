@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import * as XLSX from 'xlsx';
+import { downloadJsonTemplate, excelSerialToDateString, parseExcelFile } from '../../utils/excelUtils';
 import './CollaboratorBulkImport.css';
 
 /**
@@ -154,17 +154,9 @@ const CollaboratorBulkImport = ({ onImport, onClose, isLoading }) => {
   const parseFile = (file) => {
     const reader = new FileReader();
 
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
-        const data = new Uint8Array(e.target.result);
-        const workbook = XLSX.read(data, { type: 'array' });
-
-        // Prende il primo foglio
-        const sheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[sheetName];
-
-        // Converte in JSON
-        const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+        const jsonData = await parseExcelFile(e.target.result);
 
         if (jsonData.length === 0) {
           setErrors(['Il file Excel è vuoto']);
@@ -196,9 +188,7 @@ const CollaboratorBulkImport = ({ onImport, onClose, isLoading }) => {
               } else if (dbField === 'birth_date') {
                 // Gestisce date Excel
                 if (typeof value === 'number') {
-                  // Excel memorizza le date come numeri
-                  const date = XLSX.SSF.parse_date_code(value);
-                  mappedRow[dbField] = `${date.y}-${String(date.m).padStart(2, '0')}-${String(date.d).padStart(2, '0')}`;
+                  mappedRow[dbField] = excelSerialToDateString(value);
                 } else {
                   mappedRow[dbField] = value.toString().trim();
                 }
@@ -264,15 +254,7 @@ const CollaboratorBulkImport = ({ onImport, onClose, isLoading }) => {
       'Titolo di Studio': 'laurea'
     }];
 
-    const ws = XLSX.utils.json_to_sheet(templateData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Collaboratori');
-
-    // Imposta la larghezza delle colonne
-    const colWidths = Object.keys(COLUMN_MAPPING).map(() => ({ wch: 20 }));
-    ws['!cols'] = colWidths;
-
-    XLSX.writeFile(wb, 'template_collaboratori.xlsx');
+    downloadJsonTemplate(templateData, 'Collaboratori', 'template_collaboratori.xlsx', 20);
   };
 
   /**

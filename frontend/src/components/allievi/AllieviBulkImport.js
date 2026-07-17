@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import * as XLSX from 'xlsx';
+import { downloadJsonTemplate, excelSerialToDateString, parseExcelFile } from '../../utils/excelUtils';
 import '../collaborators/CollaboratorBulkImport.css';
 
 const COLUMN_MAPPING = {
@@ -30,8 +30,7 @@ const REQUIRED_FIELDS = ['nome', 'cognome'];
 const normalizeDateValue = (value) => {
   if (!value) return '';
   if (typeof value === 'number') {
-    const date = XLSX.SSF.parse_date_code(value);
-    return `${date.y}-${String(date.m).padStart(2, '0')}-${String(date.d).padStart(2, '0')}`;
+    return excelSerialToDateString(value);
   }
   return value.toString().trim();
 };
@@ -143,12 +142,9 @@ export default function AllieviBulkImport({ onImport, onClose, isLoading, aziend
 
   const parseFile = (selectedFile) => {
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       try {
-        const data = new Uint8Array(event.target.result);
-        const workbook = XLSX.read(data, { type: 'array' });
-        const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-        const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+        const jsonData = await parseExcelFile(event.target.result);
 
         if (jsonData.length === 0) {
           setErrors(['Il file Excel è vuoto']);
@@ -208,7 +204,7 @@ export default function AllieviBulkImport({ onImport, onClose, isLoading, aziend
   };
 
   const downloadTemplate = () => {
-    const ws = XLSX.utils.json_to_sheet([{
+    const templateData = [{
       Nome: 'Mario',
       Cognome: 'Rossi',
       'Codice Fiscale': 'RSSMRA80A01H501U',
@@ -229,11 +225,8 @@ export default function AllieviBulkImport({ onImport, onClose, isLoading, aziend
       Mansione: 'Addetto formazione',
       Livello: '3',
       Note: 'Import prova',
-    }]);
-    ws['!cols'] = Object.keys(COLUMN_MAPPING).map(() => ({ wch: 22 }));
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Allievi');
-    XLSX.writeFile(wb, 'template_allievi.xlsx');
+    }];
+    downloadJsonTemplate(templateData, 'Allievi', 'template_allievi.xlsx', 22);
   };
 
   return (
