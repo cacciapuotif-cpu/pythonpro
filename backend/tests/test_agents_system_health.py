@@ -59,7 +59,7 @@ def test_system_health_shape(client):
     data = response.json()
     assert isinstance(data["agents_enabled"], bool)
     names = {item["name"] for item in data["agents"]}
-    assert names == {"data_quality", "mail_recovery", "contract_agent", "certification", "email_intake"}
+    assert names == {"data_quality", "mail_recovery", "contract_agent", "certification", "email_intake", "data_retention"}
     for item in data["agents"]:
         assert set(item) >= {"name", "enabled", "kill_switch_env", "triggers", "schedule", "last_run"}
     assert "state" in data["inbox"]

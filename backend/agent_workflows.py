@@ -469,6 +469,8 @@ def run_agent_workflow(
                 existing.title = item["title"]
                 existing.description = item["description"]
                 existing.payload = _json_dumps(item.get("payload"))
+                existing.auto_fix_available = bool(item.get("auto_fix_available", False))
+                existing.auto_fix_payload = _json_dumps(item.get("auto_fix_payload")) if item.get("auto_fix_payload") else None
                 existing.confidence_score = confidence
                 db.flush()
                 suggestion = existing
@@ -483,6 +485,8 @@ def run_agent_workflow(
                     title=item["title"],
                     description=item["description"],
                     payload=_json_dumps(item.get("payload")),
+                    auto_fix_available=bool(item.get("auto_fix_available", False)),
+                    auto_fix_payload=_json_dumps(item.get("auto_fix_payload")) if item.get("auto_fix_payload") else None,
                     confidence_score=confidence,
                 )
                 db.add(suggestion)

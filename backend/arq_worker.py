@@ -3,15 +3,14 @@ from __future__ import annotations
 from time_utils import utc_now
 import logging
 import os
-from datetime import datetime, timedelta
 from typing import Any
 
 import httpx
 from arq.connections import RedisSettings
 from arq.cron import cron
 
-from agent_workflows import promote_due_followups, _send_email
-from ai_agents.control import agent_enabled, agents_enabled, disabled_reason
+from agent_workflows import promote_due_followups
+from ai_agents.control import agent_enabled, disabled_reason
 from database import SessionLocal
 
 # AGENT-06: registra User (auth.py) nella metadata della Base condivisa.
@@ -186,41 +185,16 @@ async def run_certification_agent_cron(ctx: dict[str, Any]) -> dict[str, Any]:
 
 
 async def data_retention_cleanup(ctx: dict[str, Any]) -> dict[str, Any]:
-    """Anonimizza collaboratori non attivi oltre 5 anni dalla fine ultimo rapporto."""
-    if not agents_enabled():
+    """Crea proposte revisionabili per collaboratori oltre retention."""
+    if not agent_enabled("data_retention"):
         return {"status": "skipped", "reason": disabled_reason("data_retention")}
     db = SessionLocal()
     try:
-        import models
-        from services.gdpr_service import anonymize_collaborator
-
-        cutoff = utc_now() - timedelta(days=5 * 365)
-        candidates = (
-            db.query(models.Collaborator)
-            .filter(models.Collaborator.anonimizzato.is_(False))
-            .all()
-        )
-        anonymized = 0
-        for collaborator in candidates:
-            last_assignment_end = (
-                db.query(models.Assignment.end_date)
-                .filter(models.Assignment.collaborator_id == collaborator.id)
-                .order_by(models.Assignment.end_date.desc())
-                .first()
-            )
-            if not last_assignment_end or not last_assignment_end[0] or last_assignment_end[0] > cutoff:
-                continue
-            anonymize_collaborator(db, collaborator, user_id=None)
-            anonymized += 1
-        db.commit()
-        admin_email = os.getenv("DATA_RETENTION_REPORT_EMAIL") or os.getenv("SMTP_FROM")
-        if admin_email and anonymized:
-            _send_email(
-                recipient_email=admin_email,
-                subject="Report data retention PythonPro",
-                body=f"Anonimizzati {anonymized} collaboratori oltre retention quinquennale.",
-            )
-        return {"status": "completed", "anonymized": anonymized, "processed_at": utc_now().isoformat()}
+        from agent_workflows import run_agent_workflow
+        run = run_agent_workflow(db, agent_type="data_retention", auto_mode=True)
+        return {"status": "completed", "agent": "data_retention", "run_id": run.id,
+                "run_status": run.status, "suggestions_created": run.suggestions_count,
+                "anonymized": 0, "processed_at": utc_now().isoformat()}
     except Exception as exc:
         db.rollback()
         logger.exception("data_retention_cleanup error: %s", exc)

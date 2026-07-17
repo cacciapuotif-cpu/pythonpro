@@ -141,6 +141,7 @@ class Settings(BaseSettings):
         env_file = ".env"  # il file da cui leggere le variabili
         env_file_encoding = "utf-8"
         case_sensitive = True  # le variabili sono case-sensitive
+        extra = "ignore"
 
 @lru_cache()
 def get_settings() -> Settings:

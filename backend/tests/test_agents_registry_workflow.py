@@ -91,7 +91,7 @@ def test_registry_definitions_complete():
     from ai_agents import list_agent_definitions
 
     definitions = {item["name"]: item for item in list_agent_definitions()}
-    assert set(definitions) == {"data_quality", "mail_recovery", "contract_agent", "certification"}
+    assert set(definitions) == {"data_quality", "mail_recovery", "contract_agent", "certification", "data_retention"}
     for name, definition in definitions.items():
         missing = REQUIRED_DEFINITION_KEYS - set(definition)
         assert not missing, f"{name}: campi mancanti {missing}"

@@ -433,7 +433,7 @@ def workflow_suggestion(
 
 @router.post("/suggestions/{suggestion_id}/apply-fix", response_model=schemas.AgentSuggestionWithDetails)
 def apply_suggestion_fix(suggestion_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_agents_write)):
-    from services.agent_apply_service import apply_field_update_suggestion
+    from services.suggestion_apply import apply_suggestion
 
     suggestion = crud.get_suggestion(db, suggestion_id)
     if not suggestion:
@@ -445,7 +445,7 @@ def apply_suggestion_fix(suggestion_id: int, db: Session = Depends(get_db), curr
 
     reviewer_id = getattr(current_user, "id", None)
     try:
-        apply_result = apply_field_update_suggestion(db, suggestion, user_id=reviewer_id)
+        apply_result = apply_suggestion(db, suggestion, user_id=reviewer_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
