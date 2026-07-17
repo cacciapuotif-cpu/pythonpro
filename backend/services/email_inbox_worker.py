@@ -484,6 +484,19 @@ def _classify_login_error(exc: Exception) -> str:
 def get_worker_status() -> dict:
     from services import inbox_status_store
 
+    try:
+        from ai_agents.control import agent_enabled, disabled_reason
+
+        if not agent_enabled("email_intake"):
+            status = inbox_status_store.record_disabled(disabled_reason("email_intake"))
+            return {
+                "running": bool(_WORKER_STATUS.get("running")),
+                "message": inbox_status_store.status_message(status),
+                **status,
+            }
+    except Exception:
+        pass
+
     status = inbox_status_store.get_status()
     return {
         "running": bool(_WORKER_STATUS.get("running")),

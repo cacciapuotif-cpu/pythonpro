@@ -196,7 +196,7 @@ def status_message(status: dict[str, Any]) -> str:
     if state == "auth_failed":
         return "Inbox: disconnessa — credenziali non valide"
     if state == "disabled":
-        return f"Inbox: disabilitata — {status.get('last_error') or 'credenziali non configurate'}"
+        return f"Inbox: disconnessa — {status.get('last_error') or 'polling disabilitato'}"
     if state == "error":
         return f"Inbox: errore — {status.get('last_error') or 'errore sconosciuto'}"
     return "Inbox: stato sconosciuto"

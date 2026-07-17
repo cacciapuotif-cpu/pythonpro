@@ -1,7 +1,7 @@
 # ====================
 # BUILD STAGE
 # ====================
-FROM node:18-alpine AS build
+FROM node:20-alpine AS build
 
 WORKDIR /app
 
@@ -32,13 +32,16 @@ COPY --from=build /app/build /usr/share/nginx/html
 # Copy custom nginx config
 COPY nginx.conf /etc/nginx/nginx.conf
 
-# Expose port 80 (internal)
-EXPOSE 80
+RUN chown -R nginx:nginx /usr/share/nginx/html /var/cache/nginx /var/run /etc/nginx/nginx.conf
+USER nginx
+
+# Expose port 8080 (internal, non-root)
+EXPOSE 8080
 
 # Healthcheck
 # Usa 127.0.0.1 invece di localhost per evitare problemi IPv6
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://127.0.0.1/healthz || exit 1
+  CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:8080/healthz || exit 1
 
 # Start nginx (foreground mode)
 CMD ["nginx", "-g", "daemon off;"]
