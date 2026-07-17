@@ -29,6 +29,7 @@ import ContractTemplatesManager from './components/ContractTemplatesManager';
 import AgentsManager from './components/AgentsManager';
 import AgentsDashboard from './components/AgentsDashboard';
 import AgentSuggestionsReview from './components/AgentSuggestionsReview';
+import ResourceArchive from './components/ResourceArchive';
 import apiService, { healthCheck } from './services/apiService';
 import { http, ensureValidAccessToken } from './lib/http';
 import './App.css';
@@ -78,9 +79,11 @@ const SECTION_CONFIG = [
   { id: 'listini',           label: 'Listini',        icon: '💰', group: null,           title: 'Listini prezzi',                     breadcrumb: '💰 Listini',               roles: ['admin', 'user', 'manager'] },
   { id: 'preventivi',        label: 'Preventivi',     icon: '📝', group: null,           title: 'Preventivi commerciali',             breadcrumb: '📝 Preventivi',            roles: ['admin', 'user', 'manager'] },
   { id: 'ordini',            label: 'Ordini',         icon: '🛒', group: null,           title: 'Gestione ordini',                    breadcrumb: '🛒 Ordini',                roles: ['admin', 'user', 'manager'] },
+  { id: 'resources',         label: 'Archivio Risorse', icon: '📚', group: 'Conoscenza', title: 'Fonti normative e conoscenza operativa', breadcrumb: '📚 Archivio Risorse',    roles: ['admin', 'manager'] },
   { id: 'entities',          label: 'Enti Attuatori', icon: '🏢', group: 'Config',       title: 'Enti attuatori',                     breadcrumb: '🏢 Enti Attuatori',        roles: ['admin'] },
   { id: 'agents-dashboard',  label: 'Agents Dashboard', icon: '📡', group: null,         title: 'Panoramica sistema agenti',          breadcrumb: '📡 Agents Dashboard',      roles: ['admin'] },
   { id: 'agents',            label: 'Agenti',         icon: '🤖', group: null,           title: 'Agenti operativi e revisioni AI',    breadcrumb: '🤖 Agenti Operativi',      roles: ['admin'] },
+  { id: 'agents-review',     label: 'Revisione Agenti', icon: '✅', group: null,         title: 'Revisione umana dei suggerimenti',   breadcrumb: '✅ Revisione Agenti',       roles: ['admin', 'user', 'manager'], hidden: true },
   { id: 'templates',         label: 'Template',       icon: '📋', group: null,           title: 'Template documentali',               breadcrumb: '📋 Template',              roles: ['admin'] },
 ];
 
@@ -97,6 +100,9 @@ const getSectionFromPath = (pathname) => {
   if (pathname.startsWith('/documenti-mancanti')) {
     return 'documenti-mancanti';
   }
+  if (pathname.startsWith('/resources')) {
+    return 'resources';
+  }
   return null;
 };
 
@@ -112,6 +118,9 @@ const getPathForSection = (sectionId) => {
   }
   if (sectionId === 'documenti-mancanti') {
     return '/documenti-mancanti';
+  }
+  if (sectionId === 'resources') {
+    return '/resources';
   }
   return '/';
 };
@@ -301,6 +310,11 @@ function App() {
     console.log(`📍 Navigazione verso: ${section}`);
   };
 
+  const navigateToAvvisoReview = () => {
+    setActiveSection('agents-review');
+    window.history.replaceState({}, '', '/agents/review?agent_type=avviso_extractor&entity_type=avviso_revisione');
+  };
+
   // ==========================================
   // RENDER DELLA SEZIONE ATTIVA
   // ==========================================
@@ -330,6 +344,9 @@ function App() {
 
       case 'agents-review':
         return <AgentSuggestionsReview currentUser={currentUser} />;
+
+      case 'resources':
+        return <ResourceArchive currentUser={currentUser} onReviewSuggestions={navigateToAvvisoReview} />;
 
       case 'timesheet':
         return <TimesheetView />;
@@ -516,7 +533,7 @@ function App() {
   }
 
   const currentSection = availableSections.find((section) => section.id === activeSection) || availableSections[0];
-  const navGroups = buildNavGroups(availableSections);
+  const navGroups = buildNavGroups(availableSections.filter((section) => !section.hidden));
   const isPortaleAllievi = window.location.pathname === '/portale-allievi';
   if (isPortaleAllievi) { return <PortaleAllievi />; }
 

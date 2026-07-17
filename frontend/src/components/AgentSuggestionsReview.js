@@ -22,7 +22,7 @@ const PRIORITY_META = {
 
 const STATUS_OPTIONS = ['pending', 'approved', 'rejected', 'implemented'];
 const PRIORITY_OPTIONS = ['critical', 'high', 'medium', 'low'];
-const ENTITY_OPTIONS = ['collaborator', 'project', 'assignment', 'attendance', 'document'];
+const ENTITY_OPTIONS = ['collaborator', 'project', 'assignment', 'attendance', 'document', 'avviso_revisione'];
 const sanitizeLlmText = (value) => DOMPurify.sanitize(String(value || ''), { ALLOWED_TAGS: [] });
 
 const overlayStyle = {
@@ -88,6 +88,9 @@ const getEntityLabel = (suggestion, collaboratorsMap, projectsMap) => {
     const project = projectsMap.get(String(suggestion.entity_id));
     return { href: '/projects', text: `Progetto: ${project?.name || `ID ${suggestion.entity_id || 'N/D'}`}` };
   }
+  if (suggestion.entity_type === 'avviso_revisione') {
+    return { href: '/resources', text: `Revisione avviso: ID ${suggestion.entity_id || 'N/D'}` };
+  }
   return { href: '#', text: `${suggestion.entity_type || 'Entità'}: ${suggestion.entity_id || 'N/D'}` };
 };
 
@@ -102,11 +105,12 @@ export default function AgentSuggestionsReview({ currentUser = null }) {
   const [runs, setRuns] = useState([]);
   const [collaborators, setCollaborators] = useState([]);
   const [projects, setProjects] = useState([]);
+  const initialParams = new URLSearchParams(window.location.search);
   const [filters, setFilters] = useState({
     status: '',
     priority: '',
-    entity_type: '',
-    agent_type: '',
+    entity_type: initialParams.get('entity_type') || '',
+    agent_type: initialParams.get('agent_type') || '',
   });
   const [selectedIds, setSelectedIds] = useState([]);
   const [detailSuggestion, setDetailSuggestion] = useState(null);

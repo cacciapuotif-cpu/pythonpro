@@ -672,6 +672,19 @@ export const updateAvviso = (id, data) =>
   http.put(`/avvisi/${id}`, data).then(r => r.data);
 export const deleteAvviso = (id) =>
   http.delete(`/avvisi/${id}`).then(r => r.data);
+export const getAvvisoRevisioni = (id) =>
+  http.get(`/avvisi/${id}/revisioni`).then(r => r.data);
+export const ingestAvvisoRevision = (
+  id,
+  { file, titolo, etichettaRevisione = '', eseguiEstrazione = true },
+) => {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('titolo', titolo);
+  if (etichettaRevisione) formData.append('etichetta_revisione', etichettaRevisione);
+  formData.append('esegui_estrazione', String(eseguiEstrazione));
+  return http.post(`/avvisi/${id}/revisioni/ingest`, formData, { timeout: 180000 }).then(r => r.data);
+};
 
 // Agents
 export const getAgentsCatalog = () =>

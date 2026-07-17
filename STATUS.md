@@ -6613,6 +6613,27 @@ Migration Alembic `015_add_collaborator_fk_to_voci_piano.py`.
 - Pendenti fuori ondata invariati: eventuale bonifica del record test `codex.runtime.test.20260715@example.invalid` solo previa autorizzazione; backlog utente DB applicativo dedicato.
 - Mai push.
 
+## 2026-07-17 — Frontend Archivio Risorse / upload avvisi (Codex)
+
+### Fatto
+- Aggiunta nel menu, per ruoli `admin` e `manager`, la sezione **Conoscenza → Archivio Risorse** (`/resources`).
+- Implementato il flusso Avvisi: elenco e ricerca, creazione identità avviso, upload della revisione `.md`, estrazione facoltativa con `avviso_extractor`, esito ingestione e storico revisioni.
+- Collegato il passaggio alla revisione umana con filtri preimpostati `agent_type=avviso_extractor` ed `entity_type=avviso_revisione`.
+- Ribadito nell'interfaccia il vincolo: AI produce proposte; regole e scadenze diventano operative solo dopo validazione umana.
+- Scelta architetturale: **Archivio Risorse è separato dai Template**. I template producono documenti; l'archivio conserva fonti canoniche riutilizzabili dalla piattaforma.
+- Le aree “Allegati e manuali” e “Conoscenza operativa” sono visibili come prossime estensioni ma non ancora operative; nessun documento generico viene trattato impropriamente come revisione di avviso.
+
+### Verifiche
+- Test frontend mirato `ResourceArchive.test.js`: **3 passed**.
+- Build frontend di produzione: completata con successo; resta solo il warning preesistente su `HomeCockpit.js` (`CATEGORIA_COLORE` inutilizzata).
+- Immagine frontend ricostruita e solo il container `frontend` ricreato: servizio healthy; `/resources` risponde HTTP 200.
+- Regressione backend avvisi/RBAC: **71 passed**.
+- Suite frontend complessiva: **38 passed, 6 failed**; i fallimenti sono debito test preesistente e non correlato (`fileNameValidator.test.js`, `App.test.js`, mock incompleto in `Dashboard.test.js`).
+
+### Pendente
+- Estendere Archivio Risorse con modelli/API dedicati per allegati, manuali e conoscenza operativa, mantenendo provenienza, versionamento e permessi.
+- V3/V4/V5 dell'ondata Avvisi non avviate. Mai push.
+
 ## Aggiornamento post-approvazione
 - GATE approvato e V1 implementato nel worktree; database reale ancora alla migration 056.
 - Modelli, schemi Pydantic e CRUD coprono identità avviso, revisioni immutabili, regole, scadenze, documenti, conoscenza ed esiti; progetti e piani possono fissare la revisione esatta.
