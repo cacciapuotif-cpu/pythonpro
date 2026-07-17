@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import ipaddress
 import logging
 import os
+from urllib.parse import urlparse
 from dataclasses import dataclass
 from typing import Optional
 
@@ -25,6 +27,23 @@ def _is_enabled() -> bool:
 
 def _provider_name() -> str:
     return (os.getenv("WHATSAPP_PROVIDER", "generic") or "generic").strip().lower()
+
+
+def valida_provider_url(url: str) -> None:
+    if not url:
+        return
+    parsed = urlparse(url)
+    if parsed.scheme != "https":
+        raise ValueError(f"WHATSAPP_PROVIDER_URL deve essere HTTPS, trovato: {parsed.scheme}")
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError("WHATSAPP_PROVIDER_URL deve includere un hostname")
+    try:
+        ip = ipaddress.ip_address(hostname)
+    except ValueError:
+        return
+    if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+        raise ValueError(f"WHATSAPP_PROVIDER_URL non può puntare a IP privati: {hostname}")
 
 
 def send_whatsapp_message(
@@ -135,6 +154,7 @@ def _send_via_generic_provider(
             detail="Configurazione WhatsApp incompleta: WHATSAPP_PROVIDER_URL mancante",
             provider=_provider_name(),
         )
+    valida_provider_url(provider_url)
 
     token = (os.getenv("WHATSAPP_API_TOKEN", "") or "").strip()
     sender_id = (os.getenv("WHATSAPP_SENDER_ID", "") or "").strip()

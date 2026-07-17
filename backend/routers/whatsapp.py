@@ -5,11 +5,7 @@ from fastapi.responses import PlainTextResponse
 from sqlalchemy.orm import Session
 
 from database import get_db
-from services.whatsapp_webhook_service import (
-    process_meta_webhook,
-    verify_meta_webhook,
-    verify_hub_signature,
-)
+from services.whatsapp_webhook_service import process_meta_webhook, verify_meta_signature, verify_meta_webhook
 
 router = APIRouter(prefix="/api/v1/whatsapp", tags=["WhatsApp"])
 
@@ -32,11 +28,15 @@ def verify_webhook(
 
 @router.post("/webhook")
 async def receive_webhook(request: Request, db: Session = Depends(get_db)):
-    body = await request.body()
-    signature = request.headers.get("X-Hub-Signature-256", "")
-    if not verify_hub_signature(body, signature):
+    raw_body = await request.body()
+    signature_header = request.headers.get("X-Hub-Signature-256")
+    if not verify_meta_signature(raw_body=raw_body, signature_header=signature_header):
         raise HTTPException(status_code=403, detail="Invalid webhook signature")
-    import json
-    payload = json.loads(body)
+
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid webhook payload")
+
     summary = process_meta_webhook(db, payload)
     return {"ok": True, **summary}

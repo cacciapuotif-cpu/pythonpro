@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import hashlib
 import hmac
+import hashlib
 import json
 import logging
 import os
@@ -17,23 +17,32 @@ def verify_meta_webhook(*, mode: Optional[str], verify_token: Optional[str], cha
     expected = (os.getenv("WHATSAPP_META_WEBHOOK_VERIFY_TOKEN", "") or "").strip()
     if not expected:
         return None
-    if mode == "subscribe" and verify_token == expected and challenge is not None:
+    if (
+        mode == "subscribe"
+        and verify_token is not None
+        and hmac.compare_digest(verify_token.encode("utf-8"), expected.encode("utf-8"))
+        and challenge is not None
+    ):
         return challenge
     return None
 
 
-def verify_hub_signature(body: bytes, signature_header: str) -> bool:
-    """Verify Meta X-Hub-Signature-256 HMAC. Returns True if valid or if secret not configured."""
+def verify_meta_signature(*, raw_body: bytes, signature_header: Optional[str]) -> bool:
     app_secret = (os.getenv("WHATSAPP_META_APP_SECRET", "") or "").strip()
-    if not app_secret:
-        logger.warning("WHATSAPP_META_APP_SECRET not set — skipping webhook signature check")
-        return True
-    if not signature_header.startswith("sha256="):
+    if not app_secret or not signature_header:
         return False
-    expected_sig = "sha256=" + hmac.new(
-        app_secret.encode(), body, hashlib.sha256
+
+    expected_prefix = "sha256="
+    if not signature_header.startswith(expected_prefix):
+        return False
+
+    received_signature = signature_header[len(expected_prefix):]
+    expected_signature = hmac.new(
+        app_secret.encode("utf-8"),
+        raw_body,
+        hashlib.sha256,
     ).hexdigest()
-    return hmac.compare_digest(expected_sig, signature_header)
+    return hmac.compare_digest(received_signature, expected_signature)
 
 
 def process_meta_webhook(db, payload: dict[str, Any]) -> dict[str, Any]:
@@ -169,10 +178,7 @@ def _log_inbound_message(db, message_item: dict[str, Any], value: dict[str, Any]
         old_value=None,
         new_value={
             "message_id": message_id,
-            "from": from_phone,
-            "profile_name": contact_name,
             "type": message_type,
-            "text": text_body,
             "linked_provider_message_id": linked_provider_message_id,
         },
     )
