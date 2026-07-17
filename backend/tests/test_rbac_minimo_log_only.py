@@ -20,6 +20,7 @@ CORE_ROUTER_CASES = [
     ("ordini-write", "DELETE", "/api/v1/ordini/1", {"admin": 200, "operatore": 200, "consultazione": 403}),
     ("report-summary-read", "GET", "/api/v1/reporting/summary", {"admin": 200, "operatore": 200, "consultazione": 200}),
     ("report-timesheet-sensitive", "GET", "/api/v1/reporting/timesheet", {"admin": 200, "operatore": 200, "consultazione": 403}),
+    ("rendicontazione-generate", "POST", "/api/v1/reporting/projects/1/rendicontazione", {"admin": 200, "operatore": 200, "consultazione": 403}),
     ("piano-finanziario-read", "GET", "/api/v1/piani-finanziari/", {"admin": 200, "operatore": 200, "consultazione": 200}),
     ("piano-finanziario-write", "POST", "/api/v1/piani-finanziari/", {"admin": 200, "operatore": 200, "consultazione": 403}),
     ("piano-finanziario-export-sensitive", "GET", "/api/v1/piani-finanziari/1/export-excel", {"admin": 200, "operatore": 200, "consultazione": 403}),

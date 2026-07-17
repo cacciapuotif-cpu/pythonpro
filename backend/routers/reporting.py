@@ -4,13 +4,14 @@ Gestisce timesheet, KPI e report aggregati
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query, BackgroundTasks
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime, date
 from pydantic import BaseModel
 import logging
 import csv
+import io
 import os
 import uuid
 
@@ -28,6 +29,26 @@ class TimesheetExportFilters(BaseModel):
     to_date: Optional[date] = None
     collaborator_id: Optional[int] = None
     project_id: Optional[int] = None
+
+
+@router.post("/projects/{project_id}/rendicontazione")
+def generate_project_rendicontazione(
+    project_id: int,
+    db: Session = Depends(get_db),
+):
+    """Genera in memoria il pacchetto ZIP di rendicontazione del progetto."""
+    from services.rendicontazione import genera_pacchetto_rendicontazione
+
+    try:
+        content, filename = genera_pacchetto_rendicontazione(db, project_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from None
+
+    return StreamingResponse(
+        io.BytesIO(content),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 def _build_timesheet_range(from_date: Optional[date], to_date: Optional[date]):

@@ -1,12 +1,15 @@
-"""
-Generatore pacchetto rendicontazione per progetto.
-Produce uno ZIP strutturato per fondo x regime.
+"""Generazione del pacchetto di rendicontazione per progetto.
+
+Servizio di dominio senza dipendenze HTTP. Produce uno ZIP strutturato per
+fondo e regime di aiuto; i router si occupano di RBAC e risposta download.
 """
 from __future__ import annotations
 
 import io
 import logging
 import os
+import re
+import unicodedata
 import zipfile
 from datetime import datetime
 from pathlib import Path
@@ -17,11 +20,11 @@ logger = logging.getLogger(__name__)
 UPLOAD_BASE = "/app/uploads"
 
 
-def _file_exists(path: Optional[str]) -> bool:
-    if not path:
-        return False
-    full = os.path.join(UPLOAD_BASE, path) if not path.startswith("/") else path
-    return os.path.exists(full)
+def _safe_zip_component(value: object, *, max_length: int = 80) -> str:
+    normalized = unicodedata.normalize("NFKD", str(value or ""))
+    ascii_value = normalized.encode("ascii", "ignore").decode("ascii")
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", ascii_value).strip("._-")
+    return (safe or "senza_nome")[:max_length]
 
 
 def _add_file(zf: zipfile.ZipFile, file_path: Optional[str], zip_name: str) -> bool:
@@ -47,9 +50,19 @@ def _normalize_fondo(value: Optional[str]) -> str:
         return "fapi"
     if "fondimpresa" in normalized:
         return "fondimpresa"
-    if "campania" in normalized or "regione" in normalized:
+    if "campania" in normalized or "regione" in normalized or normalized == "regionale":
         return "regione_campania"
     return "generico"
+
+
+def _resolve_fondo(project) -> str:
+    """Preferisce la FK canonica dell'avviso, con fallback legacy."""
+    avviso = getattr(project, "avviso_rel", None)
+    return _normalize_fondo(
+        getattr(avviso, "fondo", None)
+        or getattr(avviso, "ente_erogatore", None)
+        or getattr(project, "ente_erogatore", None)
+    )
 
 
 def _add_fund_specific_structure(zf: zipfile.ZipFile, fondo: str, manifest_lines: list[str]) -> int:
@@ -105,31 +118,38 @@ def genera_pacchetto_rendicontazione(
     """
     from models import (
         Project, Assignment, Collaborator, TimesheetGenerato,
-        AziendaClienteProjectLink, AziendaCliente, DatiRetributivi,
-        Attendance, ImplementingEntity
+        AziendaClienteProjectLink, DatiRetributivi, Allievo,
     )
     from sqlalchemy.orm import joinedload
 
-    project = db.query(Project).options(
-        joinedload(Project.ente_attuatore) if hasattr(Project, 'ente_attuatore') else joinedload(Project.id)
-    ).filter(Project.id == project_id).first()
+    project = (
+        db.query(Project)
+        .options(joinedload(Project.ente_attuatore), joinedload(Project.avviso_rel))
+        .filter(Project.id == project_id)
+        .first()
+    )
 
     if not project:
         raise ValueError("Progetto non trovato: {}".format(project_id))
 
     buffer = io.BytesIO()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    project_safe = project.name.replace(" ", "_").replace("/", "-")[:30]
+    project_safe = _safe_zip_component(project.name, max_length=30)
     zip_filename = "rendicontazione_{}_{}.zip".format(project_safe, timestamp)
 
     file_count = 0
-    fondo = _normalize_fondo(project.ente_erogatore)
+    avviso = getattr(project, "avviso_rel", None)
+    fondo = _resolve_fondo(project)
     manifest_lines = [
         "PACCHETTO RENDICONTAZIONE",
         "Progetto: {}".format(project.name),
         "CUP: {}".format(project.cup or "N/D"),
-        "Ente Erogatore: {}".format(project.ente_erogatore or "N/D"),
-        "Avviso: {}".format(project.avviso or "N/D"),
+        "Ente Erogatore: {}".format(
+            getattr(avviso, "ente_erogatore", None) or project.ente_erogatore or "N/D"
+        ),
+        "Avviso: {}".format(
+            getattr(avviso, "codice", None) or project.avviso or "N/D"
+        ),
         "Generato il: {}".format(datetime.now().strftime("%d/%m/%Y %H:%M")),
         "",
         "=" * 60,
@@ -152,9 +172,9 @@ def genera_pacchetto_rendicontazione(
 
         for assignment in assignments:
             collab = assignment.collaborator
-            collab_safe = "{}_{}".format(
-                collab.last_name, collab.first_name
-            ).replace(" ", "_").upper()
+            collab_safe = _safe_zip_component(
+                "{}_{}".format(collab.last_name, collab.first_name)
+            ).upper()
 
             ultimo_ts = db.query(TimesheetGenerato).filter(
                 TimesheetGenerato.assignment_id == assignment.id
@@ -205,7 +225,7 @@ def genera_pacchetto_rendicontazione(
             if not azienda:
                 continue
 
-            azienda_safe = azienda.ragione_sociale.replace(" ", "_").replace("/", "-")[:30]
+            azienda_safe = _safe_zip_component(azienda.ragione_sociale, max_length=30)
             regime = link.regime_aiuto or "regime_non_definito"
 
             manifest_lines.append("  Azienda: {} | Regime: {}".format(
@@ -242,7 +262,9 @@ def genera_pacchetto_rendicontazione(
                 dati_ret = db.query(DatiRetributivi).filter(
                     DatiRetributivi.project_id == project_id
                 ).join(
-                    DatiRetributivi.allievo
+                    Allievo, DatiRetributivi.allievo_id == Allievo.id
+                ).filter(
+                    Allievo.azienda_cliente_id == azienda.id
                 ).all()
 
                 for dr in dati_ret:
