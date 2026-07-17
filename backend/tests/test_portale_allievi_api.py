@@ -13,8 +13,6 @@ Design atteso:
   dietro la protezione JWT (funzione staff).
 """
 
-import hashlib
-import time
 from pathlib import Path
 import sys
 
@@ -28,13 +26,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from main import app
 from database import Base, get_db
 import models  # noqa: F401  # assicura registrazione metadata
+from services.portale_allievi_tokens import issue_portal_token
 
 
-def _magic_token(allievo_id: int, email: str) -> str:
-    """Replica la formula del magic link di sprint7."""
-    return hashlib.sha256(
-        "{}{}{}".format(allievo_id, email, int(time.time() // 86400)).encode()
-    ).hexdigest()[:32]
+def _magic_token(allievo_id: int, _email: str) -> str:
+    return issue_portal_token(allievo_id)
 
 
 @pytest.fixture(scope="function")

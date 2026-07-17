@@ -2,20 +2,18 @@
 Router pubblico del portale allievi.
 
 L'autenticazione NON e' il JWT applicativo: l'allievo esterno arriva da
-un magic link con token a scadenza giornaliera (vedi
+un magic link con token casuale firmato e scadenza a 24 ore (vedi
 /api/v1/allievi/{id}/magic-link in sprint7.py, che resta protetto).
 Per questo il router va incluso SENZA le dependency di protezione
 globale: il controllo di accesso e' la validazione del token stesso.
 """
-import hashlib
-import time
-
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from database import get_db
 import models
 from models import Assignment
+from services.portale_allievi_tokens import InvalidPortalToken, verify_portal_token
 
 router = APIRouter(prefix="/api/v1/portale-allievi", tags=["Portale Allievi"])
 
@@ -27,22 +25,12 @@ def get_profilo_allievo(
 ):
     from models import Allievo, AllievoProject, Project
 
-    allievi = db.query(Allievo).filter(Allievo.email.isnot(None)).all()
-    allievo_trovato = None
-    for allievo in allievi:
-        for day_offset in range(2):
-            expected = hashlib.sha256(
-                "{}{}{}".format(
-                    allievo.id,
-                    allievo.email or "",
-                    int(time.time() // 86400) - day_offset
-                ).encode()
-            ).hexdigest()[:32]
-            if expected == token:
-                allievo_trovato = allievo
-                break
-        if allievo_trovato:
-            break
+    try:
+        claims = verify_portal_token(token)
+    except InvalidPortalToken:
+        raise HTTPException(status_code=401, detail="Token non valido o scaduto") from None
+
+    allievo_trovato = db.query(Allievo).filter(Allievo.id == claims.allievo_id).first()
 
     if not allievo_trovato:
         raise HTTPException(status_code=401, detail="Token non valido o scaduto")

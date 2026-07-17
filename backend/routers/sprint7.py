@@ -271,15 +271,13 @@ def get_magic_link(
     db: Session = Depends(get_db),
 ):
     from models import Allievo
-    import hashlib, time
+    from services.portale_allievi_tokens import issue_portal_token
 
     allievo = db.query(Allievo).filter(Allievo.id == allievo_id).first()
     if not allievo:
         raise HTTPException(status_code=404, detail="Allievo non trovato")
 
-    token = hashlib.sha256(
-        "{}{}{}".format(allievo_id, allievo.email or "", int(time.time() // 86400)).encode()
-    ).hexdigest()[:32]
+    token = issue_portal_token(allievo_id)
 
     return {
         "allievo_id": allievo_id,
