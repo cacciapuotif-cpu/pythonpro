@@ -97,3 +97,4 @@
 - Impatto: un backfill dedotto dal progetto o dal testo potrebbe associare al piano regole normative errate.
 - Decisione: la migration 057 valorizza la revisione del piano solo quando `avviso_pf_id` è già presente; non esegue inferenze. Nello stato attuale i piani restano scollegati.
 - Stato: aperto; richiede bonifica con verifica umana, fuori dal perimetro V1.
+- Aggiornamento 2026-07-17: piano 1 collegato a Formazienda 2/2022; progetto 5 e piano 4 corretti a FAPI 4/2025 dopo conferma. Restano aperti piano 2 (contraddizione FAPI/Formazienda) e piano 7 (avviso non identificato).

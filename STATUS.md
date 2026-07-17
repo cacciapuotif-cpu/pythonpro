@@ -6519,6 +6519,25 @@ Migration Alembic `015_add_collaborator_fk_to_voci_piano.py`.
 - Login admin: `admin` / `[REDACTED-password-storica-ruotata]`.
 # ONDATA ARCHIVIO AVVISI — GATE V1 modello dati (2026-07-17, Codex)
 
+## 2026-07-17 — Messa in sicurezza W2.1/NEW-006 e bonifiche post-V1
+- Creato commit atomico `70104d9 feat(W2.1): persiste snapshot immutabile timesheet`; test mirati 8 passed.
+- Creato commit atomico `2c8de57 feat(NEW-006): converte retention in proposta revisionabile`; test mirati 28 passed.
+- Nessun push. Gli hunk estranei del worktree non sono stati inclusi nei due commit.
+- Backup pre-bonifica verificato: `/app/backups/gestionale_backup_pre_fix_test_email_20260717_101807.sql.zip.gpg`.
+- Record test collaboratore id 33 preservato e corretto da `@example.invalid` a `@example.com`; zero record residui con quel dominio.
+- NEW-010: collegato soltanto il piano 1, caso coerente, ad avviso 2/revisione 1. Piani 2, 4 e 7 lasciati nulli perché richiedono decisione umana.
+- Suite completa finale: **434 passed, 1 skipped, 0 failed** su 435 raccolti (352.55s).
+- Decisioni residue NEW-010: piano 2 (FAPI vs progetto Formazienda 2/2025); piano 4 (nome FAPI 4/2025 vs progetto FAPI 2/2025); piano 7 (FAPI senza numero avviso).
+- Correzione NEW-010 autorizzata: progetto 5 `poppi` e piano 4 allineati transazionalmente a FAPI 4/2025, avviso 5/revisione 5. Backup verificato: `/app/backups/gestionale_backup_pre_new010_piano4_20260717_102714.sql.zip.gpg`.
+- Restano volutamente scollegati piano 2 (contraddizione FAPI/Formazienda) e piano 7 (numero avviso assente).
+
+## 2026-07-17 — Igiene worktree residuo completata
+- Censiti e classificati tutti i file residui in `audit/WORKTREE_CLASSIFICATION_2026-07-17.md`.
+- Identificati 6 gruppi applicativi separabili: DOM-04 cross-ente; auth/middleware; WhatsApp; upload/allegati; frontend Excel; runtime/inbox.
+- Documentazione audit separata dagli artefatti locali. Chiavi accidentali, `.env.bak_*` e copie `.bak_*` marcate come non committabili; script ruolo DB marcato sperimentale e fuori gate.
+- Verifica mirata backend sui gruppi principali: **38 passed**. `docker compose config --quiet`: OK. Build frontend: riuscita con un solo warning ESLint preesistente in `HomeCockpit.js`.
+- Nessun file eliminato e nessun gruppo residuo committato automaticamente: i confini sono ora espliciti e pronti per commit atomici controllati.
+
 ## Stop richiesto dall'utente — stato esatto post-migration 057
 - Migration 057 applicata al DB reale dopo approvazione: `057 (head)`; `alembic check` senza drift.
 - Invarianti reali: 6 avvisi, 6 revisioni, 4 progetti con avviso e revisione, 0 mismatch; 0 piani collegati per scelta prudenziale documentata in NEW-010.

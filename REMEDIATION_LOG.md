@@ -622,6 +622,16 @@ con zero side effect esterni senza approvazione umana, kill switch globale e per
 ---
 # 2026-07-17 — ONDATA ARCHIVIO AVVISI | V1 design gate
 
+## 2026-07-17 — Stabilizzazione post-V1
+- W2.1 salvata nel commit atomico `70104d9`; NEW-006 salvata separatamente in `2c8de57`. Nessun push.
+- Test mirati rispettivamente 8/8 e 28/28; suite complessiva finale 434 passed, 1 skipped.
+- Backup verificato prima della bonifica DB: `/app/backups/gestionale_backup_pre_fix_test_email_20260717_101807.sql.zip.gpg`.
+- Corretto il solo record test collaboratore id 33 sostituendo il dominio email riservato `.invalid` con `example.com`.
+- NEW-010 bonificato solo nel caso certo: piano 1 → avviso 2/revisione 1. Piani 2, 4 e 7 restano sospesi per verifica umana, senza inferenze automatiche.
+- Dopo autorizzazione, corretto anche il caso documentato dal nome del piano: progetto 5 `poppi` e piano 4 → FAPI 4/2025, avviso 5/revisione 5. Operazione transazionale preceduta da backup verificato `gestionale_backup_pre_new010_piano4_20260717_102714.sql.zip.gpg`.
+- Piani 2 e 7 restano nulli: il primo ha dati contraddittori, il secondo non identifica il numero dell'avviso.
+- Igiene worktree completata con mappa `audit/WORKTREE_CLASSIFICATION_2026-07-17.md`: 6 gruppi applicativi indipendenti, documentazione storica e artefatti locali separati. Gate mirato 38 passed, Compose config valido, frontend build riuscita. Nessuna cancellazione o inclusione automatica di artefatti sensibili.
+
 ## Stato allo stop richiesto dall'utente
 - Migration 057 applicata al reale: head e Alembic check puliti; invarianti backfill senza mismatch.
 - Runtime backend/worker healthy e test V1 post-migration 11 passed.
