@@ -1281,60 +1281,6 @@ def check_attendance_overlap(
     return overlapping
 
 
-def check_assignment_overlap(
-    db: Session,
-    collaborator_id: int,
-    start_date,
-    end_date,
-    project_id: int,
-    exclude_assignment_id: Optional[int] = None,
-) -> Optional[models.Assignment]:
-    """
-    Verifica se esiste una sovrapposizione di date per un collaboratore su progetti diversi.
-
-    Un collaboratore PUÒ avere più assegnazioni sullo stesso progetto (ruoli diversi).
-    NON PUÒ avere assegnazioni su progetti diversi che si sovrappongono nel tempo.
-
-    Due intervalli [A_start, A_end] e [B_start, B_end] si sovrappongono se:
-    A_start < B_end AND A_end > B_start
-
-    Args:
-        db: Sessione database
-        collaborator_id: ID del collaboratore
-        start_date: Data di inizio della nuova assegnazione
-        end_date: Data di fine della nuova assegnazione
-        project_id: ID del progetto della nuova assegnazione (escluso dal controllo)
-        exclude_assignment_id: ID dell'assegnazione da escludere (per update)
-
-    Returns:
-        La prima assegnazione sovrapposta trovata su un progetto diverso, altrimenti None
-    """
-    query = db.query(models.Assignment).filter(
-        models.Assignment.collaborator_id == collaborator_id,
-        models.Assignment.is_active == True,
-        # Escludi stesso progetto: ruoli diversi sullo stesso progetto sono permessi
-        models.Assignment.project_id != project_id,
-        # Sovrapposizione: start_date < existing.end_date AND end_date > existing.start_date
-        models.Assignment.start_date < end_date,
-        models.Assignment.end_date > start_date,
-    )
-
-    if exclude_assignment_id:
-        query = query.filter(models.Assignment.id != exclude_assignment_id)
-
-    overlapping = query.first()
-
-    if overlapping:
-        logger.warning(
-            f"Sovrapposizione assegnazione rilevata per collaboratore {collaborator_id}: "
-            f"Nuova assegnazione [{start_date} - {end_date}] su progetto {project_id} sovrapposta con "
-            f"assegnazione esistente ID {overlapping.id} [{overlapping.start_date} - {overlapping.end_date}] "
-            f"su progetto {overlapping.project_id}"
-        )
-
-    return overlapping
-
-
 def validate_attendance_in_assignment_range(
     db: Session,
     attendance_date,
@@ -1919,26 +1865,8 @@ def create_assignment(db: Session, assignment: schemas.AssignmentCreate):
     Crea assegnazione senza commit (gestito dal chiamante)
     """
     try:
-        overlapping = check_assignment_overlap(
-            db,
-            collaborator_id=assignment.collaborator_id,
-            start_date=assignment.start_date,
-            end_date=assignment.end_date,
-            project_id=assignment.project_id,
-        )
-        if overlapping:
-            collaborator = get_collaborator(db, assignment.collaborator_id)
-            collab_name = f"{collaborator.first_name} {collaborator.last_name}" if collaborator else f"ID {assignment.collaborator_id}"
-            existing_project = get_project(db, overlapping.project_id)
-            existing_project_name = existing_project.name if existing_project else f"ID {overlapping.project_id}"
-            new_project = get_project(db, assignment.project_id)
-            new_project_name = new_project.name if new_project else f"ID {assignment.project_id}"
-            raise ValueError(
-                f"Il collaboratore {collab_name} ha già un'assegnazione attiva sul progetto "
-                f"'{existing_project_name}' nel periodo [{overlapping.start_date} - {overlapping.end_date}]. "
-                f"Non può essere assegnato contemporaneamente al progetto '{new_project_name}'."
-            )
-
+        # DOM-04 (W1.6): il multiprogetto con periodi sovrapposti è consentito.
+        # Restano il veto cross-ente e l'anti-overlap ORARIO delle presenze (constraint 055).
         _validate_assignment_date_overlap_by_ente(
             db,
             collaborator_id=assignment.collaborator_id,
@@ -2013,28 +1941,8 @@ def update_assignment(db: Session, assignment_id: int, assignment: schemas.Assig
         new_end_date = update_data.get("end_date", db_assignment.end_date)
         new_project_id = update_data.get("project_id", db_assignment.project_id)
 
-        if "start_date" in update_data or "end_date" in update_data:
-            overlapping = check_assignment_overlap(
-                db,
-                collaborator_id=db_assignment.collaborator_id,
-                start_date=new_start_date,
-                end_date=new_end_date,
-                project_id=new_project_id,
-                exclude_assignment_id=assignment_id,
-            )
-            if overlapping:
-                collaborator = get_collaborator(db, db_assignment.collaborator_id)
-                collab_name = f"{collaborator.first_name} {collaborator.last_name}" if collaborator else f"ID {db_assignment.collaborator_id}"
-                existing_project = get_project(db, overlapping.project_id)
-                existing_project_name = existing_project.name if existing_project else f"ID {overlapping.project_id}"
-                current_project = get_project(db, new_project_id)
-                current_project_name = current_project.name if current_project else f"ID {new_project_id}"
-                raise ValueError(
-                    f"Il collaboratore {collab_name} ha già un'assegnazione attiva sul progetto "
-                    f"'{existing_project_name}' nel periodo [{overlapping.start_date} - {overlapping.end_date}]. "
-                    f"Non può essere assegnato contemporaneamente al progetto '{current_project_name}'."
-                )
-
+        # DOM-04 (W1.6): il multiprogetto con periodi sovrapposti è consentito.
+        # Restano il veto cross-ente e l'anti-overlap ORARIO delle presenze (constraint 055).
         _validate_assignment_date_overlap_by_ente(
             db,
             collaborator_id=db_assignment.collaborator_id,

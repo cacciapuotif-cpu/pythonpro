@@ -1,10 +1,10 @@
 """
-Test per la validazione overlap nelle assegnazioni collaboratori.
+DOM-04 (W1.6): sblocco multiprogetto.
 
-Verifica (post DOM-04, W1.6 — il veto di periodo cross-progetto non esiste più,
-vedi test_dom04_multiprogetto.py):
-1. Assegnazioni sovrapposte sullo STESSO progetto → OK (ruoli diversi permessi)
-2. Presenza fuori dal range dell'assegnazione → ValueError
+Un collaboratore PUÒ avere assegnazioni su progetti diversi con periodi
+sovrapposti (flusso d'ufficio comune). Restano vietati:
+- overlap ORARIO delle presenze (check_attendance_overlap + constraint DB 055)
+- overlap di periodo su progetti di enti attuatori DIVERSI (veto cross-ente)
 """
 
 import sys
@@ -22,7 +22,6 @@ import models
 import crud
 import schemas
 
-# Database SQLite in memoria per i test
 TEST_DATABASE_URL = "sqlite:///:memory:"
 engine = create_engine(
     TEST_DATABASE_URL,
@@ -40,7 +39,7 @@ if "users" not in Base.metadata.tables:
 
 @pytest.fixture
 def db_with_data():
-    """Crea database in memoria con 1 collaboratore e 2 progetti."""
+    """Database in memoria con 1 collaboratore e 2 progetti (stesso ente)."""
     Base.metadata.create_all(bind=engine)
     db = TestingSessionLocal()
 
@@ -78,7 +77,6 @@ def db_with_data():
 
 
 def _make_assignment(db, collaborator_id, project_id, start, end, role="Docente", hourly_rate=50.0, assigned_hours=40.0):
-    """Helper: crea un'assegnazione direttamente nel DB senza passare per crud."""
     assignment = models.Assignment(
         collaborator_id=collaborator_id,
         project_id=project_id,
@@ -97,23 +95,22 @@ def _make_assignment(db, collaborator_id, project_id, start, end, role="Docente"
     return assignment
 
 
-def test_overlap_same_project_allowed(db_with_data):
-    """Assegnazioni sovrapposte sullo STESSO progetto (ruoli diversi) → permesse."""
-    db, collaborator, project1, _ = db_with_data
+def test_multiproject_period_overlap_allowed(db_with_data):
+    """DOM-04: periodi sovrapposti su progetti diversi (stesso ente) → creazione OK."""
+    db, collaborator, project1, project2 = db_with_data
 
     _make_assignment(
         db, collaborator.id, project1.id,
         start=datetime(2024, 1, 1),
-        end=datetime(2024, 3, 31),
-        role="Docente",
+        end=datetime(2024, 2, 28),
     )
 
     assignment_data = schemas.AssignmentCreate(
         collaborator_id=collaborator.id,
-        project_id=project1.id,
+        project_id=project2.id,
         role="Tutor",
         start_date=datetime(2024, 2, 1),
-        end_date=datetime(2024, 4, 30),
+        end_date=datetime(2024, 3, 31),
         hourly_rate=40.0,
         assigned_hours=30.0,
     )
@@ -121,25 +118,60 @@ def test_overlap_same_project_allowed(db_with_data):
     created = crud.create_assignment(db, assignment_data)
 
     assert created.id is not None
-    assert created.project_id == project1.id
+    assert created.project_id == project2.id
 
 
-def test_attendance_outside_assignment_range(db_with_data):
-    """Presenza con data fuori dal periodo dell'assegnazione → ValueError."""
-    db, collaborator, project1, _ = db_with_data
+def test_multiproject_update_overlap_allowed(db_with_data):
+    """DOM-04: update date che crea overlap cross-progetto (stesso ente) → OK."""
+    db, collaborator, project1, project2 = db_with_data
 
-    assignment = _make_assignment(
+    _make_assignment(
         db, collaborator.id, project1.id,
+        start=datetime(2024, 1, 1),
+        end=datetime(2024, 2, 28),
+    )
+    second = _make_assignment(
+        db, collaborator.id, project2.id,
         start=datetime(2024, 3, 1),
         end=datetime(2024, 3, 31),
+        role="Tutor",
     )
 
-    # Data fuori range (aprile, mentre l'assegnazione è solo a marzo)
-    with pytest.raises(ValueError) as exc_info:
-        crud.validate_attendance_in_assignment_range(
-            db,
-            attendance_date=datetime(2024, 4, 15),
-            assignment_id=assignment.id,
-        )
+    updated = crud.update_assignment(
+        db,
+        second.id,
+        schemas.AssignmentUpdate(start_date=datetime(2024, 2, 1)),
+    )
 
-    assert "non rientra nel periodo" in str(exc_info.value)
+    assert updated is not None
+    assert updated.start_date == datetime(2024, 2, 1)
+
+
+def test_cross_ente_overlap_blocked(db_with_data):
+    """Veto cross-ente invariato: periodi sovrapposti su enti attuatori diversi → ValueError."""
+    db, collaborator, project1, project2 = db_with_data
+
+    project1.ente_attuatore_id = 1
+    project2.ente_attuatore_id = 2
+    db.commit()
+
+    _make_assignment(
+        db, collaborator.id, project1.id,
+        start=datetime(2024, 1, 1),
+        end=datetime(2024, 2, 28),
+    )
+
+    assignment_data = schemas.AssignmentCreate(
+        collaborator_id=collaborator.id,
+        project_id=project2.id,
+        role="Tutor",
+        start_date=datetime(2024, 2, 1),
+        end_date=datetime(2024, 3, 31),
+        hourly_rate=40.0,
+        assigned_hours=30.0,
+    )
+
+    with pytest.raises(ValueError) as exc_info:
+        crud.create_assignment(db, assignment_data)
+
+    assert "Conflitto cross-progetto" in str(exc_info.value)
