@@ -9,6 +9,7 @@ import models
 from time_utils import utc_now
 
 RETENTION_KIND = "data_retention_anonymization"
+AVVISO_ESTRAZIONE_KIND = "avviso_estrazione"
 
 
 def apply_data_retention_suggestion(db, suggestion, *, user_id: Optional[int] = None) -> dict:
@@ -37,6 +38,31 @@ def apply_data_retention_suggestion(db, suggestion, *, user_id: Optional[int] = 
     return {"applied": ["anonimizzato"], "skipped": []}
 
 
+def apply_avviso_extraction_suggestion(db, suggestion, *, user_id: Optional[int] = None) -> dict:
+    if not user_id:
+        raise ValueError("Revisore umano obbligatorio per materializzare dati avviso")
+    import crud_avvisi
+    import schemas_avvisi as avvisi_schemas
+
+    payload = json.loads(suggestion.auto_fix_payload or "")
+    target = payload.get("target")
+    revision_id = payload.get("revision_id") or suggestion.entity_id
+    proposal_data = dict(payload.get("proposal") or {})
+    proposal_data["origin_suggestion_id"] = suggestion.id
+    if target == "regola":
+        proposal = avvisi_schemas.AvvisoRegolaProposal.model_validate(proposal_data)
+        rule = crud_avvisi.create_rule_proposal(db, revision_id, proposal, commit=False)
+        db.commit()
+        crud_avvisi.review_rule(db, rule.id, action="approva", reviewer_user_id=user_id)
+        return {"applied": [f"avviso_regola:{rule.id}"], "skipped": []}
+    if target == "scadenza":
+        proposal = avvisi_schemas.AvvisoScadenzaProposal.model_validate(proposal_data)
+        deadline = crud_avvisi.create_deadline_proposal(db, revision_id, proposal)
+        crud_avvisi.review_deadline(db, deadline.id, action="approva", reviewer_user_id=user_id)
+        return {"applied": [f"avviso_scadenza:{deadline.id}"], "skipped": []}
+    raise ValueError(f"Target estrazione avviso non supportato: {target}")
+
+
 def apply_suggestion(db, suggestion, *, user_id: Optional[int] = None) -> dict:
     try:
         payload = json.loads(suggestion.auto_fix_payload or "")
@@ -45,6 +71,8 @@ def apply_suggestion(db, suggestion, *, user_id: Optional[int] = None) -> dict:
     kind = payload.get("kind") if isinstance(payload, dict) else None
     if kind == RETENTION_KIND:
         return apply_data_retention_suggestion(db, suggestion, user_id=user_id)
+    if kind == AVVISO_ESTRAZIONE_KIND:
+        return apply_avviso_extraction_suggestion(db, suggestion, user_id=user_id)
     from services.agent_apply_service import PAYLOAD_KIND, apply_field_update_suggestion
     if kind == PAYLOAD_KIND:
         return apply_field_update_suggestion(db, suggestion, user_id=user_id)

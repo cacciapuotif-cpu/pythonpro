@@ -284,3 +284,79 @@ def test_run_extraction_pipeline_marks_errore_on_workflow_failure(db_session, re
         run_extraction_pipeline(db_session, revision_caricata.id, user_id=None)
     db_session.refresh(revision_caricata)
     assert revision_caricata.stato_estrazione == "errore"
+
+
+from services.suggestion_apply import apply_suggestion
+
+
+def _make_suggestion(db_session, revision, target, proposal):
+    run = models.AgentRun(agent_type="avviso_extractor", status="completed")
+    db_session.add(run)
+    db_session.flush()
+    suggestion = models.AgentSuggestion(
+        run_id=run.id,
+        suggestion_type=f"avviso_{target}_proposta",
+        entity_type="avviso_revisione",
+        entity_id=revision.id,
+        severity="medium",
+        status="pending",
+        title="proposta",
+        auto_fix_available=True,
+        auto_fix_payload=json.dumps({
+            "kind": "avviso_estrazione",
+            "target": target,
+            "revision_id": revision.id,
+            "proposal": proposal,
+        }),
+    )
+    db_session.add(suggestion)
+    db_session.commit()
+    return suggestion
+
+
+def test_apply_rule_suggestion_materializes_validated_rule(db_session, user, revision_with_cleaned_md):
+    proposal = {
+        "categoria": "massimali",
+        "chiave": "contributo_massimo",
+        "valore": {"tipo": "denaro", "importo": "50000.00", "valuta": "EUR"},
+        "testo_originale": "Contributo massimo 50.000 euro.",
+        "confidence": "0.9",
+        "needs_careful_review": False,
+    }
+    suggestion = _make_suggestion(db_session, revision_with_cleaned_md, "regola", proposal)
+    result = apply_suggestion(db_session, suggestion, user_id=user.id)
+    assert result["applied"] and result["applied"][0].startswith("avviso_regola:")
+    rule = db_session.query(models.AvvisoRegola).one()
+    assert rule.stato == "validata"
+    assert rule.validata_da_user_id == user.id
+    assert rule.origin_suggestion_id == suggestion.id
+
+
+def test_apply_deadline_suggestion_materializes_validated_deadline(db_session, user, revision_with_cleaned_md):
+    proposal = {
+        "tipo": "presentazione",
+        "data": "2026-09-30T23:59:00+02:00",
+        "descrizione": "Termine presentazione piani",
+        "tassativa": True,
+        "testo_originale": "entro il 30/09/2026",
+        "confidence": "0.9",
+        "needs_careful_review": False,
+    }
+    suggestion = _make_suggestion(db_session, revision_with_cleaned_md, "scadenza", proposal)
+    result = apply_suggestion(db_session, suggestion, user_id=user.id)
+    assert result["applied"] and result["applied"][0].startswith("avviso_scadenza:")
+    deadline = db_session.query(models.AvvisoScadenza).one()
+    assert deadline.stato == "validata"
+    assert deadline.validata_da_user_id == user.id
+
+
+def test_apply_avviso_suggestion_requires_human_reviewer(db_session, user, revision_with_cleaned_md):
+    proposal = {
+        "categoria": "massimali",
+        "chiave": "contributo_massimo",
+        "valore": {"tipo": "denaro", "importo": "50000.00", "valuta": "EUR"},
+        "testo_originale": "Contributo massimo 50.000 euro.",
+    }
+    suggestion = _make_suggestion(db_session, revision_with_cleaned_md, "regola", proposal)
+    with pytest.raises(ValueError, match="[Rr]evisore"):
+        apply_suggestion(db_session, suggestion, user_id=None)
