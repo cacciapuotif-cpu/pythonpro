@@ -6546,6 +6546,12 @@ Migration Alembic `015_add_collaborator_fk_to_voci_piano.py`.
 - Alembic `057 (head)` e `alembic check` senza drift.
 - Log nuova finestra: ARQ avviato con 14 funzioni e 0 errori; backend avviato correttamente. Warning noti/non bloccanti: performance monitor non disponibile e AUTO_BACKUP disabilitato nel web process perché gestito dal container scheduler dedicato.
 
+## 2026-07-17 — Pulizia artefatti locali completata
+- Spostati fuori dal repository, senza cancellazione, 2 file chiave OpenSSH accidentali, 2 copie sorgente/configurazione `.bak` e 2 backup `.env` ignorati da Git.
+- Archivio recuperabile: `/DATA/progetti/pythonpro-local-archive/2026-07-17_worktree_cleanup`.
+- Directory archivio `0700`; tutti i file `0600`; checksum SHA-256 verificati per i quattro artefatti iniziali. Nessun contenuto sensibile stampato.
+- Verifica repository: nessun file `*.bak*` o `# Premi*` residuo entro profondità 3; restano soltanto report audit non tracciati e lo script DB sperimentale.
+
 ## Stop richiesto dall'utente — stato esatto post-migration 057
 - Migration 057 applicata al DB reale dopo approvazione: `057 (head)`; `alembic check` senza drift.
 - Invarianti reali: 6 avvisi, 6 revisioni, 4 progetti con avviso e revisione, 0 mismatch; 0 piani collegati per scelta prudenziale documentata in NEW-010.
