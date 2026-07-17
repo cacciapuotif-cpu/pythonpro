@@ -35,6 +35,26 @@ for value in Admin2026! changeme_in_production changeme_redis_pwd your-app-speci
   fi
 done
 
+development_sample="$ROOT/.env.development.sample"
+for key in DB_PASSWORD REDIS_PASSWORD JWT_SECRET_KEY; do
+  grep -q "^${key}=CHANGE_ME_" "$development_sample" || {
+    echo "ERROR: ${key} in .env.development.sample is not an explicit placeholder" >&2
+    exit 1
+  }
+done
+
+for value in dev_password_123 dev_redis_123; do
+  matches="$(git -C "$ROOT" grep -l -F "$value" -- \
+    ':!audit/ANALISI_ARCHITETTURA_2026-07-17.md' \
+    ':!audit/FINDINGS_NUOVI.md' \
+    ':!scripts/check_secret_remediation.sh' || true)"
+  if [[ -n "$matches" ]]; then
+    echo "ERROR: deprecated development credential still present in tracked files" >&2
+    echo "$matches" >&2
+    exit 1
+  fi
+done
+
 backup_line='BACKUP_ENCRYPTION_KEY: ${BACKUP_ENCRYPTION_KEY:?ERRORE_BACKUP_ENCRYPTION_KEY_OBBLIGATORIA}'
 if [[ "$(grep -F -c "$backup_line" "$ROOT/docker-compose.yml")" -lt 2 ]]; then
   echo "ERROR: BACKUP_ENCRYPTION_KEY is not passed to backend and backup scheduler" >&2
