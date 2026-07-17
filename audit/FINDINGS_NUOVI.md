@@ -58,7 +58,7 @@
 - Descrizione: il cron ARQ `data_retention_cleanup` (pre-esistente, untracked in `arq_worker.py`) anonimizza collaboratori e invia una email di report automaticamente ogni domenica alle 03:00, senza AgentRun/AgentSuggestion ne' revisione umana.
 - Impatto: modifica irreversibile di dati personali e invio email fuori dal flusso canonico trigger -> proposta -> approvazione.
 - Mitigazione: in AGENT-01 il job e' stato messo dietro kill switch globale (`agents_enabled()`).
-- Stato: mitigato, non conforme alla spec; conversione a flusso proposta/approvazione da pianificare (A3/spec agenti).
+- Stato: **chiuso il 2026-07-17** — collector puro `data_retention`, cron via `run_agent_workflow`, `AgentSuggestion` pending deduplicata e anonimizzazione solo dopo apply-fix umano con ricontrollo della retention. Nessuna email automatica. Kill switch `AGENT_DATA_RETENTION_ENABLED=false` mantenuto.
 
 ## 2026-07-15 | NEW-007 | /email-inbox/status legge stato in-process: dato stantio cross-process
 
@@ -78,3 +78,22 @@
 - Impatto: baseline suite non più verde (373/374); il fallimento maschera regressioni vere nelle ondate successive.
 - Fix applicato (Wave 1, fuori perimetro ma necessario per i gate): il test abilita esplicitamente i kill switch (`AGENTS_ENABLED=true`, `AGENT_EMAIL_INTAKE_ENABLED=true`) — testa lo store condiviso, non il kill switch; passa sia con l'hunk pre-esistente sia a HEAD pulito.
 - Residuo: gli hunk runtime di `email_inbox_worker.py`/`inbox_status_store.py` restano non committati (adozione da valutare nel filone agenti, non nel filone dominio).
+
+## 2026-07-17 | NEW-009 | Suite rossa da WIP NEW-006 non committato (flusso proposta data_retention)
+
+- Area: piattaforma agenti / igiene worktree
+- Severita stimata: media
+- Emerso durante: ONDATA DOMINIO Wave 1, suite completa di chiusura W1.6
+- Descrizione: file untracked `ai_agents/data_retention.py` e `tests/test_data_retention_proposal.py` (creati 16/07 ~20:55, dopo il commit DOM-21, in altra sessione) implementano a metà il flusso proposta per NEW-006. Effetti: (1) l'agente `data_retention` registrato nel registry rompe `test_agents_system_health.py::test_system_health_shape` (set atteso di 5 agenti, ne trova 6); (2) `test_apply_anonymizes_after_review` fallisce da solo con `sqlite3.OperationalError: no such table: audit_log` (setup del test incompleto). Include anche hunk non committato su `test_agents_registry_workflow.py` (set esteso con data_retention).
+- Impatto: suite completa 418 passed / 2 failed — baseline non verde; i 2 fail mascherano regressioni vere nelle ondate successive.
+- Stato: **chiuso il 2026-07-17** — fixture SQLite completato con `SecurityAuditLog`, health allineato al registry, aggiunto test cron proposal-only/no-email. Gate mirato 28 passed; suite completa 415 passed, 1 skipped, 0 failed.
+
+## 2026-07-17 | NEW-010 | Collegamenti avviso dei piani assenti e metadati discordanti
+
+- Area: archivio avvisi / dominio finanziario / qualità dati
+- Severità stimata: media
+- Emerso durante: ONDATA ARCHIVIO AVVISI, V1 e prova migration 057 su copia
+- Descrizione: nel DB 4 piani su 4 hanno `avviso_pf_id` nullo; alcuni metadati testuali del piano indicano inoltre un fondo diverso dall'avviso collegato direttamente al progetto.
+- Impatto: un backfill dedotto dal progetto o dal testo potrebbe associare al piano regole normative errate.
+- Decisione: la migration 057 valorizza la revisione del piano solo quando `avviso_pf_id` è già presente; non esegue inferenze. Nello stato attuale i piani restano scollegati.
+- Stato: aperto; richiede bonifica con verifica umana, fuori dal perimetro V1.

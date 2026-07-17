@@ -514,3 +514,141 @@ con zero side effect esterni senza approvazione umana, kill switch globale e per
 - I fix diventano attivi a runtime solo dopo `docker compose restart backend arq_worker` (worktree montato come volume) e rebuild immagine frontend per il pannello.
 - Vincoli Ondata 2 invariati: NIENTE push finché la history non è ripulita.
 - Nessun push eseguito.
+
+## 2026-07-16 | ONDATA DOMINIO — WAVE 1 | Avvio "Il conto torna" (integrità del calcolo)
+
+- Contesto: audit dominio finanziario COMPLETO (30 finding: 14 🔴, 8 🟠, 6 🟡, 2 🟢), report in `audit/DOMINIO_FINANZIARIO_REPORT.md`. Verdetto: motore di calcolo corretto ma numeri non stabili — non affidabile per rendicontazione. Wave 1 = integrità del calcolo.
+- Perimetro Wave 1: W1.1 budget lag (DOM-01, DOM-14, DOM-06) · W1.2 regole percentuali (DOM-05, GATE utente) · W1.3 Decimal ovunque (DOM-11) · W1.4 massimali/budget enforcement (DOM-10) · W1.5 vincoli coerenza strutturali (DOM-02, DOM-21, GATE bonifiche) · W1.6 sblocco multiprogetto (DOM-04).
+- Regole di ingaggio: commit atomici `fix(DOM-NN)`, MAI push; test RED→GREEN obbligatorio sui bug di calcolo; suite completa verde a fine punto; migration solo Alembic provate su DB copia; problemi nuovi in `audit/FINDINGS_NUOVI.md`.
+- Backup pre-wave creato e verificato: `/app/backups/gestionale_backup_dominio_wave1_pre_20260716_074447.sql.zip.gpg`, `verify_backup_integrity=True`.
+
+## 2026-07-16 | ONDATA DOMINIO W1.1 | Budget lag e atomicità presenze (DOM-01, DOM-14)
+
+- **Diagnosi DOM-01 (confermata nel codice, come da D4 S1-AUTOFLUSH):** sessione di produzione con `autoflush=False` (database.py); `VocePianoFinanziario.aggiorna_da_presenze` modifica `importo_consuntivo` solo in memoria e la SUM SQL immediatamente successiva di `PianoFinanziario.aggiorna_budget_utilizzato` non vede la modifica non flushata → `budget_utilizzato` sistematicamente indietro dell'ultima presenza. Stesso meccanismo su `update_voce_piano` (setattr + SUM senza flush).
+- **`c34522a` fix(DOM-01):** `db.flush()` esplicito prima delle SUM in `aggiorna_da_presenze` e `aggiorna_budget_utilizzato` (models.py). Copre tutti i chiamanti (presenze, voci manuali, bulk upsert, collega_assegnazione_a_piano).
+- **`cd12859` fix(DOM-14):** create/update/delete presenza in transazione UNICA. Prima: 3-4 commit separati con errori dei ricalcoli degradati a warning (meccanismo di D2 A8). Ora: flush + helper di ricalcolo senza commit (`_recalc_project_progress`, `_recalc_assignment_hours`, `_recalc_voce_e_budget`) + un solo commit; errore = rollback totale, nessun warning-degradation. Wrapper pubblici con commit conservati per i chiamanti esterni (`scripts/recalculate_progress.py`, endpoint ricalcolo voce).
+- **Test RED→GREEN (`tests/test_dom01_budget_lag.py`, 6 test):** riprodotto il numero sbagliato PRIMA del fix (budget_utilizzato=0.00 vs 240.00 atteso dopo la prima presenza; 6 failed su config di sessione identica alla produzione). Dopo: sequenza di presenze con totale esatto dopo OGNUNA, modifica 4h→2h, cancellazione, voce manuale, residuo coerente, atomicità (ricalcolo fallito simulato → presenza NON persistita).
+- **`21a4f30` test(NEW-008):** rottura pre-esistente scoperta dalla suite completa — il "fix runtime pannello inbox" del 15/07 (hunk non committato, post-gate agenti) faceva fallire `test_imap_resilience.py::test_status_endpoint_reads_shared_store` ('disabled' != 'auth_failed'). Non causato da Wave 1. Test corretto (kill switch espliciti nello scenario), censito in `audit/FINDINGS_NUOVI.md` come NEW-008.
+- Staging selettivo: hunk pre-esistente `avviso_pf_id` in `create_piano_finanziario` (crud.py) lasciato fuori dai commit, come da politica worktree.
+- Gate di chiusura W1.1: suite completa in container **374 passed, 0 failed** (374 collected, inclusi i 6 nuovi test DOM-01/14; il totale coincide numericamente con la baseline agenti per variazioni di parametrizzazione nei test pre-esistenti del worktree, verificato: nessun test rimosso).
+- Nessun push (vincolo invariato).
+
+## 2026-07-16 | ONDATA DOMINIO W1.2 | Regole percentuali (DOM-05) — GATE superato
+
+- **GATE W1.2 presentato e confermato dall'utente** ("Proposta come descritta"): le due regole erano MACROVOCE_LIMITS A≤20/B≤50/C≤30 (Formazienda, alert-only nel riepilogo, committata) vs `validate_sezioni_percentuali` A≥70/C≤20/D≤10 (bloccante 422 su create/update/delete voce, hunk PRE-ESISTENTE NON COMMITTATO, validata post-commit). Inconciliabili sulle stesse chiavi macrovoce: A≥70 appartiene a uno schema in cui A=erogazione (pattern FAPI/Fondimpresa), il template del modulo è Formazienda con A=progettazione. Effetto: piani col template standard (docenza in B) immodificabili via API + corruzione da validazione post-commit (D4 S3.4).
+- **Risoluzione implementata:**
+  - Eliminata la regola bloccante A≥70 (hunk mai committato scartato: funzione, import e 3 chiamate router `_validate_percentuali_piano`).
+  - MACROVOCE_LIMITS resta regola Formazienda **alert-only in costruzione piano**; il blocco vero scatterà alla transizione di stato inviato/rendicontato (Wave 2.2, macchina a stati).
+  - Predisposto aggancio per-fondo: `MACROVOCE_LIMITS_BY_FONDO` + `get_macrovoce_limits(tipo_fondo)`; il riepilogo usa i limiti del fondo del piano; fondi non censiti = default Formazienda (nessun cambio di comportamento fino all'estensione tassonomia in Wave 2.3, dove si configureranno le regole FAPI verificate con l'ufficio).
+  - DOM-06 si dissolve per il percorso percentuali (non c'è più blocco post-commit); il massimale pre-esistente `_validate_massimale_voce` resta non committato, sarà adottato/esteso in W1.4.
+- **Test RED→GREEN (`tests/test_dom05_regole_percentuali.py`, 7 test):** RED riproduce D4 S3.4 esatto (`422: Sezione A fuori limite: 0.00% < 70%` su aggiunta voce a piano solo-docenza); GREEN: create/update/delete voce liberi in costruzione, alert `macrovoce_b_over_limit` presente nel riepilogo, lookup per-fondo, regola A≥70 assente.
+- Adottato e ripulito `tests/test_phase_2_4_compliance.py` (file untracked pre-esistente): rimossi i 2 test della regola eliminata, conservati i test validi codice fiscale + llm_privacy.
+- Staging selettivo: hunk `avviso_pf_id` (crud.py) di nuovo lasciato fuori.
+- Nessun push.
+
+## 2026-07-16 | ONDATA DOMINIO W1.3 | Decimal ovunque (DOM-11)
+
+- **`9487f5f` fix(DOM-11):** regola unica ROUND_HALF_UP a 2 decimali centralizzata in `money_utils.py`; catena di calcolo in Decimal (voci, budget, riepilogo, righe effettive, ricalcoli presenze, listini/preventivi); 43 colonne Float→Numeric a modello (importi 12,2 · tariffe 10,2 · ore 6-8,2 · percentuali economiche 5,2; progress/confidence restano Float); `completed_hours` NOT NULL default 0 + guard sulla property.
+- **Migration 054** provata su DB copia `gestionale_w13copy` (dump fresco → restore → upgrade → confronto pre/post riga per riga: **0 differenze inattese, 1 backfill NULL→0 atteso** su assignment 47 → `alembic check` pulito) e poi applicata al DB reale: `alembic current`=054, check pulito, spot check ok (tipo `numeric`, tariffa 1000.00 intatta, completed 0.00). Copia e dump eliminati.
+- Backend e arq_worker riavviati (schema e codice devono combaciare a runtime); health OK, log puliti.
+- I casi di deriva D3 ora tornano al centesimo: 10,5h×33,33 = **349,97** (prima 349,96); 2,675 → 2,68; 0,1×3 = 0,30 esatto. Test RED→GREEN in `tests/test_dom11_decimal.py` (13 test).
+- La suite ha scovato un mix Decimal/float latente in `ListinoVoce.prezzo_finale` + 2 helper prezzi (`calcola_prezzo_finale`, `_calcola_importo_riga`): normalizzati a Decimal con quantizzazione unica (il round(...,4) precedente scriveva comunque su colonne a 2 decimali).
+- Gate di chiusura W1.3: suite completa in container **387 passed, 0 failed**.
+- Nessun push.
+
+## 2026-07-16 | ONDATA DOMINIO W1.4 | Massimali e budget enforcement (DOM-10) — GATE superato
+
+- **GATE W1.4 presentato e confermato** (4 decisioni): tariffa oltre massimale = BLOCCO · tassonomia tipo_fondo estesa subito (formazienda, fapi) · consuntivo oltre budget su presenze = WARNING mai blocco · preventivo oltre budget = BLOCCO.
+- **`297078c` fix(DOM-10):** massimale su assignment create/update (categoria derivata dal ruolo, blocco pre-commit con messaggio); tassonomia estesa (prerequisito: prima 4/4 piani 'altro' → lookup mai match); blocco preventivo>budget su voci e assignment (`_check_budget_preventivo_piano`, budget 0 = non configurato); warning `X-Budget-Warning` + alert danger `budget_superato` nel riepilogo per consuntivo oltre budget; report `GET /piani-finanziari/violazioni-massimali` (violazioni + non verificabili). Adottati hunk pre-esistenti verificati: tetto ore voce (attendances, provato D4 S3.1) e `_validate_massimale_voce` (piani). ValueError su update assignment ora 400 invece di 500.
+- **Test RED→GREEN** (`tests/test_dom10_massimali_budget.py`, 12 test): 900 €/h prima accettati (D4 S3.6) ora bloccati; dato legacy 1000 €/h censito dal report.
+- Nota: i massimali mordono solo dove esiste la riga in `massimali_fondo` (oggi: fondimpresa 2024). Valori Formazienda/FAPI da inserire quando forniti dall'ufficio; la bonifica `tipo_fondo` dei piani esistenti (B4) passa dal GATE W1.5.
+- Gate di chiusura W1.4: suite completa in container **399 passed, 0 failed**.
+- Nessun push.
+
+## 2026-07-17 | ONDATA DOMINIO W1.6 | Sblocco multiprogetto (DOM-04) — CHIUSA
+
+- **`f51c96d` fix(DOM-04):** rimosso `check_assignment_overlap` (veto di periodo cross-progetto) e i due blocchi in `create_assignment`/`update_assignment`. Il flusso d'ufficio D4-S4 (stesso docente su 2 progetti/fondi nello stesso mese) ora è possibile. Restano: veto cross-ente (`_validate_assignment_date_overlap_by_ente`, pre-esistente, fuori perimetro DOM-04), anti-overlap ORARIO presenze (`check_attendance_overlap` + constraint DB 055).
+- Test: nuovo `test_dom04_multiprogetto.py` (overlap consentito su create/update stesso ente, cross-ente ancora bloccato); `test_assignment_overlap.py` riscritto (via i test del veto rimosso, restano stesso-progetto e range presenza).
+- **Punto aperto per GATE FINALE**: il veto cross-ente blocca ancora un docente su progetti di enti attuatori diversi con periodi sovrapposti (dati reali: Next Group srl 3 progetti, PIEMMEI SCARL 2). Regola committata da aprile, non segnalata dall'audit — decisione dominio da confermare al gate.
+- Gate di chiusura W1.6: suite completa in container **418 passed, 2 failed, 1 skipped** — i 2 fail NON riguardano il dominio: sono WIP NEW-006 non committato (vedi NEW-009 in `audit/FINDINGS_NUOVI.md`). Perimetro dominio verde.
+- **NEW-009 censito**: file untracked `ai_agents/data_retention.py` + `tests/test_data_retention_proposal.py` (creati 16/07 sera, dopo il commit DOM-21, altra sessione — flusso proposta NEW-006 a metà): l'agente `data_retention` registrato nel registry rompe `test_agents_system_health.py::test_system_health_shape` (atteso set di 5 agenti); `test_apply_anonymizes_after_review` fallisce da solo (`sqlite3.OperationalError: no such table: audit_log`, setup test incompleto). Hunk `test_agents_registry_workflow.py` (set con data_retention) fa parte dello stesso WIP. Non toccato.
+- Nessun push.
+
+## 2026-07-16 | ONDATA DOMINIO W1.5 | Vincoli strutturali (DOM-02, DOM-21) — CHIUSA
+
+- **`338cd63` fix(DOM-02):** vincoli applicativi in crud: V1 presenza ⊂ date progetto + date obbligatorie, V2 blocco presenze su progetto non-active, V4 guard `assigned_hours ≥ completed_hours` + ricalcolo `ore_totali` da CRUD assignment (DOM-19). Test RED/GREEN `test_dom02_vincoli_strutturali.py`.
+- **`3f35a34` fix(DOM-21):** migration 055 `CREATE EXTENSION btree_gist` + `EXCLUDE USING gist (collaborator_id WITH =, tsrange(start_time,end_time) WITH &&)` su attendances + `test_dom21_attendance_exclusion_pg.py` (PG-only). Applicata al DB reale: `alembic current` = 055 (head), constraint `excl_attendances_collaborator_time_overlap` verificato via `pg_constraint`.
+- Suite di chiusura verificata insieme a W1.6 (vedi sopra).
+
+## 2026-07-16 | ONDATA DOMINIO W1.5 | Bonifiche — GATE superato ed eseguite
+
+- **GATE W1.5 bonifiche presentato e confermato dall'utente** (4 decisioni): progetto 1 date estese 2025-10-01→2026-04-30 · presenze 1-2 collegate ad assignment 1 · assignment 46 corretta assigned_hours=20 · batch B1/B2/B4/B5 + date piani tutte approvate.
+- **Bonifica ESEGUITA**: backup pre-bonifica verificato (`gestionale_backup_dominio_w15_pre_bonifica_20260716_135756.sql.zip.gpg`); script provato su copia `gestionale_w15copy` (censimento post: tutti 0) e applicato al DB reale; ricalcoli applicativi (voci/budget assignment 1 e 46, progress progetti 1 e 11, budget piani). Censimento post su DB reale: **0 violazioni su tutte le classi** (A4, A1, A7, tipo_fondo altro, ore stale). Script conservato in `scripts/bonifiche/2026-07-16_w15_bonifica.sql`. Copia e dump eliminati.
+- **RESTA DA FARE (W1.5 codice)**: V1 vincolo presenza ⊂ date progetto + date obbligatorie (app, in crud create/update attendance) · V2 blocco presenze su progetto non-active · V3 già esistente (blocco residuo ore, confermato) · V4 guard `assigned_hours ≥ completed_hours` su update assignment + ricalcolo `ore_totali` progetto anche da CRUD assignment (DOM-19) · V5 migration 055 `CREATE EXTENSION btree_gist` + `EXCLUDE USING gist (collaborator_id WITH =, tsrange(start_time,end_time) WITH &&)` su attendances (0 overlap esistenti, provata su copia prima del reale) + test concorrenza PG-only · test RED/GREEN `test_dom02_vincoli_strutturali.py` · suite completa · commit `fix(DOM-02)`/`fix(DOM-21)`.
+- Poi: W1.6 sblocco multiprogetto (DOM-04) e GATE FINALE Wave 1 (scenari D4 1/3/4 su DB copia, query D2, alembic check, dichiarazione).
+- Nessun push.
+
+## 2026-07-15 | ATTIVAZIONE RUNTIME AGENTI APPROVATA
+
+- Conformita approvata dall utente e runtime attivato.
+- Pre-restart: creato backup DB verificato `gestionale_backup_agent_activation_20260715_20260715_125425.sql.zip.gpg` con `verify_backup_integrity=True`.
+- `.env`: `AGENTS_ENABLED=true`; attivi `data_quality`, `mail_recovery`, `contract_agent`, `certification`; disattivi `AGENT_EMAIL_INTAKE_ENABLED=false` e `AGENT_DATA_RETENTION_ENABLED=false`; `ENABLE_WHATSAPP=false`. NEW-006 resta pianificato per Ondata 3 GDPR punto 3.3, mitigato dal kill switch retention.
+- `docker-compose.yml`: esportati i kill switch agenti a backend e arq_worker; aggiunti `SECRET_KEY/JWT_SECRET_KEY` ad arq_worker per l import `auth`; `HOME=/tmp` per evitare errore Gunicorn control socket; `AUTO_BACKUP_ENABLED=false` nel solo backend web process, con `backup_scheduler` separato ancora attivo.
+- Restart eseguiti: `docker compose restart backend arq_worker`, rebuild frontend (`main.bf731227.js`, warning ESLint preesistente su HomeCockpit), recreate frontend, poi recreate backend/arq_worker dopo allineamento env.
+- Fix runtime pannello inbox: se `email_intake` e disabilitato, `/agents/system-health` e `/email-inbox/status` mostrano `Inbox: disconnessa -- Agente email_intake disabilitato da AGENT_EMAIL_INTAKE_ENABLED=false` invece di `unknown`/errore generico.
+- Verifiche post-restart: `/health` OK; backend, arq_worker, frontend, backup_scheduler healthy; ARQ cron registrati (`contract_agent` ogni 2h, `certification` 09:00 daily, email_intake/data_retention registrati ma skipped via kill switch); system-health popolato con agenti e inbox disconnessa; LLM Ollama raggiungibile; Redis ARQ reachable queue_depth=0.
+- RBAC runtime verificato con utenti temporanei poi rimossi: login admin/operatore/consultazione OK; operatore non esegue agenti (`POST /agents/run` -> 403); admin esegue `data_quality` su collaboratore test id 33 (`run_id=557`, completed, 28 suggestions); operatore vede suggestion e ne revisiona una (`suggestion 625` deferred); resta una suggestion pendente visibile in review (`suggestion 624`).
+- Log finali: backend senza ERROR/Traceback nel tail post-fix; ARQ senza Traceback e cron avviati; warning residui `performance_monitor non disponibile` preesistenti/non bloccanti.
+- Nessun push eseguito.
+
+## 2026-07-17 | NEW-006 chiuso — data retention solo su proposta revisionata
+
+- data_retention_cleanup non anonimizza e non invia email: esegue il collector puro tramite run_agent_workflow e crea proposte pending deduplicate.
+- L apply-fix umano ricontrolla nel DB che la retention sia ancora soddisfatta e solo allora invoca l anonimizzazione GDPR con audit.
+- AGENT_DATA_RETENTION_ENABLED=false resta invariato e il runtime non e stato attivato.
+- Gate mirato: 28 passed. Suite backend completa: 415 passed, 1 skipped, 0 failed.
+- NEW-006 e NEW-009 chiusi. Nessun push eseguito.
+# 2026-07-17 — Wave 2.1 timesheet snapshot immutabile CHIUSA
+
+- Implementato snapshot persistente per versione (`timesheet_righe`, totali e conteggio), generazione auditata con utente autenticato e ricostruzione PDF mancante esclusivamente dallo snapshot.
+- Rigenerazione vietata con HTTP 409 mentre la versione è bloccata; unlock riservato ad admin/operatore con motivo obbligatorio e attore derivato dal token. Update/delete delle presenze incluse restano bloccati fino all'unlock.
+- Frontend aggiornato: rimosso username `admin` hardcoded e richiesta motivazione prima dello sblocco.
+- Migration 056 provata su copia `gestionale_w21copy` e poi applicata al reale dopo conferma utente. Backfill legacy: 2 versioni, 3 righe e 24 ore ciascuna; mismatch righe/totali/conteggi = 0. Copia e dump temporanei rimossi.
+- Backup pre-migration verificato: `/app/backups/gestionale_backup_timesheet_w21_pre_20260717_091129.sql.zip.gpg` (`verify_backup_integrity=True`).
+- Gate finale: Alembic `056 (head)` e check senza drift; 8 test W2.1 passati; suite completa post-migration 423 passed, 1 skipped, 0 failed; build e deploy frontend OK; backend/frontend healthy, `/health` e frontend HTTP 200.
+- Riserva non correlata già presente nei log: il record test `codex.runtime.test.20260715@example.invalid` non supera la validazione EmailStr e può causare ResponseValidationError su `GET /api/v1/collaborators/`. Nessuna bonifica dati eseguita in questa Wave.
+- Nessun push.
+
+---
+# 2026-07-17 — ONDATA ARCHIVIO AVVISI | V1 design gate
+
+## Stato allo stop richiesto dall'utente
+- Migration 057 applicata al reale: head e Alembic check puliti; invarianti backfill senza mismatch.
+- Runtime backend/worker healthy e test V1 post-migration 11 passed.
+- Suite completa post-migration interrotta su richiesta circa al 58%, senza failure fino a quel punto; da rieseguire integralmente per chiudere il gate V1.
+- Nessun push.
+
+## V1 implementata dopo approvazione del GATE
+- Modello versionato completo, schemi e CRUD con separazione proposta/validazione umana e provenienza verificabile.
+- Migration 057 provata su copia con upgrade/downgrade/re-upgrade; DB reale non modificato.
+- Backfill copia: 6 avvisi/revisioni e 4 progetti; 0 piani, senza inferenze per la discordanza censita come NEW-010.
+- Gate: 11 test V1; suite completa **434 passed, 1 skipped**.
+- Backup verificato: `/app/backups/gestionale_backup_archivio_avvisi_v1_pre_20260717_094933.sql.zip.gpg`.
+- Pendente autorizzazione esplicita per la 057 reale. Nessun push.
+
+- Letti stato e remediation; svolta analisi read-only del modello esistente con prospettive architettura, dominio fondi e QA.
+- Confermato che `avvisi`, `projects.avviso_id` e `piani_finanziari.avviso_pf_id` esistono già e vanno evoluti in modo additivo.
+- Rilevato che il vero `PianoFinanziarioTemplate` non esiste più (rimosso dalla migration 043) e che non esiste una Agenda generica; nessuna inferenza distruttiva o falsa integrazione effettuata.
+- Definito modello proposto basato su identità Avviso stabile, revisioni immutabili, provenienza puntuale, regole/scadenze revisionate, conoscenza ed esiti normalizzati, applicazione umana atomica via flusso AgentRun/AgentSuggestion.
+- Nessuna migration, modifica applicativa, commit o push eseguiti prima del GATE V1.
+
+## 2026-07-17 | ONDATA ARCHIVIO AVVISI | V1 CHIUSA — gate post-migration completato
+
+- Suite completa post-migration rieseguita integralmente: **434 passed, 1 skipped, 0 failed** (435 raccolti, 5m36s), identica alla baseline pre-migration 434 passed / 1 skipped.
+- Verifiche runtime su finestra post-riavvio: Alembic `057 (head)`, nessun drift; backend, arq_worker, frontend, db, redis tutti healthy; `/healthz` HTTP 200; log ARQ senza errori.
+- Unico errore nei log backend: riserva nota non correlata a V1 — il record test `codex.runtime.test.20260715@example.invalid` provoca ResponseValidationError su `GET /api/v1/collaborators/` (~828 errori/ora per polling frontend). Bonifica dati NON eseguita: richiede gate utente.
+- NEW-010 resta aperto: 0 piani collegati ad avviso, nessun intervento automatico sui piani (bonifica umana).
+- Commit V1: `440cee4 feat(AVVISI-01): introduce modello dati archivio versionato`.
+- **V1 dichiarata CHIUSA.** Prossimo punto: V2 pipeline di ingestione, previa autorizzazione. Nessun push.
+
+---

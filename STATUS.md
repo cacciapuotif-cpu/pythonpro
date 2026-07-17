@@ -1,5 +1,152 @@
+# SESSIONE 2026-07-17 — Wave 2.1 CHIUSA e attivata (Codex)
+
+## Esito finale
+- Conferma utente ricevuta; migration `056` applicata al database reale. Alembic `056 (head)`, check senza drift.
+- Backfill reale verificato: 2 timesheet legacy, ciascuno con 3 righe/24 ore; mismatch righe, conteggi e totali = 0.
+- Suite completa post-migration: 423 passed, 1 skipped, 0 failed.
+- Backend riavviato; frontend ricostruito e ricreato (`main.4d2bcd59.js`). Backend/frontend healthy; `/health` OK e frontend HTTP 200.
+- REMEDIATION_LOG aggiornato. Nessun push.
+- Pendente separato emerso dai log: collaboratore test con email `codex.runtime.test.20260715@example.invalid` causa ResponseValidationError su lista collaboratori. Non bonificato perché fuori scope; richiede autorizzazione a correggere/rimuovere il dato test.
+
+---
+
+# SESSIONE 2026-07-17 — Wave 2.1 CODICE VERDE; migration 056 pronta, NON applicata (Codex)
+
+## Completato e verificato
+- Implementato timesheet snapshot persistente: ogni nuova versione salva `TimesheetRiga`, `totale_ore`, `presenze_count` e attore autenticato nella stessa transazione DB.
+- Timesheet bloccato: download serve il PDF persistito; se manca lo ricostruisce dalle righe snapshot; `rigenera=true` restituisce 409. Dopo unlock il download crea una nuova versione senza mutare la precedente.
+- Unlock: solo admin/operatore, motivo obbligatorio nel body, username/user_id derivati dal token; rimosso `admin` hardcoded dal frontend e aggiunta richiesta motivo.
+- Update/delete delle presenze incluse in qualunque timesheet bloccato sono vietati; dopo unlock tornano consentiti. Nuove presenze non incluse restano creabili.
+- Migration `056_timesheet_snapshot.py` completata. Include backfill dei timesheet legacy usando le presenze correnti dell'assignment al momento dell'upgrade, con calcolo righe/totali.
+- Aggiunti 8 test Wave 2.1: snapshot/totali/attore, 409 rigenera, unlock motivo+RBAC, blocco update/delete, modifica dopo unlock e nuova versione, rebuild PDF da snapshot, nuova presenza consentita.
+- Gate: py_compile OK; test W2.1 8 passed; suite dominio 48 raccolti senza errori; suite backend completa 423 passed, 1 skipped, 0 failed; frontend build OK (solo warning HomeCockpit preesistente).
+- Backup fresco verificato: `/app/backups/gestionale_backup_timesheet_w21_pre_20260717_091129.sql.zip.gpg` (`verify_backup_integrity=True`).
+- Prova migration su copia `gestionale_w21copy`: upgrade 055->056 OK; `alembic check` pulito; 2 timesheet legacy backfillati, 3 righe/24 ore ciascuno, mismatch totali/conteggi zero; blocco presenza verificato. Copia e dump temporanei eliminati.
+
+## Gate pendente
+- Database reale ancora a `055`; migration `056` NON applicata e nessun restart eseguito.
+- Serve conferma esplicita prima dell'upgrade reale perché il backfill legacy è una trasformazione dati: per i PDF storici congela lo stato corrente delle presenze dell'assignment (i PDF non sono strutturati e non consentono di ricostruire con certezza lo stato originale).
+- Dopo conferma: applicare 056 al reale, verificare backfill/mismatch, alembic check, suite completa, health/log; quindi aggiornare REMEDIATION_LOG e STATUS. Nessun push.
+
+---
+
+# SESSIONE 2026-07-17 — STOP richiesto; Wave 2.1 PARZIALE NON VERIFICATA (Codex)
+
+## Risultati completati e verificati
+- NEW-006 chiuso: data retention solo collector/proposta pending, apply umano con ricontrollo, nessuna email o anonimizzazione automatica. AGENT_DATA_RETENTION_ENABLED=false invariato.
+- Gate NEW-006: 28 passed; suite backend completa 415 passed, 1 skipped, 0 failed. FINDINGS_NUOVI e REMEDIATION_LOG aggiornati; nessun push.
+- Gate finale Wave 1 dominio completato. Backup verificato: /app/backups/gestionale_backup_dominio_w1_final_pre_20260717_065400.sql.zip.gpg.
+- Bonifica approvata assignment 47 provata su copia gestionale_w1finalcopy e applicata al reale: date ristrette a 2026-04-06..2026-12-23, completed_hours=0 verificato. Copia e dump temporanei rimossi.
+- Veto assignment cross-ente rimosso su conferma utente; resta anti-overlap ORARIO delle presenze e constraint PostgreSQL 055. Test mirati: 16 passed, 1 skipped.
+- Gate finale dopo modifiche: suite 415 passed, 1 skipped, 0 failed; 8 controlli D2 tutti a zero; Alembic 055 head e check senza drift. Wave 1 tecnicamente CHIUSA.
+
+## Wave 2.1 avviata ma NON completata / NON verificata
+Obiettivo: timesheet snapshot persistente e immutabile; rigenerazione solo dopo unlock autenticato con motivo; presenze incluse non modificabili finche il timesheet e bloccato.
+
+### Modifiche parziali gia presenti nel worktree
+- backend/models.py: aggiunti campi snapshot/audit a TimesheetGenerato e nuovo modello TimesheetRiga. Modifica non ancora verificata.
+- backend/alembic/versions/056_timesheet_snapshot.py: file creato con migration 056, ma la migration NON e stata eseguita ne provata; controllare integralmente contenuto e sintassi prima di usarla.
+- backend/crud.py: aggiunto helper _ensure_attendance_not_in_locked_timesheet e chiamate su update/delete attendance. Non ancora testato; delete contiene due if db_attendance consecutivi da ripulire.
+- backend/routers/timesheet.py: iniziati import TimesheetRiga/auth/Decimal e firma _build_timesheet_pdf con presenze opzionali. Modifica incompleta: endpoint generation/unlock, persistenza righe/totali, autenticazione/motivo e fallback PDF da snapshot NON sono ancora implementati.
+- frontend/src/components/TimesheetPDF.js: NON modificato; usa ancora sbloccato_da=admin hardcoded e deve chiedere/inviare motivo.
+- Nessun test W2.1 aggiunto. Nessuna migration applicata. Nessun restart.
+
+## Istruzioni precise di ripresa
+1. NON applicare migration 056 subito. Leggere e revisionare i diff dei quattro file W2.1 sopra; correggere prima eventuali errori sintattici/strutturali.
+2. Completare backend: salvataggio TimesheetRiga + totale_ore/presenze_count nella stessa transazione; GET bloccato serve PDF/snapshot esistente e rigenera=true deve dare 409 finche non avviene unlock; unlock usa utente autenticato, ruolo admin/operatore e motivo obbligatorio; rigenerazione crea una nuova versione.
+3. Mantenere immutabili le presenze incluse finche esiste una TimesheetGenerato bloccata; dopo unlock update/delete tornano consentiti. Verificare create attendance: nuove presenze non incluse possono essere aggiunte senza mutare lo snapshot esistente.
+4. Aggiungere test RED/GREEN dedicati almeno per: snapshot righe/totali; rigenera bloccato; unlock autenticato+motivo; update/delete presenza bloccati; modifica consentita dopo unlock; PDF ricostruito da snapshot se file manca.
+5. Aggiornare frontend TimesheetPDF: prompt/modale motivo, nessun username client hardcoded; backend deriva username/user_id dal token.
+6. Gate pre-migration: py_compile con PYTHONPYCACHEPREFIX=/tmp, test W2.1 mirati e suite dominio.
+7. Solo a gate codice verde: backup DB fresco, dump/copia temporanea, upgrade 055->056 sulla copia, alembic check e test dati; poi chiedere/confermare prima di applicare 056 al reale se emergono trasformazioni non banali.
+8. Dopo eventuale applicazione reale: suite completa, health/log, REMEDIATION_LOG e STATUS. Nessun push finche history non ripulita.
+
+## Vincoli invariati
+- Worktree molto sporco con modifiche preesistenti: preservarle e fare staging selettivo solo se richiesto.
+- Mai push. Non attivare AGENT_DATA_RETENTION_ENABLED.
+
+---
+
+# SESSIONE 2026-07-17 — NEW-006 CHIUSO; Gate finale Wave 1 IN CORSO (Codex)
+
+## Fatto
+- Completato fixture retention con SecurityAuditLog, allineato system-health al registry e aggiunto test cron proposal-only/no-email.
+- Rimossi import inutilizzati dal worker retention. Nessuna email o anonimizzazione automatica; kill switch retention resta false.
+- Gate mirato: 28 passed. Suite backend completa: 415 passed, 1 skipped, 0 failed.
+- NEW-006 e NEW-009 chiusi in FINDINGS_NUOVI; REMEDIATION_LOG aggiornato. Nessun push e nessuna attivazione runtime retention.
+- Avviata fase successiva, gate finale Wave 1 dominio: Alembic 055 head, check pulito; controlli D2 read-only con 7 classi su 8 a zero.
+- Anomalia residua: assignment 47 attivo, progetto 5 poppi, periodo assignment 2026-01-01..2026-12-31 fuori dal progetto 2026-04-06..2026-12-23.
+
+## Pendenti / gate utente
+- Decidere la bonifica date di assignment 47 oppure delle date progetto 5; non modificare dati reali senza approvazione.
+- Decidere se mantenere o rimuovere il veto cross-ente su assignment sovrapposti; il veto cross-progetto stesso ente e gia rimosso.
+- Dopo le decisioni: backup, prova bonifica su copia, applicazione approvata, rerun D2, scenari finali Wave 1 e dichiarazione; poi avvio Wave 2.
+
+---
+
+# SESSIONE 2026-07-16 — NEW-006 conversione data retention a proposta (IN CORSO, Codex)
+
+## Obiettivo
+- Convertire `data_retention_cleanup` da anonimizzazione + email automatiche a flusso canonico: collector puro -> AgentRun/AgentSuggestion pending -> approvazione/apply-fix umano -> anonimizzazione.
+
+## Fatto
+- Letti STATUS PythonPro e STATUS obbligatorio Yellow Lion; percorso attivo `/DATA/progetti/pythonpro`.
+- Preservato worktree preesistente molto sporco; nessun push e nessun commit.
+- Creato `backend/ai_agents/data_retention.py`: collector puro dei collaboratori con ultimo Assignment oltre 5*365 giorni; non scrive dati e non invia email; produce payload `data_retention_anonymization`.
+- Registrato `data_retention` nel registry dichiarativo agenti con kill switch `AGENT_DATA_RETENTION_ENABLED`, trigger manuale/cron e supporto collaborator.
+- Esteso `run_agent_workflow` per persistere `auto_fix_available` e `auto_fix_payload` dai collector; deduplica open suggestion già esistente riutilizzata.
+- Convertito `arq_worker.data_retention_cleanup`: usa `run_agent_workflow(... auto_mode=True)`, ritorna `anonymized=0`, non chiama più `anonymize_collaborator` e non invia report email.
+- Creato `backend/services/suggestion_apply.py`: dispatcher tra field diff esistente e retention; prima di anonimizzare ricontrolla nel DB che retention sia ancora soddisfatta, quindi usa `gdpr_service.anonymize_collaborator` con audit.
+- Collegato endpoint agents apply-fix al nuovo dispatcher.
+- Creato `backend/tests/test_data_retention_proposal.py`: proposta senza side effect + dedup, apply umano, ricontrollo contro Assignment recente.
+- Aggiornata aspettativa registry in `test_agents_registry_workflow.py`.
+- Sintassi Python dei file applicativi verificata con `python3 -m py_compile`: OK.
+- Gate mirato container: 24 test raccolti; 23 passano, 1 fallisce solo per fixture test incompleta (`no such table: audit_log`). La logica applicativa arriva correttamente a `gdpr_service.write_audit_log`; il fixture crea `models.AuditLog` ma deve creare anche `models.SecurityAuditLog`.
+
+## Pendenti immediati
+1. In `backend/tests/test_data_retention_proposal.py`, aggiungere `models.SecurityAuditLog.__table__` alla lista `Base.metadata.create_all(...)` (mantenere o rimuovere `models.AuditLog` secondo necessità).
+2. Rieseguire gate mirato container: `docker compose exec -T backend pytest tests/test_data_retention_proposal.py tests/test_agents_registry_workflow.py tests/test_agent_kill_switch.py -q`.
+3. Aggiungere/controllare test esplicito del cron con retention abilitata: crea suggestion, `anonymized=0`, nessuna `_send_email`; il test kill-switch disabilitato già passa.
+4. Eseguire test endpoint apply-fix o suite agenti completa, poi suite completa backend.
+5. Revisionare `git diff` con attenzione: verificare formattazione, import ora inutilizzati in `arq_worker.py` (`os`, `timedelta`, `_send_email`, `agents_enabled`) e rimuoverli solo se davvero non usati altrove nel file.
+6. Aggiornare `audit/FINDINGS_NUOVI.md` NEW-006 da mitigato a chiuso e `REMEDIATION_LOG.md` con test/gate finali.
+7. Valutare attivazione runtime solo dopo gate verde; mantenere `AGENT_DATA_RETENTION_ENABLED=false` finché non approvato esplicitamente. Nessun push finché history non ripulita (Ondata 2).
+
+## Prompt di ripresa
+Riprendi NEW-006 in `/DATA/progetti/pythonpro` senza riesplorare il repository. Leggi questo blocco STATUS. Correggi prima il fixture `backend/tests/test_data_retention_proposal.py` aggiungendo `models.SecurityAuditLog.__table__`; riesegui il gate mirato nel container. Poi aggiungi il test cron proposal-only/no-email, controlla e pulisci gli import inutilizzati, esegui suite agenti e suite backend completa. Se tutto verde, aggiorna FINDINGS_NUOVI e REMEDIATION_LOG dichiarando NEW-006 chiuso. Non fare push, non attivare `AGENT_DATA_RETENTION_ENABLED`, preserva tutte le modifiche preesistenti del worktree.
+
+---
+
 # PythonPro — Status & Development Context
 _Ultimo aggiornamento: 2026-07-15_
+
+---
+## SESSIONE 2026-07-15 -- Attivazione runtime agenti approvata (Codex)
+
+### Fatto
+- Eseguita attivazione runtime dopo conformita approvata: backup DB fresco verificato, kill switch agenti allineati, restart backend/arq_worker, rebuild e recreate frontend.
+- Backup verificato: `gestionale_backup_agent_activation_20260715_20260715_125425.sql.zip.gpg` con integrita `True`.
+- Runtime: `AGENTS_ENABLED=true`; `data_quality`, `mail_recovery`, `contract_agent`, `certification` attivi; `AGENT_EMAIL_INTAKE_ENABLED=false`; `AGENT_DATA_RETENTION_ENABLED=false`; `ENABLE_WHATSAPP=false`.
+- `docker-compose.yml` aggiornato per passare kill switch a backend/arq_worker, secret JWT ad ARQ, `HOME=/tmp`; backend web process con `AUTO_BACKUP_ENABLED=false`, backup affidati al servizio `backup_scheduler` che resta attivo.
+- Fix stato inbox: con `email_intake` disabilitato il pannello mostra `Inbox: disconnessa -- Agente email_intake disabilitato da AGENT_EMAIL_INTAKE_ENABLED=false`, non stato sconosciuto.
+- Verifica post-restart: `/health` OK; backend/arq_worker/frontend/backup_scheduler healthy; system-health popolato; ARQ cron caricati per contract/certification; log finali senza ERROR/Traceback; frontend rebuilt (`main.bf731227.js`, warning HomeCockpit preesistente).
+- RBAC runtime verificato con utenti temporanei poi rimossi: admin esegue `data_quality`, operatore non esegue ma revisiona, consultazione legge. Collaboratore test id 33, run data_quality id 557 completed, suggestion 625 revisionata, suggestion 624 resta pending visibile.
+- Esito registrato in `REMEDIATION_LOG.md`. Nessun push.
+
+### Pendenti
+- NEW-006 conversione `data_retention_cleanup` a proposta confermata ma rinviata a Ondata 3 GDPR punto 3.3; per ora kill switch retention disattivo (`AGENT_DATA_RETENTION_ENABLED=false`).
+- Vincolo invariato: MAI push finche la history non viene ripulita (Ondata 2).
+
+---
+## SESSIONE 2026-07-15 -- Apertura contesto PythonPro (Codex)
+
+### Fatto
+- Letto lo stato obbligatorio Yellow Lion da `/DATA/AppData/big-bear-openclaw/workspace/skills/smc-trading/STATUS.md`.
+- Confermato percorso attivo PythonPro: `/DATA/progetti/pythonpro`.
+- Letto `STATUS.md` PythonPro; nessuna esplorazione completa della cartella e nessuna modifica applicativa.
+
+### Pendenti
+- Restano validi i pendenti registrati nella sessione agenti: attivazione runtime con restart backend/arq_worker + rebuild frontend, NEW-006 da pianificare, e divieto di push finche' la history non viene ripulita.
 
 ---
 ## SESSIONE 2026-07-15 -- ONDATA AGENTI A1.4: intake documenti solo per proposta (Claude)
@@ -6370,3 +6517,49 @@ Migration Alembic `015_add_collaborator_fk_to_voci_piano.py`.
 - Da fuori ufficio collegarsi prima a Tailscale con lo stesso account.
 - Aprire `http://100.112.10.69:3001/`.
 - Login admin: `admin` / `[REDACTED-password-storica-ruotata]`.
+# ONDATA ARCHIVIO AVVISI — GATE V1 modello dati (2026-07-17, Codex)
+
+## Stop richiesto dall'utente — stato esatto post-migration 057
+- Migration 057 applicata al DB reale dopo approvazione: `057 (head)`; `alembic check` senza drift.
+- Invarianti reali: 6 avvisi, 6 revisioni, 4 progetti con avviso e revisione, 0 mismatch; 0 piani collegati per scelta prudenziale documentata in NEW-010.
+- Backend e ARQ worker riavviati: entrambi healthy; `/health` risponde `status=ok`.
+- Test V1 post-migration: **11 passed**.
+- Suite completa post-migration avviata (435 raccolti) e interrotta su richiesta utente circa al 58%; nessun fallimento osservato fino all'interruzione. L'ultimo gate completo precedente alla migration resta **434 passed, 1 skipped**.
+- Commit V1: `440cee4 feat(AVVISI-01): introduce modello dati archivio versionato`; nessun push.
+- Residuo immediato V1: rieseguire integralmente la suite post-migration, controllare log finali limitati alla finestra di riavvio, aggiornare REMEDIATION_LOG con chiusura V1 e dichiarare il gate concluso.
+- Dopo V1, se autorizzato: avviare V2 pipeline ingestione; V3 richiede gate architetturale ricerca; poi V4 advisor e V5 ingestione dei quattro avvisi reali.
+
+## Chiusura gate V1 (2026-07-17, Claude)
+- Suite completa post-migration rieseguita integralmente: **434 passed, 1 skipped, 0 failed** (435 raccolti, 5m36s), identica alla baseline pre-migration.
+- Alembic `057 (head)` senza drift; backend, arq_worker, frontend, db, redis healthy; `/healthz` HTTP 200.
+- Log finestra post-riavvio: ARQ pulito; unico errore backend è la riserva nota non correlata (record `codex.runtime.test.20260715@example.invalid` → ResponseValidationError su `GET /api/v1/collaborators/`, ~828 errori/ora per polling frontend). Bonifica dati rimandata a decisione utente.
+- NEW-010 invariato: 0 piani collegati, nessun intervento automatico.
+- **V1 dichiarata CHIUSA.** Prossimo punto: V2 pipeline di ingestione (su autorizzazione). Nessun push.
+
+## Aggiornamento post-approvazione
+- GATE approvato e V1 implementato nel worktree; database reale ancora alla migration 056.
+- Modelli, schemi Pydantic e CRUD coprono identità avviso, revisioni immutabili, regole, scadenze, documenti, conoscenza ed esiti; progetti e piani possono fissare la revisione esatta.
+- Stati proposta/validazione con revisore umano obbligatorio; le query operative espongono solo elementi validati.
+- Migration 057 additiva: sulla copia backfill deterministico di 6 avvisi/revisioni e 4 progetti già collegati; nessuna inferenza sui piani.
+- Test mirati: 11 passed. Suite completa: **434 passed, 1 skipped, 0 failed**.
+- Backup verificato: `/app/backups/gestionale_backup_archivio_avvisi_v1_pre_20260717_094933.sql.zip.gpg`.
+- Prova su copia: upgrade 056→057, downgrade 057→056 e re-upgrade riusciti; `alembic check`, invarianti, JSONB, vincoli, FK e indici puliti.
+- NEW-010: 0/4 piani hanno avviso collegato e alcuni metadati sono discordanti; lasciati nulli per evitare associazioni normative errate.
+- Pendente: conferma esplicita prima della migration 057 reale; poi invarianti/runtime e chiusura V1. Mai push.
+
+## Stato
+- Avviata l'ondata in modalità progettazione controllata; nessuna migration o modifica applicativa eseguita.
+- Completata analisi V1 con ruoli architettura, dominio fondi interprofessionali e QA/migrazione.
+- Proposta al GATE: mantenere `avvisi` come identità logica stabile; introdurre revisioni immutabili e legare regole/scadenze/fonti alla revisione esatta; mantenere `projects.avviso_id` e `piani_finanziari.avviso_pf_id` come collegamenti esistenti, aggiungendo il riferimento alla revisione applicata per audit.
+- Vincolo agenti confermato: prima dell'approvazione la fonte canonica è AgentRun/AgentSuggestion; solo apply umano autenticato e transazionale materializza regole validate. Nessuna regola proposta entra nelle query operative.
+
+## Discrepanze repo rilevate
+- Non esiste più `PianoFinanziarioTemplate`: le tabelle strutturali furono eliminate dalla migration 043. `ContractTemplate` con ambito `piano_finanziario` è un template documentale HTML, non un template finanziario strutturale.
+- Non esiste un'entità Agenda/scadenzario generica; `Notifica` e il calendario presenze non sono sostituti corretti.
+- L'attuale relazione `Avviso.piani_finanziari` usa `legacy_avviso_id` view-only; il collegamento reale è `PianoFinanziario.avviso_pf_id`.
+
+## Pendente
+- Attendere approvazione/decisione utente al GATE V1, in particolare sull'interpretazione dei template finanziari e sulla modellazione futura dell'Agenda.
+- Solo dopo il GATE: implementazione V1 con commit atomico `feat(AVVISI-01): ...`, test mirati e suite completa; migration Alembic successiva a 056 provata su copia prima del reale. Mai push.
+
+---
