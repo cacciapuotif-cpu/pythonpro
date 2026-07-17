@@ -60,8 +60,12 @@ def verify_portal_token(token: str, *, now: int | None = None) -> PortalTokenCla
         raise InvalidPortalToken("token malformato") from None
 
     signed_value = f"{version}.{encoded_payload}"
+    try:
+        signed_bytes = signed_value.encode("ascii")
+    except UnicodeEncodeError:
+        raise InvalidPortalToken("token malformato") from None
     expected_signature = hmac.new(
-        _signing_key(), signed_value.encode("ascii"), hashlib.sha256
+        _signing_key(), signed_bytes, hashlib.sha256
     ).digest()
     if version != TOKEN_VERSION or not hmac.compare_digest(received_signature, expected_signature):
         raise InvalidPortalToken("firma non valida")
