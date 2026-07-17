@@ -4,6 +4,21 @@ Formato: data | finding ID | cosa fatto | file toccati | test/verifiche eseguiti
 
 > AVVISO PERMANENTE: VIETATO push su remote finche history git non ripulita da `.env`/`.env*` in Ondata 2 con procedura dedicata.
 
+## 2026-07-17 | ONDATA S S5 completato / stop prima di S6
+
+- Dopo conferma del GATE S5, `rendicontazione_generator.py` è stato spostato in `services/rendicontazione.py` e collegato a `POST /api/v1/reporting/projects/{project_id}/rendicontazione`.
+- Hardening applicato: fondo da `Project.avviso_rel.fondo` con fallback legacy; filtro `DatiRetributivi.project_id + Allievo.azienda_cliente_id`; sanitizzazione unificata delle componenti ZIP; risposta in memoria senza persistenza.
+- RBAC: POST sotto prefisso reporting, matrice admin/operatore=200 e consultazione=403; test HTTP effettivo sugli stessi ruoli.
+- Test mirati S5 + RBAC: **81 passed, 0 failed**. Commit locale `b5173e1 feat(S5): expose secure project rendicontazione package`. Nessun push.
+- S6 solo analizzato, nessuna modifica:
+  - DB live verificato read-only: `attendances.assignment_id`, FK `attendances_assignment_id_fkey` e indice `ix_attendances_assignment_id` presenti;
+  - script ad hoc può essere eliminato senza migration;
+  - costante documenti morta e tre shim parser confermati;
+  - otto test root esclusi da `testpaths=tests` attiveranno circa 38 test legacy dopo lo spostamento e richiedono bonifica fixture/test, non workaround in produzione;
+  - requirements divergenti confermati; runtime corrente acquisito come riferimento per pin esatti;
+  - `CLAUDE.md` contiene ancora la descrizione errata.
+- Stop immediato richiesto dall'utente prima di S6. Worktree applicativo pulito al momento dello stop; suite completa post-S5 non ancora eseguita.
+
 ## 2026-07-17 | ONDATA S S1-S4 + GATE S5 | Fix rapidi sicurezza
 
 - Prerequisiti:
