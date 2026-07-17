@@ -1148,43 +1148,6 @@ def _create_audit_log(
     db.add(log)
 
 
-def _validate_assignment_date_overlap_by_ente(
-    db: Session,
-    *,
-    collaborator_id: int,
-    project_id: int,
-    start_date: datetime,
-    end_date: datetime,
-    exclude_assignment_id: Optional[int] = None,
-) -> None:
-    current_project = db.query(models.Project).filter(models.Project.id == project_id).first()
-    if not current_project:
-        raise ValueError("Progetto non trovato")
-
-    query = (
-        db.query(models.Assignment, models.Project)
-        .join(models.Project, models.Project.id == models.Assignment.project_id)
-        .filter(
-            models.Assignment.collaborator_id == collaborator_id,
-            models.Assignment.is_active == True,
-            models.Assignment.start_date <= end_date,
-            models.Assignment.end_date >= start_date,
-            models.Assignment.project_id != project_id,
-        )
-    )
-    if exclude_assignment_id is not None:
-        query = query.filter(models.Assignment.id != exclude_assignment_id)
-
-    overlaps = query.all()
-    for existing_assignment, existing_project in overlaps:
-        if existing_project.ente_attuatore_id != current_project.ente_attuatore_id:
-            raise ValueError(
-                "Conflitto cross-progetto: il collaboratore ha già una assegnazione attiva "
-                f"sovrapposta su ente diverso (assignment_id={existing_assignment.id}, "
-                f"progetto_id={existing_assignment.project_id})."
-            )
-
-
 def _validate_attendance_assignment_date_range(
     db: Session,
     *,
@@ -1254,58 +1217,6 @@ def check_attendance_overlap(
         query = query.filter(models.Attendance.id != exclude_attendance_id)
 
     overlapping = query.first()
-
-    # Validazione aggiuntiva su ASSIGNMENTS:
-    # intercetta conflitti cross-progetto/cross-ente nella stessa finestra temporale.
-    if project_id is not None:
-        current_project = db.query(models.Project).filter(models.Project.id == project_id).first()
-        if not current_project:
-            raise ValueError("Progetto non trovato")
-
-        assignment_query = db.query(models.Assignment).filter(
-            models.Assignment.collaborator_id == collaborator_id,
-            models.Assignment.is_active == True,
-            models.Assignment.start_date <= end_time,
-            models.Assignment.end_date >= start_time,
-        )
-        overlapping_assignments = assignment_query.all()
-
-        # Se viene dichiarata una assignment specifica, deve essere effettivamente attiva
-        # nella finestra oraria richiesta.
-        if assignment_id is not None:
-            has_target_assignment = any(a.id == assignment_id for a in overlapping_assignments)
-            if not has_target_assignment:
-                raise ValueError(
-                    "L'assegnazione indicata non è attiva nella finestra temporale della presenza"
-                )
-
-        project_ids = {a.project_id for a in overlapping_assignments if a.project_id is not None}
-        if project_ids:
-            projects_by_id = {
-                project.id: project
-                for project in db.query(models.Project).filter(models.Project.id.in_(project_ids)).all()
-            }
-            for existing_assignment in overlapping_assignments:
-                existing_project = projects_by_id.get(existing_assignment.project_id)
-                if not existing_project:
-                    continue
-                if existing_project.id == project_id:
-                    continue
-                if existing_project.ente_attuatore_id != current_project.ente_attuatore_id:
-                    raise ValueError(
-                        "Conflitto cross-progetto: il collaboratore ha già una assegnazione attiva "
-                        f"sovrapposta su ente diverso (assignment_id={existing_assignment.id}, "
-                        f"progetto_id={existing_assignment.project_id})."
-                    )
-
-        _validate_assignment_date_overlap_by_ente(
-            db,
-            collaborator_id=collaborator_id,
-            project_id=project_id,
-            start_date=start_time,
-            end_date=end_time,
-            exclude_assignment_id=assignment_id,
-        )
 
     if overlapping:
         logger.warning(
@@ -1925,15 +1836,6 @@ def create_assignment(db: Session, assignment: schemas.AssignmentCreate):
     Crea assegnazione senza commit (gestito dal chiamante)
     """
     try:
-        # DOM-04 (W1.6): il multiprogetto con periodi sovrapposti è consentito.
-        # Restano il veto cross-ente e l'anti-overlap ORARIO delle presenze (constraint 055).
-        _validate_assignment_date_overlap_by_ente(
-            db,
-            collaborator_id=assignment.collaborator_id,
-            project_id=assignment.project_id,
-            start_date=assignment.start_date,
-            end_date=assignment.end_date,
-        )
 
         assignment_data = assignment.dict()
         modulo_id = assignment_data.get("modulo_formativo_id")
@@ -2001,16 +1903,6 @@ def update_assignment(db: Session, assignment_id: int, assignment: schemas.Assig
         new_end_date = update_data.get("end_date", db_assignment.end_date)
         new_project_id = update_data.get("project_id", db_assignment.project_id)
 
-        # DOM-04 (W1.6): il multiprogetto con periodi sovrapposti è consentito.
-        # Restano il veto cross-ente e l'anti-overlap ORARIO delle presenze (constraint 055).
-        _validate_assignment_date_overlap_by_ente(
-            db,
-            collaborator_id=db_assignment.collaborator_id,
-            project_id=new_project_id,
-            start_date=new_start_date,
-            end_date=new_end_date,
-            exclude_assignment_id=assignment_id,
-        )
 
         modulo_id = update_data.get("modulo_formativo_id")
         if modulo_id:

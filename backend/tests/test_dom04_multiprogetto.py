@@ -4,7 +4,7 @@ DOM-04 (W1.6): sblocco multiprogetto.
 Un collaboratore PUÒ avere assegnazioni su progetti diversi con periodi
 sovrapposti (flusso d'ufficio comune). Restano vietati:
 - overlap ORARIO delle presenze (check_attendance_overlap + constraint DB 055)
-- overlap di periodo su progetti di enti attuatori DIVERSI (veto cross-ente)
+- overlap di periodo consentito anche su progetti di enti attuatori diversi
 """
 
 import sys
@@ -147,8 +147,8 @@ def test_multiproject_update_overlap_allowed(db_with_data):
     assert updated.start_date == datetime(2024, 2, 1)
 
 
-def test_cross_ente_overlap_blocked(db_with_data):
-    """Veto cross-ente invariato: periodi sovrapposti su enti attuatori diversi → ValueError."""
+def test_cross_ente_overlap_allowed(db_with_data):
+    """Periodi sovrapposti su enti attuatori diversi sono consentiti."""
     db, collaborator, project1, project2 = db_with_data
 
     project1.ente_attuatore_id = 1
@@ -171,7 +171,7 @@ def test_cross_ente_overlap_blocked(db_with_data):
         assigned_hours=30.0,
     )
 
-    with pytest.raises(ValueError) as exc_info:
-        crud.create_assignment(db, assignment_data)
+    created = crud.create_assignment(db, assignment_data)
 
-    assert "Conflitto cross-progetto" in str(exc_info.value)
+    assert created.id is not None
+    assert created.project_id == project2.id
