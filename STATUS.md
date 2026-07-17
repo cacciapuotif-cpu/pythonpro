@@ -6552,6 +6552,11 @@ Migration Alembic `015_add_collaborator_fk_to_voci_piano.py`.
 - Directory archivio `0700`; tutti i file `0600`; checksum SHA-256 verificati per i quattro artefatti iniziali. Nessun contenuto sensibile stampato.
 - Verifica repository: nessun file `*.bak*` o `# Premi*` residuo entro profondità 3; restano soltanto report audit non tracciati e lo script DB sperimentale.
 
+## 2026-07-17 — Conservazione audit con soluzione mista
+- Versionati i due report conclusivi `audit/AUDIT_REPORT.md` e `audit/DOMINIO_FINANZIARIO_REPORT.md`, controllati per assenza di credenziali o chiavi reali.
+- Spostati fuori Git 28 file di evidenza/intermedi (`FASE_*`, D1–D5 e inventario worktree) nell'archivio protetto `/DATA/progetti/pythonpro-local-archive/2026-07-17_audit_raw`.
+- Archivio `0700`, file `0600`; nessuna cancellazione. I report conclusivi contengono la nota di provenienza delle evidenze archiviate.
+
 ## Stop richiesto dall'utente — stato esatto post-migration 057
 - Migration 057 applicata al DB reale dopo approvazione: `057 (head)`; `alembic check` senza drift.
 - Invarianti reali: 6 avvisi, 6 revisioni, 4 progetti con avviso e revisione, 0 mismatch; 0 piani collegati per scelta prudenziale documentata in NEW-010.

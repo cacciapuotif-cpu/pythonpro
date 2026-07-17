@@ -633,6 +633,7 @@ con zero side effect esterni senza approvazione umana, kill switch globale e per
 - Igiene worktree completata con mappa `audit/WORKTREE_CLASSIFICATION_2026-07-17.md`: 6 gruppi applicativi indipendenti, documentazione storica e artefatti locali separati. Gate mirato 38 passed, Compose config valido, frontend build riuscita. Nessuna cancellazione o inclusione automatica di artefatti sensibili.
 - Hardening runtime attivato con rebuild/recreate backend, worker e frontend: container healthy, health backend/frontend 200, frontend non-root su 8080 interno, Alembic 057 senza drift e log ARQ puliti. DB e Redis non esposti sull'host; backup scheduler separato invariato.
 - Pulizia locale eseguita in modo recuperabile: chiave OpenSSH accidentale, relativa pubblica, due `.bak` e due backup `.env` spostati fuori repo in `/DATA/progetti/pythonpro-local-archive/2026-07-17_worktree_cleanup`, con directory `0700` e file `0600`. Nessuna cancellazione e nessun push.
+- Applicata conservazione audit mista: report finali generale e dominio finanziario versionati; 28 evidenze grezze/intermedie archiviate fuori Git in `/DATA/progetti/pythonpro-local-archive/2026-07-17_audit_raw` con permessi restrittivi. Nessuna cancellazione.
 
 ## Stato allo stop richiesto dall'utente
 - Migration 057 applicata al reale: head e Alembic check puliti; invarianti backfill senza mismatch.
