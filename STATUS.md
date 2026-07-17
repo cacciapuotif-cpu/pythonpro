@@ -6574,6 +6574,23 @@ Migration Alembic `015_add_collaborator_fk_to_voci_piano.py`.
 - NEW-010 invariato: 0 piani collegati, nessun intervento automatico.
 - **V1 dichiarata CHIUSA.** Prossimo punto: V2 pipeline di ingestione (su autorizzazione). Nessun push.
 
+## Sessione 2026-07-17 pomeriggio (Claude) — stop su richiesta utente durante preparazione V2
+
+### Fatto
+- Gate V1 chiuso: suite completa 434 passed / 1 skipped / 0 failed; commit `30c102f docs(AVVISI-01)`.
+- Consolidamento audit (sessione Codex parallela): `c23837e docs(AUDIT-02)` — report finali versionati, 28 file grezzi archiviati in `/DATA/progetti/pythonpro-local-archive/2026-07-17_audit_raw`.
+- Script sperimentale `docker-entrypoint-initdb.d/010_create_app_user.sh` (least-privilege DB, mai montato, `.env` con `DB_APP_USER=admin` quindi inefficace): archiviato in `/DATA/progetti/pythonpro-local-archive/2026-07-17_initdb_experiment/`. Passaggio a utente DB applicativo dedicato = backlog hardening (grants + DDL Alembic da progettare).
+- **NEW-010 CHIUSO** con decisioni utente: piano 2 → Formazienda 2/2025 (avviso 1, rev. 2, ente/tipo_fondo allineati); piano 7 + progetto 11 MAXI COMMUNICATION → FAPI 2/2025 (avviso 6, rev. 6). Backup pre-bonifica `gestionale_backup_manual_new010_pre_bonifica_20260717_105546.sql.zip.gpg`; script con guardie in `scripts/bonifiche/2026-07-17_new010_bonifica.sql` (fuori Git per convenzione `*.sql`); censimento post 0 anomalie. Commit `ddffdc0 docs(NEW-010)`.
+- Avviata preparazione piano V2 (skill writing-plans): ricognizione interfacce esistenti completata a metà — individuati modelli V1 (`Avviso`, `AvvisoRevisione`, `AvvisoRegola`, `AvvisoScadenza`, `AvvisoDocumento`, `AvvisoConoscenza`, `AvvisoEsitoProgetto` in `backend/models.py:331-604`), CRUD avvisi (`backend/crud.py:892-952`), router `backend/routers/avvisi.py`, infrastruttura LLM in `backend/ai_agents/` (`llm.py`, `llm_schemas.py`, `document_processor.py`, prompts in `backend/ai_agents/prompts/` — NON in `backend/app/agents/prompts/` come da prompt ondata: usare la directory reale).
+
+### Da fare (ripresa)
+1. Completare ricognizione: firma `run_agent_workflow`/registry in `backend/ai_agents/__init__.py`, payload `AgentSuggestion` + `suggestion_apply.py`, pattern upload (`file_upload.py`, SEC-12), RBAC deps, UI revisione frontend (`/agents/review`).
+2. Scrivere piano V2 in `docs/superpowers/plans/2026-07-17-avvisi-v2-ingestione.md` (task bite-sized TDD: upload MD → pulizia → segmentazione → estrazione LLM per categoria → AgentRun/AgentSuggestion → revisione umana; directory ingest per i 4 avvisi MD dell'utente).
+3. Eseguire piano V2 un task alla volta, commit atomici `feat(AVVISI-NN)`, suite sempre verde.
+4. Dopo V2: GATE V3 (full-text vs pgvector), V4 agente avviso_advisor (kill switch `AGENT_AVVISO_ADVISOR_ENABLED`), V5 ingestione 4 avvisi reali + `AVVISI_PLATFORM.md`.
+5. Pendenti fuori ondata: bonifica record `codex.runtime.test.20260715@example.invalid` (rompe `GET /collaborators/`, ~828 err/ora — serve ok utente); backlog hardening utente DB dedicato.
+- Mai push.
+
 ## Aggiornamento post-approvazione
 - GATE approvato e V1 implementato nel worktree; database reale ancora alla migration 056.
 - Modelli, schemi Pydantic e CRUD coprono identità avviso, revisioni immutabili, regole, scadenze, documenti, conoscenza ed esiti; progetti e piani possono fissare la revisione esatta.
