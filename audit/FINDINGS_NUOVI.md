@@ -99,3 +99,23 @@
 - Stato: **chiuso il 2026-07-17**.
 - Aggiornamento 2026-07-17: piano 1 collegato a Formazienda 2/2022; progetto 5 e piano 4 corretti a FAPI 4/2025 dopo conferma. Restano aperti piano 2 (contraddizione FAPI/Formazienda) e piano 7 (avviso non identificato).
 - Chiusura 2026-07-17: dopo decisione utente, piano 2 collegato a Formazienda 2/2025 (avviso 1, rev. 2) con ente/tipo_fondo allineati; piano 7 e progetto 11 MAXI COMMUNICATION collegati a FAPI 2/2025 (avviso 6, rev. 6). Script con guardie e censimento post in `scripts/bonifiche/2026-07-17_new010_bonifica.sql`; backup pre-bonifica verificato `gestionale_backup_manual_new010_pre_bonifica_20260717_105546.sql.zip.gpg`; censimenti post = 0 anomalie, 0 mismatch fondo.
+
+## 2026-07-17 | NEW-011 | Secondo audit store legacy senza redazione e retention
+
+- Area: sicurezza / GDPR / audit trail
+- Severità stimata: alta
+- Emerso durante: ONDATA S, punto S2
+- Descrizione: oltre a `SecurityAuditLog` (`audit_log`) esiste `AuditLog` (`audit_logs`), append-only ma privo di redazione e retention. Alcuni apply agentici possono serializzare in `old_value/new_value` campi personali raw, incluso il codice fiscale.
+- Impatto: il secondo store può diventare un archivio indefinito di PII non governato, nonostante la bonifica S2 sul security audit log.
+- Decisione: non allargare silenziosamente S2, che richiede esplicitamente `SecurityAuditLog`; pianificare convergenza dei due audit store o applicare allo store legacy una policy coerente preservando l'append-only.
+- Stato: aperto.
+
+## 2026-07-17 | NEW-012 | Credenziali development deboli in worktree separata
+
+- Area: segreti / igiene worktree
+- Severità stimata: bassa
+- Emerso durante: ONDATA S, punto S3
+- Descrizione: la worktree separata `.worktrees/email-agent` conserva nel proprio `.env.development` i valori legacy `dev_password_123` e `dev_redis_123`. La worktree ha modifiche preesistenti e non è stata alterata.
+- Impatto: nessun riuso rilevato nel runtime o nei file tracciati del branch corrente; resta rischio di copia-incolla se quella worktree viene riutilizzata.
+- Mitigazione S3: branch corrente convertito a `.env.development.sample` con placeholder espliciti e controllo automatico; tutti i container runtime verificati puliti.
+- Stato: aperto; bonificare o rimuovere la worktree solo nel suo filone, preservando le modifiche presenti.

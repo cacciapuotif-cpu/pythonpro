@@ -4,6 +4,30 @@ Formato: data | finding ID | cosa fatto | file toccati | test/verifiche eseguiti
 
 > AVVISO PERMANENTE: VIETATO push su remote finche history git non ripulita da `.env`/`.env*` in Ondata 2 con procedura dedicata.
 
+## 2026-07-17 | ONDATA S S1-S4 + GATE S5 | Fix rapidi sicurezza
+
+- Prerequisiti:
+  - letti `REMEDIATION_LOG.md`, stato sintetico, findings, analisi architetturale e ultimi 20 commit;
+  - backup fresco `/app/backups/gestionale_backup_ondata_s_pre_20260717_162634.sql.zip.gpg` verificato con `INTEGRITY=True`;
+  - nessuna migration e nessuna modifica al DB.
+- S1 (`41b6048`, `80d4b01`): sostituito il token giornaliero prevedibile con nonce CSPRNG, HMAC-SHA256 domain-separated e scadenza firmata a 24 ore; `compare_digest` su digest binari; token Unicode/malformati ora diventano 401, non 500. Test CSPRNG, scadenza, manomissione, legacy rifiutato e timing-safe valido/invalido.
+- S2 (`c423669`): redazione ricorsiva estesa a CF con alias composti e campi retributivi; nuovo servizio `security_audit_retention` con default 24 mesi di calendario configurabili, collector aggregato e batch massimo 1000. Integrato nell'agente `data_retention`: cron e run producono solo `AgentSuggestion`; cancellazione solo dopo apply umano autenticato, con ricalcolo live del cutoff e audit di sintesi. `AGENT_DATA_RETENTION_ENABLED=false` invariato. Nessuna migration: indice timestamp già presente.
+- S3 (`26ff969`): `.env.development` rinominato `.env.development.sample`, secret sostituiti da placeholder espliciti, controllo automatico aggiornato. I valori legacy non sono presenti in `.env` né nei sette container PythonPro. La worktree separata e già sporca `.worktrees/email-agent` conserva una copia: preservata e censita come NEW-012. Backup env riemerso archiviato senza cancellazione in `/DATA/progetti/pythonpro-local-archive/2026-07-17_ondata_s/` con directory 0700 e file 0600.
+- S4 (`3683d48`): confermata firma Meta sul raw body con `WHATSAPP_META_APP_SECRET`; confronto HMAC-SHA256 constant-time reso fail-closed anche per header non hex, lunghezza errata e non ASCII; test firma valida/invalida/mancante, payload alterato e configurazione assente.
+- Findings nuovi: NEW-011 (secondo store `AuditLog` legacy senza redazione/retention, aperto) e NEW-012 (credenziali dev deboli nella worktree separata, aperto).
+- Verifiche:
+  - test mirati S1-S4 e retention: 35 passed;
+  - regressione registry/agent retention: 24 passed;
+  - `scripts/check_secret_remediation.sh`: OK;
+  - `docker compose config --quiet`: OK;
+  - suite backend completa: **483 passed, 1 skipped, 0 failed** su 484 raccolti in 378.80s.
+- GATE S5 — verifica architetturale:
+  - `backend/rendicontazione_generator.py` è realmente orfano: zero importatori/endpoint/UI; `DOM-16` conferma che il deliverable finale non è producibile dalla piattaforma;
+  - il generatore serve al giro completo e usa dati reali già modellati: timesheet, collaboratori, aziende beneficiarie, regimi aiuto e `DatiRetributivi`;
+  - non va esposto nello stato attuale: per ogni azienda in esenzione include tutti i `DatiRetributivi` del progetto senza filtro `Allievo.azienda_cliente_id`, con rischio cross-company; usa inoltre `Project.ente_erogatore` legacy anziché la relazione avviso canonica;
+  - raccomandazione: **SÌ, renderlo operativo**, ma prima spostare la logica in `services/rendicontazione`, filtrare i dati retributivi per azienda, risolvere il fondo dalla FK avviso con fallback legacy, aggiungere endpoint download sotto RBAC admin/operatore e test ZIP/isolamento aziende/mancanti;
+  - stato: fermo al GATE S5, nessuna implementazione S5 o S6 senza conferma utente.
+
 ## 2026-07-05 | PASSO-ZERO | Avvio remediation controllata
 
 - Cosa fatto:
