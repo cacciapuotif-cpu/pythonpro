@@ -631,6 +631,7 @@ con zero side effect esterni senza approvazione umana, kill switch globale e per
 - Dopo autorizzazione, corretto anche il caso documentato dal nome del piano: progetto 5 `poppi` e piano 4 → FAPI 4/2025, avviso 5/revisione 5. Operazione transazionale preceduta da backup verificato `gestionale_backup_pre_new010_piano4_20260717_102714.sql.zip.gpg`.
 - Piani 2 e 7 restano nulli: il primo ha dati contraddittori, il secondo non identifica il numero dell'avviso.
 - Igiene worktree completata con mappa `audit/WORKTREE_CLASSIFICATION_2026-07-17.md`: 6 gruppi applicativi indipendenti, documentazione storica e artefatti locali separati. Gate mirato 38 passed, Compose config valido, frontend build riuscita. Nessuna cancellazione o inclusione automatica di artefatti sensibili.
+- Hardening runtime attivato con rebuild/recreate backend, worker e frontend: container healthy, health backend/frontend 200, frontend non-root su 8080 interno, Alembic 057 senza drift e log ARQ puliti. DB e Redis non esposti sull'host; backup scheduler separato invariato.
 
 ## Stato allo stop richiesto dall'utente
 - Migration 057 applicata al reale: head e Alembic check puliti; invarianti backfill senza mismatch.

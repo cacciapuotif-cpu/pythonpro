@@ -6538,6 +6538,14 @@ Migration Alembic `015_add_collaborator_fk_to_voci_piano.py`.
 - Verifica mirata backend sui gruppi principali: **38 passed**. `docker compose config --quiet`: OK. Build frontend: riuscita con un solo warning ESLint preesistente in `HomeCockpit.js`.
 - Nessun file eliminato e nessun gruppo residuo committato automaticamente: i confini sono ora espliciti e pronti per commit atomici controllati.
 
+## 2026-07-17 — Hardening runtime attivato e verificato
+- Eseguito rebuild/recreate controllato di backend, ARQ worker e frontend dal commit `9991437`.
+- Tutti i container risultano healthy; backend `/health` 200 e frontend `/healthz` 200.
+- Frontend attivo su porta interna 8080 e verificato non-root: `uid=101(nginx)`; mapping esterno invariato `3001→8080`.
+- PostgreSQL e Redis non sono più pubblicati sull'host; restano raggiungibili solo nella rete Compose.
+- Alembic `057 (head)` e `alembic check` senza drift.
+- Log nuova finestra: ARQ avviato con 14 funzioni e 0 errori; backend avviato correttamente. Warning noti/non bloccanti: performance monitor non disponibile e AUTO_BACKUP disabilitato nel web process perché gestito dal container scheduler dedicato.
+
 ## Stop richiesto dall'utente — stato esatto post-migration 057
 - Migration 057 applicata al DB reale dopo approvazione: `057 (head)`; `alembic check` senza drift.
 - Invarianti reali: 6 avvisi, 6 revisioni, 4 progetti con avviso e revisione, 0 mismatch; 0 piani collegati per scelta prudenziale documentata in NEW-010.
