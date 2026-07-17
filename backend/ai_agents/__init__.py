@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from .avviso_extractor import collect_avviso_extraction_suggestions
 from .certification_agent import collect_certification_suggestions
 from .contract_agent import collect_contract_suggestions
 from .control import agent_env_name
@@ -92,6 +93,12 @@ def _run_certification(
 def _run_data_retention(db, *, entity_type=None, entity_id=None, input_payload=None):
     return collect_data_retention_suggestions(db, collaborator_id=entity_id if entity_type == "collaborator" else None)
 
+
+def _run_avviso_extractor(db, *, entity_type=None, entity_id=None, input_payload=None):
+    return collect_avviso_extraction_suggestions(
+        db, entity_type=entity_type, entity_id=entity_id, input_payload=input_payload
+    )
+
 _AGENT_DEFINITIONS: dict[str, dict[str, Any]] = {
     "data_quality": {
         "name": "data_quality",
@@ -143,6 +150,16 @@ _AGENT_DEFINITIONS: dict[str, dict[str, Any]] = {
         "version": "1.0",
         "runner": _run_data_retention,
     },
+    "avviso_extractor": {
+        "name": "avviso_extractor",
+        "description": "Estrae regole e scadenze da una revisione avviso in markdown",
+        "supported_entity_types": ["avviso_revisione"],
+        "triggers": ["manual", "event:avviso_revisione_ingest"],
+        "kill_switch_env": agent_env_name("avviso_extractor"),
+        "allowed_roles": ["admin", "manager"],
+        "version": "1.0",
+        "runner": _run_avviso_extractor,
+    },
 }
 
 
@@ -184,6 +201,7 @@ __all__ = [
     "collect_certification_suggestions",
     "collect_contract_suggestions",
     "collect_data_retention_suggestions",
+    "collect_avviso_extraction_suggestions",
     "get_agent_definition",
     "list_agent_definitions",
     "run_registered_agent",

@@ -54,3 +54,173 @@ def test_build_extraction_prompt_mentions_categories_and_text():
     assert "massimali" in prompt and "parametri_costo" in prompt
     assert "Massimale 50k" in prompt
     assert "JSON" in SYSTEM_PROMPT_ESTRAZIONE
+
+
+import hashlib
+import json
+
+from sqlalchemy import create_engine, event
+from sqlalchemy.orm import sessionmaker
+
+import models
+import auth
+import crud_avvisi
+import schemas_avvisi as avvisi_schemas
+from database import Base
+
+from ai_agents import get_agent_definition
+from ai_agents import avviso_extractor as extractor_module
+from services import avviso_ingest
+
+
+@pytest.fixture
+def db_session(tmp_path):
+    engine = create_engine(
+        "sqlite:///{}".format(tmp_path / "avvisi_v2.db"),
+        connect_args={"check_same_thread": False},
+    )
+
+    @event.listens_for(engine, "connect")
+    def enable_foreign_keys(dbapi_connection, _connection_record):
+        dbapi_connection.execute("PRAGMA foreign_keys=ON")
+
+    factory = sessionmaker(bind=engine, autocommit=False, autoflush=False, expire_on_commit=False)
+    Base.metadata.create_all(bind=engine)
+    session = factory()
+    try:
+        yield session
+    finally:
+        session.close()
+
+
+@pytest.fixture
+def user(db_session):
+    record = auth.User(
+        username="revisore",
+        email="revisore@example.com",
+        hashed_password="not-used",
+        role="admin",
+        is_active=True,
+    )
+    db_session.add(record)
+    db_session.commit()
+    db_session.refresh(record)
+    return record
+
+
+@pytest.fixture
+def revision_with_cleaned_md(db_session, user, tmp_path, monkeypatch):
+    monkeypatch.setattr(avviso_ingest, "UPLOAD_DIR", tmp_path)
+    monkeypatch.setattr(extractor_module, "UPLOAD_DIR", tmp_path)
+    avviso = models.Avviso(
+        codice="1/2026", ente_erogatore="fapi", fondo="fapi", numero="1", anno=2026,
+        titolo="Avviso FAPI 1/2026", stato="bozza",
+    )
+    db_session.add(avviso)
+    db_session.commit()
+    contents = "# Art. 5 Massimali\nContributo massimo 50.000 euro.\n".encode("utf-8")
+    sha = hashlib.sha256(contents).hexdigest()
+    stored = avviso_ingest.save_ingest_markdown(avviso.id, "avviso.md", contents)
+    cleaned = avviso_ingest.save_cleaned_markdown(avviso.id, sha, contents.decode("utf-8"))
+    revision = crud_avvisi.create_next_revision(
+        db_session,
+        avviso.id,
+        avvisi_schemas.AvvisoRevisioneCreate(
+            titolo="Avviso FAPI 1/2026",
+            source_md_path=stored.storage_key,
+            cleaned_md_path=cleaned.storage_key,
+            original_filename="avviso.md",
+            source_sha256=sha,
+        ),
+        created_by_user_id=user.id,
+    )
+    return revision
+
+
+def _fake_llm_factory(calls):
+    def fake_call_ollama_json(*, system_prompt, user_prompt):
+        calls.append(user_prompt)
+        if "scadenze" in user_prompt.split("TESTO AVVISO:")[0]:
+            return {
+                "scadenze": [{
+                    "tipo": "presentazione",
+                    "data": "2026-09-30",
+                    "descrizione": "Termine presentazione piani",
+                    "tassativa": True,
+                    "testo_originale": "entro il 30/09/2026",
+                    "confidence": 0.9,
+                }]
+            }
+        if "massimali" in user_prompt:
+            return {
+                "regole": [{
+                    "chiave": "contributo_massimo",
+                    "valore": {"tipo": "denaro", "importo": "50000", "valuta": "EUR"},
+                    "testo_originale": "Contributo massimo 50.000 euro.",
+                    "riferimento_articolo": "Art. 5",
+                    "confidence": 0.9,
+                }]
+            }
+        return {"regole": []}
+    return fake_call_ollama_json
+
+
+def test_registry_exposes_avviso_extractor():
+    definition = get_agent_definition("avviso_extractor")
+    assert definition is not None
+    assert definition["supported_entity_types"] == ["avviso_revisione"]
+    assert definition["kill_switch_env"] == "AGENT_AVVISO_EXTRACTOR_ENABLED"
+    assert "runner" not in definition
+
+
+def test_collector_builds_suggestions_from_llm(db_session, revision_with_cleaned_md, monkeypatch):
+    calls = []
+    monkeypatch.setattr(extractor_module, "call_ollama_json", _fake_llm_factory(calls))
+    result = extractor_module.collect_avviso_extraction_suggestions(
+        db_session, entity_type="avviso_revisione", entity_id=revision_with_cleaned_md.id,
+    )
+    assert len(calls) == 5  # 4 gruppi regole + 1 scadenze
+    tipi = {s["suggestion_type"] for s in result["suggestions"]}
+    assert tipi == {"avviso_regola_proposta", "avviso_scadenza_proposta"}
+    regola = next(s for s in result["suggestions"] if s["suggestion_type"] == "avviso_regola_proposta")
+    fix = regola["auto_fix_payload"]
+    assert fix["kind"] == "avviso_estrazione"
+    assert fix["target"] == "regola"
+    assert fix["revision_id"] == revision_with_cleaned_md.id
+    proposal = avvisi_schemas.AvvisoRegolaProposal.model_validate(fix["proposal"])
+    assert proposal.categoria == "massimali"
+    assert proposal.needs_careful_review is False
+    scadenza = next(s for s in result["suggestions"] if s["suggestion_type"] == "avviso_scadenza_proposta")
+    sc_proposal = avvisi_schemas.AvvisoScadenzaProposal.model_validate(scadenza["auto_fix_payload"]["proposal"])
+    assert sc_proposal.data.tzinfo is not None
+
+
+def test_collector_marks_invalid_rule_value_for_careful_review(db_session, revision_with_cleaned_md, monkeypatch):
+    def bad_llm(*, system_prompt, user_prompt):
+        if "massimali" in user_prompt:
+            return {"regole": [{
+                "chiave": "contributo_massimo",
+                "valore": {"tipo": "inesistente", "x": 1},
+                "testo_originale": "Contributo massimo 50.000 euro.",
+                "confidence": 0.9,
+            }]}
+        return {"regole": [], "scadenze": []}
+    monkeypatch.setattr(extractor_module, "call_ollama_json", bad_llm)
+    result = extractor_module.collect_avviso_extraction_suggestions(
+        db_session, entity_type="avviso_revisione", entity_id=revision_with_cleaned_md.id,
+    )
+    regola = next(s for s in result["suggestions"] if s["suggestion_type"] == "avviso_regola_proposta")
+    proposal = regola["auto_fix_payload"]["proposal"]
+    assert proposal["needs_careful_review"] is True
+    assert proposal["valore"]["tipo"] == "testo"
+
+
+def test_collector_tolerates_llm_failure_per_group(db_session, revision_with_cleaned_md, monkeypatch):
+    def flaky(*, system_prompt, user_prompt):
+        raise RuntimeError("LLM down")
+    monkeypatch.setattr(extractor_module, "call_ollama_json", flaky)
+    result = extractor_module.collect_avviso_extraction_suggestions(
+        db_session, entity_type="avviso_revisione", entity_id=revision_with_cleaned_md.id,
+    )
+    assert result["suggestions"] == []
+    assert result["summary"]["gruppi_falliti"] == 5
