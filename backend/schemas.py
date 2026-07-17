@@ -146,6 +146,7 @@ class ProjectBase(BaseModel):
     sede_aziendale_numero_civico: Optional[str] = None
     avviso: Optional[str] = None
     avviso_id: Optional[int] = None
+    avviso_revisione_id: Optional[int] = None
 
 class ProjectCreate(ProjectBase):
     pass
@@ -166,6 +167,7 @@ class ProjectUpdate(BaseModel):
     sede_aziendale_numero_civico: Optional[str] = None
     avviso: Optional[str] = None
     avviso_id: Optional[int] = None
+    avviso_revisione_id: Optional[int] = None
 
 class Project(ProjectBase):
     id: int
@@ -181,6 +183,12 @@ class AvvisoBase(BaseModel):
     codice: str
     ente_erogatore: str
     descrizione: Optional[str] = None
+    fondo: Literal['fondimpresa', 'formazienda', 'fapi', 'regionale', 'altro'] = 'altro'
+    numero: Optional[str] = None
+    anno: Optional[int] = Field(default=None, ge=2000, le=2100)
+    titolo: Optional[str] = None
+    descrizione_breve: Optional[str] = None
+    stato: Literal['bozza', 'attivo', 'in_scadenza', 'scaduto', 'archiviato'] = 'bozza'
     template_id: Optional[int] = None
     is_active: bool = True
 
@@ -193,12 +201,16 @@ class AvvisoUpdate(BaseModel):
     codice: Optional[str] = None
     ente_erogatore: Optional[str] = None
     descrizione: Optional[str] = None
+    titolo: Optional[str] = None
+    descrizione_breve: Optional[str] = None
+    stato: Optional[Literal['bozza', 'attivo', 'in_scadenza', 'scaduto', 'archiviato']] = None
     template_id: Optional[int] = None
     is_active: Optional[bool] = None
 
 
 class Avviso(AvvisoBase):
     id: int
+    revisione_corrente_id: Optional[int] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
 
@@ -1661,6 +1673,7 @@ class PianoFinanziarioBase(BaseModel):
     nome: str = Field(max_length=200)
     tipo_fondo: TIPO_FONDO
     avviso_pf_id: Optional[int] = None
+    avviso_revisione_id: Optional[int] = None
     data_ammissione: Optional[date] = None
     stato_rendicontazione: STATO_RENDICONTAZIONE = 'bozza'
     codice_progetto_fondo: Optional[str] = Field(default=None, max_length=50)
@@ -1694,6 +1707,7 @@ class PianoFinanziarioUpdate(BaseModel):
     nome: Optional[str] = Field(default=None, max_length=200)
     tipo_fondo: Optional[TIPO_FONDO] = None
     avviso_pf_id: Optional[int] = None
+    avviso_revisione_id: Optional[int] = None
     data_ammissione: Optional[date] = None
     stato_rendicontazione: Optional[STATO_RENDICONTAZIONE] = None
     codice_progetto_fondo: Optional[str] = Field(default=None, max_length=50)

@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, DateTime, Date, ForeignKey, Table, Text, Float, Numeric, Index, Boolean, UniqueConstraint, JSON, text, event
+from sqlalchemy import Column, Integer, String, DateTime, Date, ForeignKey, Table, Text, Float, Numeric, Index, Boolean, UniqueConstraint, CheckConstraint, JSON, text, event
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship, validates, foreign
 from sqlalchemy.sql import func
 from sqlalchemy.ext.hybrid import hybrid_property
@@ -251,6 +252,12 @@ class Project(Base):
         nullable=True,
         index=True,
     )
+    avviso_revisione_id = Column(
+        Integer,
+        ForeignKey("avviso_revisioni.id", ondelete="SET NULL", use_alter=True),
+        nullable=True,
+        index=True,
+    )
     # FK verso ImplementingEntity (Ente Attuatore)
     ente_attuatore_id = Column(Integer, ForeignKey("implementing_entities.id", ondelete="SET NULL"), nullable=True, index=True)
 
@@ -284,6 +291,7 @@ class Project(Base):
     aziende_coinvolte = relationship("AziendaCliente", secondary="azienda_cliente_projects", lazy="select", viewonly=True)
     ente_attuatore = relationship("ImplementingEntity", back_populates="projects", lazy="select")
     avviso_rel = relationship("Avviso", back_populates="projects", lazy="select")
+    avviso_revisione = relationship("AvvisoRevisione", foreign_keys=[avviso_revisione_id], lazy="select")
     piani_finanziari = relationship("PianoFinanziario", back_populates="progetto", lazy="select", cascade="all, delete-orphan")
 
     # Proprietà calcolate
@@ -327,6 +335,18 @@ class Avviso(Base):
     codice = Column(String(50), nullable=False)
     ente_erogatore = Column(String(100), nullable=False, index=True)
     descrizione = Column(String(200), nullable=True)
+    fondo = Column(String(20), nullable=False, default="altro", server_default="altro", index=True)
+    numero = Column(String(50), nullable=False, index=True)
+    anno = Column(Integer, nullable=False, index=True)
+    titolo = Column(String(300), nullable=False)
+    descrizione_breve = Column(Text, nullable=True)
+    stato = Column(String(20), nullable=False, default="bozza", server_default="bozza", index=True)
+    revisione_corrente_id = Column(
+        Integer,
+        ForeignKey("avviso_revisioni.id", ondelete="SET NULL", use_alter=True),
+        nullable=True,
+        index=True,
+    )
     template_id = Column(
         Integer,
         ForeignKey("contract_templates.id", ondelete="SET NULL", use_alter=True),
@@ -339,15 +359,284 @@ class Avviso(Base):
 
     template = relationship("ContractTemplate", back_populates="avvisi", lazy="select")
     projects = relationship("Project", back_populates="avviso_rel", lazy="select")
+    revisioni = relationship(
+        "AvvisoRevisione",
+        foreign_keys="AvvisoRevisione.avviso_id",
+        back_populates="avviso",
+        lazy="select",
+    )
+    revisione_corrente = relationship(
+        "AvvisoRevisione",
+        foreign_keys=[revisione_corrente_id],
+        post_update=True,
+        lazy="select",
+    )
     piani_finanziari = relationship(
         "PianoFinanziario",
-        primaryjoin="foreign(PianoFinanziario.legacy_avviso_id) == Avviso.id",
+        primaryjoin="foreign(PianoFinanziario.avviso_pf_id) == Avviso.id",
         lazy="select",
         viewonly=True,
     )
 
     __table_args__ = (
         Index("idx_unique_avvisi_codice_ente", "codice", "ente_erogatore", unique=True),
+        Index("uq_avvisi_identita", "fondo", "ente_erogatore", "numero", "anno", unique=True),
+        CheckConstraint(
+            "fondo IN ('fondimpresa','formazienda','fapi','regionale','altro')",
+            name="ck_avvisi_fondo",
+        ),
+        CheckConstraint(
+            "stato IN ('bozza','attivo','in_scadenza','scaduto','archiviato')",
+            name="ck_avvisi_stato",
+        ),
+        CheckConstraint("anno IS NULL OR anno BETWEEN 2000 AND 2100", name="ck_avvisi_anno"),
+    )
+
+
+AVVISO_JSON_TYPE = JSON().with_variant(JSONB(), "postgresql")
+
+
+class AvvisoRevisione(Base):
+    __tablename__ = "avviso_revisioni"
+
+    id = Column(Integer, primary_key=True, index=True)
+    avviso_id = Column(Integer, ForeignKey("avvisi.id", ondelete="RESTRICT"), nullable=False, index=True)
+    numero_revisione = Column(Integer, nullable=False)
+    etichetta_revisione = Column(String(50), nullable=True)
+    revisione_precedente_id = Column(
+        Integer, ForeignKey("avviso_revisioni.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    titolo = Column(String(300), nullable=False)
+    descrizione_breve = Column(Text, nullable=True)
+    data_pubblicazione = Column(Date, nullable=True, index=True)
+    data_scadenza_presentazione = Column(DateTime(timezone=True), nullable=True, index=True)
+    source_md_path = Column(String(500), nullable=True)
+    cleaned_md_path = Column(String(500), nullable=True)
+    source_pdf_path = Column(String(500), nullable=True)
+    original_filename = Column(String(255), nullable=True)
+    source_sha256 = Column(String(64), nullable=True)
+    stato_estrazione = Column(String(30), nullable=False, default="caricato", server_default="caricato", index=True)
+    diff_from_previous = Column(AVVISO_JSON_TYPE, nullable=True)
+    extraction_run_id = Column(Integer, ForeignKey("agent_runs.id", ondelete="SET NULL"), nullable=True, index=True)
+    created_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+    avviso = relationship("Avviso", foreign_keys=[avviso_id], back_populates="revisioni")
+    revisione_precedente = relationship("AvvisoRevisione", remote_side=[id], lazy="select")
+    regole = relationship("AvvisoRegola", back_populates="revisione", lazy="select")
+    scadenze = relationship("AvvisoScadenza", back_populates="revisione", lazy="select")
+
+    __table_args__ = (
+        UniqueConstraint("avviso_id", "numero_revisione", name="uq_avviso_revisioni_numero"),
+        UniqueConstraint("avviso_id", "source_sha256", name="uq_avviso_revisioni_sha256"),
+        CheckConstraint("numero_revisione > 0", name="ck_avviso_revisioni_numero_positivo"),
+        CheckConstraint(
+            "stato_estrazione IN ('caricato','pulito','segmentato','in_estrazione','estratto','errore')",
+            name="ck_avviso_revisioni_stato_estrazione",
+        ),
+    )
+
+
+class AvvisoRegola(Base):
+    __tablename__ = "avviso_regole"
+
+    id = Column(Integer, primary_key=True, index=True)
+    avviso_revisione_id = Column(
+        Integer, ForeignKey("avviso_revisioni.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    categoria = Column(String(30), nullable=False, index=True)
+    sottocategoria = Column(String(80), nullable=True, index=True)
+    chiave = Column(String(150), nullable=False, index=True)
+    valore = Column(AVVISO_JSON_TYPE, nullable=False)
+    tipo_valore = Column(String(30), nullable=False, default="oggetto", server_default="oggetto")
+    schema_version = Column(Integer, nullable=False, default=1, server_default="1")
+    unita = Column(String(50), nullable=True)
+    applicabilita = Column(AVVISO_JSON_TYPE, nullable=True)
+    testo_originale = Column(Text, nullable=False)
+    riferimento_articolo = Column(String(120), nullable=True)
+    riferimento_sezione = Column(String(200), nullable=True)
+    riferimento_pagina = Column(String(50), nullable=True)
+    source_quote_sha256 = Column(String(64), nullable=True)
+    stato = Column(String(20), nullable=False, default="proposta", server_default="proposta", index=True)
+    confidence = Column(Numeric(5, 4), nullable=True)
+    needs_careful_review = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    origin_suggestion_id = Column(
+        Integer, ForeignKey("agent_suggestions.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    carried_from_rule_id = Column(Integer, ForeignKey("avviso_regole.id", ondelete="SET NULL"), nullable=True)
+    supersedes_rule_id = Column(Integer, ForeignKey("avviso_regole.id", ondelete="SET NULL"), nullable=True)
+    validata_da_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    validata_il = Column(DateTime(timezone=True), nullable=True)
+    nota_revisione = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    revisione = relationship("AvvisoRevisione", back_populates="regole")
+
+    __table_args__ = (
+        Index("ix_avviso_regole_revision_categoria_chiave", "avviso_revisione_id", "categoria", "chiave"),
+        Index("ix_avviso_regole_revision_stato", "avviso_revisione_id", "stato"),
+        CheckConstraint(
+            "categoria IN ('massimali','parametri_costo','destinatari','beneficiari','aiuti_di_stato','presentazione','valutazione','attuazione','rendicontazione','delega','variazioni','altro')",
+            name="ck_avviso_regole_categoria",
+        ),
+        CheckConstraint(
+            "stato IN ('proposta','validata','rifiutata','superata')",
+            name="ck_avviso_regole_stato",
+        ),
+        CheckConstraint("confidence IS NULL OR (confidence >= 0 AND confidence <= 1)", name="ck_avviso_regole_confidence"),
+        CheckConstraint("length(trim(chiave)) > 0", name="ck_avviso_regole_chiave_non_vuota"),
+        CheckConstraint("length(trim(testo_originale)) > 0", name="ck_avviso_regole_testo_non_vuoto"),
+        CheckConstraint(
+            "(stato <> 'validata') OR (validata_da_user_id IS NOT NULL AND validata_il IS NOT NULL)",
+            name="ck_avviso_regole_validazione_completa",
+        ),
+    )
+
+
+class AvvisoScadenza(Base):
+    __tablename__ = "avviso_scadenze"
+
+    id = Column(Integer, primary_key=True, index=True)
+    avviso_revisione_id = Column(
+        Integer, ForeignKey("avviso_revisioni.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    tipo = Column(String(30), nullable=False, index=True)
+    data = Column(DateTime(timezone=True), nullable=False, index=True)
+    finestra_inizio = Column(DateTime(timezone=True), nullable=True)
+    finestra_fine = Column(DateTime(timezone=True), nullable=True)
+    descrizione = Column(Text, nullable=False)
+    tassativa = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    condizione = Column(Text, nullable=True)
+    applicabilita = Column(AVVISO_JSON_TYPE, nullable=True)
+    testo_originale = Column(Text, nullable=False)
+    riferimento_articolo = Column(String(120), nullable=True)
+    stato = Column(String(20), nullable=False, default="proposta", server_default="proposta", index=True)
+    confidence = Column(Numeric(5, 4), nullable=True)
+    needs_careful_review = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    origin_suggestion_id = Column(
+        Integer, ForeignKey("agent_suggestions.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    validata_da_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    validata_il = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    revisione = relationship("AvvisoRevisione", back_populates="scadenze")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "avviso_revisione_id", "tipo", "data", "descrizione", name="uq_avviso_scadenze_esatta"
+        ),
+        Index("ix_avviso_scadenze_data_stato", "data", "stato"),
+        CheckConstraint(
+            "tipo IN ('presentazione','avvio','chiusura','rendicontazione','altro')",
+            name="ck_avviso_scadenze_tipo",
+        ),
+        CheckConstraint(
+            "stato IN ('proposta','validata','rifiutata','superata')",
+            name="ck_avviso_scadenze_stato",
+        ),
+        CheckConstraint("confidence IS NULL OR (confidence >= 0 AND confidence <= 1)", name="ck_avviso_scadenze_confidence"),
+        CheckConstraint(
+            "finestra_inizio IS NULL OR finestra_fine IS NULL OR finestra_fine >= finestra_inizio",
+            name="ck_avviso_scadenze_finestra",
+        ),
+        CheckConstraint(
+            "(stato <> 'validata') OR (validata_da_user_id IS NOT NULL AND validata_il IS NOT NULL)",
+            name="ck_avviso_scadenze_validazione_completa",
+        ),
+    )
+
+
+class AvvisoDocumento(Base):
+    __tablename__ = "avviso_documenti"
+
+    id = Column(Integer, primary_key=True, index=True)
+    avviso_id = Column(Integer, ForeignKey("avvisi.id", ondelete="RESTRICT"), nullable=False, index=True)
+    avviso_revisione_id = Column(
+        Integer, ForeignKey("avviso_revisioni.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    tipo = Column(String(30), nullable=False, index=True)
+    original_filename = Column(String(255), nullable=False)
+    file_path = Column(String(500), nullable=False)
+    mime_type = Column(String(100), nullable=True)
+    sha256 = Column(String(64), nullable=False)
+    note = Column(Text, nullable=True)
+    uploaded_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+    __table_args__ = (
+        UniqueConstraint("avviso_id", "sha256", name="uq_avviso_documenti_sha256"),
+        Index("ix_avviso_documenti_avviso_tipo", "avviso_id", "tipo"),
+        CheckConstraint(
+            "tipo IN ('avviso','allegato','vademecum','manuale_gestione','nota_interna','controdeduzione','altro')",
+            name="ck_avviso_documenti_tipo",
+        ),
+        CheckConstraint("length(sha256) = 64", name="ck_avviso_documenti_sha256"),
+    )
+
+
+class AvvisoConoscenza(Base):
+    __tablename__ = "avviso_conoscenze"
+
+    id = Column(Integer, primary_key=True, index=True)
+    avviso_id = Column(Integer, ForeignKey("avvisi.id", ondelete="RESTRICT"), nullable=False, index=True)
+    avviso_revisione_id = Column(
+        Integer, ForeignKey("avviso_revisioni.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    tipo = Column(String(30), nullable=False, default="nota_operativa", server_default="nota_operativa", index=True)
+    contenuto = Column(Text, nullable=False)
+    tags = Column(AVVISO_JSON_TYPE, nullable=True)
+    riservatezza = Column(String(20), nullable=False, default="interna", server_default="interna")
+    autore_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    __table_args__ = (
+        CheckConstraint("length(trim(contenuto)) > 0", name="ck_avviso_conoscenze_contenuto"),
+        CheckConstraint(
+            "riservatezza IN ('interna','ristretta')", name="ck_avviso_conoscenze_riservatezza"
+        ),
+    )
+
+
+class AvvisoEsitoProgetto(Base):
+    __tablename__ = "avviso_esiti_progetto"
+
+    id = Column(Integer, primary_key=True, index=True)
+    avviso_id = Column(Integer, ForeignKey("avvisi.id", ondelete="RESTRICT"), nullable=False, index=True)
+    avviso_revisione_id = Column(
+        Integer, ForeignKey("avviso_revisioni.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="RESTRICT"), nullable=False, index=True)
+    piano_finanziario_id = Column(
+        Integer, ForeignKey("piani_finanziari.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    esito = Column(String(30), nullable=False, index=True)
+    data_evento = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), index=True)
+    importo_richiesto = Column(Numeric(12, 2), nullable=True)
+    importo_ammesso = Column(Numeric(12, 2), nullable=True)
+    importo_rendicontato = Column(Numeric(12, 2), nullable=True)
+    importo_riconosciuto = Column(Numeric(12, 2), nullable=True)
+    importo_decurtato = Column(Numeric(12, 2), nullable=True)
+    note = Column(Text, nullable=True)
+    documento_id = Column(Integer, ForeignKey("avviso_documenti.id", ondelete="SET NULL"), nullable=True)
+    created_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+    __table_args__ = (
+        Index("ix_avviso_esiti_project_data", "project_id", "data_evento"),
+        CheckConstraint(
+            "esito IN ('approvato','rigettato','attuato','rendicontato','decurtato','controdedotto')",
+            name="ck_avviso_esiti_esito",
+        ),
+        CheckConstraint(
+            "COALESCE(importo_richiesto,0) >= 0 AND COALESCE(importo_ammesso,0) >= 0 "
+            "AND COALESCE(importo_rendicontato,0) >= 0 AND COALESCE(importo_riconosciuto,0) >= 0 "
+            "AND COALESCE(importo_decurtato,0) >= 0",
+            name="ck_avviso_esiti_importi_non_negativi",
+        ),
     )
 
 class Attendance(Base):
@@ -801,6 +1090,12 @@ class PianoFinanziario(Base):
     anno = Column(Integer, nullable=False, index=True)
     ente_erogatore = Column(String(100), nullable=False, default="Formazienda")
     avviso_pf_id = Column(Integer, ForeignKey("avvisi.id", ondelete="SET NULL"), nullable=True, index=True)
+    avviso_revisione_id = Column(
+        Integer,
+        ForeignKey("avviso_revisioni.id", ondelete="SET NULL", use_alter=True),
+        nullable=True,
+        index=True,
+    )
 
     # === IDENTIFICAZIONE ===
     codice_piano = Column(String(100), unique=True, nullable=True, index=True)
@@ -837,6 +1132,7 @@ class PianoFinanziario(Base):
 
     progetto = relationship("Project", back_populates="piani_finanziari", lazy="joined")
     avviso_rel = relationship("Avviso", foreign_keys=[avviso_pf_id], lazy="select")
+    avviso_revisione = relationship("AvvisoRevisione", foreign_keys=[avviso_revisione_id], lazy="select")
     voci = relationship("VocePianoFinanziario", back_populates="piano", lazy="select", cascade="all, delete-orphan")
 
     @property

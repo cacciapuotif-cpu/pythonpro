@@ -803,6 +803,7 @@ def _resolve_project_financial_refs(
     current_project: Optional[models.Project] = None,
 ) -> Dict[str, Any]:
     legacy_avviso_id_marker = payload.get("avviso_id") if "avviso_id" in payload else None
+    avviso_revisione_id = payload.get("avviso_revisione_id")
     legacy_avviso_code = _normalize_optional_text(payload.get("avviso"))
 
     payload.pop("avviso_pf_id", None)
@@ -827,6 +828,21 @@ def _resolve_project_financial_refs(
         payload["avviso_id"] = legacy_avviso.id
         payload["avviso"] = legacy_avviso.codice
         payload["ente_erogatore"] = payload.get("ente_erogatore") or legacy_avviso.ente_erogatore
+
+    if avviso_revisione_id is not None:
+        revisione = db.query(models.AvvisoRevisione).filter(
+            models.AvvisoRevisione.id == avviso_revisione_id
+        ).first()
+        if not revisione:
+            raise ValueError("Revisione avviso non trovata")
+        resolved_avviso_id = (
+            legacy_avviso.id
+            if legacy_avviso is not None
+            else getattr(current_project, "avviso_id", None)
+        )
+        if resolved_avviso_id is not None and revisione.avviso_id != resolved_avviso_id:
+            raise ValueError("La revisione appartiene a un altro avviso")
+        payload["avviso_id"] = revisione.avviso_id
 
     return payload
 
@@ -894,6 +910,26 @@ def get_avvisi(
 
 def create_avviso(db: Session, avviso: schemas.AvvisoCreate):
     payload = avviso.model_dump()
+    code_match = re.fullmatch(r"\s*([^/]+)\s*/\s*(\d{4})\s*", payload["codice"])
+    if payload.get("numero") is None and code_match:
+        payload["numero"] = code_match.group(1).strip()
+    if payload.get("anno") is None and code_match:
+        payload["anno"] = int(code_match.group(2))
+    if payload.get("numero") is None or payload.get("anno") is None:
+        raise ValueError("Il codice avviso deve avere formato numero/anno")
+    fondo_map = {
+        "fondimpresa": "fondimpresa",
+        "formazienda": "formazienda",
+        "fapi": "fapi",
+        "regionale": "regionale",
+    }
+    if payload.get("fondo") == "altro":
+        payload["fondo"] = fondo_map.get(payload["ente_erogatore"].strip().lower(), "altro")
+    payload["titolo"] = payload.get("titolo") or payload.get("descrizione") or (
+        f"{payload['ente_erogatore']} - Avviso {payload['codice']}"
+    )
+    payload["descrizione_breve"] = payload.get("descrizione_breve") or payload.get("descrizione")
+    payload["stato"] = payload.get("stato") or ("attivo" if payload.get("is_active", True) else "archiviato")
     db_avviso = models.Avviso(**payload)
     db.add(db_avviso)
     db.commit()
@@ -4022,7 +4058,9 @@ def create_piano_finanziario(db: Session, piano: schemas.PianoFinanziarioCreate)
 
     payload["anno"] = derived_anno
     payload["ente_erogatore"] = normalized_ente
-    payload["avviso"] = normalized_avviso
+    payload.pop("avviso", None)
+    payload["avviso_pf_id"] = getattr(progetto, "avviso_id", None)
+    payload["avviso_revisione_id"] = getattr(progetto, "avviso_revisione_id", None)
     payload["codice_piano"] = payload.get("codice_piano") or f"PF-{piano.progetto_id}-{str(uuid.uuid4())[:8].upper()}"
     payload["budget_approvato"] = float(payload.get("budget_approvato") or 0.0)
     payload["budget_utilizzato"] = float(payload.get("budget_utilizzato") or 0.0)
