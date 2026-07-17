@@ -224,3 +224,63 @@ def test_collector_tolerates_llm_failure_per_group(db_session, revision_with_cle
     )
     assert result["suggestions"] == []
     assert result["summary"]["gruppi_falliti"] == 5
+
+
+import agent_workflows
+from services.avviso_ingest import prepare_revision_content, run_extraction_pipeline
+
+
+@pytest.fixture
+def revision_caricata(db_session, user, tmp_path, monkeypatch):
+    """Revisione con solo source_md_path (stato caricato), senza cleaned."""
+    monkeypatch.setattr(avviso_ingest, "UPLOAD_DIR", tmp_path)
+    monkeypatch.setattr(extractor_module, "UPLOAD_DIR", tmp_path)
+    avviso = models.Avviso(
+        codice="2/2026", ente_erogatore="fapi", fondo="fapi", numero="2", anno=2026,
+        titolo="Avviso FAPI 2/2026", stato="bozza",
+    )
+    db_session.add(avviso)
+    db_session.commit()
+    contents = "# Art. 5 Massimali\r\n\r\n\r\nContributo massimo 50.000 euro.\n".encode("utf-8")
+    stored = avviso_ingest.save_ingest_markdown(avviso.id, "avviso.md", contents)
+    revision = crud_avvisi.create_next_revision(
+        db_session,
+        avviso.id,
+        avvisi_schemas.AvvisoRevisioneCreate(
+            titolo="Avviso FAPI 2/2026",
+            source_md_path=stored.storage_key,
+            original_filename="avviso.md",
+            source_sha256=stored.sha256,
+        ),
+        created_by_user_id=user.id,
+    )
+    assert revision.stato_estrazione == "caricato"
+    return revision
+
+
+def test_prepare_revision_content_transitions_and_writes_cleaned(db_session, revision_caricata):
+    revision = prepare_revision_content(db_session, revision_caricata.id)
+    assert revision.stato_estrazione == "segmentato"
+    assert revision.cleaned_md_path
+    cleaned_text = (avviso_ingest.UPLOAD_DIR / revision.cleaned_md_path).read_text(encoding="utf-8")
+    assert "\r" not in cleaned_text and "\n\n\n" not in cleaned_text
+
+
+def test_run_extraction_pipeline_completes_and_links_run(db_session, revision_caricata, monkeypatch):
+    monkeypatch.setattr(extractor_module, "call_ollama_json", _fake_llm_factory([]))
+    run = run_extraction_pipeline(db_session, revision_caricata.id, user_id=None)
+    db_session.refresh(revision_caricata)
+    assert run.status == "completed"
+    assert revision_caricata.extraction_run_id == run.id
+    assert revision_caricata.stato_estrazione == "estratto"
+    assert run.suggestions_count >= 2  # regola massimali + scadenza
+
+
+def test_run_extraction_pipeline_marks_errore_on_workflow_failure(db_session, revision_caricata, monkeypatch):
+    def boom(db, **kwargs):
+        raise ValueError("Agente non supportato")
+    monkeypatch.setattr(avviso_ingest, "run_agent_workflow", boom)
+    with pytest.raises(ValueError):
+        run_extraction_pipeline(db_session, revision_caricata.id, user_id=None)
+    db_session.refresh(revision_caricata)
+    assert revision_caricata.stato_estrazione == "errore"

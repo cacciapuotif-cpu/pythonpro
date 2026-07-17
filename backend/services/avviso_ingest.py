@@ -9,7 +9,10 @@ import hashlib
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional
 
+import models
+from agent_workflows import run_agent_workflow
 from file_upload import MAX_FILE_SIZE, UPLOAD_DIR
 
 _HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
@@ -118,3 +121,57 @@ def save_ingest_markdown(avviso_id: int, original_filename: str, contents: bytes
 
 def save_cleaned_markdown(avviso_id: int, source_sha256: str, cleaned: str) -> StoredMarkdown:
     return _write_markdown(avviso_id, f"{source_sha256[:12]}_cleaned.md", cleaned.encode("utf-8"))
+
+
+def _get_revision(db, revision_id: int) -> "models.AvvisoRevisione":
+    revision = (
+        db.query(models.AvvisoRevisione)
+        .filter(models.AvvisoRevisione.id == revision_id)
+        .first()
+    )
+    if revision is None:
+        raise ValueError(f"Revisione avviso {revision_id} non trovata")
+    return revision
+
+
+def _set_stato(db, revision, stato: str) -> None:
+    revision.stato_estrazione = stato
+    db.commit()
+
+
+def prepare_revision_content(db, revision_id: int):
+    revision = _get_revision(db, revision_id)
+    raw = (UPLOAD_DIR / revision.source_md_path).read_text(encoding="utf-8")
+    cleaned = clean_markdown(raw)
+    if not cleaned:
+        _set_stato(db, revision, "errore")
+        raise ValueError("Il markdown sorgente è vuoto dopo la pulizia")
+    stored = save_cleaned_markdown(revision.avviso_id, revision.source_sha256, cleaned)
+    revision.cleaned_md_path = stored.storage_key
+    _set_stato(db, revision, "pulito")
+    if not segment_markdown(cleaned):
+        _set_stato(db, revision, "errore")
+        raise ValueError("Nessun segmento estraibile dal markdown pulito")
+    _set_stato(db, revision, "segmentato")
+    return revision
+
+
+def run_extraction_pipeline(db, revision_id: int, *, user_id: Optional[int] = None):
+    revision = _get_revision(db, revision_id)
+    if revision.stato_estrazione == "caricato":
+        revision = prepare_revision_content(db, revision_id)
+    _set_stato(db, revision, "in_estrazione")
+    try:
+        run = run_agent_workflow(
+            db,
+            agent_type="avviso_extractor",
+            entity_type="avviso_revisione",
+            entity_id=revision_id,
+            requested_by_user_id=user_id,
+        )
+    except Exception:
+        _set_stato(db, revision, "errore")
+        raise
+    revision.extraction_run_id = run.id
+    _set_stato(db, revision, "estratto" if run.status == "completed" else "errore")
+    return run
