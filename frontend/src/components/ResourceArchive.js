@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   createAvviso,
+  deleteAvviso,
   getAvvisi,
   getAvvisoRevisioni,
   ingestAvvisoRevision,
@@ -64,6 +65,7 @@ export default function ResourceArchive({ currentUser = null, onReviewSuggestion
   const [showCreate, setShowCreate] = useState(false);
   const [createForm, setCreateForm] = useState(emptyAvvisoForm);
   const [creating, setCreating] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [uploadFile, setUploadFile] = useState(null);
   const [uploadTitle, setUploadTitle] = useState('');
   const [revisionLabel, setRevisionLabel] = useState('');
@@ -109,7 +111,7 @@ export default function ResourceArchive({ currentUser = null, onReviewSuggestion
     setLoading(true);
     setError('');
     try {
-      const data = await getAvvisi({ active_only: false, limit: 1000 });
+      const data = await getAvvisi({ active_only: true, limit: 1000 });
       const items = Array.isArray(data) ? data : [];
       setAvvisi(items);
       setSelectedId((current) => current || (items[0]?.id ? String(items[0].id) : ''));
@@ -191,6 +193,32 @@ export default function ResourceArchive({ currentUser = null, onReviewSuggestion
       setError(errorDetail(uploadError, 'Ingestione del markdown non riuscita.'));
     } finally {
       setUploading(false);
+    }
+  };
+
+  const handleDeactivate = async () => {
+    if (!selectedAvviso || !canWrite || deleting) return;
+    const confirmed = window.confirm(
+      `Disattivare “${selectedAvviso.titolo || `Avviso ${selectedAvviso.codice}`}”?\n\n`
+      + 'Non verranno cancellati dati o revisioni: l’avviso sarà nascosto dalle liste operative.',
+    );
+    if (!confirmed) return;
+
+    setDeleting(true);
+    setError('');
+    setMessage('');
+    try {
+      await deleteAvviso(selectedAvviso.id);
+      const remaining = avvisi.filter((item) => item.id !== selectedAvviso.id);
+      setAvvisi(remaining);
+      setSelectedId(remaining[0]?.id ? String(remaining[0].id) : '');
+      setRevisions([]);
+      setIngestResult(null);
+      setMessage('Avviso disattivato. Lo storico è stato conservato.');
+    } catch (deleteError) {
+      setError(errorDetail(deleteError, 'Disattivazione dell’avviso non riuscita.'));
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -299,7 +327,12 @@ export default function ResourceArchive({ currentUser = null, onReviewSuggestion
                   <h3>{selectedAvviso.titolo || `Avviso ${selectedAvviso.codice}`}</h3>
                   <p>Codice {selectedAvviso.codice} · stato {selectedAvviso.stato}</p>
                 </div>
-                <button type="button" className="resources-button review" onClick={openReview}>Vai alla revisione umana</button>
+                <div className="resources-detail-actions">
+                  <button type="button" className="resources-button review" onClick={openReview}>Vai alla revisione umana</button>
+                  <button type="button" className="resources-button danger" onClick={handleDeactivate} disabled={!canWrite || deleting}>
+                    {deleting ? 'Disattivazione…' : 'Disattiva avviso'}
+                  </button>
+                </div>
               </header>
 
               <section className="resources-upload-card">

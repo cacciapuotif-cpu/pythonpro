@@ -72,7 +72,11 @@ def update_avviso(avviso_id: int, avviso: schemas.AvvisoUpdate, db: Session = De
 
 
 @router.delete("/{avviso_id}")
-def delete_avviso(avviso_id: int, db: Session = Depends(get_db)):
+def delete_avviso(
+    avviso_id: int,
+    db: Session = Depends(get_db),
+    _current_user: User = Depends(require_avvisi_write),
+):
     db_avviso = crud.delete_avviso(db, avviso_id)
     if db_avviso is None:
         raise HTTPException(status_code=404, detail="Avviso non trovato")

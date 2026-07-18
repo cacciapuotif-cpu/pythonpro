@@ -153,3 +153,16 @@ def test_list_revisioni_supports_legacy_rows_without_markdown_source(client_fact
     assert response.json()[0]["source_md_path"] is None
     assert response.json()[0]["original_filename"] is None
     assert response.json()[0]["source_sha256"] is None
+
+
+def test_delete_avviso_is_soft_and_reserved_to_writers(client_factory):
+    viewer, session, _ = client_factory("viewer")
+    avviso = _crea_avviso(session)
+    assert viewer.delete(f"/api/v1/avvisi/{avviso.id}").status_code == 403
+
+    admin, _, _ = client_factory("admin")
+    response = admin.delete(f"/api/v1/avvisi/{avviso.id}")
+
+    assert response.status_code == 200, response.text
+    session.refresh(avviso)
+    assert avviso.is_active is False

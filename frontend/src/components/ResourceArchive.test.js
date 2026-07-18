@@ -5,6 +5,7 @@ import '@testing-library/jest-dom';
 import ResourceArchive from './ResourceArchive';
 import {
   createAvviso,
+  deleteAvviso,
   getAvvisi,
   getAvvisoRevisioni,
   ingestAvvisoRevision,
@@ -12,6 +13,7 @@ import {
 
 jest.mock('../services/apiService', () => ({
   createAvviso: jest.fn(),
+  deleteAvviso: jest.fn(),
   getAvvisi: jest.fn(),
   getAvvisoRevisioni: jest.fn(),
   ingestAvvisoRevision: jest.fn(),
@@ -100,5 +102,19 @@ describe('ResourceArchive', () => {
       titolo: 'Nuovo avviso',
     })));
     expect(await screen.findByText(/avviso creato/i)).toBeInTheDocument();
+  });
+
+  test('disattiva un avviso solo dopo conferma e lo rimuove dalla lista operativa', async () => {
+    deleteAvviso.mockResolvedValue({ message: 'Avviso disattivato con successo', id: 7 });
+    const confirm = jest.spyOn(window, 'confirm').mockReturnValue(true);
+
+    render(<ResourceArchive currentUser={{ id: 1, role: 'admin' }} onReviewSuggestions={jest.fn()} />);
+    await screen.findByRole('heading', { name: 'Avviso FAPI 1/2026' });
+    fireEvent.click(screen.getByRole('button', { name: /disattiva avviso/i }));
+
+    await waitFor(() => expect(deleteAvviso).toHaveBeenCalledWith(7));
+    expect(await screen.findByText(/storico è stato conservato/i)).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Avviso FAPI 1/2026' })).not.toBeInTheDocument();
+    confirm.mockRestore();
   });
 });
