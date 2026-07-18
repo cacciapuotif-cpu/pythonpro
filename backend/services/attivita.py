@@ -31,6 +31,8 @@ def apply_piano_attivita(db, suggestion, *, user_id):
     db.commit(); return {"create": created, "esistenti": existing}
 
 def cambia_stato(db, *, attivita_id, nuovo_stato, user_id, nota=None):
+    if not user_id:
+        raise ValueError("Utente attore obbligatorio")
     activity = db.query(models.AttivitaOperativa).filter_by(id=attivita_id).with_for_update().one_or_none()
     if not activity: raise ValueError("Attività non trovata")
     if nuovo_stato not in ATTIVITA_STATE_TRANSITIONS.get(activity.stato, set()):
@@ -43,6 +45,8 @@ def cambia_stato(db, *, attivita_id, nuovo_stato, user_id, nota=None):
     db.commit(); return activity
 
 def aggiorna_attivita(db, *, attivita_id, user_id, scadenza=None, assegnatario=None, note=None):
+    if not user_id:
+        raise ValueError("Utente attore obbligatorio")
     activity = db.get(models.AttivitaOperativa, attivita_id)
     if not activity: raise ValueError("Attività non trovata")
     if scadenza is not None and scadenza != activity.scadenza: activity.scadenza = scadenza; _event(db, activity, "scadenza_modificata", user_id=user_id, payload={"scadenza": str(scadenza)})
