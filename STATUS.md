@@ -1,6 +1,6 @@
 # PythonPro — Stato corrente
 
-**Aggiornato:** 2026-07-18 09:21 Europe/Rome
+**Aggiornato:** 2026-07-18 (sessione brainstorming layer predittivo)
 **Branch:** `claude/platform-audit-compliance-XnH86` (locale, nessun push)
 **Percorso:** `/DATA/progetti/pythonpro`
 
@@ -84,6 +84,36 @@ L'utente ha autorizzato preventivamente i gate tecnici e ha chiesto di non ferma
   Build/recreate completati; backend healthy, `/health` 200, frontend HTTP 200.
 - Nessuna cancellazione definitiva eseguita sul database reale: Formazienda 2/2025
   ID 1 resta disattivato e attende la doppia conferma dell'amministratore dalla UI.
+
+## Brainstorming layer predittivo — IN CORSO (2026-07-18)
+
+Sessione interrotta dall'utente a metà brainstorming (skill superpowers:brainstorming).
+Visione: piattaforma che apprende da avvisi/allegati/vademecum e dalle azioni degli
+operatori per predire attività, assistere i piani e monitorare gli enti.
+
+Decisioni già prese (confermate dall'utente, non ridiscutere):
+
+1. Decomposizione in 4 sottosistemi: **A** procedura operativa predittiva (checklist
+   attività per fase da avviso), **B** apprendimento da azioni operatori, **C** archivio
+   piani presentati/approvati con punteggi per assistenza redazione, **D** monitoraggio
+   automatico pagine enti/graduatorie/news. Ordine: A per primo; B/C/D spec separati dopo.
+2. Sottosistema A: nuovo modello `AttivitaOperativa` — checklist per fase
+   (presentazione/avvio/gestione/rendicontazione), agente propone, **apply umano**,
+   operatore spunta; ponte eventi verso B.
+3. Fonti di apprendimento: tutte e 4 — regole+scadenze validate V2, estrazione LLM da
+   vademecum/manuali di gestione, playbook manuali curati, storico azioni operatori.
+4. Scope MVP: tutte le fasi con profondità minima (struttura completa, contenuto cresce).
+5. Approccio confermato: **playbook dichiarativo versionato in DB + motore di
+   istanziazione** (agente `activity_planner` collector puro su regole/scadenze validate
+   + playbook → AgentSuggestion → apply umano; agente `procedure_extractor` da
+   vademecum → proposte voci playbook; event log `AttivitaEvento` per B). RAG solo come
+   complemento futuro, niente hard-code per fondo.
+
+Prossimo passo alla ripresa: presentare design a sezioni (architettura, modelli,
+agenti, data flow, error handling, test) → approvazione → spec in
+`docs/superpowers/specs/2026-07-18-attivita-predittive-design.md` → writing-plans.
+Nota integrazione: A tocca i temi di Ondata B (B3 checklist documentale) e Ondata L
+(apprendimento) del programma giro completo — riconciliare in fase di design.
 
 ## Regole di lavoro
 
