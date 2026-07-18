@@ -778,7 +778,10 @@ con zero side effect esterni senza approvazione umana, kill switch globale e per
   Formazienda 2/2025 ID 1 eliminato nel clone; progetto 2 `pinco` e piano 2 rimasti
   presenti e scollegati; audit presente. Upload root sostituita con directory isolata
   durante la prova. Database clone eliminato al termine.
-- Gate: backend V2 API **8 passed**; frontend ResourceArchive/apiService **8 passed**.
+- **`c9ce6fd` fix(V5):** l'archivio Admin include anche i record disattivati e li
+  evidenzia esplicitamente; il pulsante di disattivazione risulta bloccato, mentre
+  l'hard-delete resta accessibile. Manager e altri ruoli mantengono la lista active-only.
+- Gate: backend V2 API **8 passed**; frontend ResourceArchive/apiService **9 passed**.
   Build e recreate backend/frontend riusciti; backend healthy, `/health` HTTP 200 e
   frontend HTTP 200. Nessun hard-delete applicato al database reale.
 

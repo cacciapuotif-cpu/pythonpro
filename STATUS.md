@@ -1,6 +1,6 @@
 # PythonPro — Stato corrente
 
-**Aggiornato:** 2026-07-18 09:18 Europe/Rome
+**Aggiornato:** 2026-07-18 09:21 Europe/Rome
 **Branch:** `claude/platform-audit-compliance-XnH86` (locale, nessun push)
 **Percorso:** `/DATA/progetti/pythonpro`
 
@@ -74,10 +74,13 @@ L'utente ha autorizzato preventivamente i gate tecnici e ha chiesto di non ferma
   seconda conferma con frase esatta. Progetti e piani restano nel sistema ma vengono
   scollegati; avviso, revisioni, regole, scadenze, documenti, conoscenza, esiti e file
   sorgente vengono eliminati. Agent run/suggestion e audit restano conservati.
+- Gli Admin vedono anche gli avvisi disattivati, marcati `Disattivato`, così il
+  comando definitivo resta raggiungibile dopo il soft-delete (`c9ce6fd`). Manager e
+  altri ruoli continuano a vedere soltanto la lista operativa attiva.
 - Prova distruttiva superata esclusivamente sulla copia PostgreSQL temporanea
   `gestionale_v5_harddelete_test`: avviso 1 rimosso, progetto 2 e piano 2 presenti e
   scollegati, audit `avviso_hard_delete` presente. Copia temporanea eliminata subito.
-- Gate hard-delete: backend V2 API **8 passed**; frontend archivio/API **8 passed**.
+- Gate hard-delete: backend V2 API **8 passed**; frontend archivio/API **9 passed**.
   Build/recreate completati; backend healthy, `/health` 200, frontend HTTP 200.
 - Nessuna cancellazione definitiva eseguita sul database reale: Formazienda 2/2025
   ID 1 resta disattivato e attende la doppia conferma dell'amministratore dalla UI.
