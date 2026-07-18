@@ -84,7 +84,13 @@ def apply_suggestion(db, suggestion, *, user_id: Optional[int] = None) -> dict:
         )
     if kind == ATTIVITA_PIANO_KIND:
         from services.attivita import apply_piano_attivita
-        return apply_piano_attivita(db, suggestion, user_id=user_id)
+        counts = apply_piano_attivita(db, suggestion, user_id=user_id)
+        return {
+            "applied": ([f"attivita_create:{counts['create']}"] if counts["create"] else []),
+            "skipped": ([{"reason": "gia_esistenti", "count": counts["esistenti"]}]
+                        if counts["esistenti"] else []),
+            "counts": counts,
+        }
     if kind == PLAYBOOK_VOCE_KIND:
         from services.playbook import apply_voce_suggestion
         return apply_voce_suggestion(db, suggestion, user_id=user_id)

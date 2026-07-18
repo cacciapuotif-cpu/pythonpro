@@ -446,6 +446,8 @@ def apply_suggestion_fix(suggestion_id: int, db: Session = Depends(get_db), curr
     reviewer_id = getattr(current_user, "id", None)
     try:
         apply_result = apply_suggestion(db, suggestion, user_id=reviewer_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 

@@ -79,6 +79,9 @@ def test_apply_voce_requires_human_and_materializes_json_payload(db):
     db.add(suggestion); db.commit()
     with pytest.raises(ValueError, match="Reviewer"):
         apply_voce_suggestion(db, suggestion, user_id=None)
+    operator = make_user(db, "operatore")
+    with pytest.raises(PermissionError, match="Solo admin"):
+        apply_voce_suggestion(db, suggestion, user_id=operator.id)
     result = apply_voce_suggestion(db, suggestion, user_id=user.id)
     assert result["applied"] and result["skipped"] == []
     voce = db.query(models.PlaybookVoce).filter_by(titolo="Apply").one()

@@ -58,6 +58,10 @@ def get_playbook_operativo(db, *, fondo, ente_erogatore=None):
 
 def apply_voce_suggestion(db, suggestion, *, user_id):
     if not user_id: raise ValueError("Reviewer umano obbligatorio")
+    from auth import User
+    reviewer = db.get(User, user_id)
+    if not reviewer or reviewer.role != "admin":
+        raise PermissionError("Solo admin può materializzare voci playbook")
     import json
     payload = json.loads(suggestion.auto_fix_payload or "{}")
     voce_data = payload.get("voce") or {}

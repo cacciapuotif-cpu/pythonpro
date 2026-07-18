@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
@@ -13,7 +14,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import auth
 import models
 from agent_workflows import run_agent_workflow
-from services.suggestion_apply import apply_suggestion
 
 
 @pytest.fixture()
@@ -30,6 +30,7 @@ def db(tmp_path):
         auth.User.__table__,
         models.AgentRun.__table__,
         models.AgentSuggestion.__table__,
+        models.AgentReviewAction.__table__,
         models.AuditLog.__table__,
         models.ContractTemplate.__table__,
         models.Avviso.__table__,
@@ -129,9 +130,11 @@ def test_activity_planner_workflow_persists_proposal_then_human_apply(
     assert suggestion.status == "pending"
     assert suggestion.suggestion_type == "piano_attivita"
 
-    result = apply_suggestion(db, suggestion, user_id=actor.id)
+    from routers.agents import apply_suggestion_fix
 
-    assert result == {"create": 1, "esistenti": 0}
+    reviewed = apply_suggestion_fix(suggestion.id, db=db, current_user=actor)
+
+    assert reviewed.status == "implemented"
     activity = db.query(models.AttivitaOperativa).one()
     assert activity.scadenza.isoformat() == "2026-09-30"
     assert activity.tassativa is True
@@ -196,9 +199,25 @@ def test_procedure_extractor_workflow_persists_proposal_then_human_apply(
     suggestion = db.query(models.AgentSuggestion).filter_by(run_id=run.id).one()
     assert suggestion.status == "pending"
 
-    result = apply_suggestion(db, suggestion, user_id=actor.id)
+    operator = auth.User(
+        username="workflow-operatore",
+        email="workflow-operatore@example.test",
+        hashed_password="not-used",
+        role="operatore",
+        is_active=True,
+    )
+    db.add(operator)
+    db.commit()
+    from routers.agents import apply_suggestion_fix
 
-    assert result["applied"] and result["skipped"] == []
+    with pytest.raises(HTTPException) as denied:
+        apply_suggestion_fix(suggestion.id, db=db, current_user=operator)
+    assert denied.value.status_code == 403
+    assert db.query(models.PlaybookVoce).count() == 0
+
+    reviewed = apply_suggestion_fix(suggestion.id, db=db, current_user=actor)
+
+    assert reviewed.status == "implemented"
     playbook = db.query(models.Playbook).one()
     assert playbook.fondo == "fapi"
     assert playbook.ente_erogatore == "FAPI"
