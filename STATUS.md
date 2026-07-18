@@ -1,6 +1,6 @@
 # PythonPro — Stato corrente
 
-**Aggiornato:** 2026-07-18 08:57 Europe/Rome
+**Aggiornato:** 2026-07-18 09:02 Europe/Rome
 **Branch:** `claude/platform-audit-compliance-XnH86` (locale, nessun push)
 **Percorso:** `/DATA/progetti/pythonpro`
 
@@ -67,6 +67,12 @@ L'utente ha autorizzato preventivamente i gate tecnici e ha chiesto di non ferma
   Backend e frontend ricostruiti e healthy; `/health` e `/resources` HTTP 200.
 - Record da disattivare indicato dall'utente: ID 1, Formazienda `2/2025`, attivo.
   Non disattivato automaticamente: attende conferma umana tramite il nuovo pulsante.
+- L'utente ha poi disattivato Formazienda `2/2025` (ID 1) e chiesto cancellazione
+  permanente. Audit read-only: record non orfano, collegato al progetto ID 2 `pinco`,
+  piano finanziario ID 2 e revisione corrente ID 2. Il tentativo upload precedente
+  era fallito con 422 e non ha creato una nuova revisione. Nessun hard-delete eseguito:
+  prima occorre decidere se riassegnare i collegamenti o limitare l'hard-delete ai
+  soli avvisi realmente orfani con doppia conferma Admin.
 
 ## Regole di lavoro
 
