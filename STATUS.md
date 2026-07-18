@@ -141,6 +141,19 @@ Nota integrazione: A tocca i temi di Ondata B (B3 checklist documentale) e Ondat
 - Piano e spec restano non tracciati intenzionalmente fino alla conferma del
   contenuto/documentazione: `docs/superpowers/plans/2026-07-18-attivita-predittive.md`.
 
+### Ripresa operativa successiva
+
+- ATT-01…ATT-05: implementati e validati con test mirati e doppio OK team/confutatore.
+- ATT-06: test unitari RBAC/router **5/5 passati** (`cd37f99`), ma gate aperto:
+  manca uno smoke test HTTP reale con FastAPI dependency override. `TestClient`,
+  `httpx.ASGITransport` e ASGI manuale restano sospesi nel test harness; nessun
+  workaround instabile è stato committato.
+- Prossimo obiettivo: isolare il blocco Starlette/httpx in un'app FastAPI minima,
+  con timeout esplicito, verificando almeno consultazione→403 e raggiungibilità
+  route admin/operatore. Solo dopo doppio OK chiudere ATT-06 e passare ATT-07.
+- Ultimi commit ATT: `7aa2273`, `a61dc43`, `d1d4372`, `152d18b`, `75380be`,
+  `37712dc`, `3d18a72`, `cd37f99`.
+
 ## Prompt di ripresa — copia operativa
 
 Riprendi PythonPro da `/DATA/progetti/pythonpro`. Leggi prima `STATUS.md`, la sezione più recente di `REMEDIATION_LOG.md`, `audit/FINDINGS_NUOVI.md` e gli ultimi 10 commit. Non rifare Ondata S: è chiusa, ultimo commit applicativo `b335d1d`. Non fare push e preserva la worktree separata `.worktrees/email-agent`.
