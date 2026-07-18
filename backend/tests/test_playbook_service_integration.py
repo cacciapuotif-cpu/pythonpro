@@ -9,7 +9,8 @@ import auth
 import models
 from database import Base
 from services.playbook import (add_voce_manuale, create_next_version, create_playbook,
-                               get_playbook_operativo, review_voce)
+                               get_playbook_operativo, review_voce, apply_voce_suggestion)
+import json
 
 
 @pytest.fixture()
@@ -60,3 +61,25 @@ def test_operativo_prefers_entity_then_fondo_fallback(db):
     add_voce_manuale(db, versione_id=generic.versione_corrente_id, fase="gestione", titolo="Base",
                      contenuto={"tipo":"attivita_semplice"}, created_by_user_id=user.id)
     assert [v.titolo for v in get_playbook_operativo(db, fondo="fapi", ente_erogatore="INPS")] == ["Base"]
+
+    specific = create_playbook(db, nome="Specifico", fondo="fapi", ente_erogatore="INPS", created_by_user_id=user.id)
+    add_voce_manuale(db, versione_id=specific.versione_corrente_id, fase="gestione", titolo="Specific",
+                     contenuto={"tipo":"attivita_semplice"}, created_by_user_id=user.id)
+    assert [v.titolo for v in get_playbook_operativo(db, fondo="fapi", ente_erogatore="INPS")] == ["Specific"]
+
+
+def test_apply_voce_requires_human_and_materializes_json_payload(db):
+    user = make_user(db)
+    playbook = create_playbook(db, nome="Apply", fondo="fapi", ente_erogatore="INPS", created_by_user_id=user.id)
+    run = models.AgentRun(agent_type="procedure_extractor", entity_type="avviso_documento", status="completed")
+    db.add(run); db.flush()
+    suggestion = models.AgentSuggestion(run_id=run.id, suggestion_type="playbook_voce", entity_type="avviso_documento",
+        title="Voce", auto_fix_payload=json.dumps({"kind":"playbook_voce", "playbook_id":playbook.id,
+            "voce":{"fase":"avvio", "titolo":"Apply", "contenuto":{"tipo":"attivita_semplice"}}}))
+    db.add(suggestion); db.commit()
+    with pytest.raises(ValueError, match="Reviewer"):
+        apply_voce_suggestion(db, suggestion, user_id=None)
+    result = apply_voce_suggestion(db, suggestion, user_id=user.id)
+    assert result["applied"] and result["skipped"] == []
+    voce = db.query(models.PlaybookVoce).filter_by(titolo="Apply").one()
+    assert voce.stato == "validata" and voce.origin_suggestion_id == suggestion.id
