@@ -127,3 +127,50 @@ class AvvisoEstrazioneLLM(BaseModel):
             except Exception:
                 continue
         return valid
+
+
+_FASI_PROCEDURA = {"presentazione", "avvio", "gestione", "rendicontazione"}
+_TIPI_CONTENUTO = {"attivita_semplice", "scadenza_relativa", "documento"}
+
+class ProcedureVoceLLM(BaseModel):
+    fase: str
+    titolo: str
+    descrizione: str = ""
+    tipo_contenuto: str = "attivita_semplice"
+    offset_giorni: Optional[int] = None
+    ancora: Optional[str] = None
+    tipo_documento: Optional[str] = None
+    testo_originale: str
+    riferimento_articolo: Optional[str] = None
+    confidence: float = 0.5
+
+    @field_validator("fase", mode="before")
+    @classmethod
+    def _fase(cls, value):
+        value = str(value or "").strip().lower()
+        if value not in _FASI_PROCEDURA: raise ValueError("fase non valida")
+        return value
+
+    @field_validator("tipo_contenuto", mode="before")
+    @classmethod
+    def _tipo(cls, value):
+        value = str(value or "attivita_semplice").strip().lower()
+        if value not in _TIPI_CONTENUTO: raise ValueError("tipo contenuto non valido")
+        return value
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def _confidence(cls, value): return _clamp01(value)
+
+class ProcedureEstrattoLLM(BaseModel):
+    voci: list[ProcedureVoceLLM] = []
+
+    @field_validator("voci", mode="before")
+    @classmethod
+    def _drop_invalid(cls, value):
+        if not isinstance(value, list): return []
+        result = []
+        for item in value:
+            try: result.append(ProcedureVoceLLM.model_validate(item))
+            except Exception: continue
+        return result
