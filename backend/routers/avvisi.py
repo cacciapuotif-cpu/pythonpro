@@ -15,6 +15,7 @@ from auth import User, get_current_user
 from database import get_db
 from file_upload import sanitize_filename
 from services.avviso_ingest import prepare_revision_content, run_extraction_pipeline, save_ingest_markdown
+from services.avviso_deletion import build_deletion_impact, permanently_delete_avviso
 
 router = APIRouter(prefix="/api/v1/avvisi", tags=["Avvisi"])
 
@@ -22,6 +23,12 @@ router = APIRouter(prefix="/api/v1/avvisi", tags=["Avvisi"])
 def require_avvisi_write(current_user: User = Depends(get_current_user)) -> User:
     if current_user.role not in {"admin", "manager"}:
         raise HTTPException(status_code=403, detail="Ruolo non autorizzato alla gestione avvisi")
+    return current_user
+
+
+def require_avvisi_admin(current_user: User = Depends(get_current_user)) -> User:
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Solo un amministratore può eliminare definitivamente un avviso")
     return current_user
 
 
@@ -81,6 +88,35 @@ def delete_avviso(
     if db_avviso is None:
         raise HTTPException(status_code=404, detail="Avviso non trovato")
     return {"message": "Avviso disattivato con successo", "id": avviso_id}
+
+
+@router.get("/{avviso_id}/deletion-impact", response_model=avvisi_schemas.AvvisoDeletionImpact)
+def get_deletion_impact(
+    avviso_id: int,
+    db: Session = Depends(get_db),
+    _current_user: User = Depends(require_avvisi_admin),
+):
+    impact = build_deletion_impact(db, avviso_id)
+    if impact is None:
+        raise HTTPException(status_code=404, detail="Avviso non trovato")
+    return impact
+
+
+@router.delete("/{avviso_id}/permanent", response_model=avvisi_schemas.AvvisoPermanentDeleteResponse)
+def hard_delete_avviso(
+    avviso_id: int,
+    confirmation: avvisi_schemas.AvvisoPermanentDeleteRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_avvisi_admin),
+):
+    impact = build_deletion_impact(db, avviso_id)
+    if impact is None:
+        raise HTTPException(status_code=404, detail="Avviso non trovato")
+    if not confirmation.linked_records_confirmed:
+        raise HTTPException(status_code=400, detail="Conferma dei collegamenti obbligatoria")
+    if confirmation.confirmation_phrase != impact["confirmation_phrase"]:
+        raise HTTPException(status_code=400, detail="Frase di conferma non corretta")
+    return permanently_delete_avviso(db, avviso_id, user_id=current_user.id)
 
 
 @router.get("/{avviso_id}/revisioni", response_model=list[avvisi_schemas.AvvisoRevisioneRead])

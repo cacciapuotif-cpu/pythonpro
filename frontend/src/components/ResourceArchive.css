@@ -256,6 +256,7 @@
 .resources-button.secondary { color: #344054; border-color: var(--resources-line); background: #fff; }
 .resources-button.review { color: #194d31; border-color: #a7e2c1; background: #eafaf1; }
 .resources-button.danger { color: #9b1c1c; border-color: #fecaca; background: #fff1f2; }
+.resources-button.permanent { color: #fff; border-color: #7f1d1d; background: #991b1b; }
 .resources-button.wide { width: 100%; padding: 0.8rem 1rem; }
 
 .resources-create-form {

@@ -166,3 +166,58 @@ def test_delete_avviso_is_soft_and_reserved_to_writers(client_factory):
     assert response.status_code == 200, response.text
     session.refresh(avviso)
     assert avviso.is_active is False
+
+
+def test_permanent_delete_requires_admin_double_confirmation_and_reports_links(client_factory):
+    viewer, session, _ = client_factory("viewer")
+    avviso = _crea_avviso(session)
+    project = models.Project(
+        name="Progetto collegato",
+        description="Impatto hard delete",
+        status="active",
+        avviso_id=avviso.id,
+    )
+    session.add(project)
+    session.commit()
+
+    assert viewer.get(f"/api/v1/avvisi/{avviso.id}/deletion-impact").status_code == 403
+    admin, _, _ = client_factory("admin")
+    impact_response = admin.get(f"/api/v1/avvisi/{avviso.id}/deletion-impact")
+    assert impact_response.status_code == 200, impact_response.text
+    impact = impact_response.json()
+    assert impact["projects"] == [{"id": project.id, "label": "Progetto collegato"}]
+
+    wrong = admin.request(
+        "DELETE",
+        f"/api/v1/avvisi/{avviso.id}/permanent",
+        json={"confirmation_phrase": "ELIMINA", "linked_records_confirmed": True},
+    )
+    assert wrong.status_code == 400
+    missing_link_confirmation = admin.request(
+        "DELETE",
+        f"/api/v1/avvisi/{avviso.id}/permanent",
+        json={
+            "confirmation_phrase": impact["confirmation_phrase"],
+            "linked_records_confirmed": False,
+        },
+    )
+    assert missing_link_confirmation.status_code == 400
+
+    deleted = admin.request(
+        "DELETE",
+        f"/api/v1/avvisi/{avviso.id}/permanent",
+        json={
+            "confirmation_phrase": impact["confirmation_phrase"],
+            "linked_records_confirmed": True,
+        },
+    )
+    assert deleted.status_code == 200, deleted.text
+    assert deleted.json()["detached_projects"] == 1
+    session.expire_all()
+    assert session.query(models.Avviso).filter(models.Avviso.id == avviso.id).first() is None
+    assert session.query(models.Project).filter(models.Project.id == project.id).one().avviso_id is None
+    audit = session.query(models.SecurityAuditLog).filter(
+        models.SecurityAuditLog.azione == "avviso_hard_delete",
+        models.SecurityAuditLog.risorsa_id == str(avviso.id),
+    ).one()
+    assert "Progetto collegato" in audit.dati_prima

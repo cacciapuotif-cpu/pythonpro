@@ -3,8 +3,10 @@ import {
   createAvviso,
   deleteAvviso,
   getAvvisi,
+  getAvvisoDeletionImpact,
   getAvvisoRevisioni,
   ingestAvvisoRevision,
+  permanentlyDeleteAvviso,
 } from '../services/apiService';
 import './ResourceArchive.css';
 
@@ -66,6 +68,7 @@ export default function ResourceArchive({ currentUser = null, onReviewSuggestion
   const [createForm, setCreateForm] = useState(emptyAvvisoForm);
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [permanentlyDeleting, setPermanentlyDeleting] = useState(false);
   const [uploadFile, setUploadFile] = useState(null);
   const [uploadTitle, setUploadTitle] = useState('');
   const [revisionLabel, setRevisionLabel] = useState('');
@@ -75,6 +78,7 @@ export default function ResourceArchive({ currentUser = null, onReviewSuggestion
   const fileInputRef = useRef(null);
 
   const canWrite = ['admin', 'manager'].includes(currentUser?.role);
+  const canPermanentlyDelete = currentUser?.role === 'admin';
 
   const selectedAvviso = useMemo(
     () => avvisi.find((item) => String(item.id) === String(selectedId)) || null,
@@ -222,6 +226,55 @@ export default function ResourceArchive({ currentUser = null, onReviewSuggestion
     }
   };
 
+  const handlePermanentDelete = async () => {
+    if (!selectedAvviso || !canPermanentlyDelete || permanentlyDeleting) return;
+    setPermanentlyDeleting(true);
+    setError('');
+    setMessage('');
+    try {
+      const impact = await getAvvisoDeletionImpact(selectedAvviso.id);
+      const projects = impact.projects.length
+        ? impact.projects.map((item) => `• Progetto #${item.id}: ${item.label}`).join('\n')
+        : '• Nessun progetto collegato';
+      const plans = impact.financial_plans.length
+        ? impact.financial_plans.map((item) => `• Piano #${item.id}: ${item.label}`).join('\n')
+        : '• Nessun piano finanziario collegato';
+      const documents = impact.revision_filenames.length
+        ? impact.revision_filenames.map((name) => `• ${name}`).join('\n')
+        : '• Nessun file sorgente registrato';
+      const firstConfirmation = window.confirm(
+        `ATTENZIONE: eliminazione definitiva di “${impact.titolo}”.\n\n`
+        + `COLLEGAMENTI CHE SARANNO RIMOSSI:\n${projects}\n${plans}\n\n`
+        + `REVISIONI E DOCUMENTI CHE SARANNO ELIMINATI:\n${documents}\n\n`
+        + 'I progetti e i piani non saranno cancellati, ma verranno scollegati. Continuare?',
+      );
+      if (!firstConfirmation) return;
+
+      const typed = window.prompt(
+        `Seconda conferma amministratore. Digita esattamente:\n${impact.confirmation_phrase}`,
+      );
+      if (typed !== impact.confirmation_phrase) {
+        setError('Cancellazione annullata: frase di conferma non corrispondente.');
+        return;
+      }
+
+      const result = await permanentlyDeleteAvviso(selectedAvviso.id, typed);
+      const remaining = avvisi.filter((item) => item.id !== selectedAvviso.id);
+      setAvvisi(remaining);
+      setSelectedId(remaining[0]?.id ? String(remaining[0].id) : '');
+      setRevisions([]);
+      setIngestResult(null);
+      setMessage(
+        `Avviso eliminato definitivamente. ${result.detached_projects} progetti e `
+        + `${result.detached_financial_plans} piani scollegati.`,
+      );
+    } catch (deleteError) {
+      setError(errorDetail(deleteError, 'Eliminazione definitiva dell’avviso non riuscita.'));
+    } finally {
+      setPermanentlyDeleting(false);
+    }
+  };
+
   const openReview = () => {
     if (onReviewSuggestions) {
       onReviewSuggestions();
@@ -332,6 +385,11 @@ export default function ResourceArchive({ currentUser = null, onReviewSuggestion
                   <button type="button" className="resources-button danger" onClick={handleDeactivate} disabled={!canWrite || deleting}>
                     {deleting ? 'Disattivazione…' : 'Disattiva avviso'}
                   </button>
+                  {canPermanentlyDelete ? (
+                    <button type="button" className="resources-button permanent" onClick={handlePermanentDelete} disabled={permanentlyDeleting}>
+                      {permanentlyDeleting ? 'Eliminazione…' : 'Elimina definitivamente'}
+                    </button>
+                  ) : null}
                 </div>
               </header>
 

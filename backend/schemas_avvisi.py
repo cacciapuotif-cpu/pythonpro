@@ -258,6 +258,37 @@ class AvvisoRevisioneIngestResponse(_Schema):
     estrazione: Optional[dict[str, Any]] = None
 
 
+class AvvisoDeletionRef(_Schema):
+    id: int
+    label: str
+
+
+class AvvisoDeletionImpact(_Schema):
+    avviso_id: int
+    codice: str
+    ente_erogatore: str
+    titolo: str
+    confirmation_phrase: str
+    projects: list[AvvisoDeletionRef]
+    financial_plans: list[AvvisoDeletionRef]
+    revision_filenames: list[str]
+    counts: dict[str, int]
+
+
+class AvvisoPermanentDeleteRequest(_Schema):
+    confirmation_phrase: str = Field(min_length=1, max_length=200)
+    linked_records_confirmed: bool
+
+
+class AvvisoPermanentDeleteResponse(_Schema):
+    message: str
+    id: int
+    detached_projects: int
+    detached_financial_plans: int
+    deleted_files: int
+    file_delete_errors: list[str]
+
+
 class AvvisoRegolaProposal(_Schema):
     categoria: CategoriaRegola
     sottocategoria: Optional[str] = Field(default=None, max_length=80)

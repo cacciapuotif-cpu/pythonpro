@@ -7,16 +7,20 @@ import {
   createAvviso,
   deleteAvviso,
   getAvvisi,
+  getAvvisoDeletionImpact,
   getAvvisoRevisioni,
   ingestAvvisoRevision,
+  permanentlyDeleteAvviso,
 } from '../services/apiService';
 
 jest.mock('../services/apiService', () => ({
   createAvviso: jest.fn(),
   deleteAvviso: jest.fn(),
   getAvvisi: jest.fn(),
+  getAvvisoDeletionImpact: jest.fn(),
   getAvvisoRevisioni: jest.fn(),
   ingestAvvisoRevision: jest.fn(),
+  permanentlyDeleteAvviso: jest.fn(),
 }));
 
 const avviso = {
@@ -116,5 +120,52 @@ describe('ResourceArchive', () => {
     expect(await screen.findByText(/storico è stato conservato/i)).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Avviso FAPI 1/2026' })).not.toBeInTheDocument();
     confirm.mockRestore();
+  });
+
+  test('elimina definitivamente solo dopo impatto e doppia conferma admin', async () => {
+    const impact = {
+      avviso_id: 7,
+      codice: '1/2026',
+      ente_erogatore: 'FAPI',
+      titolo: 'Avviso FAPI 1/2026',
+      confirmation_phrase: 'ELIMINA FAPI 1/2026',
+      projects: [{ id: 4, label: 'Progetto collegato' }],
+      financial_plans: [{ id: 9, label: 'Piano collegato' }],
+      revision_filenames: ['avviso.md'],
+      counts: {},
+    };
+    getAvvisoDeletionImpact.mockResolvedValue(impact);
+    permanentlyDeleteAvviso.mockResolvedValue({
+      detached_projects: 1,
+      detached_financial_plans: 1,
+      deleted_files: 1,
+      file_delete_errors: [],
+    });
+    const confirm = jest.spyOn(window, 'confirm').mockReturnValue(true);
+    const prompt = jest.spyOn(window, 'prompt').mockReturnValue(impact.confirmation_phrase);
+
+    render(<ResourceArchive currentUser={{ id: 1, role: 'admin' }} onReviewSuggestions={jest.fn()} />);
+    await screen.findByRole('heading', { name: 'Avviso FAPI 1/2026' });
+    fireEvent.click(screen.getByRole('button', { name: /elimina definitivamente/i }));
+
+    await waitFor(() => {
+      expect(getAvvisoDeletionImpact).toHaveBeenCalledWith(7);
+      expect(confirm).toHaveBeenCalledTimes(1);
+    });
+    expect(confirm.mock.calls[0][0]).toMatch(/Progetto #4: Progetto collegato/);
+    expect(confirm.mock.calls[0][0]).toMatch(/Piano #9: Piano collegato/);
+    expect(confirm.mock.calls[0][0]).toMatch(/avviso\.md/);
+    await waitFor(() => {
+      expect(permanentlyDeleteAvviso).toHaveBeenCalledWith(7, impact.confirmation_phrase);
+    });
+    expect(await screen.findByText(/eliminato definitivamente/i)).toBeInTheDocument();
+    confirm.mockRestore();
+    prompt.mockRestore();
+  });
+
+  test('manager non vede il comando di eliminazione definitiva', async () => {
+    render(<ResourceArchive currentUser={{ id: 2, role: 'manager' }} onReviewSuggestions={jest.fn()} />);
+    await screen.findByRole('heading', { name: 'Avviso FAPI 1/2026' });
+    expect(screen.queryByRole('button', { name: /elimina definitivamente/i })).not.toBeInTheDocument();
   });
 });

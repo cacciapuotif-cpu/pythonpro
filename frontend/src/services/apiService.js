@@ -672,6 +672,15 @@ export const updateAvviso = (id, data) =>
   http.put(`/avvisi/${id}`, data).then(r => r.data);
 export const deleteAvviso = (id) =>
   http.delete(`/avvisi/${id}`).then(r => r.data);
+export const getAvvisoDeletionImpact = (id) =>
+  http.get(`/avvisi/${id}/deletion-impact`).then(r => r.data);
+export const permanentlyDeleteAvviso = (id, confirmationPhrase) =>
+  http.delete(`/avvisi/${id}/permanent`, {
+    data: {
+      confirmation_phrase: confirmationPhrase,
+      linked_records_confirmed: true,
+    },
+  }).then(r => r.data);
 export const getAvvisoRevisioni = (id) =>
   http.get(`/avvisi/${id}/revisioni`).then(r => r.data);
 export const ingestAvvisoRevision = (
