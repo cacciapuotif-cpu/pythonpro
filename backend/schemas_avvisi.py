@@ -236,6 +236,12 @@ class AvvisoRevisioneCreate(_Schema):
 
 
 class AvvisoRevisioneRead(AvvisoRevisioneCreate):
+    # Le revisioni create dal backfill V1 precedono la pipeline markdown V2 e
+    # possono non avere ancora una sorgente associata. I nuovi ingest continuano
+    # a usare AvvisoRevisioneCreate, dove questi campi restano obbligatori.
+    source_md_path: Optional[str] = Field(default=None, max_length=500)
+    original_filename: Optional[str] = Field(default=None, max_length=255)
+    source_sha256: Optional[str] = Field(default=None, pattern=r"^[a-f0-9]{64}$")
     id: int
     avviso_id: int
     numero_revisione: int

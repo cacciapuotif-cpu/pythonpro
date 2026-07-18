@@ -129,3 +129,27 @@ def test_list_revisioni_ordered_desc(client_factory, monkeypatch):
     assert response.status_code == 200
     numeri = [r["numero_revisione"] for r in response.json()]
     assert numeri == [2, 1]
+
+
+def test_list_revisioni_supports_legacy_rows_without_markdown_source(client_factory):
+    client, session, user = client_factory("admin")
+    avviso = _crea_avviso(session)
+    legacy = models.AvvisoRevisione(
+        avviso_id=avviso.id,
+        numero_revisione=1,
+        titolo="Revisione legacy importata",
+        stato_estrazione="caricato",
+        created_by_user_id=user.id,
+        source_md_path=None,
+        original_filename=None,
+        source_sha256=None,
+    )
+    session.add(legacy)
+    session.commit()
+
+    response = client.get(f"/api/v1/avvisi/{avviso.id}/revisioni")
+
+    assert response.status_code == 200, response.text
+    assert response.json()[0]["source_md_path"] is None
+    assert response.json()[0]["original_filename"] is None
+    assert response.json()[0]["source_sha256"] is None

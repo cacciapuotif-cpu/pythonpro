@@ -683,7 +683,10 @@ export const ingestAvvisoRevision = (
   formData.append('titolo', titolo);
   if (etichettaRevisione) formData.append('etichetta_revisione', etichettaRevisione);
   formData.append('esegui_estrazione', String(eseguiEstrazione));
-  return http.post(`/avvisi/${id}/revisioni/ingest`, formData, { timeout: 180000 }).then(r => r.data);
+  return http.post(`/avvisi/${id}/revisioni/ingest`, formData, {
+    timeout: 180000,
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }).then(r => r.data);
 };
 
 // Agents
