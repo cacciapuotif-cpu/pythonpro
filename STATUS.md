@@ -1,14 +1,14 @@
 # PythonPro — Stato corrente
 
-**Aggiornato:** 2026-07-18 (implementazione sottosistema A attività predittive)
+**Aggiornato:** 2026-07-18 (ATT-01…ATT-07 chiusi e runtime migrato)
 **Branch:** `claude/platform-audit-compliance-XnH86` (locale, nessun push)
 **Percorso:** `/DATA/progetti/pythonpro`
 
 ## Stato operativo
 
 - Runtime: backend, frontend, PostgreSQL, Redis e ARQ worker healthy.
-- Schema: Alembic `057` head; ultimo check documentato senza drift.
-- Baseline backend più recente: **530 passed, 2 skipped, 0 failed** su 532 test.
+- Schema reale: Alembic `058` head; `alembic check` senza drift.
+- Baseline backend: **568 passed, 3 skipped, 0 failed** su 571 test.
 - V1 archivio avvisi e V2 pipeline ingestione sono chiuse.
 - Wave dominio 1 e Wave 2.1 timesheet snapshot immutabile sono chiuse.
 - Flusso agenti canonico attivo: collector puro → AgentRun/AgentSuggestion → approvazione umana → apply auditato. Nessun auto-apply.
@@ -85,35 +85,24 @@ L'utente ha autorizzato preventivamente i gate tecnici e ha chiesto di non ferma
 - Nessuna cancellazione definitiva eseguita sul database reale: Formazienda 2/2025
   ID 1 resta disattivato e attende la doppia conferma dell'amministratore dalla UI.
 
-## Brainstorming layer predittivo — IN CORSO (2026-07-18)
+## Sottosistema A — attività predittive CHIUSO
 
-Sessione interrotta dall'utente a metà brainstorming (skill superpowers:brainstorming).
-Visione: piattaforma che apprende da avvisi/allegati/vademecum e dalle azioni degli
-operatori per predire attività, assistere i piani e monitorare gli enti.
-
-Decisioni già prese (confermate dall'utente, non ridiscutere):
-
-1. Decomposizione in 4 sottosistemi: **A** procedura operativa predittiva (checklist
-   attività per fase da avviso), **B** apprendimento da azioni operatori, **C** archivio
-   piani presentati/approvati con punteggi per assistenza redazione, **D** monitoraggio
-   automatico pagine enti/graduatorie/news. Ordine: A per primo; B/C/D spec separati dopo.
-2. Sottosistema A: nuovo modello `AttivitaOperativa` — checklist per fase
-   (presentazione/avvio/gestione/rendicontazione), agente propone, **apply umano**,
-   operatore spunta; ponte eventi verso B.
-3. Fonti di apprendimento: tutte e 4 — regole+scadenze validate V2, estrazione LLM da
-   vademecum/manuali di gestione, playbook manuali curati, storico azioni operatori.
-4. Scope MVP: tutte le fasi con profondità minima (struttura completa, contenuto cresce).
-5. Approccio confermato: **playbook dichiarativo versionato in DB + motore di
-   istanziazione** (agente `activity_planner` collector puro su regole/scadenze validate
-   + playbook → AgentSuggestion → apply umano; agente `procedure_extractor` da
-   vademecum → proposte voci playbook; event log `AttivitaEvento` per B). RAG solo come
-   complemento futuro, niente hard-code per fondo.
-
-Prossimo passo alla ripresa: presentare design a sezioni (architettura, modelli,
-agenti, data flow, error handling, test) → approvazione → spec in
-`docs/superpowers/specs/2026-07-18-attivita-predittive-design.md` → writing-plans.
-Nota integrazione: A tocca i temi di Ondata B (B3 checklist documentale) e Ondata L
-(apprendimento) del programma giro completo — riconciliare in fase di design.
+- ATT-01…ATT-07 completati: playbook versionati, checklist per fase,
+  `activity_planner`, `procedure_extractor`, apply umano e `AttivitaEvento` append-only.
+- Collector proposal-only e trigger esclusivamente manuali; nessun cron aggiunto.
+- API `/api/v1/attivita` registrata con RBAC globale e locale: consultazione legge,
+  operatore gestisce attività, solo admin modifica playbook.
+- Migration `058` provata su clone con upgrade/downgrade/re-upgrade, dati invariati,
+  5/5 tabelle e 5/5 indici; poi applicata al DB reale dopo backup cifrato verificato
+  `/app/backups/gestionale_backup_att07_pre_migration_20260718_112650.sql.zip.gpg`.
+- Gate mirato ATT: **35 passed**. Suite completa: **568 passed, 3 skipped**;
+  gli skip sono i 2 monitor performance NEW-013 e il test PostgreSQL-only DOM-21.
+- Il confutatore ha trovato un bypass admin nell'apply generico `playbook_voce`:
+  corretto e coperto; verdetto **VALIDATO**, verifica indipendente **100 passed**,
+  nessun blocker residuo. Riserve aperte documentate in NEW-014…NEW-017.
+- Runtime post-migration: backend e worker healthy, `/health` 200, schema `058` senza drift.
+- Evidenze: `audit/ATTIVITA_PREDITTIVE_GATE_2026-07-18.md`; design e piano tracciati
+  sotto `docs/superpowers/`. Prossimi sottosistemi predittivi B/C/D richiedono spec separate.
 
 ## Regole di lavoro
 
@@ -124,35 +113,6 @@ Nota integrazione: A tocca i temi di Ondata B (B3 checklist documentale) e Ondat
 - Nuovi problemi in `audit/FINDINGS_NUOVI.md`.
 - LLM e agenti propongono soltanto; applicazione sempre umana.
 - Preservare modifiche preesistenti e usare staging selettivo.
-
-## Sottosistema A — attività predittive (ATT-01…ATT-07)
-
-- Implementati e committati localmente i cinque modelli, migration Alembic `058`,
-  schemi Pydantic, servizi playbook/checklist, planner deterministico,
-  procedure extractor LLM proposal-only, registry/apply kind e router RBAC.
-- Commit: `1adc326`, `2152a03`, `83db85e`, `c14c7f3`, `6122d47`, `bbba4e1`.
-- Kill switch e flusso umano invariati: nessun collector scrive DB e nessun cron
-  è stato aggiunto. API attività registrata in `main.py`.
-- Gate statici `py_compile` superati. La prova `Base.metadata.create_all` SQLite
-  globale resta bloccata da un difetto legacy preesistente (`DEFAULT now()` in
-  `email_inbox_items`); la suite completa si interrompe in collection sullo
-  stesso errore, prima dei test ATT. Usare migration Alembic/copia DB per il gate
-  ATT-01 e censire il residuo legacy prima del prossimo gate globale.
-- Piano e spec restano non tracciati intenzionalmente fino alla conferma del
-  contenuto/documentazione: `docs/superpowers/plans/2026-07-18-attivita-predittive.md`.
-
-### Ripresa operativa successiva
-
-- ATT-01…ATT-05: implementati e validati con test mirati e doppio OK team/confutatore.
-- ATT-06: test unitari RBAC/router **5/5 passati** (`cd37f99`), ma gate aperto:
-  manca uno smoke test HTTP reale con FastAPI dependency override. `TestClient`,
-  `httpx.ASGITransport` e ASGI manuale restano sospesi nel test harness; nessun
-  workaround instabile è stato committato.
-- Prossimo obiettivo: isolare il blocco Starlette/httpx in un'app FastAPI minima,
-  con timeout esplicito, verificando almeno consultazione→403 e raggiungibilità
-  route admin/operatore. Solo dopo doppio OK chiudere ATT-06 e passare ATT-07.
-- Ultimi commit ATT: `7aa2273`, `a61dc43`, `d1d4372`, `152d18b`, `75380be`,
-  `37712dc`, `3d18a72`, `cd37f99`.
 
 ## Prompt di ripresa — copia operativa
 

@@ -43,12 +43,42 @@ Il runner e' un **collector puro**: legge dal DB, NON scrive. Ogni item in
 `title`, `description`, `payload` (dict), `confidence`.
 
 Agenti registrati: `data_quality`, `mail_recovery`, `contract_agent`,
-`certification`, `avviso_extractor`, `activity_planner`, `procedure_extractor`.
+`certification`, `data_retention`, `avviso_extractor`, `activity_planner`,
+`procedure_extractor`.
 `activity_planner` è deterministico e propone un piano da scadenze/playbook
 validati; `procedure_extractor` legge vademecum/manuali markdown e propone voci
 playbook. Entrambi hanno trigger solo `manual`, kill switch per agente e ruoli
 admin/manager. L'intake email (`email_intake`) crea AgentRun/Suggestion
 dal worker inbox e non e' eseguibile manualmente.
+
+### Sottosistema attività predittive
+
+I due kill switch dedicati sono abilitati di default, salvo override esplicito:
+
+```env
+AGENT_ACTIVITY_PLANNER_ENABLED=true
+AGENT_PROCEDURE_EXTRACTOR_ENABLED=true
+```
+
+Entrambi usano il trigger generico manuale degli agenti. Non sono registrati in
+`arq_worker.py` e non hanno schedule. I kind applicabili soltanto dopo review sono:
+
+- `attivita_piano` → crea attività e relativo evento `creata` con attore umano;
+- `playbook_voce` → crea una voce `origine=vademecum`, validata dal reviewer.
+
+Matrice API `/api/v1/attivita`:
+
+| Operazione | consultazione | operatore/manager | admin |
+|---|---:|---:|---:|
+| Leggere checklist ed eventi | sì | sì | sì |
+| Cambiare stato/PATCH attività | no | sì | sì |
+| Leggere playbook/voci | sì | sì | sì |
+| Creare/versionare/revisionare playbook | no | no | sì |
+
+Il prefisso è incluso nella policy RBAC globale `OPERATIONAL_PREFIXES`; le route
+playbook applicano inoltre `require_attivita_admin` localmente. Lo stesso vincolo
+admin è applicato dal dispatcher anche quando `playbook_voce` passa dalla route
+generica `/api/v1/agents/suggestions/{id}/apply-fix`.
 
 ## Aggiungere un agente (esempio minimale)
 

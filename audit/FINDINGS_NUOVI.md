@@ -135,3 +135,41 @@
   l'unificazione; `requirements.txt` replica in modo esatto il runtime verificato.
 - Stato: aperto; decidere se riattivare e mantenere questo monitor oppure rimuovere
   il sottosistema legacy in Ondata F.
+
+## 2026-07-18 | NEW-014 | Unicità playbook generico con ente nullo
+
+- Area: attività predittive / PostgreSQL
+- Severità stimata: bassa
+- Emerso durante: confutazione finale ATT-07
+- Descrizione: il vincolo univoco composto include `ente_erogatore`; PostgreSQL
+  consente più righe con gli altri campi uguali quando tale colonna è `NULL`.
+- Impatto: playbook generici duplicati renderebbero ambigua una selezione `.first()`.
+- Stato: aperto; valutare indice univoco `NULLS NOT DISTINCT` o indice parziale.
+
+## 2026-07-18 | NEW-015 | Apply e audit agentico non atomici
+
+- Area: agenti / consistenza transazionale
+- Severità stimata: media
+- Emerso durante: confutazione finale ATT-07
+- Descrizione: materializzazione, aggiornamento suggestion e review/audit possono
+  eseguire commit separati; un errore tardivo può lasciare il side effect senza
+  stato/audit finale coerente.
+- Stato: aperto; racchiudere apply e registrazione review in una transazione unica.
+
+## 2026-07-18 | NEW-016 | PATCH attività non azzera i campi opzionali
+
+- Area: attività predittive / API
+- Severità stimata: bassa
+- Emerso durante: confutazione finale ATT-07
+- Descrizione: `None` è interpretato come campo non aggiornato, quindi deadline,
+  assegnatario e note non possono essere esplicitamente rimossi via PATCH.
+- Stato: aperto; distinguere campo assente da `null` esplicito.
+
+## 2026-07-18 | NEW-017 | Carry-forward non propaga il flag review
+
+- Area: attività predittive / versionamento playbook
+- Severità stimata: bassa
+- Emerso durante: confutazione finale ATT-07
+- Descrizione: la copia delle voci nella nuova versione non conserva
+  `needs_careful_review`, perdendo un segnale editoriale della versione precedente.
+- Stato: aperto; includere il flag nella clonazione delle voci.
