@@ -11,6 +11,8 @@ from time_utils import utc_now
 RETENTION_KIND = "data_retention_anonymization"
 AVVISO_ESTRAZIONE_KIND = "avviso_estrazione"
 SECURITY_AUDIT_RETENTION_KIND = "security_audit_log_retention_cleanup"
+ATTIVITA_PIANO_KIND = "attivita_piano"
+PLAYBOOK_VOCE_KIND = "playbook_voce"
 
 
 def apply_data_retention_suggestion(db, suggestion, *, user_id: Optional[int] = None) -> dict:
@@ -80,6 +82,12 @@ def apply_suggestion(db, suggestion, *, user_id: Optional[int] = None) -> dict:
         return apply_security_audit_retention_suggestion(
             db, suggestion, user_id=user_id
         )
+    if kind == ATTIVITA_PIANO_KIND:
+        from services.attivita import apply_piano_attivita
+        return apply_piano_attivita(db, suggestion, user_id=user_id)
+    if kind == PLAYBOOK_VOCE_KIND:
+        from services.playbook import apply_voce_suggestion
+        return apply_voce_suggestion(db, suggestion, user_id=user_id)
     from services.agent_apply_service import PAYLOAD_KIND, apply_field_update_suggestion
     if kind == PAYLOAD_KIND:
         return apply_field_update_suggestion(db, suggestion, user_id=user_id)

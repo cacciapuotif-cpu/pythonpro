@@ -21,6 +21,8 @@ from .data_quality import DataQualityAgent
 from .data_retention import collect_data_retention_suggestions
 from .mail_recovery import run_mail_recovery_agent
 from services.security_audit_retention import collect_security_audit_retention_suggestions
+from .activity_planner import collect_activity_planner_suggestions
+from .procedure_extractor import collect_procedure_extractor_suggestions
 
 
 def _run_data_quality(
@@ -116,6 +118,12 @@ def _run_avviso_extractor(db, *, entity_type=None, entity_id=None, input_payload
         db, entity_type=entity_type, entity_id=entity_id, input_payload=input_payload
     )
 
+def _run_activity_planner(db, *, entity_type=None, entity_id=None, input_payload=None):
+    return collect_activity_planner_suggestions(db, project_id=entity_id, input_payload=input_payload)
+
+def _run_procedure_extractor(db, *, entity_type=None, entity_id=None, input_payload=None):
+    return collect_procedure_extractor_suggestions(db, documento_id=entity_id, input_payload=input_payload)
+
 _AGENT_DEFINITIONS: dict[str, dict[str, Any]] = {
     "data_quality": {
         "name": "data_quality",
@@ -177,6 +185,16 @@ _AGENT_DEFINITIONS: dict[str, dict[str, Any]] = {
         "version": "1.0",
         "runner": _run_avviso_extractor,
     },
+    "activity_planner": {
+        "name": "activity_planner", "description": "Propone checklist operative da scadenze e playbook validati",
+        "supported_entity_types": ["project"], "triggers": ["manual"],
+        "kill_switch_env": agent_env_name("activity_planner"), "allowed_roles": ["admin", "manager"], "version": "1.0", "runner": _run_activity_planner,
+    },
+    "procedure_extractor": {
+        "name": "procedure_extractor", "description": "Propone voci playbook da vademecum e manuali",
+        "supported_entity_types": ["avviso_documento"], "triggers": ["manual"],
+        "kill_switch_env": agent_env_name("procedure_extractor"), "allowed_roles": ["admin", "manager"], "version": "1.0", "runner": _run_procedure_extractor,
+    },
 }
 
 
@@ -219,6 +237,8 @@ __all__ = [
     "collect_contract_suggestions",
     "collect_data_retention_suggestions",
     "collect_avviso_extraction_suggestions",
+    "collect_activity_planner_suggestions",
+    "collect_procedure_extractor_suggestions",
     "get_agent_definition",
     "list_agent_definitions",
     "run_registered_agent",
