@@ -761,3 +761,25 @@ con zero side effect esterni senza approvazione umana, kill switch globale e per
   ID 6 attivo. Nessuna disattivazione automatica eseguita.
 
 ---
+
+## 2026-07-18 | ONDATA V5 | Cancellazione definitiva protetta degli avvisi
+
+- **`d7e710f` fix(V5):** aggiunto hard-delete riservato esclusivamente al ruolo
+  Admin. La UI richiede due azioni distinte: conferma dell'anteprima di impatto e
+  digitazione della frase esatta `ELIMINA <ENTE> <CODICE>`.
+- L'anteprima elenca progetti, piani finanziari e nomi di revisioni/documenti che
+  risultano collegati. Progetti e piani non vengono cancellati: le FK verso avviso e
+  revisione sono azzerate nella stessa transazione.
+- La cancellazione rimuove avviso, revisioni, regole, scadenze, documenti,
+  conoscenza, esiti e file sorgente confinati sotto la upload root. AgentRun e
+  AgentSuggestion sono conservati con riferimento entità azzerato; SecurityAuditLog
+  registra `avviso_hard_delete` con snapshot redatto dal writer audit canonico.
+- Verifica distruttiva eseguita solo su clone PostgreSQL temporaneo del DB reale:
+  Formazienda 2/2025 ID 1 eliminato nel clone; progetto 2 `pinco` e piano 2 rimasti
+  presenti e scollegati; audit presente. Upload root sostituita con directory isolata
+  durante la prova. Database clone eliminato al termine.
+- Gate: backend V2 API **8 passed**; frontend ResourceArchive/apiService **8 passed**.
+  Build e recreate backend/frontend riusciti; backend healthy, `/health` HTTP 200 e
+  frontend HTTP 200. Nessun hard-delete applicato al database reale.
+
+---

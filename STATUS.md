@@ -1,6 +1,6 @@
 # PythonPro — Stato corrente
 
-**Aggiornato:** 2026-07-18 09:02 Europe/Rome
+**Aggiornato:** 2026-07-18 09:18 Europe/Rome
 **Branch:** `claude/platform-audit-compliance-XnH86` (locale, nessun push)
 **Percorso:** `/DATA/progetti/pythonpro`
 
@@ -63,16 +63,24 @@ L'utente ha autorizzato preventivamente i gate tecnici e ha chiesto di non ferma
 - Aggiunta disattivazione sicura da Archivio Risorse (`03457e1`): pulsante con
   conferma, soft-delete `is_active=false`, storico conservato, endpoint riservato
   ad Admin/Manager e liste operative che mostrano solo avvisi attivi.
-- Gate mirati: backend V2 API **7 passed**; frontend archivio/API **5 passed**.
-  Backend e frontend ricostruiti e healthy; `/health` e `/resources` HTTP 200.
-- Record da disattivare indicato dall'utente: ID 1, Formazienda `2/2025`, attivo.
-  Non disattivato automaticamente: attende conferma umana tramite il nuovo pulsante.
+- Gate mirati upload/disattivazione: backend V2 API **7 passed**; frontend
+  archivio/API **5 passed**. Backend e frontend ricostruiti e healthy.
 - L'utente ha poi disattivato Formazienda `2/2025` (ID 1) e chiesto cancellazione
   permanente. Audit read-only: record non orfano, collegato al progetto ID 2 `pinco`,
   piano finanziario ID 2 e revisione corrente ID 2. Il tentativo upload precedente
-  era fallito con 422 e non ha creato una nuova revisione. Nessun hard-delete eseguito:
-  prima occorre decidere se riassegnare i collegamenti o limitare l'hard-delete ai
-  soli avvisi realmente orfani con doppia conferma Admin.
+  era fallito con 422 e non ha creato una nuova revisione.
+- Hard-delete protetto completato (`d7e710f`): visibile solo agli Admin, anteprima
+  obbligatoria di progetti, piani, revisioni/documenti collegati, prima conferma e
+  seconda conferma con frase esatta. Progetti e piani restano nel sistema ma vengono
+  scollegati; avviso, revisioni, regole, scadenze, documenti, conoscenza, esiti e file
+  sorgente vengono eliminati. Agent run/suggestion e audit restano conservati.
+- Prova distruttiva superata esclusivamente sulla copia PostgreSQL temporanea
+  `gestionale_v5_harddelete_test`: avviso 1 rimosso, progetto 2 e piano 2 presenti e
+  scollegati, audit `avviso_hard_delete` presente. Copia temporanea eliminata subito.
+- Gate hard-delete: backend V2 API **8 passed**; frontend archivio/API **8 passed**.
+  Build/recreate completati; backend healthy, `/health` 200, frontend HTTP 200.
+- Nessuna cancellazione definitiva eseguita sul database reale: Formazienda 2/2025
+  ID 1 resta disattivato e attende la doppia conferma dell'amministratore dalla UI.
 
 ## Regole di lavoro
 
