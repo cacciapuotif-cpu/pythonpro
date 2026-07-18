@@ -2443,7 +2443,7 @@ class EmailInboxItem(Base):
     error_message = Column(Text, nullable=True)
     archived = Column(Boolean, server_default=text("false"), nullable=False, index=True)
     archived_at = Column(DateTime(timezone=True), nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
 
     __table_args__ = (
         Index("ix_email_inbox_items_status", "processing_status"),
