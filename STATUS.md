@@ -1,6 +1,6 @@
 # PythonPro — Stato corrente
 
-**Aggiornato:** 2026-07-18 08:43 Europe/Rome
+**Aggiornato:** 2026-07-18 08:46 Europe/Rome
 **Branch:** `claude/platform-audit-compliance-XnH86` (locale, nessun push)
 **Percorso:** `/DATA/progetti/pythonpro`
 
@@ -45,6 +45,18 @@ L'utente ha autorizzato preventivamente i gate tecnici e ha chiesto di non ferma
   2 skipped, 0 failed**; Alembic `057 (head)` senza drift.
 - I 2 skip riguardano il monitor performance legacy non disponibile nel runtime;
   residuo censito come NEW-013. Ondata S **CHIUSA**; prossimo punto V5.
+
+## V5 — gate file sorgente
+
+- Verifica eseguita il 2026-07-18: `imports/avvisi` contiene soltanto `README.md`.
+- Ingestione non avviata, come da gate: se manca anche un documento bisogna fermarsi.
+- File markdown UTF-8 richiesti nei seguenti percorsi convenzionali:
+  - `imports/avvisi/fapi_3-2026.md`
+  - `imports/avvisi/fondimpresa_3-2026.md`
+  - `imports/avvisi/fondimpresa_4-2026.md`
+  - `imports/avvisi/formazienda_9-2022_rev9.md`
+- Dopo il deposito: verificare contenuti, poi upload → pulizia → segmentazione →
+  estrazione LLM per categoria → `AgentSuggestion`, senza validazione automatica.
 
 ## Regole di lavoro
 
