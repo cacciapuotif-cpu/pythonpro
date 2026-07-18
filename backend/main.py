@@ -134,6 +134,7 @@ from routers import (
     email_inbox,
     whatsapp,
     gdpr,
+    attivita,
 )
 
 # Lo schema database e' gestito esclusivamente da Alembic.
@@ -272,6 +273,7 @@ include_protected_router(contract_templates.router)
 
 # Router per reporting e statistiche
 include_protected_router(reporting.router)
+include_protected_router(attivita.router)
 
 # Router amministrazione
 include_protected_router(admin.router)
