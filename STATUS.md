@@ -135,7 +135,9 @@ Nota integrazione: A tocca i temi di Ondata B (B3 checklist documentale) e Ondat
   è stato aggiunto. API attività registrata in `main.py`.
 - Gate statici `py_compile` superati. La prova `Base.metadata.create_all` SQLite
   globale resta bloccata da un difetto legacy preesistente (`DEFAULT now()` in
-  `email_inbox_items`); usare migration Alembic/copia DB per il gate ATT-01.
+  `email_inbox_items`); la suite completa si interrompe in collection sullo
+  stesso errore, prima dei test ATT. Usare migration Alembic/copia DB per il gate
+  ATT-01 e censire il residuo legacy prima del prossimo gate globale.
 - Piano e spec restano non tracciati intenzionalmente fino alla conferma del
   contenuto/documentazione: `docs/superpowers/plans/2026-07-18-attivita-predittive.md`.
 
