@@ -17,9 +17,6 @@ from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
-DOCUMENTI_OBBLIGATORI_DEFAULT = {"curriculum", "documento_identita"}
-
-
 def _pratica_completa(db: Session, collaboratore_id: int) -> bool:
     """
     Verifica se tutti i documenti obbligatori del collaboratore sono validati.

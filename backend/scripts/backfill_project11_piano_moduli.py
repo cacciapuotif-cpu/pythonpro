@@ -5,7 +5,10 @@ from glob import glob
 
 import models
 from database import SessionLocal
-from services.piano_finanziario_parser import parse_piano_finanziario, resolve_modulo_formativo_id
+from services.parsers.fapi.piano_finanziario_parser import (
+    parse_piano_finanziario,
+    resolve_modulo_formativo_id,
+)
 
 
 PROJECT_ID = 11

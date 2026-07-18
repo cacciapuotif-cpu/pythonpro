@@ -4,7 +4,8 @@
 Leggi `STATUS.md` in questa cartella per capire dove siamo con lo sviluppo.
 
 ## Progetto
-- Piattaforma educativa Python per professionisti
+- ERP per la gestione della formazione finanziata italiana: avvisi, progetti,
+  collaboratori, presenze, piani finanziari e rendicontazione.
 - Deploy: ZimaOS
 
 ## Fine sessione
