@@ -98,6 +98,8 @@ def test_registry_definitions_complete():
         "certification",
         "data_retention",
         "avviso_extractor",
+        "activity_planner",
+        "procedure_extractor",
     }
     for name, definition in definitions.items():
         missing = REQUIRED_DEFINITION_KEYS - set(definition)

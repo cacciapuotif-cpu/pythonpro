@@ -67,6 +67,8 @@ def test_system_health_shape(client):
         "email_intake",
         "data_retention",
         "avviso_extractor",
+        "activity_planner",
+        "procedure_extractor",
     }
     for item in data["agents"]:
         assert set(item) >= {"name", "enabled", "kill_switch_env", "triggers", "schedule", "last_run"}
