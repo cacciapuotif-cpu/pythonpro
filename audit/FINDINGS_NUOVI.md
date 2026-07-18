@@ -119,3 +119,19 @@
 - Impatto: nessun riuso rilevato nel runtime o nei file tracciati del branch corrente; resta rischio di copia-incolla se quella worktree viene riutilizzata.
 - Mitigazione S3: branch corrente convertito a `.env.development.sample` con placeholder espliciti e controllo automatico; tutti i container runtime verificati puliti.
 - Stato: aperto; bonificare o rimuovere la worktree solo nel suo filone, preservando le modifiche presenti.
+
+## 2026-07-18 | NEW-013 | Monitor performance legacy non disponibile nel runtime
+
+- Area: osservabilità / dipendenze backend
+- Severità stimata: bassa
+- Emerso durante: Ondata S, punto S6, attivazione test legacy
+- Descrizione: `performance_monitor.py`, `monitoring.py` e `metrics_endpoint.py`
+  dipendono da `psutil` e, per le metriche, dai pacchetti Prometheus; tali pacchetti
+  non sono presenti nel runtime healthy corrente. L'app degrada esplicitamente con
+  warning e i due test legacy di performance risultano skipped.
+- Impatto: API principali, worker e suite applicativa restano operativi, ma il
+  monitor performance legacy e le relative metriche non sono disponibili.
+- Decisione S6: non introdurre nuove dipendenze fuori dallo stato runtime durante
+  l'unificazione; `requirements.txt` replica in modo esatto il runtime verificato.
+- Stato: aperto; decidere se riattivare e mantenere questo monitor oppure rimuovere
+  il sottosistema legacy in Ondata F.

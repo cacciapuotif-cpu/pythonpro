@@ -719,4 +719,27 @@ con zero side effect esterni senza approvazione umana, kill switch globale e per
 - **Script `docker-entrypoint-initdb.d/010_create_app_user.sh`** (esperimento least-privilege del 29/05, mai montato in docker-compose, `.env` con `DB_APP_USER=admin` quindi inefficace anche se eseguito): archiviato in `/DATA/progetti/pythonpro-local-archive/2026-07-17_initdb_experiment/` (0700/0600). Il DB reale resta con solo ruolo `admin` superuser: il passaggio a utente applicativo dedicato è backlog hardening (richiede strategia grants + DDL per Alembic), non attività di questa ondata.
 - Worktree ora pulito. Nessun push.
 
+## 2026-07-18 | ONDATA S | S6 CHIUSO — GATE ONDATA SUPERATO
+
+- **`ccebe9e` fix(S6):** eliminato lo script schema manuale già assorbito da
+  Alembic; rimossa la costante morta del contract agent; backfill FAPI spostato
+  sull'import canonico; eliminati tre shim parser; `CLAUDE.md` corretto come ERP
+  per formazione finanziata italiana.
+- **`6f77534` fix(S6):** spostati gli 8 `backend/test_*.py` dormienti sotto
+  `backend/tests/`; aggiornate esclusivamente fixture SQLite, autenticazione/RBAC,
+  date progetto e aspettativa backup cifrato. Produzione invariata. Gate legacy:
+  **36 passed, 2 skipped, 0 failed** su 38.
+- **`b335d1d` fix(S6):** `backend/requirements.txt` è la sola fonte dipendenze,
+  con versioni esatte allineate al runtime; rimossi `requirements_local.txt`,
+  `requirements_simple.txt` e la duplicazione da `pyproject.toml`.
+- Verifiche: test mirati S5/S6 verdi; `docker compose config --quiet` valido;
+  build backend e ARQ worker riuscita; immagini nuove create il 2026-07-18;
+  `pip check` pulito; import `main`/`arq_worker` OK.
+- Gate finale: **532 raccolti, 530 passed, 2 skipped, 0 failed**; cache
+  `lastfailed={}`. I due skip sono il monitor performance legacy non disponibile,
+  censito come NEW-013.
+- Alembic: `057 (head)`, `alembic check` → `No new upgrade operations detected`.
+- Ondata S dichiarata **CHIUSA**. Prossimo punto: V5, ingestione dei quattro avvisi
+  reali. Nessun push; worktree separata `.worktrees/email-agent` preservata.
+
 ---

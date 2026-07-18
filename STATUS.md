@@ -1,6 +1,6 @@
 # PythonPro — Stato corrente
 
-**Aggiornato:** 2026-07-17 19:20 Europe/Rome
+**Aggiornato:** 2026-07-18 08:43 Europe/Rome
 **Branch:** `claude/platform-audit-compliance-XnH86` (locale, nessun push)
 **Percorso:** `/DATA/progetti/pythonpro`
 
@@ -8,7 +8,7 @@
 
 - Runtime: backend, frontend, PostgreSQL, Redis e ARQ worker healthy.
 - Schema: Alembic `057` head; ultimo check documentato senza drift.
-- Baseline backend più recente: **483 passed, 1 skipped, 0 failed**.
+- Baseline backend più recente: **530 passed, 2 skipped, 0 failed** su 532 test.
 - V1 archivio avvisi e V2 pipeline ingestione sono chiuse.
 - Wave dominio 1 e Wave 2.1 timesheet snapshot immutabile sono chiuse.
 - Flusso agenti canonico attivo: collector puro → AgentRun/AgentSuggestion → approvazione umana → apply auditato. Nessun auto-apply.
@@ -38,8 +38,13 @@ L'utente ha autorizzato preventivamente i gate tecnici e ha chiesto di non ferma
 - S3 chiuso sul branch corrente: `.env.development` convertito in sample con placeholder; runtime pulito; backup env riemerso archiviato in `/DATA/progetti/pythonpro-local-archive/2026-07-17_ondata_s/` (`26ff969`). Residuo worktree separata = NEW-012.
 - S4 chiuso: firma WhatsApp HMAC-SHA256 sul raw body, compare constant-time e input malformati fail-closed (`3683d48`).
 - S5 chiuso dopo conferma utente (`b5173e1`): generatore spostato in `services/rendicontazione.py`, endpoint `POST /api/v1/reporting/projects/{id}/rendicontazione`, RBAC admin/operatore, fondo da FK avviso con fallback legacy, isolamento buste paga per azienda e nomi ZIP anti-path-traversal. Gate mirato: **81 passed**.
-- S6 analizzato ma **non modificato**: lavoro fermato su richiesta utente.
-- Ultima suite completa resta quella pre-S5: **483 passed, 1 skipped**. Suite completa post-S5 ancora da eseguire.
+- S6 chiuso in tre commit: pulizia schema/parser/docs (`ccebe9e`), attivazione e
+  riallineamento degli 8 test legacy (`6f77534`), fonte unica dipendenze pin (`b335d1d`).
+- Gate Ondata S superato: test mirati S5/S6 verdi; Compose valido; immagini backend e
+  worker costruite; `pip check` e import runtime OK; suite completa **530 passed,
+  2 skipped, 0 failed**; Alembic `057 (head)` senza drift.
+- I 2 skip riguardano il monitor performance legacy non disponibile nel runtime;
+  residuo censito come NEW-013. Ondata S **CHIUSA**; prossimo punto V5.
 
 ## Regole di lavoro
 
@@ -53,26 +58,16 @@ L'utente ha autorizzato preventivamente i gate tecnici e ha chiesto di non ferma
 
 ## Prompt di ripresa — copia operativa
 
-Riprendi PythonPro da `/DATA/progetti/pythonpro`. Leggi prima `STATUS.md`, la sezione più recente di `REMEDIATION_LOG.md`, `audit/FINDINGS_NUOVI.md` e gli ultimi 10 commit. Non rifare S1-S5: sono chiusi, ultimo commit applicativo `b5173e1`. Non fare push e preserva la worktree separata `.worktrees/email-agent`.
+Riprendi PythonPro da `/DATA/progetti/pythonpro`. Leggi prima `STATUS.md`, la sezione più recente di `REMEDIATION_LOG.md`, `audit/FINDINGS_NUOVI.md` e gli ultimi 10 commit. Non rifare Ondata S: è chiusa, ultimo commit applicativo `b335d1d`. Non fare push e preserva la worktree separata `.worktrees/email-agent`.
 
-### 1. Completa S6 e chiudi Ondata S
-
-- Elimina `backend/add_assignment_to_attendance.py`: colonna, FK e indice `ix_attendances_assignment_id` sono già verificati presenti sul DB live; niente nuova migration.
-- Elimina la costante morta `DOCUMENTI_OBBLIGATORI_DEFAULT` da `backend/ai_agents/contract_agent.py`.
-- Correggi `backend/scripts/backfill_project11_piano_moduli.py` per importare da `services.parsers.fapi.piano_finanziario_parser`, poi elimina gli shim `services/{convenzione,formulario,piano_finanziario}_parser.py`.
-- Unifica dipendenze: un solo `backend/requirements.txt` con versioni esatte coerenti col runtime; elimina `requirements_local.txt` e `requirements_simple.txt`; rimuovi la duplicazione dipendenze da `pyproject.toml` usando `requirements.txt` come fonte autorevole. Verifica build backend/worker e `pip check`.
-- Sposta gli 8 `backend/test_*.py` dormienti in `backend/tests/`. Attenzione: attiveranno circa 38 test legacy; correggi fixture SQLite/RBAC/backup nei test, senza cambiare produzione per assecondare aspettative obsolete.
-- Correggi `CLAUDE.md`: è un ERP per formazione finanziata italiana, non una piattaforma educativa.
-- Esegui test mirati S5/S6, `docker compose config --quiet`, build container, suite backend completa e `alembic check`. Commit atomici `fix(S6): ...`; aggiorna log/status; fermati al GATE Ondata S.
-
-### 2. Ondata V5 — quattro avvisi reali
+### 1. Ondata V5 — quattro avvisi reali
 
 - Verifica in `/DATA/progetti/pythonpro/imports/avvisi` la presenza di: FAPI 3-2026, Fondimpresa 3/2026, Fondimpresa 4/2026, Formazienda 9/2022 rev.9. Se manca anche un file, fermati indicando il path esatto.
 - Per ogni file esegui upload → pulizia → segmentazione → estrazione LLM per categoria → AgentSuggestion. Nessuna validazione automatica.
 - Correggi pulizia/segmentazione se il rumore reale rompe la pipeline; test sul caso reale.
 - Produci quattro report: regole proposte, confidence media, sezioni problematiche e qualità onesta. Fermati al GATE V5 per validazione UI dell'utente; le ondate successive devono tollerare validazione parziale.
 
-### 3. Ondata B — binding avviso/operatività
+### 2. Ondata B — binding avviso/operatività
 
 - B1: scadenze avviso validate in job, notifiche, Agenda/HomeCockpit e suggestion per tassative senza azione.
 - B2: massimali/parametri costo validati alimentano piani con precedenza avviso > fondo > warning; violazioni bloccanti citano articolo/testo.
@@ -82,20 +77,20 @@ Riprendi PythonPro da `/DATA/progetti/pythonpro`. Leggi prima `STATUS.md`, la se
 - B6: migrazione identità ente/avviso a FK con report non matchati; fix dedup JSON/N+1 certification agent.
 - Demo completa su DB copia e GATE Ondata B.
 
-### 4. Ondata L — archivio e apprendimento
+### 3. Ondata L — archivio e apprendimento
 
 - L1: case base privo di PII, FTS PostgreSQL italiano, 10 query reali e gate empirico FTS/pgvector; UI “Chiedi all'archivio” con citazioni obbligatorie e risposta zero-result sicura.
 - L2: `avviso_advisor` collector puro con rischi da esiti storici, solo suggestion.
 - L3: feedback accept/reject, proposta taratura soglie, few-shot solo regole validate non superate/rifiutate, pattern errori; vietati fine-tuning, PII grezza e auto-apply.
 - Demo e GATE Ondata L.
 
-### 5. Ondata C — GDPR e CRM
+### 4. Ondata C — GDPR e CRM
 
 - C1: basi giuridiche per allievi/referenti/legali rappresentanti, backfill “da qualificare”, report regolarizzazione, allegati tecnici DPIA/registro e retention 5-10 anni per fondo/rendicontazione.
 - GATE C1 bloccante: C2 parte solo dopo conferma esterna di informative e LIA marketing B2B.
 - C2 dopo conferma: timeline CRM, pipeline commerciale, `opportunity_finder` solo soggetti qualificati, storico partecipazioni/esiti. Demo e GATE C.
 
-### 6. Ondata F — chiusura
+### 5. Ondata F — chiusura
 
 - F1 smonta `sprint7.py`; F2 archivia docs e aggiorna documentazione piattaforme.
 - F3 demo unica completa su DB copia dall'MD all'advisor/opportunity finder, con evidenze API/UI.
