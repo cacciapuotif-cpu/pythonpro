@@ -1,6 +1,6 @@
 # PythonPro — Stato corrente
 
-**Aggiornato:** 2026-07-18 08:46 Europe/Rome
+**Aggiornato:** 2026-07-18 08:57 Europe/Rome
 **Branch:** `claude/platform-audit-compliance-XnH86` (locale, nessun push)
 **Percorso:** `/DATA/progetti/pythonpro`
 
@@ -57,6 +57,16 @@ L'utente ha autorizzato preventivamente i gate tecnici e ha chiesto di non ferma
   - `imports/avvisi/formazienda_9-2022_rev9.md`
 - Dopo il deposito: verificare contenuti, poi upload → pulizia → segmentazione →
   estrazione LLM per categoria → `AgentSuggestion`, senza validazione automatica.
+- Primo tentativo UI Formazienda del 2026-07-18 ha esposto due bug, entrambi chiusi:
+  revisioni legacy con sorgente nulla causavano `500` mascherato come CORS e il
+  client inviava il `FormData` come JSON causando `422` (`70713f1`).
+- Aggiunta disattivazione sicura da Archivio Risorse (`03457e1`): pulsante con
+  conferma, soft-delete `is_active=false`, storico conservato, endpoint riservato
+  ad Admin/Manager e liste operative che mostrano solo avvisi attivi.
+- Gate mirati: backend V2 API **7 passed**; frontend archivio/API **5 passed**.
+  Backend e frontend ricostruiti e healthy; `/health` e `/resources` HTTP 200.
+- Record da disattivare indicato dall'utente: ID 1, Formazienda `2/2025`, attivo.
+  Non disattivato automaticamente: attende conferma umana tramite il nuovo pulsante.
 
 ## Regole di lavoro
 

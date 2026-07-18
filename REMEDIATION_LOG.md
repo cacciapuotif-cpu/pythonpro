@@ -742,4 +742,22 @@ con zero side effect esterni senza approvazione umana, kill switch globale e per
 - Ondata S dichiarata **CHIUSA**. Prossimo punto: V5, ingestione dei quattro avvisi
   reali. Nessun push; worktree separata `.worktrees/email-agent` preservata.
 
+## 2026-07-18 | ONDATA V5 | Riparazione upload UI e disattivazione avvisi
+
+- Diagnosi su tentativo reale Formazienda: `GET /avvisi/{id}/revisioni` falliva
+  con `ResponseValidationError` sulle revisioni legacy prive di sorgente, generando
+  nel browser un apparente errore CORS; `POST .../ingest` arrivava invece come
+  `application/json`, quindi FastAPI rispondeva 422 per `file` e `titolo` mancanti.
+- **`70713f1` fix(V5):** schema read tollera i soli campi sorgente nulli delle
+  revisioni V1 legacy, mentre lo schema create resta rigoroso; upload frontend
+  inviato esplicitamente multipart; test regressione backend/frontend aggiunti.
+- **`03457e1` fix(V5):** aggiunto in Archivio Risorse il comando “Disattiva avviso”
+  con conferma esplicita. Operazione logica (`is_active=false`), storico intatto,
+  liste operative solo attive; DELETE protetta per Admin/Manager anche lato API.
+- Gate mirati finali: backend V2 API 7 passed; frontend ResourceArchive/apiService
+  5 passed. Build e recreate backend/frontend riusciti; entrambi healthy; health API
+  e pagina `/resources` HTTP 200.
+- Verifica read-only DB: Formazienda 2/2025 = ID 1 attivo; omonimo FAPI 2/2025 =
+  ID 6 attivo. Nessuna disattivazione automatica eseguita.
+
 ---
