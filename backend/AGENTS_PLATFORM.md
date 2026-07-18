@@ -43,7 +43,11 @@ Il runner e' un **collector puro**: legge dal DB, NON scrive. Ogni item in
 `title`, `description`, `payload` (dict), `confidence`.
 
 Agenti registrati: `data_quality`, `mail_recovery`, `contract_agent`,
-`certification`. L'intake email (`email_intake`) crea AgentRun/Suggestion
+`certification`, `avviso_extractor`, `activity_planner`, `procedure_extractor`.
+`activity_planner` è deterministico e propone un piano da scadenze/playbook
+validati; `procedure_extractor` legge vademecum/manuali markdown e propone voci
+playbook. Entrambi hanno trigger solo `manual`, kill switch per agente e ruoli
+admin/manager. L'intake email (`email_intake`) crea AgentRun/Suggestion
 dal worker inbox e non e' eseguibile manualmente.
 
 ## Aggiungere un agente (esempio minimale)
@@ -74,6 +78,11 @@ entity_id, input_payload)` + entry in `_AGENT_DEFINITIONS` con
 Trigger cron: aggiungere in `arq_worker.py` una funzione che controlla
 `agent_enabled("mio_agente")` e chiama
 `run_agent_workflow(db, agent_type="mio_agente", auto_mode=True)`.
+
+Il sottosistema A usa inoltre `attivita_piano` e `playbook_voce` come kind di
+apply umano. La materializzazione passa dai servizi di dominio e richiede sempre
+`user_id`; `AttivitaEvento` è append-only e costituisce il ponte verso il
+sottosistema B. Nessun cron è previsto per questi due agenti nell'MVP.
 
 ## Storia
 

@@ -1,6 +1,6 @@
 # PythonPro — Stato corrente
 
-**Aggiornato:** 2026-07-18 (sessione brainstorming layer predittivo)
+**Aggiornato:** 2026-07-18 (implementazione sottosistema A attività predittive)
 **Branch:** `claude/platform-audit-compliance-XnH86` (locale, nessun push)
 **Percorso:** `/DATA/progetti/pythonpro`
 
@@ -124,6 +124,20 @@ Nota integrazione: A tocca i temi di Ondata B (B3 checklist documentale) e Ondat
 - Nuovi problemi in `audit/FINDINGS_NUOVI.md`.
 - LLM e agenti propongono soltanto; applicazione sempre umana.
 - Preservare modifiche preesistenti e usare staging selettivo.
+
+## Sottosistema A — attività predittive (ATT-01…ATT-07)
+
+- Implementati e committati localmente i cinque modelli, migration Alembic `058`,
+  schemi Pydantic, servizi playbook/checklist, planner deterministico,
+  procedure extractor LLM proposal-only, registry/apply kind e router RBAC.
+- Commit: `1adc326`, `2152a03`, `83db85e`, `c14c7f3`, `6122d47`, `bbba4e1`.
+- Kill switch e flusso umano invariati: nessun collector scrive DB e nessun cron
+  è stato aggiunto. API attività registrata in `main.py`.
+- Gate statici `py_compile` superati. La prova `Base.metadata.create_all` SQLite
+  globale resta bloccata da un difetto legacy preesistente (`DEFAULT now()` in
+  `email_inbox_items`); usare migration Alembic/copia DB per il gate ATT-01.
+- Piano e spec restano non tracciati intenzionalmente fino alla conferma del
+  contenuto/documentazione: `docs/superpowers/plans/2026-07-18-attivita-predittive.md`.
 
 ## Prompt di ripresa — copia operativa
 
