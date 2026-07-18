@@ -64,14 +64,42 @@ def apply_voce_suggestion(db, suggestion, *, user_id):
     playbook_id = payload.get("playbook_id")
     if playbook_id:
         p = db.get(models.Playbook, playbook_id)
+        if not p:
+            raise ValueError("Playbook indicato non trovato")
     else:
         doc = db.get(models.AvvisoDocumento, payload.get("documento_id"))
         avviso = db.get(models.Avviso, doc.avviso_id) if doc else None
-        p = db.query(models.Playbook).filter_by(fondo=avviso.fondo, ente_erogatore=avviso.ente_erogatore).first() if avviso else None
-    if not p: p = create_playbook(db, nome="Playbook estratto", fondo="altro", created_by_user_id=user_id)
+        if not avviso:
+            raise ValueError("Documento o avviso sorgente non trovato")
+        query = db.query(models.Playbook).filter_by(fondo=avviso.fondo, is_active=True)
+        p = query.filter_by(ente_erogatore=avviso.ente_erogatore).first()
+        p = p or query.filter(models.Playbook.ente_erogatore.is_(None)).first()
+        if not p:
+            p = create_playbook(
+                db,
+                nome=f"Playbook {avviso.ente_erogatore or avviso.fondo}",
+                fondo=avviso.fondo,
+                ente_erogatore=avviso.ente_erogatore,
+                created_by_user_id=user_id,
+            )
     v = p.versione_corrente or create_next_version(db, playbook_id=p.id, created_by_user_id=user_id)
-    voce = add_voce_manuale(db, versione_id=v.id, fase=voce_data["fase"], ordine=voce_data.get("ordine", 0),
-        titolo=voce_data["titolo"], descrizione=voce_data.get("descrizione"), contenuto=voce_data.get("contenuto", {"tipo":"attivita_semplice"}), created_by_user_id=user_id,
-        testo_originale=voce_data.get("testo_originale"), riferimento_articolo=voce_data.get("riferimento_articolo"))
-    voce.origin_suggestion_id = suggestion.id; db.commit()
+    voce = models.PlaybookVoce(
+        playbook_versione_id=v.id,
+        fase=voce_data["fase"],
+        ordine=voce_data.get("ordine", 0),
+        titolo=voce_data["titolo"].strip(),
+        descrizione=voce_data.get("descrizione"),
+        contenuto=voce_data.get("contenuto", {"tipo": "attivita_semplice"}),
+        origine="vademecum",
+        stato="validata",
+        testo_originale=voce_data.get("testo_originale"),
+        riferimento_articolo=voce_data.get("riferimento_articolo"),
+        confidence=voce_data.get("confidence"),
+        needs_careful_review=bool(voce_data.get("needs_careful_review", False)),
+        origin_suggestion_id=suggestion.id,
+        validata_da_user_id=user_id,
+        validata_il=datetime.now(timezone.utc),
+    )
+    _save(db, voce)
+    db.commit()
     return {"applied": [f"playbook_voce:{voce.id}"], "skipped": []}

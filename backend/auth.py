@@ -153,6 +153,7 @@ OPERATIONAL_PREFIXES = (
     "/api/v1/piani-finanziari",
     "/api/v1/documenti-richiesti",
     "/api/v1/avvisi",
+    "/api/v1/attivita",
     "/api/v1/cockpit",
 )
 OPERATIONAL_EXACT_PREFIXES = (

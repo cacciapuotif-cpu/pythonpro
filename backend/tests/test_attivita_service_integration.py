@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 import sys
 import pytest
@@ -9,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 sys.path.insert(0, str(Path(__file__).parent.parent))
 import auth
 import models
-from services.attivita import apply_piano_attivita, cambia_stato
+from services.attivita import aggiorna_attivita, apply_piano_attivita, cambia_stato
 
 
 @pytest.fixture()
@@ -62,3 +62,43 @@ def test_state_change_requires_authenticated_actor(db):
     db.add(activity); db.commit()
     with pytest.raises(ValueError, match="attore|utente|obbligatorio"):
         cambia_stato(db, attivita_id=activity.id, nuovo_stato="in_corso", user_id=None)
+
+
+def test_update_writes_deadline_assignee_and_note_events_atomically(db):
+    actor = user(db)
+    assignee = auth.User(
+        username="assegnatario-a",
+        email="assegnatario-a@example.test",
+        hashed_password="x",
+        role="operatore",
+    )
+    project = models.Project(name="P")
+    db.add_all([assignee, project])
+    db.commit()
+    activity = models.AttivitaOperativa(
+        project_id=project.id,
+        fase="gestione",
+        titolo="Aggiorna",
+        created_by_user_id=actor.id,
+    )
+    db.add(activity)
+    db.commit()
+
+    aggiorna_attivita(
+        db,
+        attivita_id=activity.id,
+        user_id=actor.id,
+        scadenza=date(2026, 9, 30),
+        assegnatario_user_id=assignee.id,
+        note="Verificata",
+    )
+
+    db.refresh(activity)
+    assert activity.scadenza == date(2026, 9, 30)
+    assert activity.assegnatario_user_id == assignee.id
+    assert activity.note == "Verificata"
+    assert [event.tipo_evento for event in activity.eventi] == [
+        "scadenza_modificata",
+        "assegnata",
+        "nota",
+    ]

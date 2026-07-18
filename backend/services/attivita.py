@@ -1,6 +1,5 @@
 """Mutazioni atomiche della checklist e relativo event log."""
-from datetime import datetime, timezone
-from sqlalchemy import and_
+from datetime import date, datetime, timezone
 import models
 
 ATTIVITA_STATE_TRANSITIONS = {
@@ -22,10 +21,13 @@ def apply_piano_attivita(db, suggestion, *, user_id):
     for item in payload.get("attivita", []):
         q = db.query(models.AttivitaOperativa).filter_by(project_id=project_id, fase=item["fase"], titolo=item["titolo"])
         if q.first(): existing += 1; continue
+        scadenza = item.get("scadenza")
+        if isinstance(scadenza, str):
+            scadenza = date.fromisoformat(scadenza)
         activity = models.AttivitaOperativa(project_id=project_id, avviso_revisione_id=item.get("avviso_revisione_id"),
             playbook_voce_id=item.get("playbook_voce_id"), avviso_scadenza_id=item.get("avviso_scadenza_id"),
             fase=item["fase"], ordine=item.get("ordine", 0), titolo=item["titolo"], descrizione=item.get("descrizione"),
-            scadenza=item.get("scadenza"), tassativa=item.get("tassativa", False), origin_suggestion_id=suggestion.id,
+            scadenza=scadenza, tassativa=item.get("tassativa", False), origin_suggestion_id=suggestion.id,
             created_by_user_id=user_id)
         db.add(activity); db.flush(); _event(db, activity, "creata", user_id=user_id); created += 1
     db.commit(); return {"create": created, "esistenti": existing}
@@ -44,13 +46,15 @@ def cambia_stato(db, *, attivita_id, nuovo_stato, user_id, nota=None):
            user_id=user_id, payload={"da": old, "a": nuovo_stato, "nota": nota} if nota else {"da": old, "a": nuovo_stato})
     db.commit(); return activity
 
-def aggiorna_attivita(db, *, attivita_id, user_id, scadenza=None, assegnatario=None, note=None):
+def aggiorna_attivita(db, *, attivita_id, user_id, scadenza=None, assegnatario_user_id=None, note=None):
     if not user_id:
         raise ValueError("Utente attore obbligatorio")
-    activity = db.get(models.AttivitaOperativa, attivita_id)
+    activity = db.query(models.AttivitaOperativa).filter_by(id=attivita_id).with_for_update().one_or_none()
     if not activity: raise ValueError("Attività non trovata")
     if scadenza is not None and scadenza != activity.scadenza: activity.scadenza = scadenza; _event(db, activity, "scadenza_modificata", user_id=user_id, payload={"scadenza": str(scadenza)})
-    if assegnatario is not None and assegnatario != activity.assegnatario_user_id: activity.assegnatario_user_id = assegnatario; _event(db, activity, "assegnata", user_id=user_id, payload={"user_id": assegnatario})
+    if assegnatario_user_id is not None and assegnatario_user_id != activity.assegnatario_user_id:
+        activity.assegnatario_user_id = assegnatario_user_id
+        _event(db, activity, "assegnata", user_id=user_id, payload={"user_id": assegnatario_user_id})
     if note is not None and note != activity.note: activity.note = note; _event(db, activity, "nota", user_id=user_id, payload={"nota": note})
     db.commit(); return activity
 

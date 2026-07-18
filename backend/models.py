@@ -2544,7 +2544,7 @@ class ModuloFormativo(Base):
 class Playbook(Base):
     __tablename__ = "playbooks"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True)
     nome = Column(String(200), nullable=False)
     fondo = Column(String(20), nullable=False, default="altro", server_default="altro")
     ente_erogatore = Column(String(100), nullable=True, index=True)
@@ -2573,7 +2573,7 @@ class Playbook(Base):
 class PlaybookVersione(Base):
     __tablename__ = "playbook_versioni"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True)
     playbook_id = Column(Integer, ForeignKey("playbooks.id", ondelete="RESTRICT"), nullable=False, index=True)
     numero_versione = Column(Integer, nullable=False)
     versione_precedente_id = Column(Integer, ForeignKey("playbook_versioni.id", ondelete="SET NULL"), nullable=True)
@@ -2594,9 +2594,9 @@ class PlaybookVersione(Base):
 class PlaybookVoce(Base):
     __tablename__ = "playbook_voci"
 
-    id = Column(Integer, primary_key=True, index=True)
-    playbook_versione_id = Column(Integer, ForeignKey("playbook_versioni.id", ondelete="RESTRICT"), nullable=False, index=True)
-    fase = Column(String(20), nullable=False, index=True)
+    id = Column(Integer, primary_key=True)
+    playbook_versione_id = Column(Integer, ForeignKey("playbook_versioni.id", ondelete="RESTRICT"), nullable=False)
+    fase = Column(String(20), nullable=False)
     ordine = Column(Integer, nullable=False, default=0, server_default="0")
     titolo = Column(String(300), nullable=False)
     descrizione = Column(Text, nullable=True)
@@ -2606,7 +2606,7 @@ class PlaybookVoce(Base):
     origine = Column(String(20), nullable=False, default="manuale", server_default="manuale")
     testo_originale = Column(Text, nullable=True)
     riferimento_articolo = Column(String(100), nullable=True)
-    stato = Column(String(20), nullable=False, default="proposta", server_default="proposta", index=True)
+    stato = Column(String(20), nullable=False, default="proposta", server_default="proposta")
     confidence = Column(Numeric(5, 4), nullable=True)
     needs_careful_review = Column(Boolean, nullable=False, default=False, server_default=text("false"))
     origin_suggestion_id = Column(Integer, ForeignKey("agent_suggestions.id", ondelete="SET NULL"), nullable=True)
@@ -2620,6 +2620,7 @@ class PlaybookVoce(Base):
     carried_from = relationship("PlaybookVoce", remote_side=[id], lazy="select")
 
     __table_args__ = (
+        Index("ix_playbook_voci_playbook_versione_id_fase_stato", "playbook_versione_id", "fase", "stato"),
         UniqueConstraint("playbook_versione_id", "fase", "titolo", name="uq_playbook_voci_titolo"),
         CheckConstraint("fase IN ('presentazione','avvio','gestione','rendicontazione')", name="ck_playbook_voci_fase"),
         CheckConstraint("length(trim(titolo)) > 0", name="ck_playbook_voci_titolo_non_vuoto"),
@@ -2633,19 +2634,19 @@ class PlaybookVoce(Base):
 class AttivitaOperativa(Base):
     __tablename__ = "attivita_operative"
 
-    id = Column(Integer, primary_key=True, index=True)
-    project_id = Column(Integer, ForeignKey("projects.id", ondelete="RESTRICT"), nullable=False, index=True)
-    avviso_revisione_id = Column(Integer, ForeignKey("avviso_revisioni.id", ondelete="SET NULL"), nullable=True, index=True)
-    playbook_voce_id = Column(Integer, ForeignKey("playbook_voci.id", ondelete="SET NULL"), nullable=True, index=True)
-    avviso_scadenza_id = Column(Integer, ForeignKey("avviso_scadenze.id", ondelete="SET NULL"), nullable=True, index=True)
-    fase = Column(String(20), nullable=False, index=True)
+    id = Column(Integer, primary_key=True)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="RESTRICT"), nullable=False)
+    avviso_revisione_id = Column(Integer, ForeignKey("avviso_revisioni.id", ondelete="SET NULL"), nullable=True)
+    playbook_voce_id = Column(Integer, ForeignKey("playbook_voci.id", ondelete="SET NULL"), nullable=True)
+    avviso_scadenza_id = Column(Integer, ForeignKey("avviso_scadenze.id", ondelete="SET NULL"), nullable=True)
+    fase = Column(String(20), nullable=False)
     ordine = Column(Integer, nullable=False, default=0, server_default="0")
     titolo = Column(String(300), nullable=False)
     descrizione = Column(Text, nullable=True)
-    stato = Column(String(20), nullable=False, default="da_fare", server_default="da_fare", index=True)
-    scadenza = Column(Date, nullable=True, index=True)
+    stato = Column(String(20), nullable=False, default="da_fare", server_default="da_fare")
+    scadenza = Column(Date, nullable=True)
     tassativa = Column(Boolean, nullable=False, default=False, server_default=text("false"))
-    assegnatario_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    assegnatario_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     origin_suggestion_id = Column(Integer, ForeignKey("agent_suggestions.id", ondelete="SET NULL"), nullable=True)
     completata_da_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     completata_il = Column(DateTime(timezone=True), nullable=True)
@@ -2654,9 +2655,16 @@ class AttivitaOperativa(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
-    eventi = relationship("AttivitaEvento", back_populates="attivita", cascade="all, delete-orphan", lazy="select")
+    eventi = relationship(
+        "AttivitaEvento",
+        back_populates="attivita",
+        cascade="all, delete-orphan",
+        lazy="select",
+        order_by="AttivitaEvento.id",
+    )
 
     __table_args__ = (
+        Index("ix_attivita_operative_project_id_fase_stato_scadenza", "project_id", "fase", "stato", "scadenza"),
         UniqueConstraint("project_id", "fase", "titolo", name="uq_attivita_operative_titolo"),
         CheckConstraint("fase IN ('presentazione','avvio','gestione','rendicontazione')", name="ck_attivita_operative_fase"),
         CheckConstraint("length(trim(titolo)) > 0", name="ck_attivita_operative_titolo_non_vuoto"),
@@ -2668,17 +2676,18 @@ class AttivitaOperativa(Base):
 class AttivitaEvento(Base):
     __tablename__ = "attivita_eventi"
 
-    id = Column(Integer, primary_key=True, index=True)
-    attivita_id = Column(Integer, ForeignKey("attivita_operative.id", ondelete="CASCADE"), nullable=False, index=True)
-    tipo_evento = Column(String(30), nullable=False, index=True)
+    id = Column(Integer, primary_key=True)
+    attivita_id = Column(Integer, ForeignKey("attivita_operative.id", ondelete="CASCADE"), nullable=False)
+    tipo_evento = Column(String(30), nullable=False)
     payload = Column(AVVISO_JSON_TYPE, nullable=True)
     actor_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     actor_agente = Column(String(50), nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     attivita = relationship("AttivitaOperativa", back_populates="eventi")
 
     __table_args__ = (
+        Index("ix_attivita_eventi_attivita_id_tipo_evento_created_at", "attivita_id", "tipo_evento", "created_at"),
         CheckConstraint("tipo_evento IN ('creata','stato_cambiato','scadenza_modificata','assegnata','nota','riaperta')", name="ck_attivita_eventi_tipo"),
         CheckConstraint("actor_user_id IS NOT NULL OR actor_agente IS NOT NULL", name="ck_attivita_eventi_actor"),
     )

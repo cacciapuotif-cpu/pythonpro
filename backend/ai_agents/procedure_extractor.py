@@ -32,5 +32,6 @@ def collect_procedure_extractor_suggestions(db, *, documento_id, input_payload=N
                 "confidence_score":voce.confidence, "needs_careful_review":voce.confidence < .75, "auto_fix_available":True,
                 "auto_fix_payload":{"kind":"playbook_voce", "documento_id":doc.id, "playbook_id":(input_payload or {}).get("playbook_id"),
                     "voce":{"fase":voce.fase, "titolo":voce.titolo, "descrizione":voce.descrizione, "contenuto":content,
-                             "testo_originale":voce.testo_originale, "riferimento_articolo":voce.riferimento_articolo}}})
+                             "testo_originale":voce.testo_originale, "riferimento_articolo":voce.riferimento_articolo,
+                             "confidence":voce.confidence, "needs_careful_review":voce.confidence < .75}}})
     return {"summary":{"gruppi_totali":len(groups), "gruppi_falliti":failed, "voci":len(suggestions)}, "suggestions":suggestions}

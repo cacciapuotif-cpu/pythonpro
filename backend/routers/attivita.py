@@ -27,10 +27,13 @@ def post_playbook(body: PlaybookCreate, db: Session = Depends(get_db), user: Use
 def list_playbooks(db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
     return db.query(models.Playbook).filter_by(is_active=True).order_by(models.Playbook.fondo, models.Playbook.nome).all()
 @router.get("/playbooks/{playbook_id}/voci")
-def list_voci(playbook_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+def list_voci(playbook_id: int, stato: str | None = "validata", db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
     p = db.get(models.Playbook, playbook_id)
     if not p or not p.versione_corrente: raise HTTPException(404, "Playbook non trovato")
-    return [v for v in p.versione_corrente.voci if v.stato == "validata"]
+    stati_ammessi = {"proposta", "validata", "rifiutata", "superata"}
+    if stato is not None and stato not in stati_ammessi:
+        raise HTTPException(422, "Stato voce non valido")
+    return [v for v in p.versione_corrente.voci if stato is None or v.stato == stato]
 @router.post("/playbooks/{playbook_id}/voci")
 def post_voce(playbook_id: int, body: VoceCreate, db: Session = Depends(get_db), user: User = Depends(require_attivita_admin)):
     p = db.get(models.Playbook, playbook_id)
