@@ -2539,3 +2539,146 @@ class ModuloFormativo(Base):
     __table_args__ = (
         Index("idx_modulo_project_codice", "project_id", "codice_progetto_fapi"),
     )
+
+
+class Playbook(Base):
+    __tablename__ = "playbooks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    nome = Column(String(200), nullable=False)
+    fondo = Column(String(20), nullable=False, default="altro", server_default="altro")
+    ente_erogatore = Column(String(100), nullable=True, index=True)
+    descrizione = Column(Text, nullable=True)
+    versione_corrente_id = Column(
+        Integer, ForeignKey("playbook_versioni.id", ondelete="SET NULL", use_alter=True), nullable=True
+    )
+    is_active = Column(Boolean, nullable=False, default=True, server_default=text("true"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    versione_corrente = relationship(
+        "PlaybookVersione", foreign_keys=[versione_corrente_id], post_update=True, lazy="select"
+    )
+    versioni = relationship(
+        "PlaybookVersione", foreign_keys="PlaybookVersione.playbook_id", back_populates="playbook",
+        cascade="all, delete-orphan", lazy="select"
+    )
+
+    __table_args__ = (
+        UniqueConstraint("fondo", "ente_erogatore", "nome", name="uq_playbooks_identita"),
+        CheckConstraint("fondo IN ('fondimpresa','formazienda','fapi','regionale','altro')", name="ck_playbooks_fondo"),
+    )
+
+
+class PlaybookVersione(Base):
+    __tablename__ = "playbook_versioni"
+
+    id = Column(Integer, primary_key=True, index=True)
+    playbook_id = Column(Integer, ForeignKey("playbooks.id", ondelete="RESTRICT"), nullable=False, index=True)
+    numero_versione = Column(Integer, nullable=False)
+    versione_precedente_id = Column(Integer, ForeignKey("playbook_versioni.id", ondelete="SET NULL"), nullable=True)
+    note = Column(Text, nullable=True)
+    created_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    playbook = relationship("Playbook", foreign_keys=[playbook_id], back_populates="versioni")
+    precedente = relationship("PlaybookVersione", remote_side=[id], lazy="select")
+    voci = relationship("PlaybookVoce", back_populates="versione", cascade="all, delete-orphan", lazy="select")
+
+    __table_args__ = (
+        UniqueConstraint("playbook_id", "numero_versione", name="uq_playbook_versioni_numero"),
+        CheckConstraint("numero_versione > 0", name="ck_playbook_versioni_numero_positivo"),
+    )
+
+
+class PlaybookVoce(Base):
+    __tablename__ = "playbook_voci"
+
+    id = Column(Integer, primary_key=True, index=True)
+    playbook_versione_id = Column(Integer, ForeignKey("playbook_versioni.id", ondelete="RESTRICT"), nullable=False, index=True)
+    fase = Column(String(20), nullable=False, index=True)
+    ordine = Column(Integer, nullable=False, default=0, server_default="0")
+    titolo = Column(String(300), nullable=False)
+    descrizione = Column(Text, nullable=True)
+    contenuto = Column(AVVISO_JSON_TYPE, nullable=False)
+    schema_version = Column(Integer, nullable=False, default=1, server_default="1")
+    applicabilita = Column(AVVISO_JSON_TYPE, nullable=True)
+    origine = Column(String(20), nullable=False, default="manuale", server_default="manuale")
+    testo_originale = Column(Text, nullable=True)
+    riferimento_articolo = Column(String(100), nullable=True)
+    stato = Column(String(20), nullable=False, default="proposta", server_default="proposta", index=True)
+    confidence = Column(Numeric(5, 4), nullable=True)
+    needs_careful_review = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    origin_suggestion_id = Column(Integer, ForeignKey("agent_suggestions.id", ondelete="SET NULL"), nullable=True)
+    carried_from_voce_id = Column(Integer, ForeignKey("playbook_voci.id", ondelete="SET NULL"), nullable=True)
+    validata_da_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    validata_il = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    versione = relationship("PlaybookVersione", back_populates="voci")
+    carried_from = relationship("PlaybookVoce", remote_side=[id], lazy="select")
+
+    __table_args__ = (
+        UniqueConstraint("playbook_versione_id", "fase", "titolo", name="uq_playbook_voci_titolo"),
+        CheckConstraint("fase IN ('presentazione','avvio','gestione','rendicontazione')", name="ck_playbook_voci_fase"),
+        CheckConstraint("length(trim(titolo)) > 0", name="ck_playbook_voci_titolo_non_vuoto"),
+        CheckConstraint("origine IN ('manuale','vademecum','regola')", name="ck_playbook_voci_origine"),
+        CheckConstraint("stato IN ('proposta','validata','rifiutata','superata')", name="ck_playbook_voci_stato"),
+        CheckConstraint("confidence IS NULL OR (confidence >= 0 AND confidence <= 1)", name="ck_playbook_voci_confidence"),
+        CheckConstraint("(stato <> 'validata') OR (validata_da_user_id IS NOT NULL AND validata_il IS NOT NULL)", name="ck_playbook_voci_validazione_completa"),
+    )
+
+
+class AttivitaOperativa(Base):
+    __tablename__ = "attivita_operative"
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="RESTRICT"), nullable=False, index=True)
+    avviso_revisione_id = Column(Integer, ForeignKey("avviso_revisioni.id", ondelete="SET NULL"), nullable=True, index=True)
+    playbook_voce_id = Column(Integer, ForeignKey("playbook_voci.id", ondelete="SET NULL"), nullable=True, index=True)
+    avviso_scadenza_id = Column(Integer, ForeignKey("avviso_scadenze.id", ondelete="SET NULL"), nullable=True, index=True)
+    fase = Column(String(20), nullable=False, index=True)
+    ordine = Column(Integer, nullable=False, default=0, server_default="0")
+    titolo = Column(String(300), nullable=False)
+    descrizione = Column(Text, nullable=True)
+    stato = Column(String(20), nullable=False, default="da_fare", server_default="da_fare", index=True)
+    scadenza = Column(Date, nullable=True, index=True)
+    tassativa = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    assegnatario_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    origin_suggestion_id = Column(Integer, ForeignKey("agent_suggestions.id", ondelete="SET NULL"), nullable=True)
+    completata_da_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    completata_il = Column(DateTime(timezone=True), nullable=True)
+    note = Column(Text, nullable=True)
+    created_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    eventi = relationship("AttivitaEvento", back_populates="attivita", cascade="all, delete-orphan", lazy="select")
+
+    __table_args__ = (
+        UniqueConstraint("project_id", "fase", "titolo", name="uq_attivita_operative_titolo"),
+        CheckConstraint("fase IN ('presentazione','avvio','gestione','rendicontazione')", name="ck_attivita_operative_fase"),
+        CheckConstraint("length(trim(titolo)) > 0", name="ck_attivita_operative_titolo_non_vuoto"),
+        CheckConstraint("stato IN ('da_fare','in_corso','completata','non_applicabile')", name="ck_attivita_operative_stato"),
+        CheckConstraint("(stato <> 'completata') OR (completata_da_user_id IS NOT NULL AND completata_il IS NOT NULL)", name="ck_attivita_completamento"),
+    )
+
+
+class AttivitaEvento(Base):
+    __tablename__ = "attivita_eventi"
+
+    id = Column(Integer, primary_key=True, index=True)
+    attivita_id = Column(Integer, ForeignKey("attivita_operative.id", ondelete="CASCADE"), nullable=False, index=True)
+    tipo_evento = Column(String(30), nullable=False, index=True)
+    payload = Column(AVVISO_JSON_TYPE, nullable=True)
+    actor_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    actor_agente = Column(String(50), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+    attivita = relationship("AttivitaOperativa", back_populates="eventi")
+
+    __table_args__ = (
+        CheckConstraint("tipo_evento IN ('creata','stato_cambiato','scadenza_modificata','assegnata','nota','riaperta')", name="ck_attivita_eventi_tipo"),
+        CheckConstraint("actor_user_id IS NOT NULL OR actor_agente IS NOT NULL", name="ck_attivita_eventi_actor"),
+    )
