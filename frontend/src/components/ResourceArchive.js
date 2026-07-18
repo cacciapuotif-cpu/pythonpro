@@ -115,7 +115,7 @@ export default function ResourceArchive({ currentUser = null, onReviewSuggestion
     setLoading(true);
     setError('');
     try {
-      const data = await getAvvisi({ active_only: true, limit: 1000 });
+      const data = await getAvvisi({ active_only: !canPermanentlyDelete, limit: 1000 });
       const items = Array.isArray(data) ? data : [];
       setAvvisi(items);
       setSelectedId((current) => current || (items[0]?.id ? String(items[0].id) : ''));
@@ -124,7 +124,7 @@ export default function ResourceArchive({ currentUser = null, onReviewSuggestion
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [canPermanentlyDelete]);
 
   useEffect(() => { loadAvvisi(); }, [loadAvvisi]);
 
@@ -213,11 +213,17 @@ export default function ResourceArchive({ currentUser = null, onReviewSuggestion
     setMessage('');
     try {
       await deleteAvviso(selectedAvviso.id);
-      const remaining = avvisi.filter((item) => item.id !== selectedAvviso.id);
-      setAvvisi(remaining);
-      setSelectedId(remaining[0]?.id ? String(remaining[0].id) : '');
-      setRevisions([]);
-      setIngestResult(null);
+      if (canPermanentlyDelete) {
+        setAvvisi((items) => items.map((item) => (
+          item.id === selectedAvviso.id ? { ...item, is_active: false } : item
+        )));
+      } else {
+        const remaining = avvisi.filter((item) => item.id !== selectedAvviso.id);
+        setAvvisi(remaining);
+        setSelectedId(remaining[0]?.id ? String(remaining[0].id) : '');
+        setRevisions([]);
+        setIngestResult(null);
+      }
       setMessage('Avviso disattivato. Lo storico è stato conservato.');
     } catch (deleteError) {
       setError(errorDetail(deleteError, 'Disattivazione dell’avviso non riuscita.'));
@@ -362,7 +368,9 @@ export default function ResourceArchive({ currentUser = null, onReviewSuggestion
             {!loading && filteredAvvisi.map((item) => (
               <button key={item.id} type="button" className={`resources-list-item ${String(item.id) === String(selectedId) ? 'active' : ''}`} onClick={() => selectAvviso(item.id)}>
                 <div><strong>{item.titolo || `Avviso ${item.codice}`}</strong><span>{item.ente_erogatore} · {item.codice}</span></div>
-                <small>{item.fondo}</small>
+                <small className={item.is_active === false ? 'inactive' : ''}>
+                  {item.is_active === false ? 'Disattivato' : item.fondo}
+                </small>
               </button>
             ))}
             {!loading && filteredAvvisi.length === 0 ? <div className="resources-empty">Nessun avviso trovato.</div> : null}
@@ -378,12 +386,15 @@ export default function ResourceArchive({ currentUser = null, onReviewSuggestion
                 <div>
                   <span className="resources-eyebrow">{selectedAvviso.ente_erogatore} · {selectedAvviso.fondo}</span>
                   <h3>{selectedAvviso.titolo || `Avviso ${selectedAvviso.codice}`}</h3>
-                  <p>Codice {selectedAvviso.codice} · stato {selectedAvviso.stato}</p>
+                  <p>
+                    Codice {selectedAvviso.codice} · stato {selectedAvviso.stato}
+                    {selectedAvviso.is_active === false ? ' · DISATTIVATO' : ''}
+                  </p>
                 </div>
                 <div className="resources-detail-actions">
                   <button type="button" className="resources-button review" onClick={openReview}>Vai alla revisione umana</button>
-                  <button type="button" className="resources-button danger" onClick={handleDeactivate} disabled={!canWrite || deleting}>
-                    {deleting ? 'Disattivazione…' : 'Disattiva avviso'}
+                  <button type="button" className="resources-button danger" onClick={handleDeactivate} disabled={!canWrite || deleting || selectedAvviso.is_active === false}>
+                    {selectedAvviso.is_active === false ? 'Già disattivato' : (deleting ? 'Disattivazione…' : 'Disattiva avviso')}
                   </button>
                   {canPermanentlyDelete ? (
                     <button type="button" className="resources-button permanent" onClick={handlePermanentDelete} disabled={permanentlyDeleting}>

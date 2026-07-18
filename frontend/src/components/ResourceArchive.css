@@ -335,6 +335,7 @@
 .resources-list-item strong { overflow: hidden; font-size: 0.82rem; text-overflow: ellipsis; white-space: nowrap; }
 .resources-list-item span { color: var(--resources-muted); font-size: 0.72rem; }
 .resources-list-item small { padding: 0.22rem 0.45rem; border-radius: 999px; color: #475467; background: #fff; font-size: 0.64rem; text-transform: uppercase; }
+.resources-list-item small.inactive { color: #9b1c1c; background: #fee4e2; }
 
 .resources-detail { min-height: 570px; overflow: hidden; }
 

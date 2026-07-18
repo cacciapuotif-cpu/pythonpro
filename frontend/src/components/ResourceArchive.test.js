@@ -30,6 +30,7 @@ const avviso = {
   fondo: 'fapi',
   titolo: 'Avviso FAPI 1/2026',
   stato: 'bozza',
+  is_active: true,
 };
 
 describe('ResourceArchive', () => {
@@ -118,8 +119,25 @@ describe('ResourceArchive', () => {
 
     await waitFor(() => expect(deleteAvviso).toHaveBeenCalledWith(7));
     expect(await screen.findByText(/storico è stato conservato/i)).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: 'Avviso FAPI 1/2026' })).not.toBeInTheDocument();
+    expect(screen.getByText('Disattivato')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /già disattivato/i })).toBeDisabled();
     confirm.mockRestore();
+  });
+
+  test('admin carica anche gli avvisi disattivati, manager solo quelli attivi', async () => {
+    const { unmount } = render(
+      <ResourceArchive currentUser={{ id: 1, role: 'admin' }} onReviewSuggestions={jest.fn()} />,
+    );
+    await screen.findByRole('heading', { name: 'Avviso FAPI 1/2026' });
+    expect(getAvvisi).toHaveBeenCalledWith({ active_only: false, limit: 1000 });
+    unmount();
+
+    jest.clearAllMocks();
+    getAvvisi.mockResolvedValue([avviso]);
+    getAvvisoRevisioni.mockResolvedValue([]);
+    render(<ResourceArchive currentUser={{ id: 2, role: 'manager' }} onReviewSuggestions={jest.fn()} />);
+    await screen.findByRole('heading', { name: 'Avviso FAPI 1/2026' });
+    expect(getAvvisi).toHaveBeenCalledWith({ active_only: true, limit: 1000 });
   });
 
   test('elimina definitivamente solo dopo impatto e doppia conferma admin', async () => {
