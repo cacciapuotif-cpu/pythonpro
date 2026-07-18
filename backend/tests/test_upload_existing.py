@@ -7,6 +7,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from database import Base, get_db
+from auth import get_current_user
 from main import app
 import file_upload
 import models  # noqa: F401
@@ -96,6 +97,9 @@ def client(db_session, isolated_uploads):
             pass
 
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = lambda: type(
+        "TestUser", (), {"id": 1, "role": "admin", "is_active": True}
+    )()
 
     with TestClient(app) as test_client:
         yield test_client

@@ -19,6 +19,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from database import Base, get_db
+from auth import get_current_user
 from main import app
 import models
 
@@ -51,6 +52,9 @@ def override_get_db():
 
 # Sostituisci il database reale con quello di test
 app.dependency_overrides[get_db] = override_get_db
+app.dependency_overrides[get_current_user] = lambda: type(
+    "TestUser", (), {"id": 1, "role": "admin", "is_active": True}
+)()
 
 # Client di test FastAPI
 client = TestClient(app)
@@ -63,6 +67,12 @@ client = TestClient(app)
 @pytest.fixture(autouse=True)
 def clean_db():
     """Fixture che pulisce il database prima e dopo ogni test"""
+    # Altri moduli della suite ripuliscono gli override globali dell'app: ogni
+    # test deve quindi reinstallare esplicitamente DB e identità autenticata.
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = lambda: type(
+        "TestUser", (), {"id": 1, "role": "admin", "is_active": True}
+    )()
     # Pulisci PRIMA del test
     db = TestingSessionLocal()
     try:
@@ -86,6 +96,8 @@ def clean_db():
         db.commit()
     finally:
         db.close()
+        app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(get_current_user, None)
 
 
 @pytest.fixture

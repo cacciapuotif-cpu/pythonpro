@@ -54,12 +54,16 @@ def setup_test_db():
     project1 = models.Project(
         name="Progetto A",
         description="Primo progetto di test",
-        status="active"
+        status="active",
+        start_date=datetime(2024, 1, 1),
+        end_date=datetime(2024, 12, 31),
     )
     project2 = models.Project(
         name="Progetto B",
         description="Secondo progetto di test",
-        status="active"
+        status="active",
+        start_date=datetime(2024, 1, 1),
+        end_date=datetime(2024, 12, 31),
     )
     db.add(project1)
     db.add(project2)

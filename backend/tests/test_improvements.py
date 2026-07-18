@@ -1,5 +1,4 @@
 import sqlite3
-import zipfile
 from pathlib import Path
 
 import pytest
@@ -11,6 +10,7 @@ from sqlalchemy.pool import StaticPool
 
 from backup_manager import BackupManager
 from database import Base, get_db
+from auth import get_current_user
 from error_handler import ErrorHandler, GestionaleException, SafeTransaction
 from main import app
 from validators import InputSanitizer, EnhancedCollaboratorCreate
@@ -55,6 +55,9 @@ def client(db_session):
             pass
 
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = lambda: type(
+        "TestUser", (), {"id": 1, "role": "admin", "is_active": True}
+    )()
 
     with TestClient(app) as test_client:
         yield test_client
@@ -164,7 +167,7 @@ class TestBackupSystem:
 
         assert backup_path is not None
         assert Path(backup_path).exists()
-        assert zipfile.is_zipfile(backup_path)
+        assert backup_path.endswith(".sql.zip.gpg")
         assert backup_mgr.verify_backup_integrity(backup_path) is True
 
     def test_backup_listing(self, tmp_path):

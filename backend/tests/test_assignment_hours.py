@@ -6,6 +6,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from database import Base, get_db
+from auth import get_current_user
 from main import app
 import models  # noqa: F401
 
@@ -43,6 +44,9 @@ def client(db_session):
             pass
 
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = lambda: type(
+        "TestUser", (), {"id": 1, "role": "admin", "is_active": True}
+    )()
 
     with TestClient(app) as test_client:
         yield test_client
@@ -73,6 +77,8 @@ def test_assignment_completed_hours_flow(client):
     project_data = {
         "name": "Progetto Test Ore",
         "description": "Progetto per test mansioni",
+        "start_date": assignment_start.isoformat(),
+        "end_date": assignment_end.isoformat(),
         "status": "active",
     }
     response = client.post("/api/v1/projects/", json=project_data)
