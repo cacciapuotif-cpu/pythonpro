@@ -416,6 +416,7 @@ class AvvisoRevisione(Base):
     original_filename = Column(String(255), nullable=True)
     source_sha256 = Column(String(64), nullable=True)
     stato_estrazione = Column(String(30), nullable=False, default="caricato", server_default="caricato", index=True)
+    extraction_progress = Column(AVVISO_JSON_TYPE, nullable=True)
     diff_from_previous = Column(AVVISO_JSON_TYPE, nullable=True)
     extraction_run_id = Column(Integer, ForeignKey("agent_runs.id", ondelete="SET NULL"), nullable=True, index=True)
     created_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
@@ -431,7 +432,8 @@ class AvvisoRevisione(Base):
         UniqueConstraint("avviso_id", "source_sha256", name="uq_avviso_revisioni_sha256"),
         CheckConstraint("numero_revisione > 0", name="ck_avviso_revisioni_numero_positivo"),
         CheckConstraint(
-            "stato_estrazione IN ('caricato','pulito','segmentato','in_estrazione','estratto','errore')",
+            "stato_estrazione IN ('caricato','pulito','segmentato','in_estrazione',"
+            "'completata','parziale','fallita','estratto','errore')",
             name="ck_avviso_revisioni_stato_estrazione",
         ),
     )

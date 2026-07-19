@@ -419,6 +419,36 @@
 .resources-revision-meta small { color: var(--resources-muted); font-size: 0.72rem; }
 .resources-revision-meta { align-items: flex-end; }
 
+.resources-extraction-progress {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.3rem;
+  margin-top: 0.45rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid #f3d28a;
+  border-radius: 10px;
+  color: #713f12;
+  background: #fffbeb;
+  font-size: 0.74rem;
+}
+
+.resources-extraction-progress.completata {
+  border-color: #a7e2c1;
+  color: #14532d;
+  background: #f0fdf4;
+}
+
+.resources-extraction-progress.fallita {
+  border-color: #fecaca;
+  color: #991b1b;
+  background: #fef2f2;
+}
+
+.resources-extraction-progress > strong { font-size: 0.78rem; }
+.resources-extraction-progress > span { color: inherit; }
+.resources-extraction-progress .resources-button { margin-top: 0.25rem; }
+
 .resources-status {
   display: inline-flex;
   padding: 0.28rem 0.58rem;

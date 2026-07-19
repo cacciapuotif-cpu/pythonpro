@@ -32,6 +32,18 @@ _TZ_ROME = ZoneInfo("Europe/Rome")
 _rule_value_adapter = TypeAdapter(avvisi_schemas.RuleValue)
 
 
+def _categorie_gruppo(gruppo: str) -> list[str]:
+    categorie = GRUPPI_CATEGORIE[gruppo]
+    return list(categorie) if categorie else ["scadenze"]
+
+
+TUTTE_CATEGORIE = [
+    categoria
+    for gruppo in GRUPPI_CATEGORIE
+    for categoria in _categorie_gruppo(gruppo)
+]
+
+
 def _normalize_rule_value(raw: Any) -> tuple[dict, bool]:
     """Ritorna (valore validato, needs_careful_review per valore non conforme)."""
     try:
@@ -77,17 +89,41 @@ def collect_avviso_extraction_suggestions(
     cleaned = (UPLOAD_DIR / revision.cleaned_md_path).read_text(encoding="utf-8")
     testo = cleaned[:MAX_PROMPT_CHARS]
 
+    requested = (input_payload or {}).get("sezioni") or (input_payload or {}).get("groups")
+    if requested:
+        requested_set = {str(value) for value in requested}
+        gruppi_da_processare = [
+            gruppo for gruppo in GRUPPI_CATEGORIE if gruppo in requested_set
+        ]
+        invalidi = requested_set.difference(GRUPPI_CATEGORIE)
+        if invalidi:
+            raise ValueError("Sezioni estrazione non valide: {}".format(", ".join(sorted(invalidi))))
+    else:
+        gruppi_da_processare = list(GRUPPI_CATEGORIE)
+
     suggestions: list[dict[str, Any]] = []
     gruppi_falliti = 0
-    for gruppo, categorie in GRUPPI_CATEGORIE.items():
+    sezioni_status: dict[str, str] = {}
+    errori_sezioni: dict[str, str] = {}
+    scartati_per_sezione: dict[str, int] = {}
+    for gruppo in gruppi_da_processare:
+        categorie = GRUPPI_CATEGORIE[gruppo]
         prompt = build_extraction_prompt(gruppo, categorie, testo)
         try:
             raw = call_ollama_json(system_prompt=SYSTEM_PROMPT_ESTRAZIONE, user_prompt=prompt)
+            raw_dict = raw if isinstance(raw, dict) else {}
+            parsed = AvvisoEstrazioneLLM.model_validate(raw_dict)
         except Exception as exc:
             gruppi_falliti += 1
+            sezioni_status[gruppo] = "fallita"
+            errori_sezioni[gruppo] = str(exc)[:500]
+            scartati_per_sezione[gruppo] = 0
             logger.warning("avviso_extractor: gruppo %s fallito: %s", gruppo, exc)
             continue
-        parsed = AvvisoEstrazioneLLM.model_validate(raw if isinstance(raw, dict) else {})
+        raw_rules = raw_dict.get("regole") if isinstance(raw_dict.get("regole"), list) else []
+        raw_deadlines = raw_dict.get("scadenze") if isinstance(raw_dict.get("scadenze"), list) else []
+        elementi_scartati = max(0, len(raw_rules) - len(parsed.regole))
+        elementi_scartati += max(0, len(raw_deadlines) - len(parsed.scadenze))
         for regola in parsed.regole:
             valore, valore_sospetto = _normalize_rule_value(regola.valore)
             needs_review = valore_sospetto or regola.confidence < CONFIDENCE_REVIEW_THRESHOLD
@@ -123,6 +159,7 @@ def collect_avviso_extraction_suggestions(
             try:
                 data = _parse_deadline_date(scadenza.data)
             except ValueError:
+                elementi_scartati += 1
                 logger.warning("avviso_extractor: data scadenza non parsabile: %r", scadenza.data)
                 continue
             proposal = {
@@ -153,10 +190,45 @@ def collect_avviso_extraction_suggestions(
                 },
             })
 
+        scartati_per_sezione[gruppo] = elementi_scartati
+        sezioni_status[gruppo] = "parziale" if elementi_scartati else "completa"
+
+    sezioni_processate_nomi = [
+        gruppo for gruppo, stato in sezioni_status.items() if stato in {"completa", "parziale"}
+    ]
+    sezioni_complete_nomi = [
+        gruppo for gruppo, stato in sezioni_status.items() if stato == "completa"
+    ]
+    categorie_coperte = [
+        categoria
+        for gruppo in sezioni_complete_nomi
+        for categoria in _categorie_gruppo(gruppo)
+    ]
+    sezioni_mancanti = [
+        gruppo for gruppo in GRUPPI_CATEGORIE if gruppo not in sezioni_complete_nomi
+    ]
+
     summary = {
         "revision_id": revision.id,
         "gruppi_totali": len(GRUPPI_CATEGORIE),
         "gruppi_falliti": gruppi_falliti,
+        "sezioni_totali": len(GRUPPI_CATEGORIE),
+        "sezioni_richieste": gruppi_da_processare,
+        "sezioni_status": sezioni_status,
+        "sezioni_processate": len(sezioni_processate_nomi),
+        "sezioni_processate_nomi": sezioni_processate_nomi,
+        "sezioni_complete": len(sezioni_complete_nomi),
+        "sezioni_complete_nomi": sezioni_complete_nomi,
+        "sezioni_mancanti": sezioni_mancanti,
+        "categorie_totali": len(TUTTE_CATEGORIE),
+        "categorie_coperte": categorie_coperte,
+        "categorie_coperte_count": len(categorie_coperte),
+        "categorie_mancanti": [
+            categoria for categoria in TUTTE_CATEGORIE if categoria not in categorie_coperte
+        ],
+        "elementi_scartati": sum(scartati_per_sezione.values()),
+        "elementi_scartati_per_sezione": scartati_per_sezione,
+        "errori_sezioni": errori_sezioni,
         "regole_proposte": sum(1 for s in suggestions if s["suggestion_type"] == "avviso_regola_proposta"),
         "scadenze_proposte": sum(1 for s in suggestions if s["suggestion_type"] == "avviso_scadenza_proposta"),
     }

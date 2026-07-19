@@ -683,6 +683,12 @@ export const permanentlyDeleteAvviso = (id, confirmationPhrase) =>
   }).then(r => r.data);
 export const getAvvisoRevisioni = (id) =>
   http.get(`/avvisi/${id}/revisioni`).then(r => r.data);
+export const retryAvvisoExtraction = (avvisoId, revisionId) =>
+  http.post(
+    `/avvisi/${avvisoId}/revisioni/${revisionId}/estrazione/riprova`,
+    {},
+    { timeout: 180000 },
+  ).then(r => r.data);
 export const ingestAvvisoRevision = (
   id,
   { file, titolo, etichettaRevisione = '', eseguiEstrazione = true },

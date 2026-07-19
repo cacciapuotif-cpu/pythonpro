@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import sys
+import json
 
 import pytest
 from fastapi import FastAPI
@@ -102,6 +103,88 @@ def test_ingest_rejects_non_admin_manager(client_factory):
         files={"file": ("avviso.md", b"# A\ntesto\n", "text/markdown")},
     )
     assert response.status_code == 403
+
+
+def test_ingest_accepts_canonical_operator(client_factory, monkeypatch):
+    client, session, _ = client_factory("operatore")
+    avviso = _crea_avviso(session)
+    monkeypatch.setenv("AGENT_AVVISO_EXTRACTOR_ENABLED", "false")
+    response = client.post(
+        f"/api/v1/avvisi/{avviso.id}/revisioni/ingest",
+        data={"titolo": "X", "esegui_estrazione": "false"},
+        files={"file": ("avviso.md", b"# A\ntesto\n", "text/markdown")},
+    )
+    assert response.status_code == 201, response.text
+
+
+def test_retry_missing_sections_enforces_roles_and_passes_only_missing(
+    client_factory, monkeypatch
+):
+    operator, session, user = client_factory("operatore")
+    avviso = _crea_avviso(session)
+    revision = models.AvvisoRevisione(
+        avviso_id=avviso.id,
+        numero_revisione=1,
+        titolo="Revisione parziale",
+        stato_estrazione="parziale",
+        extraction_progress={
+            "sezioni_totali": 5,
+            "sezioni_processate": 4,
+            "sezioni_complete": 4,
+            "sezioni_mancanti": ["soggetti"],
+            "categorie_totali": 12,
+            "categorie_coperte_count": 9,
+            "categorie_mancanti": ["destinatari", "beneficiari", "aiuti_di_stato"],
+        },
+        created_by_user_id=user.id,
+    )
+    session.add(revision)
+    session.commit()
+    captured = {}
+
+    def fake_pipeline(db, revision_id, *, user_id, sezioni):
+        captured.update({"revision_id": revision_id, "user_id": user_id, "sezioni": sezioni})
+        run = models.AgentRun(
+            agent_type="avviso_extractor",
+            status="completed",
+            result_summary=json.dumps({"sezioni_richieste": sezioni}),
+            suggestions_count=1,
+        )
+        db.add(run)
+        db.flush()
+        current = db.get(models.AvvisoRevisione, revision_id)
+        current.stato_estrazione = "completata"
+        current.extraction_run_id = run.id
+        current.extraction_progress = {
+            **current.extraction_progress,
+            "sezioni_processate": 5,
+            "sezioni_complete": 5,
+            "sezioni_mancanti": [],
+            "categorie_coperte_count": 12,
+            "categorie_mancanti": [],
+        }
+        db.commit()
+        return run
+
+    monkeypatch.setattr(avvisi_router_module, "agent_enabled", lambda _name: True)
+    monkeypatch.setattr(avvisi_router_module, "run_extraction_pipeline", fake_pipeline)
+
+    response = operator.post(
+        f"/api/v1/avvisi/{avviso.id}/revisioni/{revision.id}/estrazione/riprova"
+    )
+    assert response.status_code == 200, response.text
+    assert captured == {
+        "revision_id": revision.id,
+        "user_id": user.id,
+        "sezioni": ["soggetti"],
+    }
+    assert response.json()["revisione"]["stato_estrazione"] == "completata"
+
+    consultation, _, _ = client_factory("consultazione")
+    denied = consultation.post(
+        f"/api/v1/avvisi/{avviso.id}/revisioni/{revision.id}/estrazione/riprova"
+    )
+    assert denied.status_code == 403
 
 
 def test_ingest_invalid_file_returns_422(client_factory):

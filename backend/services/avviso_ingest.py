@@ -6,6 +6,7 @@ UPLOAD_DIR con storage key relative compatibili con crud_avvisi._storage_key.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,6 +14,8 @@ from typing import Optional
 
 import models
 from agent_workflows import run_agent_workflow
+from ai_agents.avviso_extractor import TUTTE_CATEGORIE
+from ai_agents.prompts.avviso_extractor_v1 import GRUPPI_CATEGORIE
 from file_upload import MAX_FILE_SIZE, UPLOAD_DIR
 
 _HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
@@ -134,9 +137,101 @@ def _get_revision(db, revision_id: int) -> "models.AvvisoRevisione":
     return revision
 
 
-def _set_stato(db, revision, stato: str) -> None:
+def _set_stato(db, revision, stato: str, *, progress: Optional[dict] = None) -> None:
     revision.stato_estrazione = stato
+    if progress is not None:
+        revision.extraction_progress = progress
     db.commit()
+
+
+def _build_extraction_progress(summary: dict, previous: Optional[dict] = None) -> tuple[str, dict]:
+    """Unisce un tentativo al progresso precedente e calcola lo stato onesto."""
+    previous = previous if isinstance(previous, dict) else {}
+    section_status = dict(previous.get("sezioni_status") or {})
+    discarded_by_section = dict(previous.get("elementi_scartati_per_sezione") or {})
+    errors_by_section = dict(previous.get("errori_sezioni") or {})
+    requested = summary.get("sezioni_richieste") or list(GRUPPI_CATEGORIE)
+    attempt_status = summary.get("sezioni_status") or {}
+
+    for section in requested:
+        section_status[section] = attempt_status.get(section, "fallita")
+        discarded_by_section[section] = int(
+            (summary.get("elementi_scartati_per_sezione") or {}).get(section, 0) or 0
+        )
+        error = (summary.get("errori_sezioni") or {}).get(section)
+        if error:
+            errors_by_section[section] = error
+        else:
+            errors_by_section.pop(section, None)
+
+    for section in GRUPPI_CATEGORIE:
+        section_status.setdefault(section, "non_eseguita")
+
+    processed_sections = [
+        section
+        for section in GRUPPI_CATEGORIE
+        if section_status[section] in {"completa", "parziale"}
+    ]
+    completed_sections = [
+        section for section in GRUPPI_CATEGORIE if section_status[section] == "completa"
+    ]
+    missing_sections = [
+        section for section in GRUPPI_CATEGORIE if section_status[section] != "completa"
+    ]
+    covered_categories = [
+        category
+        for section in completed_sections
+        for category in (GRUPPI_CATEGORIE[section] or ["scadenze"])
+    ]
+
+    if len(completed_sections) == len(GRUPPI_CATEGORIE):
+        state = "completata"
+    elif not processed_sections:
+        state = "fallita"
+    else:
+        state = "parziale"
+
+    progress = {
+        "version": 1,
+        "sezioni_totali": len(GRUPPI_CATEGORIE),
+        "sezioni_status": section_status,
+        "sezioni_processate": len(processed_sections),
+        "sezioni_processate_nomi": processed_sections,
+        "sezioni_complete": len(completed_sections),
+        "sezioni_complete_nomi": completed_sections,
+        "sezioni_mancanti": missing_sections,
+        "categorie_totali": len(TUTTE_CATEGORIE),
+        "categorie_coperte": covered_categories,
+        "categorie_coperte_count": len(covered_categories),
+        "categorie_mancanti": [
+            category for category in TUTTE_CATEGORIE if category not in covered_categories
+        ],
+        "elementi_scartati_per_sezione": discarded_by_section,
+        "elementi_scartati": sum(discarded_by_section.values()),
+        "errori_sezioni": errors_by_section,
+        "ultimo_run_id": summary.get("run_id"),
+    }
+    return state, progress
+
+
+def _failed_extraction_progress(error: str) -> dict:
+    return {
+        "version": 1,
+        "sezioni_totali": len(GRUPPI_CATEGORIE),
+        "sezioni_status": {section: "fallita" for section in GRUPPI_CATEGORIE},
+        "sezioni_processate": 0,
+        "sezioni_processate_nomi": [],
+        "sezioni_complete": 0,
+        "sezioni_complete_nomi": [],
+        "sezioni_mancanti": list(GRUPPI_CATEGORIE),
+        "categorie_totali": len(TUTTE_CATEGORIE),
+        "categorie_coperte": [],
+        "categorie_coperte_count": 0,
+        "categorie_mancanti": list(TUTTE_CATEGORIE),
+        "elementi_scartati_per_sezione": {},
+        "elementi_scartati": 0,
+        "errori_sezioni": {"pipeline": error[:500]},
+    }
 
 
 def prepare_revision_content(db, revision_id: int):
@@ -156,7 +251,13 @@ def prepare_revision_content(db, revision_id: int):
     return revision
 
 
-def run_extraction_pipeline(db, revision_id: int, *, user_id: Optional[int] = None):
+def run_extraction_pipeline(
+    db,
+    revision_id: int,
+    *,
+    user_id: Optional[int] = None,
+    sezioni: Optional[list[str]] = None,
+):
     revision = _get_revision(db, revision_id)
     if revision.stato_estrazione == "caricato":
         revision = prepare_revision_content(db, revision_id)
@@ -168,10 +269,19 @@ def run_extraction_pipeline(db, revision_id: int, *, user_id: Optional[int] = No
             entity_type="avviso_revisione",
             entity_id=revision_id,
             requested_by_user_id=user_id,
+            input_payload={"sezioni": sezioni} if sezioni else None,
         )
-    except Exception:
-        _set_stato(db, revision, "errore")
+    except Exception as exc:
+        _set_stato(
+            db,
+            revision,
+            "fallita",
+            progress=_failed_extraction_progress(str(exc) or exc.__class__.__name__),
+        )
         raise
     revision.extraction_run_id = run.id
-    _set_stato(db, revision, "estratto" if run.status == "completed" else "errore")
+    summary = json.loads(run.result_summary) if run.result_summary else {}
+    summary["run_id"] = run.id
+    state, progress = _build_extraction_progress(summary, revision.extraction_progress)
+    _set_stato(db, revision, state, progress=progress)
     return run

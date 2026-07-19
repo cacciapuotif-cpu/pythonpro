@@ -193,6 +193,10 @@ def test_collector_builds_suggestions_from_llm(db_session, revision_with_cleaned
     scadenza = next(s for s in result["suggestions"] if s["suggestion_type"] == "avviso_scadenza_proposta")
     sc_proposal = avvisi_schemas.AvvisoScadenzaProposal.model_validate(scadenza["auto_fix_payload"]["proposal"])
     assert sc_proposal.data.tzinfo is not None
+    assert result["summary"]["sezioni_processate"] == 5
+    assert result["summary"]["sezioni_complete"] == 5
+    assert result["summary"]["categorie_coperte_count"] == 12
+    assert result["summary"]["sezioni_mancanti"] == []
 
 
 def test_collector_marks_invalid_rule_value_for_careful_review(db_session, revision_with_cleaned_md, monkeypatch):
@@ -224,6 +228,9 @@ def test_collector_tolerates_llm_failure_per_group(db_session, revision_with_cle
     )
     assert result["suggestions"] == []
     assert result["summary"]["gruppi_falliti"] == 5
+    assert result["summary"]["sezioni_processate"] == 0
+    assert result["summary"]["categorie_coperte_count"] == 0
+    assert result["summary"]["sezioni_mancanti"] == list(GRUPPI_CATEGORIE)
 
 
 import agent_workflows
@@ -272,8 +279,100 @@ def test_run_extraction_pipeline_completes_and_links_run(db_session, revision_ca
     db_session.refresh(revision_caricata)
     assert run.status == "completed"
     assert revision_caricata.extraction_run_id == run.id
-    assert revision_caricata.stato_estrazione == "estratto"
+    assert revision_caricata.stato_estrazione == "completata"
+    assert revision_caricata.extraction_progress["sezioni_complete"] == 5
+    assert revision_caricata.extraction_progress["categorie_coperte_count"] == 12
     assert run.suggestions_count >= 2  # regola massimali + scadenza
+
+
+def test_run_extraction_pipeline_marks_partial_and_records_missing_section(
+    db_session, revision_caricata, monkeypatch
+):
+    healthy = _fake_llm_factory([])
+
+    def one_section_down(*, system_prompt, user_prompt):
+        instruction = user_prompt.split("TESTO AVVISO:")[0]
+        if "destinatari" in instruction:
+            raise RuntimeError("timeout soggetti")
+        return healthy(system_prompt=system_prompt, user_prompt=user_prompt)
+
+    monkeypatch.setattr(extractor_module, "call_ollama_json", one_section_down)
+
+    run = run_extraction_pipeline(db_session, revision_caricata.id, user_id=None)
+    db_session.refresh(revision_caricata)
+
+    assert run.status == "completed"  # workflow tecnico concluso
+    assert revision_caricata.stato_estrazione == "parziale"
+    progress = revision_caricata.extraction_progress
+    assert progress["sezioni_processate"] == 4
+    assert progress["sezioni_complete"] == 4
+    assert progress["sezioni_mancanti"] == ["soggetti"]
+    assert progress["categorie_coperte_count"] == 9
+    assert set(progress["categorie_mancanti"]) == {
+        "destinatari", "beneficiari", "aiuti_di_stato",
+    }
+
+
+def test_invalid_deadline_marks_section_partial_instead_of_complete(
+    db_session, revision_caricata, monkeypatch
+):
+    healthy = _fake_llm_factory([])
+
+    def invalid_deadline(*, system_prompt, user_prompt):
+        if "scadenze" in user_prompt.split("TESTO AVVISO:")[0]:
+            return {"scadenze": [{
+                "tipo": "presentazione",
+                "data": "30/09/2026",
+                "descrizione": "Termine",
+                "testo_originale": "entro il 30/09/2026",
+                "confidence": 0.9,
+            }]}
+        return healthy(system_prompt=system_prompt, user_prompt=user_prompt)
+
+    monkeypatch.setattr(extractor_module, "call_ollama_json", invalid_deadline)
+
+    run_extraction_pipeline(db_session, revision_caricata.id, user_id=None)
+    db_session.refresh(revision_caricata)
+
+    progress = revision_caricata.extraction_progress
+    assert revision_caricata.stato_estrazione == "parziale"
+    assert progress["sezioni_processate"] == 5
+    assert progress["sezioni_complete"] == 4
+    assert progress["sezioni_mancanti"] == ["scadenze"]
+    assert progress["elementi_scartati"] == 1
+    assert progress["categorie_coperte_count"] == 11
+
+
+def test_retry_only_missing_section_merges_progress_to_complete(
+    db_session, revision_caricata, monkeypatch
+):
+    healthy = _fake_llm_factory([])
+
+    def first_attempt(*, system_prompt, user_prompt):
+        if "destinatari" in user_prompt.split("TESTO AVVISO:")[0]:
+            raise RuntimeError("timeout soggetti")
+        return healthy(system_prompt=system_prompt, user_prompt=user_prompt)
+
+    monkeypatch.setattr(extractor_module, "call_ollama_json", first_attempt)
+    run_extraction_pipeline(db_session, revision_caricata.id, user_id=None)
+    db_session.refresh(revision_caricata)
+    assert revision_caricata.extraction_progress["sezioni_mancanti"] == ["soggetti"]
+
+    retry_calls = []
+    monkeypatch.setattr(extractor_module, "call_ollama_json", _fake_llm_factory(retry_calls))
+    run_extraction_pipeline(
+        db_session,
+        revision_caricata.id,
+        user_id=None,
+        sezioni=["soggetti"],
+    )
+    db_session.refresh(revision_caricata)
+
+    assert len(retry_calls) == 1
+    assert revision_caricata.stato_estrazione == "completata"
+    assert revision_caricata.extraction_progress["sezioni_complete"] == 5
+    assert revision_caricata.extraction_progress["categorie_coperte_count"] == 12
+    assert revision_caricata.extraction_progress["sezioni_mancanti"] == []
 
 
 def test_run_extraction_pipeline_marks_errore_on_workflow_failure(db_session, revision_caricata, monkeypatch):
@@ -283,7 +382,7 @@ def test_run_extraction_pipeline_marks_errore_on_workflow_failure(db_session, re
     with pytest.raises(ValueError):
         run_extraction_pipeline(db_session, revision_caricata.id, user_id=None)
     db_session.refresh(revision_caricata)
-    assert revision_caricata.stato_estrazione == "errore"
+    assert revision_caricata.stato_estrazione == "fallita"
 
 
 from services.suggestion_apply import apply_suggestion

@@ -29,6 +29,10 @@ class StatoEstrazioneRevisione(StrEnum):
     PULITO = "pulito"
     SEGMENTATO = "segmentato"
     IN_ESTRAZIONE = "in_estrazione"
+    COMPLETATA = "completata"
+    PARZIALE = "parziale"
+    FALLITA = "fallita"
+    # Valori legacy leggibili durante il rollout/backfill della migration 059.
     ESTRATTO = "estratto"
     ERRORE = "errore"
 
@@ -247,6 +251,7 @@ class AvvisoRevisioneRead(AvvisoRevisioneCreate):
     numero_revisione: int
     revisione_precedente_id: Optional[int] = None
     stato_estrazione: StatoEstrazioneRevisione
+    extraction_progress: Optional[dict[str, Any]] = None
     diff_from_previous: Optional[dict[str, Any]] = None
     extraction_run_id: Optional[int] = None
     created_by_user_id: Optional[int] = None

@@ -11,7 +11,7 @@ import models
 import schemas
 import schemas_avvisi as avvisi_schemas
 from ai_agents.control import agent_enabled, disabled_reason
-from auth import User, get_current_user
+from auth import User, UserRole, get_current_user, normalize_role
 from database import get_db
 from file_upload import sanitize_filename
 from services.avviso_ingest import prepare_revision_content, run_extraction_pipeline, save_ingest_markdown
@@ -21,7 +21,10 @@ router = APIRouter(prefix="/api/v1/avvisi", tags=["Avvisi"])
 
 
 def require_avvisi_write(current_user: User = Depends(get_current_user)) -> User:
-    if current_user.role not in {"admin", "manager"}:
+    if normalize_role(current_user.role) not in {
+        UserRole.ADMIN.value,
+        UserRole.OPERATORE.value,
+    }:
         raise HTTPException(status_code=403, detail="Ruolo non autorizzato alla gestione avvisi")
     return current_user
 
@@ -197,4 +200,50 @@ async def ingest_revisione(
     return avvisi_schemas.AvvisoRevisioneIngestResponse(
         revisione=avvisi_schemas.AvvisoRevisioneRead.model_validate(revision),
         estrazione=estrazione,
+    )
+
+
+@router.post(
+    "/{avviso_id}/revisioni/{revision_id}/estrazione/riprova",
+    response_model=avvisi_schemas.AvvisoRevisioneIngestResponse,
+)
+def retry_missing_extraction_sections(
+    avviso_id: int,
+    revision_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_avvisi_write),
+):
+    revision = db.query(models.AvvisoRevisione).filter(
+        models.AvvisoRevisione.id == revision_id,
+        models.AvvisoRevisione.avviso_id == avviso_id,
+    ).first()
+    if revision is None:
+        raise HTTPException(status_code=404, detail="Revisione avviso non trovata")
+    if not agent_enabled("avviso_extractor"):
+        raise HTTPException(
+            status_code=409,
+            detail="Estrazione non disponibile: {}".format(disabled_reason("avviso_extractor")),
+        )
+
+    progress = revision.extraction_progress or {}
+    missing_sections = progress.get("sezioni_mancanti") or []
+    if not missing_sections:
+        raise HTTPException(status_code=409, detail="L'estrazione è già completa")
+
+    run = run_extraction_pipeline(
+        db,
+        revision.id,
+        user_id=current_user.id,
+        sezioni=missing_sections,
+    )
+    summary = json.loads(run.result_summary) if run.result_summary else {}
+    db.refresh(revision)
+    return avvisi_schemas.AvvisoRevisioneIngestResponse(
+        revisione=avvisi_schemas.AvvisoRevisioneRead.model_validate(revision),
+        estrazione={
+            "run_id": run.id,
+            "status": run.status,
+            "suggestions_count": run.suggestions_count,
+            "summary": summary,
+        },
     )

@@ -11,6 +11,7 @@ import {
   getAvvisoRevisioni,
   ingestAvvisoRevision,
   permanentlyDeleteAvviso,
+  retryAvvisoExtraction,
 } from '../services/apiService';
 
 jest.mock('../services/apiService', () => ({
@@ -21,6 +22,7 @@ jest.mock('../services/apiService', () => ({
   getAvvisoRevisioni: jest.fn(),
   ingestAvvisoRevision: jest.fn(),
   permanentlyDeleteAvviso: jest.fn(),
+  retryAvvisoExtraction: jest.fn(),
 }));
 
 const avviso = {
@@ -56,7 +58,7 @@ describe('ResourceArchive', () => {
         id: 12,
         numero_revisione: 2,
         titolo: 'Avviso FAPI aggiornato',
-        stato_estrazione: 'estratto',
+        stato_estrazione: 'completata',
         original_filename: 'avviso.md',
         created_at: '2026-07-17T12:00:00Z',
       },
@@ -64,7 +66,7 @@ describe('ResourceArchive', () => {
     });
     getAvvisoRevisioni
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([{ id: 12, numero_revisione: 2, stato_estrazione: 'estratto' }]);
+      .mockResolvedValueOnce([{ id: 12, numero_revisione: 2, stato_estrazione: 'completata' }]);
 
     render(<ResourceArchive currentUser={{ id: 1, role: 'admin' }} onReviewSuggestions={onReviewSuggestions} />);
     await screen.findByRole('heading', { name: 'Avviso FAPI 1/2026' });
@@ -107,6 +109,54 @@ describe('ResourceArchive', () => {
       titolo: 'Nuovo avviso',
     })));
     expect(await screen.findByText(/avviso creato/i)).toBeInTheDocument();
+  });
+
+  test('mostra la parzialità e rilancia soltanto le sezioni mancanti', async () => {
+    const partial = {
+      id: 12,
+      avviso_id: 7,
+      numero_revisione: 2,
+      titolo: 'Avviso parziale',
+      stato_estrazione: 'parziale',
+      extraction_run_id: 33,
+      created_at: '2026-07-17T12:00:00Z',
+      extraction_progress: {
+        sezioni_totali: 5,
+        sezioni_processate: 4,
+        sezioni_complete: 4,
+        sezioni_mancanti: ['soggetti'],
+        categorie_totali: 12,
+        categorie_coperte_count: 9,
+        categorie_mancanti: ['destinatari', 'beneficiari', 'aiuti_di_stato'],
+        elementi_scartati: 0,
+      },
+    };
+    getAvvisoRevisioni.mockResolvedValue([partial]);
+    retryAvvisoExtraction.mockResolvedValue({
+      revisione: {
+        ...partial,
+        stato_estrazione: 'completata',
+        extraction_run_id: 34,
+        extraction_progress: {
+          ...partial.extraction_progress,
+          sezioni_processate: 5,
+          sezioni_complete: 5,
+          sezioni_mancanti: [],
+          categorie_coperte_count: 12,
+          categorie_mancanti: [],
+        },
+      },
+      estrazione: { run_id: 34, status: 'completed', suggestions_count: 2 },
+    });
+
+    render(<ResourceArchive currentUser={{ id: 1, role: 'admin' }} onReviewSuggestions={jest.fn()} />);
+
+    expect(await screen.findByText(/estrazione parziale: 4\/5 sezioni.*9\/12 categorie/i)).toBeInTheDocument();
+    expect(screen.getByText(/destinatari.*beneficiari.*aiuti_di_stato/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /riprova sezioni mancanti/i }));
+
+    await waitFor(() => expect(retryAvvisoExtraction).toHaveBeenCalledWith(7, 12));
+    expect(await screen.findByText(/estrazione completata: 5\/5 sezioni.*12\/12 categorie/i)).toBeInTheDocument();
   });
 
   test('disattiva un avviso solo dopo conferma e lo rimuove dalla lista operativa', async () => {

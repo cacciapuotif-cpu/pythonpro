@@ -7,6 +7,7 @@ import {
   getAvvisoRevisioni,
   ingestAvvisoRevision,
   permanentlyDeleteAvviso,
+  retryAvvisoExtraction,
 } from '../services/apiService';
 import { canPerform } from '../auth/permissions';
 import './ResourceArchive.css';
@@ -24,8 +25,11 @@ const EXTRACTION_STATUS = {
   pulito: { label: 'Pulito', tone: 'info' },
   segmentato: { label: 'Pronto', tone: 'info' },
   in_estrazione: { label: 'In analisi', tone: 'warning' },
-  estratto: { label: 'Estratto', tone: 'success' },
-  errore: { label: 'Errore', tone: 'danger' },
+  completata: { label: 'Completata', tone: 'success' },
+  parziale: { label: 'Parziale', tone: 'warning' },
+  fallita: { label: 'Fallita', tone: 'danger' },
+  estratto: { label: 'Estratto (storico)', tone: 'success' },
+  errore: { label: 'Errore (storico)', tone: 'danger' },
 };
 
 const emptyAvvisoForm = {
@@ -56,6 +60,56 @@ function StatusBadge({ value }) {
   return <span className={`resources-status ${meta.tone}`}>{meta.label}</span>;
 }
 
+function ExtractionProgress({ revision, canRetry, retrying, onRetry }) {
+  const progress = revision?.extraction_progress;
+  if (!progress) return null;
+
+  const labels = {
+    completata: 'Estrazione completata',
+    parziale: 'Estrazione parziale',
+    fallita: 'Estrazione fallita',
+  };
+  const stateLabel = labels[revision.stato_estrazione] || 'Stato estrazione';
+  const sectionsProcessed = progress.sezioni_processate ?? '?';
+  const sectionsTotal = progress.sezioni_totali ?? '?';
+  const categoriesCovered = progress.categorie_coperte_count;
+  const categoriesTotal = progress.categorie_totali ?? '?';
+  const missingCategories = progress.categorie_mancanti || [];
+  const missingSections = progress.sezioni_mancanti || [];
+
+  return (
+    <div className={`resources-extraction-progress ${revision.stato_estrazione || ''}`}>
+      <strong>
+        {stateLabel}: {sectionsProcessed}/{sectionsTotal} sezioni processate ·{' '}
+        {categoriesCovered == null
+          ? 'copertura categorie non ricostruibile'
+          : `${categoriesCovered}/${categoriesTotal} categorie`}
+      </strong>
+      {progress.sezioni_complete != null && progress.sezioni_complete !== sectionsProcessed ? (
+        <span>{progress.sezioni_complete} sezioni complete senza elementi scartati.</span>
+      ) : null}
+      {missingSections.length ? <span>Sezioni da riprovare: {missingSections.join(', ')}.</span> : null}
+      {missingCategories.length ? <span>Categorie da completare: {missingCategories.join(', ')}.</span> : null}
+      {progress.elementi_scartati > 0 ? (
+        <span>{progress.elementi_scartati} elementi scartati perché non validi.</span>
+      ) : null}
+      {progress.copertura_storica_non_ricostruibile ? (
+        <span>Dato storico: il vecchio run non registrava i nomi delle sezioni riuscite.</span>
+      ) : null}
+      {canRetry && missingSections.length ? (
+        <button
+          type="button"
+          className="resources-button secondary"
+          disabled={retrying}
+          onClick={() => onRetry(revision)}
+        >
+          {retrying ? 'Riprova in corso…' : 'Riprova sezioni mancanti'}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 export default function ResourceArchive({ currentUser = null, onReviewSuggestions = null }) {
   const [avvisi, setAvvisi] = useState([]);
   const [selectedId, setSelectedId] = useState('');
@@ -76,6 +130,7 @@ export default function ResourceArchive({ currentUser = null, onReviewSuggestion
   const [runExtraction, setRunExtraction] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [ingestResult, setIngestResult] = useState(null);
+  const [retryingRevisionId, setRetryingRevisionId] = useState(null);
   const fileInputRef = useRef(null);
 
   const canWrite = canPerform(currentUser, 'WRITE_AVVISI');
@@ -198,6 +253,28 @@ export default function ResourceArchive({ currentUser = null, onReviewSuggestion
       setError(errorDetail(uploadError, 'Ingestione del markdown non riuscita.'));
     } finally {
       setUploading(false);
+    }
+  };
+
+  const handleRetryExtraction = async (revision) => {
+    if (!selectedAvviso || !canWrite || retryingRevisionId) return;
+    setRetryingRevisionId(revision.id);
+    setError('');
+    setMessage('');
+    try {
+      const result = await retryAvvisoExtraction(selectedAvviso.id, revision.id);
+      setRevisions((current) => current.map((item) => (
+        item.id === revision.id ? result.revisione : item
+      )));
+      setMessage(
+        result.revisione?.stato_estrazione === 'completata'
+          ? 'Estrazione completata: tutte le sezioni risultano coperte.'
+          : 'Riprova conclusa: restano sezioni da completare.',
+      );
+    } catch (retryError) {
+      setError(errorDetail(retryError, 'Riprova delle sezioni mancanti non riuscita.'));
+    } finally {
+      setRetryingRevisionId(null);
     }
   };
 
@@ -431,6 +508,12 @@ export default function ResourceArchive({ currentUser = null, onReviewSuggestion
                     <div><strong>Revisione #{ingestResult.revisione?.numero_revisione}</strong><StatusBadge value={ingestResult.revisione?.stato_estrazione} /></div>
                     {Number.isFinite(suggestionsCount) ? <p><strong>{suggestionsCount} proposte create.</strong> Controllale prima di materializzare regole e scadenze.</p> : null}
                     {ingestResult.estrazione?.skipped ? <p>Analisi non eseguita: {ingestResult.estrazione.skipped}</p> : null}
+                    <ExtractionProgress
+                      revision={ingestResult.revisione}
+                      canRetry={canWrite}
+                      retrying={retryingRevisionId === ingestResult.revisione?.id}
+                      onRetry={handleRetryExtraction}
+                    />
                     <button type="button" className="resources-button review" onClick={openReview}>Vai alla revisione umana</button>
                   </div>
                 ) : null}
@@ -450,6 +533,12 @@ export default function ResourceArchive({ currentUser = null, onReviewSuggestion
                       <strong>{revision.titolo || revision.original_filename}</strong>
                       <span>{revision.original_filename || 'markdown'} · {formatDateTime(revision.created_at)}</span>
                       {revision.etichetta_revisione ? <small>{revision.etichetta_revisione}</small> : null}
+                      <ExtractionProgress
+                        revision={revision}
+                        canRetry={canWrite}
+                        retrying={retryingRevisionId === revision.id}
+                        onRetry={handleRetryExtraction}
+                      />
                     </div>
                     <div className="resources-revision-meta">
                       <StatusBadge value={revision.stato_estrazione} />
