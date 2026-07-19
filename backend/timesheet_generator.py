@@ -115,6 +115,9 @@ class TimesheetGenerator:
         designer_name: Optional[str] = None,
     ) -> BytesIO:
         config = _get_fondo_config(ente_erogatore)
+        # SQLAlchemy restituisce Numeric come Decimal; ReportLab e i totali
+        # delle presenze lavorano con float. Normalizziamo una volta al confine.
+        ore_assegnate_num = float(ore_assegnate or 0)
         buffer = BytesIO()
         doc = SimpleDocTemplate(
             buffer,
@@ -213,9 +216,13 @@ class TimesheetGenerator:
         riepilogo_data = [
             ["Ore Assegnate", "Ore Effettive", "Completamento"],
             [
-                "{:.1f} h".format(ore_assegnate),
+                "{:.1f} h".format(ore_assegnate_num),
                 "{:.1f} h".format(totale_ore),
-                "{:.0f}%".format((totale_ore / ore_assegnate * 100) if ore_assegnate > 0 else 0),
+                "{:.0f}%".format(
+                    (totale_ore / ore_assegnate_num * 100)
+                    if ore_assegnate_num > 0
+                    else 0
+                ),
             ]
         ]
 

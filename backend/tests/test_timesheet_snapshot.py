@@ -68,6 +68,20 @@ def client(db_session, current_user, tmp_path, monkeypatch):
 
 
 @pytest.fixture
+def real_pdf_client(db_session, current_user, tmp_path, monkeypatch):
+    """Client di integrazione che non sostituisce il generatore ReportLab."""
+    def override_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_current_user] = lambda: current_user
+    monkeypatch.setenv("UPLOADS_DIR", str(tmp_path / "uploads-real-pdf"))
+    with TestClient(app) as test_client:
+        yield test_client
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
 def attendance(db_session):
     collaborator = models.Collaborator(
         first_name="Ada",
@@ -111,6 +125,39 @@ def _generate(client, attendance):
     response = client.get("/api/v1/assignments/{}/timesheet".format(attendance.assignment_id))
     assert response.status_code == 200
     return response
+
+
+def test_route_generates_real_pdf_with_decimal_assignment_values(
+    real_pdf_client, db_session, attendance
+):
+    """UI-04: la route reale deve accettare i Decimal restituiti dall'ORM."""
+    response = real_pdf_client.get(
+        "/api/v1/assignments/{}/timesheet".format(attendance.assignment_id)
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.content.startswith(b"%PDF")
+    assert db_session.query(models.TimesheetGenerato).count() == 1
+
+
+def test_missing_real_pdf_is_rebuilt_from_frozen_decimal_snapshot(
+    real_pdf_client, db_session, attendance
+):
+    """UI-04: anche la fotografia congelata deve essere sempre ristampabile."""
+    url = "/api/v1/assignments/{}/timesheet".format(attendance.assignment_id)
+    first = real_pdf_client.get(url)
+    assert first.status_code == 200
+
+    record = db_session.query(models.TimesheetGenerato).one()
+    Path(record.pdf_path).unlink()
+
+    rebuilt = real_pdf_client.get(url)
+
+    assert rebuilt.status_code == 200
+    assert rebuilt.headers["content-type"] == "application/pdf"
+    assert rebuilt.content.startswith(b"%PDF")
+    assert Path(record.pdf_path).read_bytes().startswith(b"%PDF")
 
 
 def test_generation_persists_rows_totals_and_actor(client, db_session, attendance):
