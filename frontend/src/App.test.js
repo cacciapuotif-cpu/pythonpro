@@ -19,9 +19,19 @@ jest.mock('./lib/http', () => ({
 }));
 
 jest.mock('./components/Dashboard', () => () => <div>Dashboard test</div>);
-jest.mock('./components/HomeCockpit', () => () => <div>Home test</div>);
+jest.mock('./components/HomeCockpit', () => ({ onNavigate }) => (
+  <div>
+    Home test
+    <button type="button" onClick={() => onNavigate({ section: 'projects', filters: { status: 'active' } })}>
+      Vai ai progetti attivi
+    </button>
+  </div>
+));
 jest.mock('./components/Calendar', () => () => <div>Calendario test</div>);
 jest.mock('./components/CollaboratorManager', () => () => <div>Collaboratori test</div>);
+jest.mock('./components/ProjectManager', () => ({ initialFilters }) => (
+  <div>Progetti test filtro {initialFilters.status || 'all'}</div>
+));
 jest.mock('./components/TimesheetReport', () => () => <div>Report Ore test</div>);
 jest.mock('./components/TimesheetPDF', () => () => <div>PDF Timesheet test</div>);
 
@@ -96,6 +106,19 @@ test('click su Timesheet cambia sezione senza cambiare applicazione', async () =
 
   expect(await screen.findByText('Report Ore test')).toBeInTheDocument();
   expect(button).toHaveClass('active');
+});
+
+test('il Cockpit passa pagina e filtro fino alla sezione di destinazione', async () => {
+  ensureValidAccessToken.mockResolvedValue(true);
+  apiService.getCurrentUser.mockResolvedValue(ADMIN);
+
+  render(<App />);
+  fireEvent.click(await screen.findByRole('button', { name: /^🏠 Home$/i }));
+  fireEvent.click(await screen.findByRole('button', { name: /vai ai progetti attivi/i }));
+
+  expect(await screen.findByText('Progetti test filtro active')).toBeInTheDocument();
+  expect(window.location.pathname).toBe('/projects');
+  expect(window.location.search).toBe('?status=active');
 });
 
 test('il ruolo user legacy viene normalizzato a operatore', async () => {

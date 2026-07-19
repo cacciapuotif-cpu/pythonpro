@@ -188,19 +188,22 @@ const buildMailBody = (collaboratoreNome, docs, uploadUrl) => {
 
 const escapeCsv = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
 
-export default function DocumentiMancanti({ currentUser }) {
+export default function DocumentiMancanti({ currentUser, initialFilters = {} }) {
   const canSendReminders = canPerform(currentUser, 'WRITE_DOCUMENT_REQUESTS');
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [tipoFilter, setTipoFilter] = useState('');
   const [scadenzaFilter, setScadenzaFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState(initialFilters.status || 'all');
+  const [focusedDocumentId, setFocusedDocumentId] = useState(initialFilters.documentId || null);
+  const [focusedCollaboratorId, setFocusedCollaboratorId] = useState(initialFilters.collaboratorId || null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const statesToLoad = ['richiesto', 'scaduto'];
+      const statesToLoad = ['richiesto', 'caricato', 'scaduto'];
       const responses = await Promise.all(statesToLoad.map((stato) => getDocumentiRichiesti({ stato, limit: 500 })));
       const deduped = new Map();
 
@@ -229,6 +232,24 @@ export default function DocumentiMancanti({ currentUser }) {
 
   const filteredDocuments = useMemo(() => {
     return documents.filter((doc) => {
+      if (focusedDocumentId && String(doc.id) !== String(focusedDocumentId)) {
+        return false;
+      }
+      if (focusedCollaboratorId && String(doc.collaboratore_id) !== String(focusedCollaboratorId)) {
+        return false;
+      }
+      if (statusFilter === 'open' && !['richiesto', 'caricato'].includes(doc.stato)) {
+        return false;
+      }
+      if (statusFilter === 'uploaded' && doc.stato !== 'caricato') {
+        return false;
+      }
+      if (statusFilter === 'requested' && doc.stato !== 'richiesto') {
+        return false;
+      }
+      if (statusFilter === 'expired' && doc.stato !== 'scaduto') {
+        return false;
+      }
       if (tipoFilter && doc.tipo_documento !== tipoFilter) {
         return false;
       }
@@ -250,7 +271,7 @@ export default function DocumentiMancanti({ currentUser }) {
       }
       return true;
     });
-  }, [documents, tipoFilter, scadenzaFilter]);
+  }, [documents, focusedCollaboratorId, focusedDocumentId, scadenzaFilter, statusFilter, tipoFilter]);
 
   const groupedCollaborators = useMemo(() => {
     const grouped = filteredDocuments.reduce((acc, doc) => {
@@ -418,6 +439,22 @@ export default function DocumentiMancanti({ currentUser }) {
       <section style={cardStyle}>
         <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+            <select
+              aria-label="Stato pratica"
+              value={statusFilter}
+              onChange={(event) => {
+                setStatusFilter(event.target.value);
+                setFocusedDocumentId(null);
+                setFocusedCollaboratorId(null);
+              }}
+              style={inputStyle}
+            >
+              <option value="all">Tutti gli stati</option>
+              <option value="open">Pratiche aperte</option>
+              <option value="requested">Richiesti</option>
+              <option value="uploaded">Caricati da validare</option>
+              <option value="expired">Scaduti</option>
+            </select>
             <select value={tipoFilter} onChange={(event) => setTipoFilter(event.target.value)} style={inputStyle}>
               <option value="">Tutti i tipi documento</option>
               {documentTypes.map((type) => (

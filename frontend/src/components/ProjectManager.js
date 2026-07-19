@@ -183,7 +183,7 @@ const ModuliFormativiSection = ({ project }) => {
   );
 };
 
-const ProjectManager = ({ currentUser }) => {
+const ProjectManager = ({ currentUser, initialFilters = {} }) => {
   // ==========================================
   // CONTEXT E HOOKS
   // ==========================================
@@ -230,7 +230,8 @@ const ProjectManager = ({ currentUser }) => {
   const [editingId, setEditingId] = useState(null); // ID del progetto in modifica
   const [showForm, setShowForm] = useState(false);  // Mostra/nascondi form
   const [deleteConfirm, setDeleteConfirm] = useState(null); // Stato per conferma eliminazione
-  const [statusFilter, setStatusFilter] = useState('all'); // Filtri per la visualizzazione
+  const [statusFilter, setStatusFilter] = useState(initialFilters.status || 'all');
+  const [focusedProjectId, setFocusedProjectId] = useState(initialFilters.projectId || null);
   const [activeStepIndex, setActiveStepIndex] = useState(0);
   const [beneficiariByProject, setBeneficiariByProject] = useState({});
   const [regimeSaving, setRegimeSaving] = useState({});
@@ -583,6 +584,8 @@ const ProjectManager = ({ currentUser }) => {
       case 'completed': return '✅ Completato';
       case 'paused': return '⏸️ In Pausa';
       case 'cancelled': return '❌ Annullato';
+      case 'attention': return '⚠️ In attenzione';
+      case 'deadline-7-days': return '⏳ In scadenza entro 7 giorni';
       default: return '❓ Sconosciuto';
     }
   };
@@ -616,9 +619,21 @@ const ProjectManager = ({ currentUser }) => {
     return 'stable';
   };
 
+  const isDeadlineWithinSevenDays = (project) => {
+    if (project.status !== 'active' || !project.end_date) return false;
+    const endDate = new Date(project.end_date);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    endDate.setHours(0, 0, 0, 0);
+    const diffDays = Math.ceil((endDate - today) / (1000 * 60 * 60 * 24));
+    return diffDays >= 0 && diffDays <= 7;
+  };
+
   const filteredProjects = projects.filter(project => {
+    if (focusedProjectId) return String(project.id) === String(focusedProjectId);
     if (statusFilter === 'all') return true;
     if (statusFilter === 'attention') return getProjectOperationalState(project) !== 'stable';
+    if (statusFilter === 'deadline-7-days') return isDeadlineWithinSevenDays(project);
     return project.status === statusFilter;
   });
 
@@ -1225,33 +1240,39 @@ const ProjectManager = ({ currentUser }) => {
         <div className="filter-buttons">
           <button
             className={`filter-button ${statusFilter === 'all' ? 'active' : ''}`}
-            onClick={() => setStatusFilter('all')}
+            onClick={() => { setStatusFilter('all'); setFocusedProjectId(null); }}
           >
             📋 Tutti ({projects.length})
           </button>
           <button
             className={`filter-button ${statusFilter === 'active' ? 'active' : ''}`}
-            onClick={() => setStatusFilter('active')}
+            onClick={() => { setStatusFilter('active'); setFocusedProjectId(null); }}
           >
             🟢 Attivi ({projects.filter(p => p.status === 'active').length})
           </button>
           <button
             className={`filter-button ${statusFilter === 'completed' ? 'active' : ''}`}
-            onClick={() => setStatusFilter('completed')}
+            onClick={() => { setStatusFilter('completed'); setFocusedProjectId(null); }}
           >
             ✅ Completati ({projects.filter(p => p.status === 'completed').length})
           </button>
           <button
             className={`filter-button ${statusFilter === 'paused' ? 'active' : ''}`}
-            onClick={() => setStatusFilter('paused')}
+            onClick={() => { setStatusFilter('paused'); setFocusedProjectId(null); }}
           >
             ⏸️ In Pausa ({projects.filter(p => p.status === 'paused').length})
           </button>
           <button
             className={`filter-button ${statusFilter === 'attention' ? 'active' : ''}`}
-            onClick={() => setStatusFilter('attention')}
+            onClick={() => { setStatusFilter('attention'); setFocusedProjectId(null); }}
           >
             ⚠️ Attenzione ({projectSummary.attention + projectSummary.overdue})
+          </button>
+          <button
+            className={`filter-button ${statusFilter === 'deadline-7-days' ? 'active' : ''}`}
+            onClick={() => { setStatusFilter('deadline-7-days'); setFocusedProjectId(null); }}
+          >
+            ⏳ Scadenze 7gg ({projects.filter(isDeadlineWithinSevenDays).length})
           </button>
         </div>
       </div>

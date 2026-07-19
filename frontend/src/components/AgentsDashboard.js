@@ -2,12 +2,13 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { getAgentsCatalog, getAgentRuns, runAgentByType } from '../services/apiService';
 import { canPerform } from '../auth/permissions';
 
-const AgentsDashboard = ({ currentUser }) => {
+const AgentsDashboard = ({ currentUser, initialFilters = {} }) => {
   const [agents, setAgents] = useState([]);
   const [runs, setRuns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [runningAgent, setRunningAgent] = useState(null);
+  const [runStatus, setRunStatus] = useState(initialFilters.runStatus || '');
   const canRunAgents = canPerform(currentUser, 'RUN_AGENTS');
 
   const loadData = useCallback(async () => {
@@ -16,7 +17,7 @@ const AgentsDashboard = ({ currentUser }) => {
       setError(null);
       const [agentsData, runsData] = await Promise.all([
         getAgentsCatalog(),
-        getAgentRuns({ limit: 10 }),
+        getAgentRuns({ limit: 100, ...(runStatus ? { status: runStatus } : {}) }),
       ]);
       setAgents(Array.isArray(agentsData) ? agentsData : []);
       setRuns(Array.isArray(runsData) ? runsData : []);
@@ -26,7 +27,7 @@ const AgentsDashboard = ({ currentUser }) => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [runStatus]);
 
   useEffect(() => {
     loadData();
@@ -76,9 +77,23 @@ const AgentsDashboard = ({ currentUser }) => {
     <div className="p-6 max-w-6xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Dashboard Agenti AI</h1>
-        <button onClick={loadData} className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded">
-          Aggiorna
-        </button>
+        <div className="flex items-center gap-2">
+          <label htmlFor="agent-run-status" className="text-sm text-gray-600">Stato esecuzioni</label>
+          <select
+            id="agent-run-status"
+            value={runStatus}
+            onChange={(event) => setRunStatus(event.target.value)}
+            className="px-3 py-1.5 text-sm border rounded"
+          >
+            <option value="">Tutte</option>
+            <option value="running">In corso</option>
+            <option value="completed">Completate</option>
+            <option value="failed">Fallite</option>
+          </select>
+          <button onClick={loadData} className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded">
+            Aggiorna
+          </button>
+        </div>
       </div>
 
       {/* Agenti disponibili */}

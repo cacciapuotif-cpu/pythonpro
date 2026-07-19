@@ -100,7 +100,7 @@ const defaultDetailState = {
   action: 'approve',
 };
 
-export default function AgentSuggestionsReview({ currentUser = null }) {
+export default function AgentSuggestionsReview({ currentUser = null, initialFilters = {} }) {
   const canReview = canPerform(currentUser, 'REVIEW_AGENTS');
   const [suggestions, setSuggestions] = useState([]);
   const [pendingSuggestions, setPendingSuggestions] = useState([]);
@@ -109,10 +109,11 @@ export default function AgentSuggestionsReview({ currentUser = null }) {
   const [projects, setProjects] = useState([]);
   const initialParams = new URLSearchParams(window.location.search);
   const [filters, setFilters] = useState({
-    status: '',
+    status: initialFilters.status || '',
     priority: '',
     entity_type: initialParams.get('entity_type') || '',
     agent_type: initialParams.get('agent_type') || '',
+    suggestion_id: initialFilters.suggestionId || initialParams.get('suggestion_id') || '',
   });
   const [selectedIds, setSelectedIds] = useState([]);
   const [detailSuggestion, setDetailSuggestion] = useState(null);
@@ -182,6 +183,9 @@ export default function AgentSuggestionsReview({ currentUser = null }) {
         return false;
       }
       if (filters.agent_type && suggestion.agent_type !== filters.agent_type) {
+        return false;
+      }
+      if (filters.suggestion_id && String(suggestion.id) !== String(filters.suggestion_id)) {
         return false;
       }
       return true;
@@ -370,6 +374,15 @@ export default function AgentSuggestionsReview({ currentUser = null }) {
           <button className="btn btn-secondary" type="button" onClick={loadData} disabled={loading}>
             {loading ? 'Aggiornamento...' : 'Aggiorna'}
           </button>
+          {filters.suggestion_id ? (
+            <button
+              className="btn btn-secondary"
+              type="button"
+              onClick={() => setFilters((current) => ({ ...current, suggestion_id: '' }))}
+            >
+              Mostra tutte le proposte
+            </button>
+          ) : null}
         </div>
       </section>
 

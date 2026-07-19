@@ -37,7 +37,7 @@ def get_decisioni_urgenti(db: Session = Depends(get_db)):
             "entita": s.entity_type,
             "entita_id": s.entity_id,
             "creato_il": s.created_at.isoformat() if s.created_at else None,
-            "azione_url": "/api/v1/agent-suggestions/{}/approve".format(s.id),
+            "azione_url": "/agents/review?status=pending&suggestion_id={}".format(s.id),
             "id": s.id,
             "categoria": "documento" if "document" in (s.suggestion_type or "") else "comunicazione",
         })
@@ -64,7 +64,10 @@ def get_decisioni_urgenti(db: Session = Depends(get_db)):
             "entita": "collaborator",
             "entita_id": doc.collaboratore_id,
             "creato_il": doc.data_caricamento.isoformat() if doc.data_caricamento else None,
-            "azione_url": "/api/v1/documenti-richiesti/{}/valida".format(doc.id),
+            "azione_url": (
+                "/documenti-mancanti?status=uploaded&document_id={}"
+                "&collaborator_id={}"
+            ).format(doc.id, doc.collaboratore_id),
             "id": doc.id,
             "categoria": "documento",
         })
@@ -84,7 +87,7 @@ def get_decisioni_urgenti(db: Session = Depends(get_db)):
             "entita": "project",
             "entita_id": p.id,
             "creato_il": None,
-            "azione_url": None,
+            "azione_url": "/projects?status=attention&project_id={}".format(p.id),
             "id": p.id,
             "categoria": "progetto",
         })
@@ -107,7 +110,9 @@ def get_decisioni_urgenti(db: Session = Depends(get_db)):
             "entita": "project",
             "entita_id": link.project_id,
             "creato_il": link.created_at.isoformat() if link.created_at else None,
-            "azione_url": None,
+            "azione_url": (
+                "/projects?status=attention&project_id={}&focus=compliance"
+            ).format(link.project_id),
             "id": link.id,
             "categoria": "compliance",
         })

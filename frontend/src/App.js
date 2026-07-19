@@ -80,6 +80,9 @@ const getSectionFromPath = (pathname) => {
   if (pathname.startsWith('/resources')) {
     return 'resources';
   }
+  if (pathname.startsWith('/projects')) {
+    return 'projects';
+  }
   return null;
 };
 
@@ -99,7 +102,40 @@ const getPathForSection = (sectionId) => {
   if (sectionId === 'resources') {
     return '/resources';
   }
+  if (sectionId === 'projects') {
+    return '/projects';
+  }
   return '/';
+};
+
+const FILTER_QUERY_KEYS = {
+  status: 'status',
+  runStatus: 'run_status',
+  suggestionId: 'suggestion_id',
+  documentId: 'document_id',
+  collaboratorId: 'collaborator_id',
+  projectId: 'project_id',
+  focus: 'focus',
+};
+
+const getFiltersFromLocation = () => {
+  const params = new URLSearchParams(window.location.search);
+  return Object.entries(FILTER_QUERY_KEYS).reduce((filters, [filterKey, queryKey]) => {
+    const value = params.get(queryKey);
+    if (value) filters[filterKey] = value;
+    return filters;
+  }, {});
+};
+
+const getPathWithFilters = (section, filters = {}) => {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') {
+      params.set(FILTER_QUERY_KEYS[key] || key, String(value));
+    }
+  });
+  const query = params.toString();
+  return `${getPathForSection(section)}${query ? `?${query}` : ''}`;
 };
 
 /**
@@ -113,6 +149,7 @@ function App() {
 
   // Gestisce quale sezione dell'app è attualmente attiva
   const [activeSection, setActiveSection] = useState('calendar');
+  const [sectionFilters, setSectionFilters] = useState({});
 
   // Stato di connessione con l'API backend
   const [apiStatus, setApiStatus] = useState('checking'); // checking, connected, error
@@ -165,6 +202,7 @@ function App() {
       const user = await apiService.getCurrentUser();
       setCurrentUser(user);
       setActiveSection(getSectionFromPath(window.location.pathname) || getRoleExperience(user.role).homeSection);
+      setSectionFilters(getFiltersFromLocation());
     } catch (error) {
       localStorage.removeItem('access_token');
       localStorage.removeItem('refresh_token');
@@ -251,6 +289,7 @@ function App() {
       const user = await apiService.getCurrentUser();
       setCurrentUser(user);
       setActiveSection(getSectionFromPath(window.location.pathname) || getRoleExperience(user.role).homeSection);
+      setSectionFilters(getFiltersFromLocation());
       setCredentials({ username: '', password: '' });
     } catch (error) {
       localStorage.removeItem('access_token');
@@ -278,10 +317,17 @@ function App() {
    * CAMBIA LA SEZIONE ATTIVA
    * @param {string} section - Nome della sezione da mostrare
    */
-  const navigateToSection = (section) => {
+  const navigateToSection = (section, filters = {}) => {
     setActiveSection(section);
-    window.history.replaceState({}, '', getPathForSection(section));
+    setSectionFilters(filters);
+    window.history.replaceState({}, '', getPathWithFilters(section, filters));
     console.log(`📍 Navigazione verso: ${section}`);
+  };
+
+  const navigateFromCockpit = ({ section, filters = {} }) => {
+    if (canAccessSection(currentUser?.role, section)) {
+      navigateToSection(section, filters);
+    }
   };
 
   const navigateToAvvisoReview = () => {
@@ -308,16 +354,16 @@ function App() {
         return <AllieviManager currentUser={currentUser} />;
 
       case 'projects':
-        return <ProjectManager currentUser={currentUser} />;
+        return <ProjectManager currentUser={currentUser} initialFilters={sectionFilters} />;
 
       case 'entities':
         return <ImplementingEntitiesList currentUser={currentUser} />;
 
       case 'agents-dashboard':
-        return <AgentsDashboard currentUser={currentUser} />;
+        return <AgentsDashboard currentUser={currentUser} initialFilters={sectionFilters} />;
 
       case 'agents-review':
-        return <AgentSuggestionsReview currentUser={currentUser} />;
+        return <AgentSuggestionsReview currentUser={currentUser} initialFilters={sectionFilters} />;
 
       case 'resources':
         return <ResourceArchive currentUser={currentUser} onReviewSuggestions={navigateToAvvisoReview} />;
@@ -326,7 +372,7 @@ function App() {
         return <TimesheetView currentUser={currentUser} />;
 
       case 'documenti-mancanti':
-        return <DocumentiMancanti currentUser={currentUser} />;
+        return <DocumentiMancanti currentUser={currentUser} initialFilters={sectionFilters} />;
 
       case 'templates':
         return <ContractTemplatesManager />;
@@ -335,7 +381,7 @@ function App() {
         return <AgentsManager currentUser={currentUser} />;
 
       case 'home':
-        return <HomeCockpit currentUser={currentUser} />;
+        return <HomeCockpit currentUser={currentUser} onNavigate={navigateFromCockpit} />;
       case 'dashboard':
         return <Dashboard currentUser={currentUser} />;
 

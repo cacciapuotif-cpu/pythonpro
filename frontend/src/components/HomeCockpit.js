@@ -1,15 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { http, apiRootUrl } from '../lib/http';
-
-const API = apiRootUrl;
-
-const CATEGORIA_COLORE = {
-  documento: 'var(--color-border-info)',
-  comunicazione: 'var(--color-border-info)',
-  progetto: 'var(--color-border-warning)',
-  compliance: 'var(--color-border-info)',
-  agente: 'var(--color-border-info)',
-};
+import { http } from '../lib/http';
 
 const CATEGORIA_LABEL = {
   documento: 'Documento',
@@ -19,14 +9,59 @@ const CATEGORIA_LABEL = {
   agente: 'Agente',
 };
 
-const StatCard = ({ label, value, warning }) => (
-  <div style={{
+const STAT_DESTINATIONS = {
+  pratiche_aperte: { section: 'documenti-mancanti', filters: { status: 'open' } },
+  progetti_attivi: { section: 'projects', filters: { status: 'active' } },
+  agenti_attivi: { section: 'agents-dashboard', filters: { runStatus: 'running' } },
+  scadenze_7gg: { section: 'projects', filters: { status: 'deadline-7-days' } },
+};
+
+export const getDecisionDestination = (decisione) => {
+  if (decisione.tipo === 'agente') {
+    return {
+      section: 'agents-review',
+      filters: { status: 'pending', suggestionId: decisione.id },
+    };
+  }
+  if (decisione.tipo === 'documento') {
+    return {
+      section: 'documenti-mancanti',
+      filters: {
+        status: 'uploaded',
+        documentId: decisione.id,
+        collaboratorId: decisione.entita_id,
+      },
+    };
+  }
+  if (decisione.tipo === 'progetto') {
+    return {
+      section: 'projects',
+      filters: { status: 'attention', projectId: decisione.entita_id },
+    };
+  }
+  if (decisione.tipo === 'regime_aiuto') {
+    return {
+      section: 'projects',
+      filters: {
+        status: 'attention',
+        projectId: decisione.entita_id,
+        focus: 'compliance',
+      },
+    };
+  }
+  return null;
+};
+
+const StatCard = ({ label, value, warning, onClick }) => (
+  <button type="button" onClick={onClick} style={{
     background: 'var(--color-background-primary)',
     borderRadius: 'var(--border-radius-md)',
     border: '0.5px solid var(--color-border-tertiary)',
     padding: '12px',
     flex: 1,
     minWidth: 0,
+    cursor: 'pointer',
+    textAlign: 'left',
   }}>
     <p style={{ fontSize: '11px', color: 'var(--color-text-secondary)', margin: '0 0 4px' }}>{label}</p>
     <p style={{
@@ -35,10 +70,10 @@ const StatCard = ({ label, value, warning }) => (
       margin: 0,
       color: warning ? 'var(--color-text-warning)' : 'var(--color-text-primary)'
     }}>{value}</p>
-  </div>
+  </button>
 );
 
-const DecisioneCard = ({ decisione, onDismiss }) => {
+const DecisioneCard = ({ decisione, onDismiss, onNavigate }) => {
   const colore = decisione.priorita === 'alta'
     ? 'var(--color-border-warning)'
     : 'var(--color-border-info)';
@@ -51,8 +86,10 @@ const DecisioneCard = ({ decisione, onDismiss }) => {
     return Math.floor(diff / 1440) + ' giorni fa';
   };
 
+  const destination = getDecisionDestination(decisione);
+
   return (
-    <div style={{
+    <div data-testid="cockpit-decision" style={{
       background: 'var(--color-background-primary)',
       borderRadius: 'var(--border-radius-lg)',
       border: '0.5px solid var(--color-border-tertiary)',
@@ -78,10 +115,10 @@ const DecisioneCard = ({ decisione, onDismiss }) => {
         {decisione.descrizione}
       </p>
       <div style={{ display: 'flex', gap: '8px' }}>
-        {decisione.azione_url && (
+        {destination && (
           <button
             style={{ flex: 1, fontSize: '12px', padding: '6px' }}
-            onClick={() => window.open(API + decisione.azione_url, '_blank')}
+            onClick={() => onNavigate(destination)}
           >
             Gestisci
           </button>
@@ -97,7 +134,7 @@ const DecisioneCard = ({ decisione, onDismiss }) => {
   );
 };
 
-const HomeCockpit = ({ currentUser }) => {
+const HomeCockpit = ({ currentUser, onNavigate = () => {} }) => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [dismissed, setDismissed] = useState(new Set());
@@ -151,10 +188,10 @@ const HomeCockpit = ({ currentUser }) => {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '10px', marginBottom: '1.25rem' }}>
-        <StatCard label="Pratiche aperte" value={stats.pratiche_aperte ?? '—'} />
-        <StatCard label="Progetti attivi" value={stats.progetti_attivi ?? '—'} />
-        <StatCard label="Agenti attivi" value={stats.agenti_attivi ?? '—'} />
-        <StatCard label="Scadenze 7gg" value={stats.scadenze_7gg ?? '—'} warning={stats.scadenze_7gg > 0} />
+        <StatCard label="Pratiche aperte" value={stats.pratiche_aperte ?? '—'} onClick={() => onNavigate(STAT_DESTINATIONS.pratiche_aperte)} />
+        <StatCard label="Progetti attivi" value={stats.progetti_attivi ?? '—'} onClick={() => onNavigate(STAT_DESTINATIONS.progetti_attivi)} />
+        <StatCard label="Agenti attivi" value={stats.agenti_attivi ?? '—'} onClick={() => onNavigate(STAT_DESTINATIONS.agenti_attivi)} />
+        <StatCard label="Scadenze 7gg" value={stats.scadenze_7gg ?? '—'} warning={stats.scadenze_7gg > 0} onClick={() => onNavigate(STAT_DESTINATIONS.scadenze_7gg)} />
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
@@ -205,6 +242,7 @@ const HomeCockpit = ({ currentUser }) => {
           key={d.tipo + '_' + d.id}
           decisione={d}
           onDismiss={handleDismiss}
+          onNavigate={onNavigate}
         />
       ))}
 
