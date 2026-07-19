@@ -331,6 +331,9 @@ def read_collaborators_with_projects(
     return collaborators_with_projects
 
 
+# Alias /api/v1: il frontend chiama questi endpoint con il prefisso standard;
+# i path storici a radice restano per compatibilità.
+@app.post("/api/v1/collaborators/{collaborator_id}/projects/{project_id}")
 @app.post("/collaborators/{collaborator_id}/projects/{project_id}")
 def assign_collaborator_to_project(
     collaborator_id: int,
@@ -345,6 +348,7 @@ def assign_collaborator_to_project(
     return {"message": "Collaboratore assegnato al progetto con successo"}
 
 
+@app.delete("/api/v1/collaborators/{collaborator_id}/projects/{project_id}")
 @app.delete("/collaborators/{collaborator_id}/projects/{project_id}")
 def remove_collaborator_from_project(
     collaborator_id: int,

@@ -136,3 +136,13 @@ def test_assignment_features_flow(client):
     response = client.get(f"/api/v1/assignments/{assignment_id}")
     assert response.status_code == 200
     assert response.json()["completed_hours"] == 17.0
+
+
+def test_cross_resource_assign_route_has_api_v1_alias():
+    """UI-03: il frontend chiama assegna/rimuovi progetto con prefisso /api/v1."""
+    from main import app
+
+    paths = {route.path for route in app.routes if hasattr(route, "path")}
+    assert "/api/v1/collaborators/{collaborator_id}/projects/{project_id}" in paths
+    # Il path storico a radice resta per compatibilità
+    assert "/collaborators/{collaborator_id}/projects/{project_id}" in paths
