@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
 from database import get_db
+from auth import get_current_user
 from models import Assignment, Collaborator, Project, ImplementingEntity, AgentSuggestion, VocePianoFinanziario
 from routers.agents import require_agents_execute
 from contract_generator import ContractGenerator
@@ -121,6 +122,11 @@ def run_certification(
 def genera_contratto(
     assignment_id: int,
     db: Session = Depends(get_db),
+    # NEW-021: dipendenza esplicita coerente con timesheet/documenti
+    # (require_agents_execute non e' adatta: e' un download operatore, non
+    # un'esecuzione agente). Il gate ruolo (admin/operatore, no consultazione)
+    # e' nella matrice RBAC (auth.OPERATORE_ALLOWED_SENSITIVE_GET_SUFFIXES).
+    current_user=Depends(get_current_user),
 ):
     from models import ContractTemplate
     import unicodedata

@@ -264,3 +264,38 @@
   `test_inbox_reply_draft.py`, `test_agent_no_autosend.py` invariate (verde).
 - Stato: **chiuso il 2026-07-19** nell'ambito del Task E2.1.
 
+## 2026-07-19 | NEW-022 | Download contratto firmato raggiungibile dal ruolo consultazione
+
+- Area: RBAC / documenti sensibili
+- Severità stimata: media
+- Emerso durante: Task E2.1, Step 3 (verifica sospetto ricognizione: endpoint
+  contratto "senza dipendenza auth visibile")
+- Descrizione: `GET /api/v1/assignments/{id}/contract` (`genera_contratto`,
+  `backend/routers/sprint7.py:120`) **è già protetto da autenticazione**: il
+  router `sprint7_router` è montato con `include_protected_router`, quindi
+  ogni richiesta passa comunque per `Depends(require_role)` →
+  `Depends(get_current_user)` (verificato con test dedicato: richiesta senza
+  utente autenticato → 401/403). Il sospetto "endpoint del tutto
+  sbloccato" della ricognizione era quindi impreciso — ma la verifica ha
+  scoperto un problema reale collegato: il path `/api/v1/assignments/...`
+  ricade nella regola generica `OPERATIONAL_PREFIXES` che per i metodi GET
+  consente **tutti e tre i ruoli**, incluso `consultazione`. Questo permette
+  a un utente di sola consultazione di scaricare il PDF del contratto
+  firmato, che contiene PII sensibili (codice fiscale, indirizzo, compenso
+  orario/totale) — stessa categoria di dato per cui esistono già le
+  eccezioni `download-documento` / `download-curriculum` (solo admin).
+- Fix applicato (commit dedicato `fix(E2-NEW-022)`):
+  - `backend/auth.py::OPERATORE_ALLOWED_SENSITIVE_GET_SUFFIXES` — aggiunto
+    suffisso `"/contract"` (nessun altro endpoint GET termina con questo
+    suffisso), che restringe l'accesso a `{admin, operatore}` per il download
+    del contratto, coerente con il meccanismo già usato per
+    `/export-excel` / `/api/v1/reporting/timesheet`.
+  - `backend/routers/sprint7.py::genera_contratto` — aggiunta dipendenza
+    esplicita `current_user=Depends(get_current_user)` (parità con
+    `routers/timesheet.py`), a scopo difensivo/documentale visto che la
+    protezione reale passa dal router-level `require_role`.
+- Verifica: nuovo test `test_contract_endpoint_nega_consultazione` (403 per
+  ruolo consultazione) e `test_contract_endpoint_richiede_autenticazione`
+  (401/403 senza utente autenticato), entrambi in
+  `backend/tests/test_e2e_catena_contratto.py`.
+- Stato: **chiuso il 2026-07-19** nell'ambito del Task E2.1.
