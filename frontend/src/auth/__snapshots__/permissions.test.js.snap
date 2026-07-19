@@ -1,0 +1,70 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`snapshot delle route accessibili per admin 1`] = `
+Array [
+  "home",
+  "dashboard",
+  "calendar",
+  "timesheet",
+  "documenti-mancanti",
+  "collaborators",
+  "allievi",
+  "projects",
+  "aziende-clienti",
+  "catalogo",
+  "listini",
+  "preventivi",
+  "ordini",
+  "resources",
+  "entities",
+  "agents-dashboard",
+  "agents",
+  "agents-review",
+  "templates",
+]
+`;
+
+exports[`snapshot delle route accessibili per consultazione 1`] = `
+Array [
+  "home",
+  "dashboard",
+  "calendar",
+  "documenti-mancanti",
+  "collaborators",
+  "allievi",
+  "projects",
+  "aziende-clienti",
+  "catalogo",
+  "listini",
+  "preventivi",
+  "ordini",
+  "resources",
+  "entities",
+  "agents-dashboard",
+  "agents",
+  "agents-review",
+]
+`;
+
+exports[`snapshot delle route accessibili per operatore 1`] = `
+Array [
+  "home",
+  "dashboard",
+  "calendar",
+  "timesheet",
+  "documenti-mancanti",
+  "collaborators",
+  "allievi",
+  "projects",
+  "aziende-clienti",
+  "catalogo",
+  "listini",
+  "preventivi",
+  "ordini",
+  "resources",
+  "entities",
+  "agents-dashboard",
+  "agents",
+  "agents-review",
+]
+`;

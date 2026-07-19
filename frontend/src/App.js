@@ -32,59 +32,36 @@ import AgentSuggestionsReview from './components/AgentSuggestionsReview';
 import ResourceArchive from './components/ResourceArchive';
 import apiService, { healthCheck } from './services/apiService';
 import { http, ensureValidAccessToken } from './lib/http';
+import {
+  ACCESS_PROFILES,
+  canAccessSection,
+  getRoleExperience,
+  getRoleLabel,
+  profileAcceptsRole,
+} from './auth/permissions';
 import './App.css';
-
-const ACCESS_PROFILES = {
-  admin: {
-    id: 'admin',
-    label: 'Amministratore',
-    description: 'Gestione completa del gestionale, configurazioni e controllo operativo.',
-    expectedRoles: ['admin'],
-  },
-  operator: {
-    id: 'operator',
-    label: 'Operatore',
-    description: 'Accesso operativo alle funzioni quotidiane del gestionale.',
-    expectedRoles: ['user', 'manager'],
-  },
-};
-
-const ROLE_EXPERIENCE = {
-  admin: {
-    label: 'Amministratore',
-    homeSection: 'dashboard',
-  },
-  manager: {
-    label: 'Operatore',
-    homeSection: 'collaborators',
-  },
-  user: {
-    label: 'Operatore',
-    homeSection: 'collaborators',
-  },
-};
 
 // group: raggruppa le voci nella nav — null = nessun separatore
 const SECTION_CONFIG = [
-  { id: 'home',              label: 'Home',           icon: '🏠', group: null,           title: 'Decisioni urgenti',                  breadcrumb: '🏠 Home',                  roles: ['admin', 'user', 'manager'] },
-  { id: 'dashboard',         label: 'Dashboard',      icon: '📊', group: null,           title: 'Statistiche e report',               breadcrumb: '📊 Dashboard',            roles: ['admin', 'user', 'manager'] },
-  { id: 'calendar',          label: 'Calendario',     icon: '📅', group: 'Attività',     title: 'Presenze sul calendario',            breadcrumb: '📅 Calendario Presenze',   roles: ['admin', 'user', 'manager'] },
-  { id: 'timesheet',         label: 'Timesheet',      icon: '⏱️', group: null,           title: 'Timesheet delle ore lavorate',       breadcrumb: '⏱️ Timesheet',             roles: ['admin', 'user', 'manager'] },
-  { id: 'documenti-mancanti', label: 'Documenti',     icon: '📑', group: 'Reportistica', title: 'Documenti mancanti o in scadenza',    breadcrumb: '📑 Documenti Mancanti',    roles: ['admin', 'user', 'manager'] },
-  { id: 'collaborators',     label: 'Collaboratori',  icon: '👥', group: 'Persone',      title: 'Gestione collaboratori',             breadcrumb: '👥 Collaboratori',         roles: ['admin', 'user', 'manager'] },
-  { id: 'allievi',           label: 'Allievi',        icon: '🎓', group: null,           title: 'Gestione allievi',                   breadcrumb: '🎓 Allievi',               roles: ['admin', 'user', 'manager'] },
-  { id: 'projects',          label: 'Progetti',       icon: '📁', group: null,           title: 'Progetti formativi',                 breadcrumb: '📁 Progetti',              roles: ['admin', 'user', 'manager'] },
-  { id: 'aziende-clienti',   label: 'Aziende',        icon: '🏭', group: 'Commerciale',  title: 'Aziende clienti',                    breadcrumb: '🏭 Aziende Clienti',       roles: ['admin', 'user', 'manager'] },
-  { id: 'catalogo',          label: 'Catalogo',       icon: '📦', group: null,           title: 'Catalogo prodotti e servizi',        breadcrumb: '📦 Catalogo',              roles: ['admin', 'user', 'manager'] },
-  { id: 'listini',           label: 'Listini',        icon: '💰', group: null,           title: 'Listini prezzi',                     breadcrumb: '💰 Listini',               roles: ['admin', 'user', 'manager'] },
-  { id: 'preventivi',        label: 'Preventivi',     icon: '📝', group: null,           title: 'Preventivi commerciali',             breadcrumb: '📝 Preventivi',            roles: ['admin', 'user', 'manager'] },
-  { id: 'ordini',            label: 'Ordini',         icon: '🛒', group: null,           title: 'Gestione ordini',                    breadcrumb: '🛒 Ordini',                roles: ['admin', 'user', 'manager'] },
-  { id: 'resources',         label: 'Archivio Risorse', icon: '📚', group: 'Conoscenza', title: 'Fonti normative e conoscenza operativa', breadcrumb: '📚 Archivio Risorse',    roles: ['admin', 'manager'] },
-  { id: 'entities',          label: 'Enti Attuatori', icon: '🏢', group: 'Config',       title: 'Enti attuatori',                     breadcrumb: '🏢 Enti Attuatori',        roles: ['admin'] },
-  { id: 'agents-dashboard',  label: 'Agents Dashboard', icon: '📡', group: null,         title: 'Panoramica sistema agenti',          breadcrumb: '📡 Agents Dashboard',      roles: ['admin'] },
-  { id: 'agents',            label: 'Agenti',         icon: '🤖', group: null,           title: 'Agenti operativi e revisioni AI',    breadcrumb: '🤖 Agenti Operativi',      roles: ['admin'] },
-  { id: 'agents-review',     label: 'Revisione Agenti', icon: '✅', group: null,         title: 'Revisione umana dei suggerimenti',   breadcrumb: '✅ Revisione Agenti',       roles: ['admin', 'user', 'manager'], hidden: true },
-  { id: 'templates',         label: 'Template',       icon: '📋', group: null,           title: 'Template documentali',               breadcrumb: '📋 Template',              roles: ['admin'] },
+  { id: 'home', label: 'Home', icon: '🏠', group: null, title: 'Decisioni urgenti', breadcrumb: '🏠 Home' },
+  { id: 'dashboard', label: 'Dashboard', icon: '📊', group: null, title: 'Statistiche e report', breadcrumb: '📊 Dashboard' },
+  { id: 'calendar', label: 'Calendario', icon: '📅', group: 'Attività', title: 'Presenze sul calendario', breadcrumb: '📅 Calendario Presenze' },
+  { id: 'timesheet', label: 'Timesheet', icon: '⏱️', group: null, title: 'Timesheet delle ore lavorate', breadcrumb: '⏱️ Timesheet' },
+  { id: 'documenti-mancanti', label: 'Documenti', icon: '📑', group: 'Reportistica', title: 'Documenti mancanti o in scadenza', breadcrumb: '📑 Documenti Mancanti' },
+  { id: 'collaborators', label: 'Collaboratori', icon: '👥', group: 'Persone', title: 'Gestione collaboratori', breadcrumb: '👥 Collaboratori' },
+  { id: 'allievi', label: 'Allievi', icon: '🎓', group: null, title: 'Gestione allievi', breadcrumb: '🎓 Allievi' },
+  { id: 'projects', label: 'Progetti', icon: '📁', group: null, title: 'Progetti formativi', breadcrumb: '📁 Progetti' },
+  { id: 'aziende-clienti', label: 'Aziende', icon: '🏭', group: 'Commerciale', title: 'Aziende clienti', breadcrumb: '🏭 Aziende Clienti' },
+  { id: 'catalogo', label: 'Catalogo', icon: '📦', group: null, title: 'Catalogo prodotti e servizi', breadcrumb: '📦 Catalogo' },
+  { id: 'listini', label: 'Listini', icon: '💰', group: null, title: 'Listini prezzi', breadcrumb: '💰 Listini' },
+  { id: 'preventivi', label: 'Preventivi', icon: '📝', group: null, title: 'Preventivi commerciali', breadcrumb: '📝 Preventivi' },
+  { id: 'ordini', label: 'Ordini', icon: '🛒', group: null, title: 'Gestione ordini', breadcrumb: '🛒 Ordini' },
+  { id: 'resources', label: 'Archivio Risorse', icon: '📚', group: 'Conoscenza', title: 'Fonti normative e conoscenza operativa', breadcrumb: '📚 Archivio Risorse' },
+  { id: 'entities', label: 'Enti Attuatori', icon: '🏢', group: 'Config', title: 'Enti attuatori', breadcrumb: '🏢 Enti Attuatori' },
+  { id: 'agents-dashboard', label: 'Agents Dashboard', icon: '📡', group: null, title: 'Panoramica sistema agenti', breadcrumb: '📡 Agents Dashboard' },
+  { id: 'agents', label: 'Agenti', icon: '🤖', group: null, title: 'Agenti operativi e revisioni AI', breadcrumb: '🤖 Agenti Operativi' },
+  { id: 'agents-review', label: 'Revisione Agenti', icon: '✅', group: null, title: 'Revisione umana dei suggerimenti', breadcrumb: '✅ Revisione Agenti', hidden: true },
+  { id: 'templates', label: 'Template', icon: '📋', group: null, title: 'Template documentali', breadcrumb: '📋 Template' },
 ];
 
 const getSectionFromPath = (pathname) => {
@@ -148,9 +125,6 @@ function App() {
   const [credentials, setCredentials] = useState({ username: '', password: '' });
   const [authError, setAuthError] = useState('');
   const [isAuthenticating, setIsAuthenticating] = useState(false);
-
-  const getRoleExperience = (role) => ROLE_EXPERIENCE[role] || ROLE_EXPERIENCE.user;
-  const getRoleLabel = (role) => getRoleExperience(role).label;
 
   // Costruisce la nav raggruppata: array di { groupLabel, sections[] }
   const buildNavGroups = (sections) => {
@@ -240,7 +214,7 @@ function App() {
     if (!currentUser) {
       return false;
     }
-    return section.roles.includes(currentUser.role);
+    return canAccessSection(currentUser.role, section.id);
   });
 
   useEffect(() => {
@@ -268,7 +242,7 @@ function App() {
       const response = await apiService.login(credentials);
       const profile = ACCESS_PROFILES[selectedProfile];
 
-      if (!profile.expectedRoles.includes(response.role)) {
+      if (!profileAcceptsRole(profile, response.role)) {
         throw new Error(`Le credenziali inserite non corrispondono al profilo ${profile.label.toLowerCase()}.`);
       }
 
@@ -395,7 +369,7 @@ function App() {
           <h1>Accesso al gestionale</h1>
           <p>
             Accedi dalla home page con il tuo profilo per entrare nel sistema.
-            In questa fase sono previsti due accessi: amministratore e operatore.
+            Sono previsti tre accessi: amministratore, operatore e consultazione.
           </p>
           <div className="profile-selector">
             {Object.values(ACCESS_PROFILES).map((profile) => (
@@ -458,7 +432,7 @@ function App() {
 
           <div className="login-help">
             <strong>Profili disponibili ora:</strong>
-            <span>Amministratore e Operatore. Potremo aggiungere altri tipi di accesso dopo.</span>
+            <span>Amministratore, Operatore e Consultazione.</span>
           </div>
         </section>
       </div>

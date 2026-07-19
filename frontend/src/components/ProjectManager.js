@@ -14,6 +14,7 @@ import { useProjects, useImplementingEntities, useCollaborators, useNotification
 import { getAziendeClienti, getAllievi, getProjectBeneficiari, getProjectModuliFormativi, updateProjectBeneficiarioRegime } from '../services/apiService';
 import { FapiUploadSection } from './FapiUpload';
 import AssignmentModal from './AssignmentModal';
+import { isAdminRole, normalizeRole } from '../auth/permissions';
 import './ProjectManager.css';
 
 const ROLE_EXPERIENCE = {
@@ -23,17 +24,17 @@ const ROLE_EXPERIENCE = {
     summary: 'Puoi creare, modificare e dismettere i progetti, oltre a presidiare gli elementi amministrativi piu sensibili.',
     ctaLabel: '➕ Nuovo Progetto',
   },
-  manager: {
+  operatore: {
     eyebrow: 'Presidio operativo',
     label: 'Operatore',
     summary: 'Concentrati sull’aggiornamento di delivery, stato e coerenza progettuale. Creazione ed eliminazione restano presidiate dagli admin.',
     ctaLabel: '✏️ Aggiorna Progetto',
   },
-  user: {
-    eyebrow: 'Presidio operativo',
-    label: 'Operatore',
-    summary: 'Concentrati sull’aggiornamento di delivery, stato e coerenza progettuale. Creazione ed eliminazione restano presidiate dagli admin.',
-    ctaLabel: '✏️ Aggiorna Progetto',
+  consultazione: {
+    eyebrow: 'Lettura controllata',
+    label: 'Consultazione',
+    summary: 'Puoi consultare dati, avanzamento e collegamenti del progetto senza modificarli.',
+    ctaLabel: 'Consulta Progetto',
   },
 };
 
@@ -192,8 +193,8 @@ const ProjectManager = ({ currentUser }) => {
   const { data: allEntities, loading: loadingEntities } = useImplementingEntities();
   const { data: collaborators } = useCollaborators();
   const { showSuccess, showError } = useNotifications();
-  const isAdmin = currentUser?.role === 'admin';
-  const roleExperience = ROLE_EXPERIENCE[currentUser?.role] || ROLE_EXPERIENCE.user;
+  const isAdmin = isAdminRole(currentUser);
+  const roleExperience = ROLE_EXPERIENCE[normalizeRole(currentUser)];
 
   // Filtra solo enti attivi per il dropdown
   const implementingEntities = useMemo(() =>

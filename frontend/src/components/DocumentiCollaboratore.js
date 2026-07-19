@@ -8,6 +8,7 @@ import {
   uploadDocumentoRichiesto,
   validaDocumentoRichiesto,
 } from '../services/apiService';
+import { isOperatorRole } from '../auth/permissions';
 
 const STATUS_META = {
   richiesto: { label: 'Richiesto', color: '#92400e', background: '#fef3c7' },
@@ -139,7 +140,7 @@ export default function DocumentiCollaboratore({ collaboratore_id, currentUser, 
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
 
-  const isOperatore = ['user', 'manager'].includes(currentUser?.role);
+  const isOperatore = isOperatorRole(currentUser);
 
   const clearMessages = () => {
     setError('');

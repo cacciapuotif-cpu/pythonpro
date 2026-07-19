@@ -108,7 +108,7 @@ describe('Dashboard', () => {
   });
 
   test('mostra alert documentali e di assegnazione', async () => {
-    render(<Dashboard currentUser={{ role: 'operator' }} />);
+    render(<Dashboard currentUser={{ role: 'operatore' }} />);
 
     await waitFor(() => {
       expect(screen.getByText(/documento identita assente/i)).toBeInTheDocument();

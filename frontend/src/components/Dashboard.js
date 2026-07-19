@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import apiService from '../services/apiService';
 import { getAgentCommunications, getAgentSuggestions } from '../services/apiService';
+import { isAdminRole, normalizeRole } from '../auth/permissions';
 import './Dashboard.css';
 
 const formatNumber = (value) => new Intl.NumberFormat('it-IT').format(Number(value || 0));
@@ -159,15 +160,15 @@ const ROLE_COCKPITS = {
     title: 'Vista di governo del sistema',
     intro: 'Presidia dati, configurazioni e blocchi che possono fermare il ciclo operativo.',
   },
-  manager: {
+  operatore: {
     label: 'Operatore',
     title: 'Vista operativa del team',
     intro: 'Concentrati sulle attivita da sbloccare oggi: documenti, presenze e contratti.',
   },
-  user: {
-    label: 'Operatore',
-    title: 'Vista operativa del team',
-    intro: 'Concentrati sulle attivita da sbloccare oggi: documenti, presenze e contratti.',
+  consultazione: {
+    label: 'Consultazione',
+    title: 'Vista di consultazione',
+    intro: 'Consulta avanzamento, scadenze e indicatori senza modificare i dati.',
   },
 };
 
@@ -178,6 +179,8 @@ const Dashboard = ({ currentUser }) => {
     error: '',
     data: null,
   });
+  const isAdmin = isAdminRole(currentUser);
+  const canonicalRole = normalizeRole(currentUser);
 
   const loadDashboard = useCallback(async ({ silent = false } = {}) => {
     setState((previous) => ({
@@ -194,7 +197,7 @@ const Dashboard = ({ currentUser }) => {
       apiService.getProjects({}, { limit: 1000 }),
       apiService.getAssignments({ limit: 1000 }),
       apiService.getContractTemplates({ limit: 200 }),
-      currentUser?.role === 'admin' ? apiService.getSystemMetrics() : Promise.resolve(null),
+      isAdmin ? apiService.getSystemMetrics() : Promise.resolve(null),
       getAgentSuggestions({ agent_name: 'data_quality', entity_type: 'collaborator', limit: 200 }),
       getAgentCommunications({ agent_name: 'data_quality', recipient_type: 'collaborator', limit: 200 }),
     ]);
@@ -248,7 +251,7 @@ const Dashboard = ({ currentUser }) => {
         lastUpdatedAt: new Date().toISOString(),
       },
     });
-  }, [currentUser?.role]);
+  }, [isAdmin]);
 
   useEffect(() => {
     loadDashboard();
@@ -402,7 +405,7 @@ const Dashboard = ({ currentUser }) => {
     const topCollaborators = summary?.top_5_collaboratori || [];
     const contractDistribution = summary?.distribuzione_contratti || [];
     const dashboardMetrics = metrics?.dashboard_metrics || {};
-    const roleConfig = ROLE_COCKPITS[currentUser?.role] || ROLE_COCKPITS.user;
+    const roleConfig = ROLE_COCKPITS[canonicalRole];
     const operatorTasks = [
       {
         label: 'Documenti da completare',
@@ -510,9 +513,9 @@ const Dashboard = ({ currentUser }) => {
       contractDistribution,
       systemMetrics: dashboardMetrics,
       summaryWindow: summary?.periodo,
-      roleTasks: currentUser?.role === 'admin' ? adminTasks : operatorTasks,
+      roleTasks: isAdmin ? adminTasks : operatorTasks,
     };
-  }, [currentUser?.role, state.data]);
+  }, [canonicalRole, isAdmin, state.data]);
 
   if (state.loading) {
     return (
@@ -695,8 +698,8 @@ const Dashboard = ({ currentUser }) => {
           <article className="dashboard-panel">
             <div className="dashboard-panel-header">
               <div>
-                <h3>{currentUser?.role === 'admin' ? 'Contratti e sistema' : 'Contratti monitorati'}</h3>
-                <p>{currentUser?.role === 'admin' ? 'Distribuzione contratti e metriche esposte dal backend.' : 'Distribuzione contratti utile al presidio operativo.'}</p>
+                <h3>{isAdmin ? 'Contratti e sistema' : 'Contratti monitorati'}</h3>
+                <p>{isAdmin ? 'Distribuzione contratti e metriche esposte dal backend.' : 'Distribuzione contratti utile al presidio operativo.'}</p>
               </div>
             </div>
 

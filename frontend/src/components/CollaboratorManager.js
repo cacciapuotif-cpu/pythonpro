@@ -23,6 +23,7 @@ import CollaboratorsTable from './collaborators/CollaboratorsTable';
 import CollaboratorBulkImport from './collaborators/CollaboratorBulkImport';
 import AssignmentModal from './AssignmentModal';
 import DocumentiCollaboratore from './DocumentiCollaboratore';
+import { isAdminRole, normalizeRole } from '../auth/permissions';
 import './CollaboratorManager.css';
 
 const CONTRACT_TYPE_LABELS = {
@@ -38,15 +39,15 @@ const ROLE_EXPERIENCE = {
     eyebrow: 'Controllo completo',
     summary: 'Puoi gestire anagrafiche, import, relazioni progetto e scarico contratti dopo preflight.',
   },
-  manager: {
+  operatore: {
     label: 'Manager operativo',
     eyebrow: 'Coordinamento operativo',
     summary: 'Focus su assegnazioni, qualità dati contrattuali e verifica dei collaboratori in attenzione.',
   },
-  user: {
-    label: 'Operatore',
-    eyebrow: 'Esecuzione guidata',
-    summary: 'Focus su consultazione, aggiornamento dati e generazione contratti solo dopo controlli di completezza.',
+  consultazione: {
+    label: 'Consultazione',
+    eyebrow: 'Lettura controllata',
+    summary: 'Puoi consultare anagrafiche, progetti e stato documentale senza modificare i dati.',
   },
 };
 
@@ -103,8 +104,8 @@ const CollaboratorManager = ({ currentUser }) => {
 
   // Combina gli stati di loading
   const loading = loadingCollaborators || loadingProjects || loadingAssignments;
-  const isAdmin = currentUser?.role === 'admin';
-  const roleExperience = ROLE_EXPERIENCE[currentUser?.role] || ROLE_EXPERIENCE.user;
+  const isAdmin = isAdminRole(currentUser);
+  const roleExperience = ROLE_EXPERIENCE[normalizeRole(currentUser)];
 
   const collaboratorIndex = useMemo(
     () => new Map(collaborators.map((item) => [item.id, item])),

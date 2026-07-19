@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { getAgentSuggestions, getCollaboratorsPaginated } from '../../services/apiService';
 import CollaboratorProjectsRow from './CollaboratorProjectsRow';
+import { isAdminRole } from '../../auth/permissions';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -139,7 +140,7 @@ const CollaboratorsTable = ({
   onDownloadContract,
   refreshTrigger,
 }) => {
-  const canDeleteCollaborators = currentUser?.role === 'admin';
+  const canDeleteCollaborators = isAdminRole(currentUser);
 
   // ── State ────────────────────────────────────────────────────────────────
   const [filters, setFilters] = useState(filtersFromURL);

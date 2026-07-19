@@ -8,6 +8,7 @@ import {
   ingestAvvisoRevision,
   permanentlyDeleteAvviso,
 } from '../services/apiService';
+import { isAdminRole, isOperatorRole } from '../auth/permissions';
 import './ResourceArchive.css';
 
 const FONDI = [
@@ -77,8 +78,8 @@ export default function ResourceArchive({ currentUser = null, onReviewSuggestion
   const [ingestResult, setIngestResult] = useState(null);
   const fileInputRef = useRef(null);
 
-  const canWrite = ['admin', 'manager'].includes(currentUser?.role);
-  const canPermanentlyDelete = currentUser?.role === 'admin';
+  const canWrite = isAdminRole(currentUser) || isOperatorRole(currentUser);
+  const canPermanentlyDelete = isAdminRole(currentUser);
 
   const selectedAvviso = useMemo(
     () => avvisi.find((item) => String(item.id) === String(selectedId)) || null,

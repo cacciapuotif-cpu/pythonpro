@@ -12,6 +12,7 @@
 import React, { useState } from 'react';
 import { useImplementingEntities, useNotifications } from '../hooks/useEntity';
 import ImplementingEntityModal from './ImplementingEntityModal';
+import { normalizeRole } from '../auth/permissions';
 import './ImplementingEntitiesList.css';
 
 const ROLE_EXPERIENCE = {
@@ -19,6 +20,16 @@ const ROLE_EXPERIENCE = {
     eyebrow: 'Presidio anagrafico',
     label: 'Amministratore',
     summary: 'Gestisci gli enti attuatori che alimentano progetti, contratti e riferimenti amministrativi del sistema.',
+  },
+  operatore: {
+    eyebrow: 'Presidio anagrafico',
+    label: 'Operatore',
+    summary: 'Gestisci gli enti attuatori usati nei progetti e nei documenti amministrativi.',
+  },
+  consultazione: {
+    eyebrow: 'Lettura controllata',
+    label: 'Consultazione',
+    summary: 'Consulta gli enti attuatori senza modificare le anagrafiche.',
   },
 };
 
@@ -38,7 +49,7 @@ const ImplementingEntitiesList = ({ currentUser }) => {
   // Stati locali per UI
   const [searchTerm, setSearchTerm] = useState('');
   const [activeFilter, setActiveFilter] = useState('all'); // 'all', 'active', 'inactive'
-  const roleExperience = ROLE_EXPERIENCE[currentUser?.role] || ROLE_EXPERIENCE.admin;
+  const roleExperience = ROLE_EXPERIENCE[normalizeRole(currentUser)];
 
   // ==========================================
   // GESTIONE ENTI

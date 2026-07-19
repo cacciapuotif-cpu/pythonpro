@@ -19,6 +19,7 @@ jest.mock('./lib/http', () => ({
 }));
 
 jest.mock('./components/Dashboard', () => () => <div>Dashboard test</div>);
+jest.mock('./components/HomeCockpit', () => () => <div>Home test</div>);
 jest.mock('./components/Calendar', () => () => <div>Calendario test</div>);
 jest.mock('./components/CollaboratorManager', () => () => <div>Collaboratori test</div>);
 jest.mock('./components/TimesheetReport', () => () => <div>Report Ore test</div>);
@@ -37,6 +38,27 @@ const LEGACY_OPERATOR = {
   full_name: 'UI User',
   role: 'user',
 };
+
+const CANONICAL_OPERATOR = {
+  id: 3,
+  username: 'ui_operatore',
+  full_name: 'UI Operatore',
+  role: 'operatore',
+};
+
+const CONSULTATION_USER = {
+  id: 4,
+  username: 'ui_consultazione',
+  full_name: 'UI Consultazione',
+  role: 'consultazione',
+};
+
+const navigationLabels = () => screen
+  .queryAllByRole('navigation')[0]
+  ?.querySelectorAll('.nav-button')
+  ? Array.from(screen.getByRole('navigation').querySelectorAll('.nav-button'))
+    .map((button) => button.textContent.replace(/^\S+\s*/, '').trim())
+  : [];
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -76,7 +98,7 @@ test('click su Timesheet cambia sezione senza cambiare applicazione', async () =
   expect(button).toHaveClass('active');
 });
 
-test('il ruolo user legacy vede le sezioni operative ma non quelle admin', async () => {
+test('il ruolo user legacy viene normalizzato a operatore', async () => {
   ensureValidAccessToken.mockResolvedValue(true);
   apiService.getCurrentUser.mockResolvedValue(LEGACY_OPERATOR);
 
@@ -85,6 +107,33 @@ test('il ruolo user legacy vede le sezioni operative ma non quelle admin', async
   await waitFor(() => {
     expect(screen.getByRole('button', { name: /collaboratori/i })).toBeInTheDocument();
   });
-  expect(screen.queryByRole('button', { name: /enti attuatori/i })).not.toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: /agenti$/i })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /enti attuatori/i })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /agenti$/i })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /template/i })).not.toBeInTheDocument();
+});
+
+test.each([
+  [ADMIN, [
+    'Home', 'Dashboard', 'Calendario', 'Timesheet', 'Documenti', 'Collaboratori',
+    'Allievi', 'Progetti', 'Aziende', 'Catalogo', 'Listini', 'Preventivi', 'Ordini',
+    'Archivio Risorse', 'Enti Attuatori', 'Agents Dashboard', 'Agenti', 'Template',
+  ]],
+  [CANONICAL_OPERATOR, [
+    'Home', 'Dashboard', 'Calendario', 'Timesheet', 'Documenti', 'Collaboratori',
+    'Allievi', 'Progetti', 'Aziende', 'Catalogo', 'Listini', 'Preventivi', 'Ordini',
+    'Archivio Risorse', 'Enti Attuatori', 'Agents Dashboard', 'Agenti',
+  ]],
+  [CONSULTATION_USER, [
+    'Home', 'Dashboard', 'Calendario', 'Documenti', 'Collaboratori', 'Allievi',
+    'Progetti', 'Aziende', 'Catalogo', 'Listini', 'Preventivi', 'Ordini',
+    'Archivio Risorse', 'Enti Attuatori', 'Agents Dashboard', 'Agenti',
+  ]],
+])('la navigazione del ruolo canonico %s rispetta la matrice backend', async (user, expected) => {
+  ensureValidAccessToken.mockResolvedValue(true);
+  apiService.getCurrentUser.mockResolvedValue(user);
+
+  render(<App />);
+
+  await screen.findByText(user.full_name);
+  expect(navigationLabels()).toEqual(expected);
 });

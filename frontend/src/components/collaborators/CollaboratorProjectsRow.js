@@ -1,4 +1,5 @@
 import React from 'react';
+import { isAdminRole } from '../../auth/permissions';
 
 /**
  * Riga espansa che mostra i progetti e le assegnazioni di un collaboratore
@@ -16,7 +17,7 @@ const CollaboratorProjectsRow = ({
   onEditAssignment,
   onDownloadContract
 }) => {
-  const canManageProjectLinks = currentUser?.role === 'admin';
+  const canManageProjectLinks = isAdminRole(currentUser);
 
   // Ottieni assegnazioni per un collaboratore e progetto specifici
   const getAssignmentsForCollaboratorProject = (collaboratorId, projectId) => {
