@@ -642,15 +642,6 @@ function App() {
         <div className="footer-content">
           <p>
             © 2024 Gestionale Collaboratori e Progetti
-            <span className="footer-separator">•</span>
-            <a
-              href="http://localhost:8001/docs"
-              target="_blank"
-              rel="noopener noreferrer"
-              title="Apri la documentazione API"
-            >
-              📚 Documentazione API
-            </a>
           </p>
         </div>
       </footer>

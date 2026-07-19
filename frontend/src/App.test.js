@@ -106,6 +106,21 @@ test('admin autenticato vede la navigazione amministrativa', async () => {
   expect(screen.getByRole('button', { name: /agenti$/i })).toBeInTheDocument();
 });
 
+test('la documentazione tecnica non è esposta nel gestionale operativo', async () => {
+  ensureValidAccessToken.mockResolvedValue(true);
+  apiService.getCurrentUser.mockResolvedValue(ADMIN);
+
+  const { unmount } = render(<App />);
+  await screen.findByText(ADMIN.full_name);
+  expect(screen.queryByRole('link', { name: /documentazione api/i })).not.toBeInTheDocument();
+  unmount();
+
+  apiService.getCurrentUser.mockResolvedValue(CANONICAL_OPERATOR);
+  render(<App />);
+  await screen.findByText(CANONICAL_OPERATOR.full_name);
+  expect(screen.queryByRole('link', { name: /documentazione api/i })).not.toBeInTheDocument();
+});
+
 test('click su Timesheet cambia sezione senza cambiare applicazione', async () => {
   ensureValidAccessToken.mockResolvedValue(true);
   apiService.getCurrentUser.mockResolvedValue(ADMIN);
