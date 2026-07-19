@@ -119,6 +119,17 @@ describe('Dashboard', () => {
     expect(apiService.getSystemMetrics).not.toHaveBeenCalled();
   });
 
+  test('consultazione non chiama il report timesheet riservato', async () => {
+    render(<Dashboard currentUser={{ role: 'consultazione' }} />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/vista di consultazione/i)).toBeInTheDocument();
+    });
+
+    expect(apiService.getTimesheetReport).not.toHaveBeenCalled();
+    expect(apiService.getSystemMetrics).not.toHaveBeenCalled();
+  });
+
   test('segnala template contrattuali mancanti per i tipi usati', async () => {
     apiService.getAssignments.mockResolvedValue([
       {

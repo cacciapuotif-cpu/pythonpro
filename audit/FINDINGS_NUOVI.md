@@ -191,3 +191,33 @@
 - Evidenze e decisioni puntuali: `audit/UI_VERIFICA_REPORT.md`.
 - Stato: aperto; GATE UI non superato. Decidere e correggere i blocker prima
   dell'Ondata M, poi ripetere i flussi e la matrice sui tre ruoli canonici.
+
+## 2026-07-19 | NEW-019 | Dashboard consultazione chiamava reporting admin-only
+
+- Area: frontend / RBAC / Dashboard
+- Severità stimata: alta
+- Emerso durante: GATE UI v2, crawl pagina × ruolo
+- Descrizione: la Dashboard è correttamente visibile a `consultazione`, ma
+  invocava sempre `GET /api/v1/reporting/timesheet`, protetto dal backend per
+  admin/operatore. La pagina restava renderizzata grazie a `Promise.allSettled`,
+  nascondendo un 403 in console e rete.
+- Impatto: integrazione per ruolo incoerente e segnale di errore invisibile
+  all'operatore; il precedente test Dashboard verificava il render, non le
+  chiamate vietate per ruolo.
+- Stato: **chiuso il 2026-07-19** con UI-20; richiesta timesheet omessa per
+  consultazione e test regressione ruolo × chiamata aggiunto.
+
+## 2026-07-19 | NEW-020 | Health check frontend non portabile su hostname pubblico
+
+- Area: frontend / deploy / portabilità
+- Severità stimata: media
+- Emerso durante: GATE UI v2, primo harness Playwright su
+  `host.docker.internal:3001`
+- Descrizione: fuori dai rami localhost e reti IPv4 private, `apiBaseUrl` è
+  `/api/v1`; la chiamata health costruita con lo stesso client axios diventa
+  `/api/v1/health`, mentre il backend espone `/health`. L'accesso locale e LAN
+  attuale usa correttamente backend `:8001` e non è coinvolto.
+- Impatto: un futuro deploy same-origin su hostname pubblico può fermarsi alla
+  schermata di connessione anche con backend sano.
+- Stato: aperto; rendere il health check indipendente dal `baseURL` API o
+  aggiungere un alias esplicito coperto da test di deploy same-origin.

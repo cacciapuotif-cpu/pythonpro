@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import apiService from '../services/apiService';
 import { getAgentCommunications, getAgentSuggestions } from '../services/apiService';
-import { isAdminRole, normalizeRole } from '../auth/permissions';
+import { isAdminRole, normalizeRole, ROLES } from '../auth/permissions';
 import './Dashboard.css';
 
 const formatNumber = (value) => new Intl.NumberFormat('it-IT').format(Number(value || 0));
@@ -181,6 +181,7 @@ const Dashboard = ({ currentUser }) => {
   });
   const isAdmin = isAdminRole(currentUser);
   const canonicalRole = normalizeRole(currentUser);
+  const canReadTimesheet = canonicalRole !== ROLES.CONSULTATION;
 
   const loadDashboard = useCallback(async ({ silent = false } = {}) => {
     setState((previous) => ({
@@ -192,7 +193,7 @@ const Dashboard = ({ currentUser }) => {
 
     const requests = await Promise.allSettled([
       apiService.getSummaryReport(),
-      apiService.getTimesheetReport(),
+      canReadTimesheet ? apiService.getTimesheetReport() : Promise.resolve(null),
       apiService.getCollaborators({}, { limit: 1000 }),
       apiService.getProjects({}, { limit: 1000 }),
       apiService.getAssignments({ limit: 1000 }),
@@ -251,7 +252,7 @@ const Dashboard = ({ currentUser }) => {
         lastUpdatedAt: new Date().toISOString(),
       },
     });
-  }, [isAdmin]);
+  }, [canReadTimesheet, isAdmin]);
 
   useEffect(() => {
     loadDashboard();
