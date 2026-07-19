@@ -245,6 +245,9 @@ function App() {
   }, [restoreSession]);
 
   useEffect(() => {
+    if (window.location.pathname === '/portale-allievi') {
+      return;
+    }
     checkApiConnection();
   }, [checkApiConnection]);
 
@@ -489,6 +492,13 @@ function App() {
   // RENDER PRINCIPALE
   // ==========================================
 
+  // Route pubblica: il magic token è l'unica autenticazione del portale.
+  // Deve precedere health-check, login ERP e qualsiasi route guard gestionale.
+  const isPortaleAllievi = window.location.pathname === '/portale-allievi';
+  if (isPortaleAllievi) {
+    return <PortaleAllievi />;
+  }
+
   // Se stiamo ancora controllando la connessione API
   if (apiStatus === 'checking') {
     return (
@@ -554,8 +564,6 @@ function App() {
 
   const currentSection = availableSections.find((section) => section.id === activeSection) || availableSections[0];
   const navGroups = buildNavGroups(availableSections.filter((section) => !section.hidden));
-  const isPortaleAllievi = window.location.pathname === '/portale-allievi';
-  if (isPortaleAllievi) { return <PortaleAllievi />; }
 
   return (
     <div className="app">

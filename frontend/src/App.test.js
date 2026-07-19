@@ -28,6 +28,7 @@ jest.mock('./components/HomeCockpit', () => ({ onNavigate }) => (
   </div>
 ));
 jest.mock('./components/Calendar', () => () => <div>Calendario test</div>);
+jest.mock('./components/PortaleAllievi', () => () => <div>Portale pubblico test</div>);
 jest.mock('./components/CollaboratorManager', () => () => <div>Collaboratori test</div>);
 jest.mock('./components/ProjectManager', () => ({ initialFilters }) => (
   <div>Progetti test filtro {initialFilters.status || 'all'}</div>
@@ -83,6 +84,15 @@ test('senza sessione mostra i profili di accesso correnti', async () => {
   expect(await screen.findByRole('heading', { name: /accesso al gestionale/i })).toBeInTheDocument();
   expect(screen.getByText('Amministratore', { selector: '.profile-title' })).toBeInTheDocument();
   expect(screen.getByText('Operatore', { selector: '.profile-title' })).toBeInTheDocument();
+});
+
+test('il portale magic-token precede sempre il login ERP', async () => {
+  window.history.replaceState({}, '', '/portale-allievi?token=magic-valido');
+
+  render(<App />);
+
+  expect(await screen.findByText('Portale pubblico test')).toBeInTheDocument();
+  expect(screen.queryByRole('heading', { name: /accesso al gestionale/i })).not.toBeInTheDocument();
 });
 
 test('admin autenticato vede la navigazione amministrativa', async () => {
