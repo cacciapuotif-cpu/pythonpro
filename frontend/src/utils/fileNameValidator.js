@@ -10,7 +10,7 @@
 /**
  * Lista di valori considerati invalidi per nomi di file/cartelle
  */
-const INVALID_VALUES = [
+export const INVALID_VALUES = [
   null,
   undefined,
   '',

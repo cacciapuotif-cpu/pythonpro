@@ -2,7 +2,7 @@ import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import Dashboard from './Dashboard';
-import apiService from '../services/apiService';
+import apiService, { getAgentCommunications, getAgentSuggestions } from '../services/apiService';
 
 jest.mock('../services/apiService', () => ({
   __esModule: true,
@@ -15,6 +15,8 @@ jest.mock('../services/apiService', () => ({
     getContractTemplates: jest.fn(),
     getSystemMetrics: jest.fn(),
   },
+  getAgentSuggestions: jest.fn(),
+  getAgentCommunications: jest.fn(),
 }));
 
 const baseSummary = {
@@ -87,6 +89,8 @@ beforeEach(() => {
       total_requests: 10,
     },
   });
+  getAgentSuggestions.mockResolvedValue([]);
+  getAgentCommunications.mockResolvedValue([]);
 });
 
 describe('Dashboard', () => {
