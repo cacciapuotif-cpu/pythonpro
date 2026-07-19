@@ -1587,7 +1587,15 @@ class OrdineUpdate(BaseModel):
 
 from typing import Literal
 
-TIPO_FONDO = Literal['fondimpresa', 'fonamcom', 'fse', 'regionale', 'altro']
+TIPO_FONDO = Literal[
+    'fondimpresa',
+    'fonamcom',
+    'formazienda',
+    'fapi',
+    'fse',
+    'regionale',
+    'altro',
+]
 STATO_PIANO = Literal['bozza', 'inviato', 'approvato', 'in_corso', 'completato', 'rendicontato', 'chiuso', 'respinto']
 STATO_RENDICONTAZIONE = Literal['bozza', 'in_corso', 'inviato', 'approvato', 'respinto']
 STATO_AVVISO_PIANO = Literal['bozza', 'aperto', 'chiuso', 'rendicontato']
@@ -1681,7 +1689,8 @@ class PianoFinanziarioBase(BaseModel):
     budget_totale: float = Field(ge=0)
     budget_approvato: float = Field(default=0.0, ge=0)
     budget_utilizzato: float = Field(default=0.0, ge=0)
-    budget_rimanente: float = Field(default=0.0, ge=0)
+    # Può essere negativo: rappresenta uno sforamento reale del budget.
+    budget_rimanente: float = 0.0
     data_inizio: datetime
     data_fine: datetime
     data_approvazione: Optional[datetime] = None
@@ -1715,7 +1724,7 @@ class PianoFinanziarioUpdate(BaseModel):
     budget_totale: Optional[float] = Field(default=None, ge=0)
     budget_approvato: Optional[float] = Field(default=None, ge=0)
     budget_utilizzato: Optional[float] = Field(default=None, ge=0)
-    budget_rimanente: Optional[float] = Field(default=None, ge=0)
+    budget_rimanente: Optional[float] = None
     data_inizio: Optional[datetime] = None
     data_fine: Optional[datetime] = None
     data_approvazione: Optional[datetime] = None

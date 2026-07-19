@@ -115,6 +115,57 @@ def base(db_session):
     return collab, project, piano
 
 
+def test_piani_endpoint_serializza_fondi_reali_e_sforamento(client, db_session):
+    """UI-02: i dati legacy validi per ORM non devono causare un 500 di risposta."""
+    start = datetime(2026, 1, 1)
+    end = datetime(2026, 12, 31)
+    projects = [
+        models.Project(name="Piano FAPI reale", status="active", start_date=start, end_date=end),
+        models.Project(name="Piano Formazienda in sforamento", status="active", start_date=start, end_date=end),
+    ]
+    db_session.add_all(projects)
+    db_session.flush()
+    db_session.add_all([
+        models.PianoFinanziario(
+            progetto_id=projects[0].id,
+            anno=2026,
+            ente_erogatore="FAPI",
+            nome="FAPI 2026",
+            tipo_fondo="fapi",
+            budget_totale=10000,
+            budget_approvato=10000,
+            budget_utilizzato=2000,
+            budget_rimanente=8000,
+            data_inizio=start,
+            data_fine=end,
+            stato="in_corso",
+        ),
+        models.PianoFinanziario(
+            progetto_id=projects[1].id,
+            anno=2026,
+            ente_erogatore="Formazienda",
+            nome="Formazienda 2026",
+            tipo_fondo="formazienda",
+            budget_totale=10000,
+            budget_approvato=10000,
+            budget_utilizzato=33899.68,
+            budget_rimanente=-23899.68,
+            data_inizio=start,
+            data_fine=end,
+            stato="in_corso",
+        ),
+    ])
+    db_session.commit()
+
+    response = client.get("/api/v1/piani-finanziari/")
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert {item["tipo_fondo"] for item in payload} >= {"fapi", "formazienda"}
+    legacy = next(item for item in payload if item["tipo_fondo"] == "formazienda")
+    assert legacy["budget_rimanente"] == pytest.approx(-23899.68)
+
+
 def assignment_payload(collab, project, rate, role="Docenza", hours=10.0):
     return {
         "collaborator_id": collab.id,
