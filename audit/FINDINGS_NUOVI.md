@@ -226,3 +226,41 @@
   schermata di connessione anche con backend sano.
 - Stato: aperto; rendere il health check indipendente dal `baseURL` API o
   aggiungere un alias esplicito coperto da test di deploy same-origin.
+
+## 2026-07-19 | NEW-021 | Accept umano rotto per suggerimenti non-collaboratore (contract_ready)
+
+- Area: agenti / workflow review umana
+- Severità stimata: alta
+- Emerso durante: Task E2.1, test E2E catena contratto
+  (`backend/tests/test_e2e_catena_contratto.py::test_catena_contratto_completa`)
+- Descrizione: `POST /api/v1/agents/suggestions/{id}/accept` (endpoint
+  primario per l'"apply umano" di una proposta agente) normalizza qualunque
+  azione di accettazione in `approve_email` e in `agent_workflows.
+  apply_workflow_action` richiede sempre un `AgentCommunicationDraft` per il
+  canale selezionato. I draft vengono creati solo per suggerimenti con
+  `entity_type == "collaborator"` (`_ensure_collaborator_draft`). Il
+  `contract_agent` produce però suggerimenti `contract_ready` con
+  `entity_type == "assignment"`: per queste, `draft` resta sempre `None` e
+  l'endpoint risponde **400 "Nessuna comunicazione email disponibile per
+  questo suggerimento"** — nessun umano può mai accettare la proposta tramite
+  il canale ufficiale.
+- Riprodotto (RED): flusso completo — anagrafica → progetto/assegnazione →
+  documenti obbligatori → upload+valida → trigger reale contract_agent →
+  `POST .../accept` → 400.
+- Impatto: la catena "review umana → generazione contratto" documentata come
+  canonica nel flusso agenti è di fatto irraggiungibile per il contract_agent
+  (e per qualunque futuro agente con `entity_type` diverso da `collaborator`).
+- Fix applicato (minimo, stesso commit E2 separato `fix(E2)`):
+  `backend/agent_workflows.py::apply_workflow_action` — quando l'azione è
+  `approve` e non esiste (né può esistere) un draft perché
+  `suggestion.entity_type != "collaborator"`, l'accettazione diventa una
+  conferma di stato diretta (`status="approved"` + `_review_log` +
+  `create_audit_log`), senza tentare invio email/whatsapp. Il comportamento
+  per i suggerimenti di comunicazione (`entity_type == "collaborator"`) non è
+  cambiato.
+- Verifica: `test_catena_contratto_completa` passa RED→GREEN dopo il fix;
+  suite `test_agents_e2e.py`, `test_agents_registry_workflow.py`,
+  `test_agent_audit_fixes.py`, `test_email_agent.py`,
+  `test_inbox_reply_draft.py`, `test_agent_no_autosend.py` invariate (verde).
+- Stato: **chiuso il 2026-07-19** nell'ambito del Task E2.1.
+

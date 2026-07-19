@@ -744,6 +744,33 @@ def apply_workflow_action(
 
     if normalized_action in {"approve", "remind"}:
         if draft is None:
+            if normalized_action == "approve" and suggestion.entity_type != "collaborator":
+                # NEW-021: suggerimenti non basati su comunicazione
+                # collaboratore (es. contract_ready su entity_type=assignment)
+                # non hanno mai un draft email/whatsapp — _ensure_collaborator_draft
+                # ritorna None per costruzione. "approve" qui e' una conferma
+                # operativa diretta dell'umano, non un invio.
+                suggestion.status = "approved"
+                suggestion.reviewed_at = utc_now()
+                suggestion.reviewed_by_user_id = reviewed_by_user_id
+                _review_log(
+                    db,
+                    suggestion_id=suggestion.id,
+                    action="approved",
+                    notes=notes,
+                    reviewed_by_user_id=reviewed_by_user_id,
+                )
+                create_audit_log(
+                    db,
+                    entity="agent_suggestion",
+                    action=f"workflow_{action}",
+                    old_value={"suggestion_id": suggestion.id, "status": old_status},
+                    new_value={"suggestion_id": suggestion.id, "status": suggestion.status, "notes": notes},
+                    user_id=reviewed_by_user_id,
+                )
+                db.commit()
+                db.refresh(suggestion)
+                return suggestion
             raise ValueError(f"Nessuna comunicazione {selected_channel} disponibile per questo suggerimento")
         sent_ok, detail, delivery_meta = _deliver_draft(draft)
         meta = _parse_json_payload(draft.meta_payload)
