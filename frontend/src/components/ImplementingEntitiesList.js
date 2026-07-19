@@ -12,7 +12,7 @@
 import React, { useState } from 'react';
 import { useImplementingEntities, useNotifications } from '../hooks/useEntity';
 import ImplementingEntityModal from './ImplementingEntityModal';
-import { normalizeRole } from '../auth/permissions';
+import { canPerform, normalizeRole } from '../auth/permissions';
 import './ImplementingEntitiesList.css';
 
 const ROLE_EXPERIENCE = {
@@ -50,6 +50,7 @@ const ImplementingEntitiesList = ({ currentUser }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [activeFilter, setActiveFilter] = useState('all'); // 'all', 'active', 'inactive'
   const roleExperience = ROLE_EXPERIENCE[normalizeRole(currentUser)];
+  const canWriteEntities = canPerform(currentUser, 'WRITE_ENTITIES');
 
   // ==========================================
   // GESTIONE ENTI
@@ -189,9 +190,9 @@ const ImplementingEntitiesList = ({ currentUser }) => {
             <p>{roleExperience.summary}</p>
           </div>
         </div>
-        <button className="btn-primary" onClick={handleCreateNew}>
+        {canWriteEntities ? <button className="btn-primary" onClick={handleCreateNew}>
           ➕ Nuovo Ente Attuatore
-        </button>
+        </button> : null}
       </div>
 
       {/* MESSAGGI DI FEEDBACK */}
@@ -264,7 +265,7 @@ const ImplementingEntitiesList = ({ currentUser }) => {
               ? 'Prova a modificare i criteri di ricerca'
               : 'Inizia aggiungendo il tuo primo ente attuatore'}
           </p>
-          {!searchTerm && (
+          {!searchTerm && canWriteEntities && (
             <button className="btn-primary" onClick={handleCreateNew}>
               ➕ Aggiungi Primo Ente
             </button>
@@ -327,7 +328,7 @@ const ImplementingEntitiesList = ({ currentUser }) => {
               </div>
 
               {/* Azioni */}
-              <div className="entity-actions">
+              {canWriteEntities ? <div className="entity-actions">
                 <button
                   className="btn-secondary"
                   onClick={() => handleEdit(entity)}
@@ -344,7 +345,7 @@ const ImplementingEntitiesList = ({ currentUser }) => {
                     🗑️ Disattiva
                   </button>
                 )}
-              </div>
+              </div> : null}
             </div>
           ))}
         </div>

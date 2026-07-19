@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { getAgentSuggestions, getCollaboratorsPaginated } from '../../services/apiService';
 import CollaboratorProjectsRow from './CollaboratorProjectsRow';
-import { isAdminRole } from '../../auth/permissions';
+import { canPerform } from '../../auth/permissions';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -140,7 +140,8 @@ const CollaboratorsTable = ({
   onDownloadContract,
   refreshTrigger,
 }) => {
-  const canDeleteCollaborators = isAdminRole(currentUser);
+  const canWriteCollaborators = canPerform(currentUser, 'WRITE_COLLABORATORS');
+  const canManageProjectLinks = canPerform(currentUser, 'MANAGE_PROJECT_LINKS');
 
   // ── State ────────────────────────────────────────────────────────────────
   const [filters, setFilters] = useState(filtersFromURL);
@@ -365,7 +366,8 @@ const CollaboratorsTable = ({
           onEdit={onEdit}
           onOpenAssignmentModal={onOpenAssignmentModal}
           onDelete={onDelete}
-          canDelete={canDeleteCollaborators}
+          canWrite={canWriteCollaborators}
+          canManageProjectLinks={canManageProjectLinks}
           agentQueueByCollaborator={agentQueueByCollaborator}
         />
       ) : (
@@ -376,7 +378,8 @@ const CollaboratorsTable = ({
           currentUser={currentUser}
           filters={filters}
           expandedRows={expandedRows}
-          canDelete={canDeleteCollaborators}
+          canWrite={canWriteCollaborators}
+          canManageProjectLinks={canManageProjectLinks}
           onEdit={onEdit}
           onDelete={onDelete}
           onOpenDocuments={onOpenDocuments}
@@ -417,7 +420,7 @@ const CollaboratorsTable = ({
 // ─────────────────────────────────────────────────────────────────────────────
 // Card View
 // ─────────────────────────────────────────────────────────────────────────────
-const CardView = ({ items, currentUser, onEdit, onOpenAssignmentModal, onDelete, canDelete, agentQueueByCollaborator }) => (
+const CardView = ({ items, currentUser, onEdit, onOpenAssignmentModal, onDelete, canWrite, canManageProjectLinks, agentQueueByCollaborator }) => (
   <div className="collab-card-grid">
     {items.map(c => {
       const activeProjects = (c.projects || []).filter(p => p.status === 'active');
@@ -446,9 +449,9 @@ const CardView = ({ items, currentUser, onEdit, onOpenAssignmentModal, onDelete,
             {c.phone && (
               <a href={`tel:${c.phone}`} className="btn-sm btn-icon" title="Chiama">📞</a>
             )}
-            <button className="btn-sm btn-secondary" onClick={() => onEdit(c)}>Modifica</button>
-            <button className="btn-sm btn-primary" onClick={() => onOpenAssignmentModal(c)}>+ Assegna</button>
-            {canDelete && (
+            {canWrite ? <button className="btn-sm btn-secondary" onClick={() => onEdit(c)}>Modifica</button> : null}
+            {canManageProjectLinks ? <button className="btn-sm btn-primary" onClick={() => onOpenAssignmentModal(c)}>+ Assegna</button> : null}
+            {canWrite && (
               <button className="btn-sm btn-danger" onClick={() => onDelete(c.id)}>🗑</button>
             )}
           </div>
@@ -463,7 +466,7 @@ const CardView = ({ items, currentUser, onEdit, onOpenAssignmentModal, onDelete,
 // ─────────────────────────────────────────────────────────────────────────────
 const ListView = ({
   items, projects, assignments, currentUser, filters, expandedRows,
-  canDelete, onEdit, onDelete, onOpenDocuments, onOpenAssignmentModal, onAssignProject,
+  canWrite, canManageProjectLinks, onEdit, onDelete, onOpenDocuments, onOpenAssignmentModal, onAssignProject,
   onRemoveProject, onEditAssignment, onDownloadContract, agentQueueByCollaborator,
   toggleSort, toggleRowExpansion, SortIcon
 }) => (
@@ -532,10 +535,9 @@ const ListView = ({
                 </td>
                 <td className="actions-cell">
                   <button className="action-btn assign-btn" onClick={() => onOpenDocuments(c)} title="Documenti">📄</button>
-                  <button className="action-btn edit-btn" onClick={() => onEdit(c)}>✏️</button>
-                  <button className="action-btn assign-btn" onClick={() => onOpenAssignmentModal(c)}>➕</button>
-                  <button className="action-btn delete-btn" onClick={() => onDelete(c.id)}
-                    disabled={!canDelete} title={canDelete ? 'Elimina' : 'Solo admin'}>🗑️</button>
+                  {canWrite ? <button className="action-btn edit-btn" onClick={() => onEdit(c)} title="Modifica">✏️</button> : null}
+                  {canManageProjectLinks ? <button className="action-btn assign-btn" onClick={() => onOpenAssignmentModal(c)} title="Assegna">➕</button> : null}
+                  {canWrite ? <button className="action-btn delete-btn" onClick={() => onDelete(c.id)} title="Elimina">🗑️</button> : null}
                 </td>
               </tr>
               {isExpanded && (

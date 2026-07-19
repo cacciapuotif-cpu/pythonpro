@@ -34,7 +34,8 @@ const AttendanceModal = ({
   attendance,       // Presenza esistente (null per nuova presenza)
   selectedSlot,     // Slot selezionato per nuova presenza
   collaborators,    // Lista di tutti i collaboratori
-  projects         // Lista di tutti i progetti
+  projects,        // Lista di tutti i progetti
+  readOnly = false
 }) => {
   // ==========================================
   // STATE MANAGEMENT - Dati del form
@@ -457,7 +458,7 @@ const AttendanceModal = ({
           <button
             className="close-button"
             onClick={handleClose}
-            disabled={loading}
+            disabled={loading || readOnly}
           >
             ✕
           </button>
@@ -485,7 +486,7 @@ const AttendanceModal = ({
                 value={formData.collaborator_id}
                 onChange={handleInputChange}
                 className={errors.collaborator_id ? 'error' : ''}
-                disabled={loading}
+                disabled={loading || readOnly}
               >
                 <option value="">Seleziona collaboratore...</option>
                 {[...collaborators].sort((a, b) => (a.last_name || '').localeCompare(b.last_name || '', 'it')).map(collaborator => (
@@ -510,7 +511,7 @@ const AttendanceModal = ({
                 value={formData.project_id}
                 onChange={handleInputChange}
                 className={errors.project_id ? 'error' : ''}
-                disabled={loading}
+                disabled={loading || readOnly}
               >
                 <option value="">Seleziona progetto...</option>
                 {projects.map(project => (
@@ -535,7 +536,7 @@ const AttendanceModal = ({
                 value={formData.assignment_id}
                 onChange={handleInputChange}
                 className={errors.assignment_id ? 'error' : ''}
-                disabled={loading || !formData.collaborator_id || !formData.project_id}
+                disabled={loading || readOnly || !formData.collaborator_id || !formData.project_id}
               >
                 <option value="">Seleziona mansione...</option>
                 {filteredAssignments.map(assignment => {
@@ -574,7 +575,7 @@ const AttendanceModal = ({
                 value={formData.date}
                 onChange={handleInputChange}
                 className={errors.date ? 'error' : ''}
-                disabled={loading}
+                disabled={loading || readOnly}
               />
               {errors.date && (
                 <span className="field-error">{errors.date}</span>
@@ -593,7 +594,7 @@ const AttendanceModal = ({
                 value={formData.start_time}
                 onChange={handleInputChange}
                 className={errors.start_time ? 'error' : ''}
-                disabled={loading}
+                disabled={loading || readOnly}
               />
               {errors.start_time && (
                 <span className="field-error">{errors.start_time}</span>
@@ -612,7 +613,7 @@ const AttendanceModal = ({
                 value={formData.end_time}
                 onChange={handleInputChange}
                 className={errors.end_time ? 'error' : ''}
-                disabled={loading}
+                disabled={loading || readOnly}
               />
               {errors.end_time && (
                 <span className="field-error">{errors.end_time}</span>
@@ -632,7 +633,7 @@ const AttendanceModal = ({
                 max="24"
                 onChange={handleInputChange}
                 className={errors.hours ? 'error' : ''}
-                disabled={loading}
+                disabled={loading || readOnly}
               />
               {errors.hours && (
                 <span className="field-error">{errors.hours}</span>
@@ -661,7 +662,7 @@ const AttendanceModal = ({
         {/* FOOTER DEL MODAL CON I PULSANTI */}
         <div className="modal-footer">
           {/* PULSANTE ELIMINA (solo se stiamo modificando) */}
-          {attendance && !showDeleteConfirm && (
+          {attendance && !readOnly && !showDeleteConfirm && (
             <button
               className="delete-button"
               onClick={() => setShowDeleteConfirm(true)}
@@ -687,7 +688,7 @@ const AttendanceModal = ({
                 onClick={() => setShowDeleteConfirm(false)}
                 disabled={loading}
               >
-                Annulla
+                {readOnly ? 'Chiudi' : 'Annulla'}
               </button>
             </div>
           )}
@@ -695,13 +696,13 @@ const AttendanceModal = ({
           {/* PULSANTI PRINCIPALI */}
           {!showDeleteConfirm && (
             <div className="main-buttons">
-              <button
+              {!readOnly ? <button
                 className="cancel-button"
                 onClick={handleClose}
                 disabled={loading}
               >
                 Annulla
-              </button>
+              </button> : null}
               <button
                 className="save-button"
                 onClick={handleSave}

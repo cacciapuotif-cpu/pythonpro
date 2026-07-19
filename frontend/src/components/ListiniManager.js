@@ -4,6 +4,7 @@ import {
   getVociListino, addVoceListino, updateVoceListino, deleteVoceListino,
   getProdotti,
 } from '../services/apiService';
+import { canPerform } from '../auth/permissions';
 import './ListiniManager.css';
 
 const TIPI_CLIENTE = ['standard', 'apprendistato', 'finanziato', 'gratis'];
@@ -17,7 +18,8 @@ const fmt = (n) => n != null
 const EMPTY_LISTINO = { nome: '', descrizione: '', tipo_cliente: 'standard', attivo: true };
 const EMPTY_VOCE = { prodotto_id: '', prezzo_override: '', sconto_percentuale: '0', note: '' };
 
-export default function ListiniManager() {
+export default function ListiniManager({ currentUser }) {
+  const canWrite = canPerform(currentUser, 'WRITE_LISTINI');
   const [listini, setListini] = useState([]);
   const [prodotti, setProdotti] = useState([]);
   const [selected, setSelected] = useState(null);   // listino attivo nel pannello voci
@@ -196,7 +198,7 @@ export default function ListiniManager() {
         <aside className="listini-sidebar">
           <div className="sidebar-header">
             <h2>Listini</h2>
-            <button className="btn-primary btn-sm" onClick={openCreate}>+ Nuovo</button>
+            {canWrite ? <button className="btn-primary btn-sm" onClick={openCreate}>+ Nuovo</button> : null}
           </div>
 
           <div className="sidebar-filters">
@@ -225,8 +227,8 @@ export default function ListiniManager() {
                   {l.descrizione && <div className="listino-desc">{l.descrizione}</div>}
                   {!l.attivo && <span className="badge badge-inactive">Inattivo</span>}
                   <div className="listino-item-actions" onClick={e => e.stopPropagation()}>
-                    <button className="btn-xs" onClick={() => openEdit(l)}>✏️</button>
-                    {l.attivo && <button className="btn-xs btn-xs-danger" onClick={() => handleDeleteListino(l)}>🗑</button>}
+                    {canWrite ? <button className="btn-xs" onClick={() => openEdit(l)}>✏️</button> : null}
+                    {canWrite && l.attivo && <button className="btn-xs btn-xs-danger" onClick={() => handleDeleteListino(l)}>🗑</button>}
                   </div>
                 </li>
               ))}
@@ -250,9 +252,9 @@ export default function ListiniManager() {
                     {TIPO_LABELS[selected.tipo_cliente]} — {voci.length} prodott{voci.length === 1 ? 'o' : 'i'}
                   </span>
                 </div>
-                <button className="btn-primary" onClick={openNewVoce} disabled={prodottiDisponibili.length === 0}>
+                {canWrite ? <button className="btn-primary" onClick={openNewVoce} disabled={prodottiDisponibili.length === 0}>
                   + Aggiungi prodotto
-                </button>
+                </button> : null}
               </div>
 
               {/* ── Form aggiunta/modifica voce ── */}
@@ -340,8 +342,8 @@ export default function ListiniManager() {
                           <td><strong className="prezzo-finale-cell">{fmt(v.prezzo_finale)}</strong></td>
                           <td>{v.note || <span className="text-muted">—</span>}</td>
                           <td className="action-cell">
-                            <button className="btn-sm btn-secondary" onClick={() => openEditVoce(v)}>Modifica</button>
-                            <button className="btn-sm btn-danger" onClick={() => handleDeleteVoce(v.id)}>Rimuovi</button>
+                            {canWrite ? <button className="btn-sm btn-secondary" onClick={() => openEditVoce(v)}>Modifica</button> : null}
+                            {canWrite ? <button className="btn-sm btn-danger" onClick={() => handleDeleteVoce(v.id)}>Rimuovi</button> : null}
                           </td>
                         </tr>
                       ))}

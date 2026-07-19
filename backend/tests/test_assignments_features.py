@@ -10,6 +10,7 @@ from database import Base, get_db
 from auth import get_current_user
 from main import app
 import models  # noqa: F401
+import auth
 
 
 if "users" not in Base.metadata.tables:
@@ -146,3 +147,42 @@ def test_cross_resource_assign_route_has_api_v1_alias():
     assert "/api/v1/collaborators/{collaborator_id}/projects/{project_id}" in paths
     # Il path storico a radice resta per compatibilità
     assert "/collaborators/{collaborator_id}/projects/{project_id}" in paths
+
+
+def test_cross_resource_links_enforce_role_for_canonical_consultation(client, monkeypatch):
+    """UI-09: la consultazione non deve mutare collegamenti neppure via alias."""
+    collaborator_response = client.post("/api/v1/collaborators/", json={
+        "first_name": "Ruolo", "last_name": "Consultazione", "email": "rbac.links@gmail.com",
+        "phone": "1234567890", "position": "Docente", "fiscal_code": "RSSMRA80A01H501Z",
+    })
+    project_response = client.post("/api/v1/projects/", json={
+        "name": "RBAC links", "status": "active",
+    })
+    assert collaborator_response.status_code == 200, collaborator_response.text
+    assert project_response.status_code == 200, project_response.text
+    collaborator = collaborator_response.json()
+    project = project_response.json()
+    urls = [
+        f"/api/v1/collaborators/{collaborator['id']}/projects/{project['id']}",
+        f"/collaborators/{collaborator['id']}/projects/{project['id']}",
+    ]
+
+    monkeypatch.setattr(auth, "RBAC_ENFORCE", True)
+    app.dependency_overrides[get_current_user] = lambda: type(
+        "ConsultationUser", (), {
+            "id": 3, "username": "ui_consultazione", "role": "consultazione", "is_active": True,
+        }
+    )()
+
+    for url in urls:
+        assert client.post(url).status_code == 403
+        assert client.delete(url).status_code == 403
+
+    app.dependency_overrides[get_current_user] = lambda: type(
+        "OperatorUser", (), {
+            "id": 2, "username": "ui_operatore", "role": "operatore", "is_active": True,
+        }
+    )()
+    for url in urls:
+        assert client.post(url).status_code == 200
+        assert client.delete(url).status_code == 200

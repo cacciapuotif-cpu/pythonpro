@@ -338,7 +338,7 @@ def read_collaborators_with_projects(
 def assign_collaborator_to_project(
     collaborator_id: int,
     project_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_role),
     db: Session = Depends(get_db)
 ):
     """ASSEGNA UN COLLABORATORE AD UN PROGETTO"""
@@ -353,7 +353,7 @@ def assign_collaborator_to_project(
 def remove_collaborator_from_project(
     collaborator_id: int,
     project_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_role),
     db: Session = Depends(get_db)
 ):
     """RIMUOVI UN COLLABORATORE DA UN PROGETTO"""

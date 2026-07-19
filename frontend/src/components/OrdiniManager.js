@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { deleteOrdine, getOrdini, updateOrdine } from '../services/apiService';
+import { canPerform } from '../auth/permissions';
 import './OrdiniManager.css';
 
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString('it-IT') : '—';
@@ -19,7 +20,8 @@ const StatoBadge = ({ stato }) => {
   );
 };
 
-export default function OrdiniManager() {
+export default function OrdiniManager({ currentUser }) {
+  const canWrite = canPerform(currentUser, 'WRITE_ORDINI');
   const [ordini, setOrdini] = useState([]);
   const [total, setTotal] = useState(0);
   const [filters, setFilters] = useState({ search: '', stato: '', page: 1, limit: 20 });
@@ -129,11 +131,11 @@ export default function OrdiniManager() {
                   <td className="muted note-cell">{o.note || '—'}</td>
                   <td>
                     <div className="row-actions">
-                      {o.stato === 'in_lavorazione' && (
+                      {canWrite && o.stato === 'in_lavorazione' && (
                         <button className="btn-sm btn-success"
                           onClick={() => handleUpdateStato(o, 'completato')}>Completa</button>
                       )}
-                      {o.stato === 'in_lavorazione' && (
+                      {canWrite && o.stato === 'in_lavorazione' && (
                         <button className="btn-sm btn-danger"
                           onClick={() => handleDelete(o.id)}>Annulla</button>
                       )}

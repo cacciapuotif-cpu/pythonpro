@@ -14,7 +14,7 @@ import { useProjects, useImplementingEntities, useCollaborators, useNotification
 import { getAziendeClienti, getAllievi, getProjectBeneficiari, getProjectModuliFormativi, updateProjectBeneficiarioRegime } from '../services/apiService';
 import { FapiUploadSection } from './FapiUpload';
 import AssignmentModal from './AssignmentModal';
-import { isAdminRole, normalizeRole } from '../auth/permissions';
+import { canPerform, normalizeRole } from '../auth/permissions';
 import './ProjectManager.css';
 
 const ROLE_EXPERIENCE = {
@@ -193,7 +193,7 @@ const ProjectManager = ({ currentUser }) => {
   const { data: allEntities, loading: loadingEntities } = useImplementingEntities();
   const { data: collaborators } = useCollaborators();
   const { showSuccess, showError } = useNotifications();
-  const isAdmin = isAdminRole(currentUser);
+  const canWriteProjects = canPerform(currentUser, 'WRITE_PROJECTS');
   const roleExperience = ROLE_EXPERIENCE[normalizeRole(currentUser)];
 
   // Filtra solo enti attivi per il dropdown
@@ -671,7 +671,7 @@ const ProjectManager = ({ currentUser }) => {
   const availableAllievi = allievoOptions.filter(
     (allievo) => !formData.allievo_ids.includes(Number(allievo.id))
   );
-  const showCreateAction = isAdmin || editingId !== null;
+  const showCreateAction = canWriteProjects;
 
   const goToStep = (index) => {
     if (index < 0 || index >= PROJECT_FORM_STEPS.length) {
@@ -1185,7 +1185,7 @@ const ProjectManager = ({ currentUser }) => {
                       className="submit-button"
                       disabled={loading}
                     >
-                      {loading ? '⏳ Salvando...' : (editingId ? '✏️ Aggiorna' : isAdmin ? '➕ Crea Progetto' : '✏️ Aggiorna Progetto')}
+                      {loading ? '⏳ Salvando...' : (editingId ? '✏️ Aggiorna' : '➕ Crea Progetto')}
                     </button>
                   )}
                 </div>
@@ -1213,9 +1213,9 @@ const ProjectManager = ({ currentUser }) => {
         </div>
       </div>
 
-      {!isAdmin ? (
+      {!canWriteProjects ? (
         <div className="project-ops-note">
-          Le azioni strutturali su creazione ed eliminazione progetto sono riservate agli admin. Da qui puoi comunque presidiare stato, date, ente attuatore e dati di delivery.
+          Profilo in sola consultazione: puoi leggere stato, date, ente attuatore e dati di delivery senza modificarli.
         </div>
       ) : null}
 
@@ -1297,22 +1297,20 @@ const ProjectManager = ({ currentUser }) => {
                     </span>
                   </div>
                   <div className="card-actions">
-                    <button
+                    {canWriteProjects ? <button
                       onClick={() => startEdit(project)}
                       className="edit-button"
                       title="Modifica progetto"
                     >
                       ✏️
-                    </button>
-                    <button
+                    </button> : null}
+                    {canWriteProjects ? <button
                       onClick={() => setDeleteConfirm(project.id)}
                       className="delete-button"
                       title="Elimina progetto"
-                      hidden={!isAdmin}
-                      disabled={!isAdmin}
                     >
                       🗑️
-                    </button>
+                    </button> : null}
                   </div>
                 </div>
 
@@ -1443,7 +1441,7 @@ const ProjectManager = ({ currentUser }) => {
                       Aziende Beneficiarie
                     </button>
                   </div>
-                  {(project.codice_fapi || project.ente_erogatore === 'FAPI') && (
+                  {canWriteProjects && (project.codice_fapi || project.ente_erogatore === 'FAPI') && (
                     <div className="stat">
                       <button
                         onClick={() => setAssignmentProject(project)}
@@ -1482,7 +1480,7 @@ const ProjectManager = ({ currentUser }) => {
                                 <td style={{ padding: '4px 8px' }}>
                                   <select
                                     value={regimeByBeneficiario[key] ?? (b.regime_aiuto || 'non_definito')}
-                                    disabled={regimeSaving[key]}
+                                    disabled={!canWriteProjects || regimeSaving[key]}
                                     onChange={e => setRegimeByBeneficiario(prev => ({ ...prev, [key]: e.target.value }))}
                                     style={{ fontSize: '12px', padding: '2px 6px', borderRadius: '4px', border: '0.5px solid var(--color-border-secondary)' }}
                                   >
@@ -1497,20 +1495,20 @@ const ProjectManager = ({ currentUser }) => {
                                     min="0"
                                     step="1000"
                                     value={plafondByBeneficiario[key] ?? (b.plafond_dichiarato != null ? String(b.plafond_dichiarato) : '')}
-                                    disabled={regimeSaving[key]}
+                                    disabled={!canWriteProjects || regimeSaving[key]}
                                     onChange={e => setPlafondByBeneficiario(prev => ({ ...prev, [key]: e.target.value }))}
                                     placeholder="es. 200000"
                                     style={{ fontSize: '12px', padding: '2px 6px', borderRadius: '4px', border: '0.5px solid var(--color-border-secondary)', width: '110px' }}
                                   />
                                 </td>
                                 <td style={{ padding: '4px 8px' }}>
-                                  <button
+                                  {canWriteProjects ? <button
                                     onClick={() => handleSaveRegime(project.id, b.azienda_id)}
                                     disabled={regimeSaving[key]}
                                     style={{ fontSize: '11px', padding: '2px 10px', borderRadius: '4px', border: 'none', background: 'var(--color-accent)', color: 'white', cursor: regimeSaving[key] ? 'not-allowed' : 'pointer' }}
                                   >
                                     {regimeSaving[key] ? '...' : 'Salva'}
-                                  </button>
+                                  </button> : null}
                                 </td>
                               </tr>
                             );
@@ -1565,7 +1563,7 @@ const ProjectManager = ({ currentUser }) => {
               <button
                 onClick={() => handleDelete(deleteConfirm)}
                 className="delete-button"
-                disabled={!isAdmin}
+                disabled={!canWriteProjects}
               >
                 🗑️ Elimina
               </button>

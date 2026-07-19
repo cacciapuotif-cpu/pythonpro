@@ -299,7 +299,7 @@ function App() {
   const renderActiveSection = () => {
     switch (activeSection) {
       case 'calendar':
-        return <Calendar />;
+        return <Calendar currentUser={currentUser} />;
 
       case 'collaborators':
         return <CollaboratorManager currentUser={currentUser} />;
@@ -323,10 +323,10 @@ function App() {
         return <ResourceArchive currentUser={currentUser} onReviewSuggestions={navigateToAvvisoReview} />;
 
       case 'timesheet':
-        return <TimesheetView />;
+        return <TimesheetView currentUser={currentUser} />;
 
       case 'documenti-mancanti':
-        return <DocumentiMancanti />;
+        return <DocumentiMancanti currentUser={currentUser} />;
 
       case 'templates':
         return <ContractTemplatesManager />;
@@ -343,16 +343,16 @@ function App() {
         return <AziendeClientiManager currentUser={currentUser} />;
 
       case 'catalogo':
-        return <CatalogoManager />;
+        return <CatalogoManager currentUser={currentUser} />;
 
       case 'listini':
-        return <ListiniManager />;
+        return <ListiniManager currentUser={currentUser} />;
 
       case 'preventivi':
-        return <PreventiviManager />;
+        return <PreventiviManager currentUser={currentUser} />;
 
       case 'ordini':
-        return <OrdiniManager />;
+        return <OrdiniManager currentUser={currentUser} />;
 
       default:
         return <Calendar />;
@@ -604,7 +604,7 @@ function App() {
   );
 }
 
-const TimesheetView = () => {
+const TimesheetView = ({ currentUser }) => {
   const [activeTab, setActiveTab] = React.useState('report');
   const [selectedProjectId, setSelectedProjectId] = React.useState('');
 
@@ -641,7 +641,7 @@ const TimesheetView = () => {
         </button>
       </div>
 
-      {activeTab === 'report' && <TimesheetReport />}
+      {activeTab === 'report' && <TimesheetReport currentUser={currentUser} />}
 
       {activeTab === 'pdf' && (
         <div>

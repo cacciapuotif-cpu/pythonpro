@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { getAgentsCatalog, getAgentRuns, runAgentByType } from '../services/apiService';
+import { canPerform } from '../auth/permissions';
 
-const AgentsDashboard = () => {
+const AgentsDashboard = ({ currentUser }) => {
   const [agents, setAgents] = useState([]);
   const [runs, setRuns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [runningAgent, setRunningAgent] = useState(null);
+  const canRunAgents = canPerform(currentUser, 'RUN_AGENTS');
 
   const loadData = useCallback(async () => {
     try {
@@ -93,13 +95,13 @@ const AgentsDashboard = () => {
                   <span className="text-xs text-gray-400">v{agent.version || '1.0'}</span>
                 </div>
                 <p className="text-sm text-gray-600 mb-3">{agent.description}</p>
-                <button
+                {canRunAgents ? <button
                   onClick={() => runAgent(agent.name || agent.agent_type)}
                   disabled={runningAgent === (agent.name || agent.agent_type)}
                   className="w-full px-3 py-1.5 bg-blue-500 text-white text-sm rounded hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {runningAgent === (agent.name || agent.agent_type) ? 'In esecuzione...' : 'Esegui'}
-                </button>
+                </button> : null}
               </div>
             ))}
           </div>

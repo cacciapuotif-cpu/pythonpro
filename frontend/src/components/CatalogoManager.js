@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   getProdotti, createProdotto, updateProdotto, deleteProdotto
 } from '../services/apiService';
+import { canPerform } from '../auth/permissions';
 import './CatalogoManager.css';
 
 const TIPI = ['apprendistato', 'tirocinio', 'formazione', 'altro'];
@@ -21,7 +22,8 @@ const EMPTY_FORM = {
 
 const fmt = (n) => new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(n);
 
-export default function CatalogoManager() {
+export default function CatalogoManager({ currentUser }) {
+  const canWrite = canPerform(currentUser, 'WRITE_CATALOGO');
   const [prodotti, setProdotti] = useState([]);
   const [total, setTotal] = useState(0);
   const [filters, setFilters] = useState({ search: '', tipo: '', attivo: '' });
@@ -107,7 +109,7 @@ export default function CatalogoManager() {
           <h2>Catalogo Prodotti / Servizi</h2>
           <span className="count-badge">{total} prodotti</span>
         </div>
-        <button className="btn-primary" onClick={openCreate}>+ Nuovo Prodotto</button>
+        {canWrite ? <button className="btn-primary" onClick={openCreate}>+ Nuovo Prodotto</button> : null}
       </div>
 
       {success && <div className="toast toast-success">{success}</div>}
@@ -156,8 +158,8 @@ export default function CatalogoManager() {
                         <span className="price-unit">/{p.unita_misura || 'ora'}</span>
                       </div>
                       <div className="prodotto-actions">
-                        <button className="btn-sm btn-secondary" onClick={() => openEdit(p)}>Modifica</button>
-                        {p.attivo && <button className="btn-sm btn-danger" onClick={() => handleDelete(p)}>Disattiva</button>}
+                        {canWrite ? <button className="btn-sm btn-secondary" onClick={() => openEdit(p)}>Modifica</button> : null}
+                        {canWrite && p.attivo && <button className="btn-sm btn-danger" onClick={() => handleDelete(p)}>Disattiva</button>}
                       </div>
                     </div>
                   ))}

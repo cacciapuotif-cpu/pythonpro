@@ -17,6 +17,7 @@ import { useAppContext } from '../context/AppContext';
 import AttendanceModal from './AttendanceModal';
 import LoadingSpinner from './LoadingSpinner';
 import ErrorBoundary from './ErrorBoundary';
+import { canPerform } from '../auth/permissions';
 import './Calendar.css';
 
 // CONFIGURAZIONE LOCALE ITALIANA
@@ -62,7 +63,7 @@ const messages = {
 /**
  * COMPONENTE CALENDARIO OTTIMIZZATO
  */
-const Calendar = memo(() => {
+const Calendar = memo(({ currentUser }) => {
   const {
     state,
     fetchEntity,
@@ -79,6 +80,7 @@ const Calendar = memo(() => {
   const [currentView, setCurrentView] = useState('month');
   const [currentDate, setCurrentDate] = useState(new Date());
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const canWriteAttendances = canPerform(currentUser, 'WRITE_ATTENDANCES');
 
   // Destructure da state
   const {
@@ -251,6 +253,7 @@ const Calendar = memo(() => {
 
   // Gestori eventi ottimizzati con useCallback
   const handleSelectSlot = useCallback((slotInfo) => {
+    if (!canWriteAttendances) return;
     // Permettiamo l'inserimento di presenze anche nel passato
     // (utile per correggere dimenticanze o inserimenti retroattivi)
 
@@ -275,7 +278,7 @@ const Calendar = memo(() => {
     });
 
     openModal('attendance', null);
-  }, [openModal]);
+  }, [canWriteAttendances, openModal]);
 
   const handleSelectEvent = useCallback((event) => {
     setSelectedSlot(null);
@@ -542,6 +545,7 @@ const Calendar = memo(() => {
             selectedSlot={selectedSlot}
             collaborators={collaborators.data}
             projects={projects.data}
+            readOnly={!canWriteAttendances}
           />
         )}
 

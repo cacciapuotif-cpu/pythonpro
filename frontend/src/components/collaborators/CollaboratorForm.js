@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import useForm from '../../hooks/useForm';
+import { canPerform } from '../../auth/permissions';
 
 const FORM_STEPS = [
   {
@@ -90,6 +91,7 @@ const CollaboratorForm = ({
   onCancel,
   isLoading = false,
   documentActions = null,
+  currentUser = null,
 }) => {
   const [documentoIdentitaFile, setDocumentoIdentitaFile] = useState(null);
   const [curriculumFile, setCurriculumFile] = useState(null);
@@ -211,7 +213,11 @@ const CollaboratorForm = ({
     return { tone: 'warning', label: 'Curriculum non ancora caricato' };
   }, [curriculumFile, values.curriculum_filename]);
 
-  const canManageExistingFiles = Boolean(initialData?.id && documentActions);
+  const canManageExistingFiles = Boolean(
+    initialData?.id
+    && documentActions
+    && canPerform(currentUser, 'DOWNLOAD_COLLABORATOR_SENSITIVE')
+  );
 
   const agencyRequirementMissing = Boolean(values.is_agency) && !asTrimmedString(values.partita_iva);
 

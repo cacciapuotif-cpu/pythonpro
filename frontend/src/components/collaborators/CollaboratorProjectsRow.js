@@ -1,5 +1,5 @@
 import React from 'react';
-import { isAdminRole } from '../../auth/permissions';
+import { canPerform } from '../../auth/permissions';
 
 /**
  * Riga espansa che mostra i progetti e le assegnazioni di un collaboratore
@@ -17,7 +17,7 @@ const CollaboratorProjectsRow = ({
   onEditAssignment,
   onDownloadContract
 }) => {
-  const canManageProjectLinks = isAdminRole(currentUser);
+  const canManageProjectLinks = canPerform(currentUser, 'MANAGE_PROJECT_LINKS');
 
   // Ottieni assegnazioni per un collaboratore e progetto specifici
   const getAssignmentsForCollaboratorProject = (collaboratorId, projectId) => {
@@ -66,7 +66,7 @@ const CollaboratorProjectsRow = ({
                          '❌ Annullato'}
                       </span>
                     </div>
-                    <div className="project-detail-actions">
+                    {canManageProjectLinks ? <div className="project-detail-actions">
                       <button
                         className="small-action-btn"
                         onClick={() => onOpenAssignmentModal(collaborator, project)}
@@ -78,11 +78,10 @@ const CollaboratorProjectsRow = ({
                         className="small-action-btn remove-btn"
                         onClick={() => onRemoveProject(collaborator.id, project.id)}
                         title="Rimuovi progetto"
-                        disabled={!canManageProjectLinks}
                       >
                         ❌ Rimuovi
                       </button>
-                    </div>
+                    </div> : null}
                   </div>
 
                   {/* Elenco Mansioni/Assegnazioni */}
@@ -94,13 +93,13 @@ const CollaboratorProjectsRow = ({
                           <div className="assignment-header">
                             <strong>Mansione {index + 1}</strong>
                             <div className="assignment-actions">
-                              <button
+                              {canManageProjectLinks ? <button
                                 className="small-action-btn edit-assignment-btn"
                                 onClick={() => onEditAssignment(assignment)}
                                 title="Modifica questa mansione"
                               >
                                 ✏️ Modifica
-                              </button>
+                              </button> : null}
                               <button
                                 className="small-action-btn download-contract-btn"
                                 onClick={() => onDownloadContract(assignment)}
@@ -195,7 +194,7 @@ const CollaboratorProjectsRow = ({
           </div>
 
           {/* Dropdown per assegnare nuovi progetti */}
-          <div className="assign-new-project-section">
+          {canManageProjectLinks ? <div className="assign-new-project-section">
             {unassignedProjects.length > 0 ? (
               <select
                 onChange={(e) => {
@@ -205,7 +204,6 @@ const CollaboratorProjectsRow = ({
                   }
                 }}
                 className="assign-project-select"
-                disabled={!canManageProjectLinks}
               >
                 <option value="">➕ Assegna nuovo progetto...</option>
                 {unassignedProjects.map(project => (
@@ -219,7 +217,7 @@ const CollaboratorProjectsRow = ({
                 ✅ Tutti i progetti disponibili sono già assegnati
               </p>
             )}
-          </div>
+          </div> : null}
         </div>
       </td>
     </tr>

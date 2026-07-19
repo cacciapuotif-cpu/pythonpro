@@ -10,6 +10,7 @@ import {
   bulkImportAllievi,
 } from '../services/apiService';
 import AllieviBulkImport from './allievi/AllieviBulkImport';
+import { canPerform } from '../auth/permissions';
 import './AllieviManager.css';
 
 const blankToNull = (value) => {
@@ -87,7 +88,8 @@ const sortAllieviBySurname = (items = []) => [...items].sort((left, right) => {
   return leftName.localeCompare(rightName, 'it', { sensitivity: 'base' });
 });
 
-export default function AllieviManager() {
+export default function AllieviManager({ currentUser }) {
+  const canWrite = canPerform(currentUser, 'WRITE_ALLIEVI');
   const [result, setResult] = useState({ items: [], total: 0, pages: 1 });
   const [aziendaOptions, setAziendaOptions] = useState([]);
   const [projectOptions, setProjectOptions] = useState([]);
@@ -357,12 +359,12 @@ export default function AllieviManager() {
           <h2>Allievi</h2>
           <p>Gestisci anagrafica allievi, progetti frequentati e collegamento azienda per gli occupati.</p>
         </div>
-        <div style={{ display: 'flex', gap: '12px' }}>
+        {canWrite ? <div style={{ display: 'flex', gap: '12px' }}>
           <button className="btn-secondary" onClick={() => setShowBulkImport((prev) => !prev)} disabled={bulkImporting}>
             {showBulkImport ? 'Chiudi Import Excel' : 'Importa Excel'}
           </button>
           <button className="btn-primary" onClick={openCreate}>+ Nuovo Allievo</button>
-        </div>
+        </div> : null}
       </div>
 
       {showBulkImport && (
@@ -451,10 +453,10 @@ export default function AllieviManager() {
                       ))
                       : '—'}
                   </td>
-                  <td className="action-cell">
+                  {canWrite ? <td className="action-cell">
                     <button className="btn-sm btn-secondary" onClick={() => openEdit(allievo)}>Modifica</button>
                     <button className="btn-sm btn-danger" onClick={() => handleDelete(allievo)}>Disattiva</button>
-                  </td>
+                  </td> : <td className="action-cell">Sola lettura</td>}
                 </tr>
               ))}
             </tbody>

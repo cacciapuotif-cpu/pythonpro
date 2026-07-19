@@ -114,6 +114,32 @@ export const canRequest = (role, method, path) => (
   allowedRolesForRequest(method, path).includes(normalizeRole(role))
 );
 
+export const UI_ACTIONS = Object.freeze({
+  WRITE_ATTENDANCES: ['POST', '/api/v1/attendances'],
+  WRITE_COLLABORATORS: ['POST', '/api/v1/collaborators'],
+  MANAGE_PROJECT_LINKS: ['POST', '/api/v1/collaborators/1/projects/1'],
+  WRITE_PROJECTS: ['POST', '/api/v1/projects'],
+  WRITE_ENTITIES: ['POST', '/api/v1/entities'],
+  WRITE_ALLIEVI: ['POST', '/api/v1/allievi'],
+  WRITE_AZIENDE: ['POST', '/api/v1/aziende-clienti'],
+  WRITE_CATALOGO: ['POST', '/api/v1/catalogo'],
+  WRITE_LISTINI: ['POST', '/api/v1/listini'],
+  WRITE_PREVENTIVI: ['POST', '/api/v1/preventivi'],
+  WRITE_ORDINI: ['POST', '/api/v1/ordini'],
+  WRITE_DOCUMENT_REQUESTS: ['POST', '/api/v1/documenti-richiesti'],
+  DOWNLOAD_COLLABORATOR_SENSITIVE: ['GET', '/api/v1/collaborators/1/download-documento'],
+  EXPORT_TIMESHEET: ['GET', '/api/v1/reporting/timesheet/export'],
+  RUN_AGENTS: ['POST', '/api/v1/agents/run'],
+  REVIEW_AGENTS: ['POST', '/api/v1/agent-suggestions/1/review'],
+  WRITE_AVVISI: ['POST', '/api/v1/avvisi'],
+  PERMANENT_DELETE_AVVISO: ['DELETE', '/api/v1/admin/avvisi/1'],
+});
+
+export const canPerform = (role, action) => {
+  const request = UI_ACTIONS[action];
+  return Boolean(request) && canRequest(role, request[0], request[1]);
+};
+
 export const SECTION_ACCESS = Object.freeze({
   home: ['GET', '/api/v1/cockpit'],
   dashboard: ['GET', '/api/v1/cockpit'],

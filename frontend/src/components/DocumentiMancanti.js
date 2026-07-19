@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { canPerform } from '../auth/permissions';
 import { getDocumentiRichiesti } from '../services/apiService';
 
 const pageStyle = {
@@ -187,7 +188,8 @@ const buildMailBody = (collaboratoreNome, docs, uploadUrl) => {
 
 const escapeCsv = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
 
-export default function DocumentiMancanti() {
+export default function DocumentiMancanti({ currentUser }) {
+  const canSendReminders = canPerform(currentUser, 'WRITE_DOCUMENT_REQUESTS');
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -378,14 +380,14 @@ export default function DocumentiMancanti() {
             <button type="button" style={secondaryButtonStyle} onClick={exportCsv}>
               Export CSV
             </button>
-            <button
+            {canSendReminders ? <button
               type="button"
               style={{ ...primaryButtonStyle, opacity: groupedCollaborators.length ? 1 : 0.55 }}
               disabled={groupedCollaborators.length === 0}
               onClick={handleBulkSollecito}
             >
               Invia sollecito bulk
-            </button>
+            </button> : null}
           </div>
         </div>
       </section>
@@ -525,13 +527,13 @@ export default function DocumentiMancanti() {
                     </span>
                   </td>
                   <td style={cellStyle}>
-                    <button
+                    {canSendReminders ? <button
                       type="button"
                       style={{ ...primaryButtonStyle, opacity: item.email ? 1 : 0.55 }}
                       onClick={() => openMailto(item)}
                     >
                       Invia sollecito
-                    </button>
+                    </button> : <span>Sola lettura</span>}
                   </td>
                 </tr>
               ))}

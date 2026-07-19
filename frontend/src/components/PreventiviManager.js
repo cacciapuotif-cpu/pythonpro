@@ -5,6 +5,7 @@ import {
   downloadPreventivoPDF, addRigaPreventivo, updateRigaPreventivo, deleteRigaPreventivo,
   getProdotti, getAziendeClienti, getListini, getConsulenti,
 } from '../services/apiService';
+import { canPerform } from '../auth/permissions';
 import './PreventiviManager.css';
 
 const fmt = (n) => new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(n ?? 0);
@@ -36,7 +37,8 @@ const EMPTY_RIGA = {
   prezzo_unitario: 0, sconto_percentuale: 0, ordine: 0,
 };
 
-export default function PreventiviManager() {
+export default function PreventiviManager({ currentUser }) {
+  const canWrite = canPerform(currentUser, 'WRITE_PREVENTIVI');
   const [preventivi, setPreventivi] = useState([]);
   const [total, setTotal] = useState(0);
   const [filters, setFilters] = useState({ search: '', stato: '', page: 1, limit: 20 });
@@ -263,7 +265,7 @@ export default function PreventiviManager() {
           <h2>Preventivi</h2>
           <span className="count-badge">{total} preventivi</span>
         </div>
-        <button className="btn-primary" onClick={openCreate}>+ Nuovo Preventivo</button>
+        {canWrite ? <button className="btn-primary" onClick={openCreate}>+ Nuovo Preventivo</button> : null}
       </div>
 
       {success && <div className="toast toast-success">{success}</div>}
@@ -315,21 +317,21 @@ export default function PreventiviManager() {
                   <td className="right bold">{fmt(p.totale)}</td>
                   <td>
                     <div className="row-actions">
-                      <button className="btn-sm btn-secondary" onClick={() => openEdit(p)}>Modifica</button>
-                      {p.stato === 'bozza' && (
+                      {canWrite ? <button className="btn-sm btn-secondary" onClick={() => openEdit(p)}>Modifica</button> : null}
+                      {canWrite && p.stato === 'bozza' && (
                         <button className="btn-sm btn-info" onClick={() => handleStato(p, 'invia')}>Invia</button>
                       )}
-                      {p.stato === 'inviato' && (
+                      {canWrite && p.stato === 'inviato' && (
                         <>
                           <button className="btn-sm btn-success" onClick={() => handleStato(p, 'accetta')}>Accetta</button>
                           <button className="btn-sm btn-danger" onClick={() => handleStato(p, 'rifiuta')}>Rifiuta</button>
                         </>
                       )}
-                      {p.stato === 'accettato' && !p.ordine_id && (
+                      {canWrite && p.stato === 'accettato' && !p.ordine_id && (
                         <button className="btn-sm btn-primary" onClick={() => handleConverti(p)}>→ Ordine</button>
                       )}
                       <button className="btn-sm btn-secondary" onClick={() => handlePDF(p)}>PDF</button>
-                      <button className="btn-sm btn-danger" onClick={() => handleDelete(p)}>Elimina</button>
+                      {canWrite ? <button className="btn-sm btn-danger" onClick={() => handleDelete(p)}>Elimina</button> : null}
                     </div>
                   </td>
                 </tr>
@@ -414,16 +416,16 @@ export default function PreventiviManager() {
                 </div>
               </div>
               <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                {dettaglio.stato === 'bozza' && (
+                {canWrite && dettaglio.stato === 'bozza' && (
                   <button className="btn-sm btn-info" onClick={() => handleStato(dettaglio, 'invia')}>Invia</button>
                 )}
-                {dettaglio.stato === 'inviato' && (
+                {canWrite && dettaglio.stato === 'inviato' && (
                   <>
                     <button className="btn-sm btn-success" onClick={() => handleStato(dettaglio, 'accetta')}>Accetta</button>
                     <button className="btn-sm btn-danger" onClick={() => handleStato(dettaglio, 'rifiuta')}>Rifiuta</button>
                   </>
                 )}
-                {dettaglio.stato === 'accettato' && (
+                {canWrite && dettaglio.stato === 'accettato' && (
                   <button className="btn-sm btn-primary" onClick={() => handleConverti(dettaglio)}>→ Ordine</button>
                 )}
                 <button className="btn-sm btn-secondary" onClick={() => handlePDF(dettaglio)}>PDF</button>
@@ -433,7 +435,7 @@ export default function PreventiviManager() {
 
             <div className="modal-body">
               {/* Riga form */}
-              <div className="riga-form-section">
+              {canWrite ? <div className="riga-form-section">
                 <h4>{editingRiga ? 'Modifica riga' : '+ Aggiungi riga'}</h4>
                 <div className="riga-form-grid">
                   <div className="form-group">
@@ -475,7 +477,7 @@ export default function PreventiviManager() {
                     </button>
                   )}
                 </div>
-              </div>
+              </div> : null}
 
               {/* Tabella righe */}
               {dettaglio.righe?.length > 0 && (
@@ -501,10 +503,10 @@ export default function PreventiviManager() {
                         <td className="right">{r.sconto_percentuale > 0 ? `${r.sconto_percentuale}%` : '—'}</td>
                         <td className="right bold">{fmt(r.importo)}</td>
                         <td>
-                          <div className="row-actions">
+                          {canWrite ? <div className="row-actions">
                             <button className="btn-sm btn-secondary" onClick={() => handleEditRiga(r)}>Mod</button>
                             <button className="btn-sm btn-danger" onClick={() => handleDeleteRiga(r.id)}>✕</button>
-                          </div>
+                          </div> : null}
                         </td>
                       </tr>
                     ))}

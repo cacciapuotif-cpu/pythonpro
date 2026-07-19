@@ -8,7 +8,7 @@ import {
   uploadDocumentoRichiesto,
   validaDocumentoRichiesto,
 } from '../services/apiService';
-import { isOperatorRole } from '../auth/permissions';
+import { canPerform } from '../auth/permissions';
 
 const STATUS_META = {
   richiesto: { label: 'Richiesto', color: '#92400e', background: '#fef3c7' },
@@ -140,7 +140,8 @@ export default function DocumentiCollaboratore({ collaboratore_id, currentUser, 
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
 
-  const isOperatore = isOperatorRole(currentUser);
+  const canWriteDocuments = canPerform(currentUser, 'WRITE_DOCUMENT_REQUESTS');
+  const canDownloadSensitive = canPerform(currentUser, 'DOWNLOAD_COLLABORATOR_SENSITIVE');
 
   const clearMessages = () => {
     setError('');
@@ -421,20 +422,22 @@ export default function DocumentiCollaboratore({ collaboratore_id, currentUser, 
                   </td>
                   <td style={cellStyle}>
                     <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-                      <label style={{ ...buttonStyle, background: '#dbeafe', color: '#1d4ed8', display: 'inline-flex' }}>
-                        {busy ? 'Caricamento...' : 'Upload'}
-                        <input
-                          type="file"
-                          hidden
-                          disabled={busy}
-                          onChange={(event) => {
-                            const file = event.target.files?.[0];
-                            handleUpload(doc.id, file, doc.data_scadenza || null);
-                            event.target.value = '';
-                          }}
-                        />
-                      </label>
-                      {canOpenExistingFile ? (
+                      {canWriteDocuments ? (
+                        <label style={{ ...buttonStyle, background: '#dbeafe', color: '#1d4ed8', display: 'inline-flex' }}>
+                          {busy ? 'Caricamento...' : 'Upload'}
+                          <input
+                            type="file"
+                            hidden
+                            disabled={busy}
+                            onChange={(event) => {
+                              const file = event.target.files?.[0];
+                              handleUpload(doc.id, file, doc.data_scadenza || null);
+                              event.target.value = '';
+                            }}
+                          />
+                        </label>
+                      ) : null}
+                      {canOpenExistingFile && canDownloadSensitive ? (
                         <>
                           <button
                             type="button"
@@ -454,7 +457,7 @@ export default function DocumentiCollaboratore({ collaboratore_id, currentUser, 
                           </button>
                         </>
                       ) : null}
-                      {isOperatore ? (
+                      {canWriteDocuments ? (
                         <>
                           <button
                             type="button"

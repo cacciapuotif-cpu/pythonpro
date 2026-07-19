@@ -12,6 +12,7 @@ import {
   sendAgentSuggestionEmail,
   sendEmailInboxFollowup,
 } from '../services/apiService';
+import { canPerform } from '../auth/permissions';
 import './AgentsManager.css';
 
 const FIELD_OPTIONS = [
@@ -74,6 +75,7 @@ function CardShell({ itemKey, title, subtitle, badge, meta, children }) {
 }
 
 export default function AgentsManager({ currentUser }) {
+  const canReview = canPerform(currentUser, 'REVIEW_AGENTS');
   const [suggestions, setSuggestions] = useState([]);
   const [communications, setCommunications] = useState([]);
   const [emailInboxItems, setEmailInboxItems] = useState([]);
@@ -435,9 +437,9 @@ export default function AgentsManager({ currentUser }) {
                       {missingFields(item).map((field) => <span key={field} className="am-chip">{field}</span>)}
                     </div>
                   )}
-                  <button className="am-btn-primary" onClick={() => handleSendEmail(item.id)} disabled={!!actionLoading}>
+                  {canReview ? <button className="am-btn-primary" onClick={() => handleSendEmail(item.id)} disabled={!!actionLoading}>
                     {isLoading(`send-${item.id}`) ? 'Invio...' : 'Invia email'}
-                  </button>
+                  </button> : null}
                 </CardShell>
               ))}
               {toSendItems.length === 0 && <div className="am-empty-column">Nessuna email da inviare</div>}
@@ -489,7 +491,7 @@ export default function AgentsManager({ currentUser }) {
                       {isLoading(`preview-${item.id}`) ? 'Apro...' : 'Anteprima allegato'}
                     </button>
                   )}
-                  <label className="am-field">
+                  {canReview ? <><label className="am-field">
                     <span>Scadenza documento ricevuto</span>
                     <input
                       type="date"
@@ -518,7 +520,7 @@ export default function AgentsManager({ currentUser }) {
                   </div>
                   <button className="am-btn-ghost-sm" onClick={() => handleResolveManual(item)} disabled={!!actionLoading}>
                     {isLoading(`resolve-${item.id}`) ? 'Chiudo...' : 'Risolvi manualmente'}
-                  </button>
+                  </button></> : null}
                 </CardShell>
               ))}
               {manualReviewItems.length === 0 && <div className="am-empty-column">Nessuna revisione manuale</div>}
@@ -540,9 +542,9 @@ export default function AgentsManager({ currentUser }) {
                   <p className="am-card-text">
                     {item.attachment_name ? `Documento processato: ${item.attachment_name}` : 'Risposta processata automaticamente.'}
                   </p>
-                  <button className="am-btn-primary" onClick={() => handleArchive(item.id)} disabled={!!actionLoading}>
+                  {canReview ? <button className="am-btn-primary" onClick={() => handleArchive(item.id)} disabled={!!actionLoading}>
                     {isLoading(`archive-${item.id}`) ? 'Archivio...' : 'Archivia'}
-                  </button>
+                  </button> : null}
                 </CardShell>
               ))}
               {completedItems.length === 0 && <div className="am-empty-column">Nessun completamento automatico</div>}

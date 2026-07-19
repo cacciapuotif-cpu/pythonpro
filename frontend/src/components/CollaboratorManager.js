@@ -23,7 +23,7 @@ import CollaboratorsTable from './collaborators/CollaboratorsTable';
 import CollaboratorBulkImport from './collaborators/CollaboratorBulkImport';
 import AssignmentModal from './AssignmentModal';
 import DocumentiCollaboratore from './DocumentiCollaboratore';
-import { isAdminRole, normalizeRole } from '../auth/permissions';
+import { canPerform, normalizeRole } from '../auth/permissions';
 import './CollaboratorManager.css';
 
 const CONTRACT_TYPE_LABELS = {
@@ -104,7 +104,7 @@ const CollaboratorManager = ({ currentUser }) => {
 
   // Combina gli stati di loading
   const loading = loadingCollaborators || loadingProjects || loadingAssignments;
-  const isAdmin = isAdminRole(currentUser);
+  const canWriteCollaborators = canPerform(currentUser, 'WRITE_COLLABORATORS');
   const roleExperience = ROLE_EXPERIENCE[normalizeRole(currentUser)];
 
   const collaboratorIndex = useMemo(
@@ -639,7 +639,7 @@ const CollaboratorManager = ({ currentUser }) => {
           <p>{roleExperience.summary}</p>
         </div>
 
-        <div className="header-buttons">
+        {canWriteCollaborators ? <div className="header-buttons">
           <button
             className={`add-button ${showForm ? 'active' : ''}`}
             onClick={() => {
@@ -665,11 +665,10 @@ const CollaboratorManager = ({ currentUser }) => {
               }
             }}
             disabled={bulkImporting}
-            hidden={!isAdmin}
           >
             {showBulkImport ? '❌ Chiudi Import' : '📥 Importa Excel'}
           </button>
-        </div>
+        </div> : null}
       </div>
 
       {/* MESSAGGI DI STATO */}
@@ -690,6 +689,7 @@ const CollaboratorManager = ({ currentUser }) => {
               onCancel={closeForm}
               isLoading={loading || documentUploadHandlers.uploadingDocumento || documentUploadHandlers.uploadingCurriculum}
               documentActions={documentUploadHandlers}
+              currentUser={currentUser}
             />
           </div>
         </div>
@@ -825,7 +825,7 @@ const CollaboratorManager = ({ currentUser }) => {
               <button
                 onClick={() => handleDelete(deleteConfirm)}
                 className="delete-button"
-                disabled={!isAdmin}
+                disabled={!canWriteCollaborators}
               >
                 🗑️ Elimina
               </button>

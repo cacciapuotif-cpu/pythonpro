@@ -11,12 +11,13 @@
 import React, { useEffect, useState } from 'react';
 import { useCollaborators, useProjects } from '../hooks/useEntity';
 import apiService from '../services/apiService';
+import { canPerform } from '../auth/permissions';
 import './TimesheetReport.css';
 
 const DEFAULT_PAGE_SIZE = 100;
 const PAGE_SIZE_OPTIONS = [50, 100, 250, 500, 1000];
 
-const TimesheetReport = () => {
+const TimesheetReport = ({ currentUser }) => {
   const { data: collaborators, loading: loadingCollaborators } = useCollaborators();
   const { data: projects, loading: loadingProjects } = useProjects();
 
@@ -37,6 +38,7 @@ const TimesheetReport = () => {
   });
 
   const loading = loadingCollaborators || loadingProjects || loadingReport;
+  const canExport = canPerform(currentUser, 'EXPORT_TIMESHEET');
 
   useEffect(() => {
     let active = true;
@@ -267,13 +269,15 @@ const TimesheetReport = () => {
           <button className="btn-secondary" onClick={resetFilters}>
             🔄 Resetta Filtri
           </button>
-          <button
-            className="btn-secondary"
-            onClick={handleExport}
-            disabled={exportState.loading}
-          >
-            {exportState.loading ? '⏳ Export...' : '⬇️ Export CSV'}
-          </button>
+          {canExport ? (
+            <button
+              className="btn-secondary"
+              onClick={handleExport}
+              disabled={exportState.loading}
+            >
+              {exportState.loading ? '⏳ Export...' : '⬇️ Export CSV'}
+            </button>
+          ) : null}
         </div>
 
         {exportState.message && (

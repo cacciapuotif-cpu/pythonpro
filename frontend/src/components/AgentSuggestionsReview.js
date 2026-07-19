@@ -11,6 +11,7 @@ import {
   getProjects,
   reviewAgentSuggestion,
 } from '../services/apiService';
+import { canPerform } from '../auth/permissions';
 import './AgentsManager.css';
 
 const PRIORITY_META = {
@@ -100,6 +101,7 @@ const defaultDetailState = {
 };
 
 export default function AgentSuggestionsReview({ currentUser = null }) {
+  const canReview = canPerform(currentUser, 'REVIEW_AGENTS');
   const [suggestions, setSuggestions] = useState([]);
   const [pendingSuggestions, setPendingSuggestions] = useState([]);
   const [runs, setRuns] = useState([]);
@@ -373,7 +375,7 @@ export default function AgentSuggestionsReview({ currentUser = null }) {
 
       <section className="agents-panel">
         <div className="agents-toolbar">
-          <div className="agents-bulk-actions">
+          {canReview ? <div className="agents-bulk-actions">
             <label className="agents-checkbox">
               <input
                 type="checkbox"
@@ -389,7 +391,7 @@ export default function AgentSuggestionsReview({ currentUser = null }) {
             <button className="btn btn-secondary" type="button" onClick={() => handleBulkReview('reject')} disabled={!selectedIds.length || Boolean(actionLoading)}>
               Rifiuta selezionati
             </button>
-          </div>
+          </div> : null}
           <div className="agents-meta">{filteredSuggestions.length} suggerimenti nei filtri correnti</div>
         </div>
 
@@ -399,7 +401,7 @@ export default function AgentSuggestionsReview({ currentUser = null }) {
             return (
               <article className="agents-suggestion-card" key={suggestion.id}>
                 <div className="agents-suggestion-header">
-                  <label className="agents-checkbox">
+                  {canReview ? <label className="agents-checkbox">
                     <input
                       type="checkbox"
                       checked={selectedIds.includes(suggestion.id)}
@@ -407,7 +409,7 @@ export default function AgentSuggestionsReview({ currentUser = null }) {
                       onChange={() => toggleSelection(suggestion.id)}
                     />
                     <span />
-                  </label>
+                  </label> : null}
                   <div style={badgeStyle(suggestion.priority)}>{PRIORITY_META[suggestion.priority]?.label || suggestion.priority}</div>
                   <span className="agents-status-pill">{suggestion.status}</span>
                   <span className="agents-meta">{suggestion.agent_type || '—'}</span>
@@ -421,22 +423,22 @@ export default function AgentSuggestionsReview({ currentUser = null }) {
                 </div>
 
                 <div className="agents-actions">
-                  <button
+                  {canReview ? <button
                     className="btn btn-primary"
                     type="button"
                     disabled={suggestion.status !== 'pending' || Boolean(actionLoading)}
                     onClick={() => handleSingleReview(suggestion.id, 'approve')}
                   >
                     Approva
-                  </button>
-                  <button
+                  </button> : null}
+                  {canReview ? <button
                     className="btn btn-secondary"
                     type="button"
                     disabled={suggestion.status !== 'pending' || Boolean(actionLoading)}
                     onClick={() => handleSingleReview(suggestion.id, 'reject')}
                   >
                     Rifiuta
-                  </button>
+                  </button> : null}
                   <button
                     className="btn btn-ghost"
                     type="button"
@@ -445,7 +447,7 @@ export default function AgentSuggestionsReview({ currentUser = null }) {
                   >
                     {actionLoading === `detail-${suggestion.id}` ? 'Caricamento...' : 'Visualizza dettagli'}
                   </button>
-                  {suggestion.auto_fix_available ? (
+                  {canReview && suggestion.auto_fix_available ? (
                     <button
                       className="btn btn-success"
                       type="button"
@@ -520,7 +522,7 @@ export default function AgentSuggestionsReview({ currentUser = null }) {
               </div>
             </div>
 
-            <form className="agents-detail-card" onSubmit={submitDetailReview}>
+            {canReview ? <form className="agents-detail-card" onSubmit={submitDetailReview}>
               <strong>Aggiungi nota e azione</strong>
               <div className="agents-toolbar">
                 <label>
@@ -549,7 +551,7 @@ export default function AgentSuggestionsReview({ currentUser = null }) {
                   </button>
                 ) : null}
               </div>
-            </form>
+            </form> : null}
           </div>
         </div>
       ) : null}
