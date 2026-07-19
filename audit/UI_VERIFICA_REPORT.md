@@ -1,169 +1,249 @@
-# Ondata UI — Verifica pagine e collegamenti (BOZZA, lavoro in corso)
+# Ondata UI — GATE verifica pagine e collegamenti
 
-Data: 2026-07-19. Stato: UI-1 e UI-2 completati, UI-3 a metà, UI-4 da scrivere.
-Questa è la bozza di lavoro: i finding sono verificati, la matrice completa e il
-giudizio finale vanno rifiniti al termine di UI-3.
+**Data:** 2026-07-19
 
-## Metodo (documentato, UI-2)
+**Esito GATE:** **NON SUPERATO**
 
-- Censimento statico: parsing di `App.js` (`SECTION_CONFIG`, navigazione a stato,
-  niente react-router), mappa componente→chiamate API da `apiService.js`
-  (script in scratchpad, riproducibili), confronto con OpenAPI runtime
-  (`GET /openapi.json`, 259 endpoint) e con la policy RBAC di `backend/auth.py`.
-- Runtime UI: Playwright headless via docker `mcr.microsoft.com/playwright:v1.59.1-noble`
-  (immagine già presente in locale), `--network host --ipc=host`, chromium con
-  `--single-process --no-zygote` (senza, crash su questo host ZimaOS).
-  Login reale dalla pagina di accesso, click su ogni voce di menu, cattura
-  errori console e risposte HTTP ≥400, screenshot per sezione.
-- Smoke API: ogni endpoint GET usato dalle pagine chiamato con i 3 ruoli
-  (admin/operatore/consultazione) su utenti di test dedicati.
-- Flussi con scrittura (UI-3): catene API su backend di copia
-  (container `pythonpro_backend_uiverifica`, porta 8003, DB `gestionale_ui_verifica`
-  clonato via pg_dump). Nessuna scrittura sul DB reale.
+**Dichiarazione:** **TUTTE LE PAGINE COLLEGATE E FUNZIONANTI: NO**
+**Manuale:** non iniziato, come richiesto dal gate.
 
-## Utenti di test
+La UI amministratore e gran parte delle funzioni legacy sono utilizzabili, ma i
+due ruoli canonici `operatore` e `consultazione` non possono entrare nel frontend.
+Inoltre sono rotti il caricamento dei piani finanziari, alcuni PDF timesheet, le
+azioni del Cockpit e il portale allievi senza sessione ERP. Non è quindi corretto
+scrivere ora un manuale dichiarando la piattaforma interamente operativa.
 
-Creati via script nel DB reale (password random stampate una volta, non salvate):
-`ui_test_admin` (admin), `ui_test_operatore` (operatore), `ui_test_consultazione`
-(consultazione), `ui_test_op_legacy` (user legacy, unico modo per entrare in UI
-come operatore — vedi UI-01). Per riprendere: rieseguire il reset password con lo
-stesso script (update hashed_password, vedi STATUS).
+## Metodo ed evidenze
 
-## Matrice sezioni (19 voci `SECTION_CONFIG`)
+- Censimento statico di `frontend/src/App.js`, dei componenti pagina, degli hook e
+  di `frontend/src/services/apiService.js`.
+- Confronto delle chiamate con OpenAPI runtime (259 operazioni) e con la policy
+  RBAC di `backend/auth.py`.
+- Browser headless Playwright sulla UI reale: login, click di ogni voce menu,
+  raccolta errori console/rete e screenshot. Chromium è stato eseguito con
+  `--single-process --no-zygote`, necessari su questo host.
+- Smoke API sui tre ruoli canonici. Poiché il frontend blocca `operatore` e
+  `consultazione`, il crawl operativo supplementare è stato eseguito anche con
+  il ruolo legacy `user`; questa prova **non** sostituisce il test fallito del
+  ruolo canonico.
+- Flussi con scrittura eseguiti esclusivamente sul clone PostgreSQL
+  `gestionale_ui_verifica`, backend `pythonpro_backend_uiverifica` su porta 8003.
+  Nessuna scrittura funzionale sul database reale.
 
-| Sezione (menu) | Componente | Ruoli frontend | admin | operatore(user legacy) | consultazione |
-|---|---|---|---|---|---|
-| Home | HomeCockpit | admin,user,manager | OK | OK | — (nessun accesso UI) |
-| Dashboard | Dashboard | admin,user,manager | OK | OK (metrics admin correttamente nascoste) | — |
-| Calendario | Calendar | admin,user,manager | OK | OK | — |
-| Timesheet | TimesheetReport+PDF | admin,user,manager | OK (export OK) | carica OK, export → 403 (UI-05) | — |
-| Documenti | DocumentiMancanti | admin,user,manager | OK | OK | — |
-| Collaboratori | CollaboratorManager | admin,user,manager | OK | OK, ma Scarica doc/CV → 403 (UI-06) | — |
-| Allievi | AllieviManager | admin,user,manager | OK | OK | — |
-| Progetti | ProjectManager | admin,user,manager | OK | OK | — |
-| Aziende | AziendeClientiManager | admin,user,manager | OK | OK | — |
-| Catalogo | CatalogoManager | admin,user,manager | OK (vuoto gestito) | OK | — |
-| Listini | ListiniManager | admin,user,manager | OK | OK | — |
-| Preventivi | PreventiviManager | admin,user,manager | OK (vuoto gestito) | OK | — |
-| Ordini | OrdiniManager | admin,user,manager | OK (vuoto gestito) | OK | — |
-| Archivio Risorse | ResourceArchive | admin,manager (NO user → UI-07) | OK | manager sì / user no | — |
-| Enti Attuatori | ImplementingEntitiesList | admin | OK | non visibile (voluto) | — |
-| Agents Dashboard | AgentsDashboard | admin | OK | non visibile (voluto) | — |
-| Agenti | AgentsManager | admin | OK | non visibile (voluto) | — |
-| Revisione Agenti | AgentSuggestionsReview | admin,user,manager (hidden) | OK | OK via URL diretto (UI-08) | — |
-| Template | ContractTemplatesManager | admin | OK | non visibile (voluto) | — |
+Risultati crawl già acquisiti prima della chiusura UI-3:
 
-Crawl admin: 18/18 sezioni caricano senza errori console/rete. Operatore legacy:
-13/13 visibili OK. Screenshot in scratchpad (`pw/shots/`).
+- Admin: 18/18 sezioni visibili caricate senza errori console/rete.
+- `user` legacy: 13/13 sezioni visibili caricate; trovati i 403 UI-05/UI-06.
+- `operatore` canonico: login rifiutato dal frontend.
+- `consultazione`: nessun profilo di login e nessuna sezione assegnata.
 
-## Finding
+## Modello di navigazione e route
+
+Il progetto non usa React Router: quasi tutte le pagine sono stati interni di
+`App.js` e condividono `/`. Solo cinque sezioni hanno un path dedicato. Questo
+rende impossibili bookmark e link profondi per la maggior parte delle pagine.
+
+| Route browser | Componente/pagina | Come si raggiunge | Ruoli dichiarati nel frontend |
+|---|---|---|---|
+| `/` + stato `home` | `HomeCockpit` | menu Home | admin, user, manager |
+| `/` + stato `dashboard` | `Dashboard` | menu Dashboard | admin, user, manager |
+| `/` + stato `calendar` | `Calendar` | menu Calendario | admin, user, manager |
+| `/` + stato `timesheet` | `TimesheetReport` + `TimesheetPDF` | menu Timesheet | admin, user, manager |
+| `/documenti-mancanti` | `DocumentiMancanti` | menu Documenti | admin, user, manager |
+| `/` + stato `collaborators` | `CollaboratorManager` | menu Collaboratori | admin, user, manager |
+| `/` + stato `allievi` | `AllieviManager` | menu Allievi | admin, user, manager |
+| `/` + stato `projects` | `ProjectManager` | menu Progetti | admin, user, manager |
+| `/` + stato `aziende-clienti` | `AziendeClientiManager` | menu Aziende | admin, user, manager |
+| `/` + stato `catalogo` | `CatalogoManager` | menu Catalogo | admin, user, manager |
+| `/` + stato `listini` | `ListiniManager` | menu Listini | admin, user, manager |
+| `/` + stato `preventivi` | `PreventiviManager` | menu Preventivi | admin, user, manager |
+| `/` + stato `ordini` | `OrdiniManager` | menu Ordini | admin, user, manager |
+| `/resources` | `ResourceArchive` | menu Archivio Risorse | admin, manager |
+| `/` + stato `entities` | `ImplementingEntitiesList` | menu Enti Attuatori | admin |
+| `/agents/dashboard` | `AgentsDashboard` | menu Agents Dashboard | admin |
+| `/agents` | `AgentsManager` | menu Agenti | admin |
+| `/agents/review` | `AgentSuggestionsReview` | link dall'Archivio; voce nascosta | admin, user, manager |
+| `/` + stato `templates` | `ContractTemplatesManager` | menu Template | admin |
+| `/portale-allievi?token=...` | `PortaleAllievi` | link esterno, nessuna voce menu | previsto pubblico, ma bloccato da UI-16 |
+
+Componenti pagina orfani: `AgenzieManager`, `ConsulentiManager`,
+`ProgettoMansioneEnteManager`, `CalendarSimple`. Non sono importati da `App.js` e
+nessun menu/link li raggiunge. Non sono stati trattati come sezioni operative.
+
+## Matrice pagina × ruolo × esito
+
+Legenda: `OK` = provata; `BLOCCO UI-01` = backend raggiungibile ma il ruolo non
+entra nella UI; `N/V` = non visibile per scelta dichiarata.
+
+| Pagina | Admin | Operatore canonico | Consultazione | Nota runtime/RBAC |
+|---|---|---|---|---|
+| Home | OK | BLOCCO UI-01 | BLOCCO UI-01 | azioni rotte, UI-15 |
+| Dashboard | OK | BLOCCO UI-01 | BLOCCO UI-01 | metriche admin nascoste al legacy user |
+| Calendario | OK | BLOCCO UI-01 | BLOCCO UI-01 | CRUD presenze carica |
+| Timesheet | OK | BLOCCO UI-01 | BLOCCO UI-01 | legacy user vede Export ma riceve 403; UI-04/UI-05 |
+| Documenti | OK | BLOCCO UI-01 | BLOCCO UI-01 | lista, filtri ed export locale OK |
+| Collaboratori | OK | BLOCCO UI-01 | BLOCCO UI-01 | download legacy user → 403; UI-06 |
+| Allievi | OK | BLOCCO UI-01 | BLOCCO UI-01 | CRUD e stati vuoti OK |
+| Progetti | OK | BLOCCO UI-01 | BLOCCO UI-01 | assegnazione corretta da UI-03; piani UI-02 |
+| Aziende | OK | BLOCCO UI-01 | BLOCCO UI-01 | CRUD e filtri OK |
+| Catalogo | OK | BLOCCO UI-01 | BLOCCO UI-01 | vuoto gestito |
+| Listini | OK | BLOCCO UI-01 | BLOCCO UI-01 | lista/voci caricano |
+| Preventivi | OK | BLOCCO UI-01 | BLOCCO UI-01 | vuoto gestito |
+| Ordini | OK | BLOCCO UI-01 | BLOCCO UI-01 | lista/paginazione caricano |
+| Archivio Risorse | OK | BLOCCO UI-01 | BLOCCO UI-01 | solo `manager` legacy è previsto; UI-07 |
+| Enti Attuatori | OK | N/V | N/V | admin-only coerente |
+| Agents Dashboard | OK | N/V | N/V | admin-only coerente |
+| Agenti | OK | N/V | N/V | admin-only coerente |
+| Revisione Agenti | OK | BLOCCO UI-01 | BLOCCO UI-01 | nascosta; per `user` legacy è orfana, UI-08 |
+| Template | OK | N/V | N/V | admin-only coerente |
+| Portale Allievi | ROTTO | ROTTO | ROTTO | senza sessione ERP mostra il login, UI-16 |
+
+## Chiamate API per pagina e coerenza RBAC
+
+La tabella riporta le famiglie effettivamente importate dalla pagina e dai suoi
+modali/hook. Tutte le route elencate esistono nel backend; le eccezioni sono di
+contratto/runtime, non route inesistenti.
+
+| Pagina | API usate (metodi e path principali) | Esito/RBAC |
+|---|---|---|
+| Home | `GET /cockpit/decisioni`; URL azione restituiti dal backend | GET OK; azioni aperte col metodo sbagliato, UI-15 |
+| Dashboard | `GET /reporting/summary`, `/reporting/timesheet`, `/collaborators/`, `/projects/`, `/assignments/`, `/contracts`, `/agents/suggestions/`, `/agents/communications`; admin anche `/admin/metrics` | letture OK; metriche correttamente nascoste |
+| Calendario | CRUD `/attendances`, lettura `/assignments/` | OK per admin e legacy user |
+| Timesheet | `GET /reporting/timesheet`, `POST /reporting/timesheet/export`, `GET /reporting/timesheet/export/{id}`, `GET /projects/{id}/timesheets`, `GET /assignments/{id}/timesheet`, `POST .../unlock` | export admin-only ma bottone visibile; alcuni PDF 500 |
+| Documenti | `GET /documenti-richiesti/` | OK |
+| Collaboratori | CRUD `/collaborators`, bulk import, upload/download documenti, `/collaborators/{id}/documenti*`, CRUD `/assignments`, `GET /piani-finanziari/`, POST/DELETE collaboratore↔progetto | UI-03 corretto; UI-02, UI-06 e UI-09 aperti |
+| Allievi | CRUD `/allievi`, bulk import, letture `/aziende-clienti/`, `/projects/` | OK |
+| Progetti | CRUD `/projects`, `/entities`, `/collaborators`, `/assignments`, beneficiari/moduli, upload/confirm FAPI/Fondimpresa e piani | catena principale OK; lettura piani rotta UI-02 |
+| Aziende | CRUD `/aziende-clienti`, bulk import, letture `/consulenti`, `/agenzie`, `/projects` | OK |
+| Catalogo | CRUD `/catalogo` | OK |
+| Listini | CRUD `/listini`, CRUD `/listini/{id}/voci`, lettura `/catalogo` | OK |
+| Preventivi | CRUD `/preventivi`, azioni stato, conversione ordine, PDF, CRUD righe; letture catalogo/aziende/listini/consulenti | OK sui dati presenti |
+| Ordini | GET/PUT/DELETE `/ordini` | OK |
+| Archivio | CRUD `/avvisi`, revisioni/ingest, deletion-impact e permanent delete | scrittura manager/admin; hard-delete nascosto correttamente ai non-admin |
+| Enti Attuatori | CRUD `/entities` | admin-only coerente |
+| Agents Dashboard | catalogo/run `/agents` | admin-only coerente |
+| Agenti | health/suggestion/comunicazioni/email inbox e aggiornamento manuale collaboratore | admin-only per pagina; azioni agentiche proposal-only |
+| Revisione Agenti | run/suggestion detail, review, bulk-review, apply-fix; letture collaboratori/progetti | backend consente operatore; percorso UI non raggiungibile per ruolo canonico |
+| Template | CRUD `/contracts`, lettura/aggancio `/avvisi`, conversione DOCX, letture enti/progetti | admin-only coerente |
+| Portale Allievi | `GET /portale-allievi/profilo?token=...` via `fetch` | API prevista, componente non montato senza login ERP |
+
+## UI-3 — flussi trasversali
+
+| # | Flusso | Esito | Evidenza e attrito |
+|---:|---|---|---|
+| 1 | MD → estrazione → regole | **PARZIALE** | Upload/ingest 201. Il primo run aveva 5/5 gruppi falliti perché il container clone non risolveva `host.docker.internal`. Ripetuto con URL Ollama raggiungibile: run 625 completed, 6 proposte, 1/5 gruppi in timeout; una data `30/09/2026` è stata scartata perché non ISO. Lo stato resta `estratto`: UI-17. |
+| 2 | Piano da template → massimali → avviso | **PARZIALE** | B4/template non esiste. Creazione manuale e aggancio all'avviso OK. Su clone: docenza 101 € contro limite 100 € → 422 con messaggio chiaro; 100 € → 201. |
+| 3 | Progetto → collaboratori → checklist → approvo | **OK** | Assegnazione 200 dopo UI-03; documento richiesto, upload e validazione operatore 200; `validato_da` obbligatorio e tracciato. |
+| 4 | Collaboratore incompleto → agenti → contratto | **PARZIALE** | `fiscal_code` è obbligatorio anche nel caso “incompleto”; data_quality e contract_agent restano proposal-only. Contratto dipende da assignment/documenti completi. |
+| 5 | Presenze → timesheet → esito | **PARZIALE** | Guardie periodo progetto/assegnazione rispondono 400 chiaro; PDF sano OK e unlock motivato OK. Assignment 1 resta 500 per float/Decimal, UI-04. |
+| 6 | Dashboard agenti → review → approvo → effetto | **OK** | Suggestion strutturata 633 applicata via `POST .../apply-fix` → 200, stato `implemented`; nuovo telefono visibile via `GET /collaborators/13` → 200. Tutto sul clone. |
+| 7 | HomeCockpit → pagina filtrata | **ROTTO** | I quattro contatori non hanno handler click. “Gestisci” usa `window.open(API + azione_url)`: una route POST viene aperta come GET. Prova: documento 3 → 405. |
+| 8 | Chiedi all'archivio → citazioni → avviso | **NON ESISTE** | Ondata L non eseguita. Il capitolo 9 del manuale non è scrivibile. |
+
+Anche il CRM richiesto dal capitolo 8 del manuale non esiste: Ondata C2 non è
+stata eseguita e resta subordinata al prerequisito legale esterno.
+
+## Finding UI
 
 ### 🔴 Rotti
 
-- **UI-01 — Ruoli canonici fuori dalla UI.** Il frontend conosce solo i ruoli
-  legacy (`admin`,`user`,`manager` in `SECTION_CONFIG`; profili login con
-  `expectedRoles ['user','manager']`). L'utente reale `operatore`
-  (ruolo canonico, id 2) e qualunque utente `consultazione` NON POSSONO
-  ENTRARE: il login client-side risponde "Le credenziali inserite non
-  corrispondono al profilo" (verificato a runtime). Consultazione non ha
-  nemmeno un profilo di accesso né sezioni con quel ruolo. `/auth/me` restituisce
-  il ruolo grezzo dal DB, non normalizzato. Fix non banale (mappa ruoli in
-  frontend o normalizzazione in `/auth/me`): decidere al GATE.
-- **UI-02 — Pagina Piani finanziari rotta: `GET /api/v1/piani-finanziari/` → 500.**
-  `ResponseValidationError`: schema `tipo_fondo` Literal non ammette `fapi` e
-  `formazienda` (valori reali post-bonifica NEW-010) e `budget_rimanente ge=0`
-  violato dal piano in sforamento (−23.899,68). Colpisce anche AssignmentModal
-  (carica piani). Fix = decisione di contratto dominio: al GATE.
-- **UI-03 — Assegna/rimuovi collaboratore↔progetto 404. CORRETTO** (commit
-  `4b226d6`): endpoint cross-resource registrati solo a radice, frontend chiama
-  `/api/v1/...`. Aggiunto alias `/api/v1` + test. Restano irraggiungibili (ma non
-  usati da componenti): `GET /collaborators-with-projects/`,
-  `GET /collaborators/{id}/assignments/` (solo wrapper apiService morti).
-- **UI-04 — `GET /assignments/{id}/timesheet` 500 su alcuni assignment**
-  (`timesheet_generator.py:218`, `float / Decimal` su `ore_assegnate`).
-  Verificato: assignment 1 → 500, assignment 52 → 200 (dipende dai dati).
-  Fix piccolo candidato (cast) — proposto al GATE perché tocca il generatore.
+- **UI-01 — Ruoli canonici fuori dalla UI.** `ACCESS_PROFILES`,
+  `ROLE_EXPERIENCE` e `SECTION_CONFIG` riconoscono solo `admin`, `user`,
+  `manager`. `operatore` e `consultazione` non possono entrare né navigare.
+- **UI-02 — Contratto piani finanziari non compatibile con i dati reali.**
+  `GET /api/v1/piani-finanziari/` restituisce 500: `tipo_fondo` non ammette
+  `fapi`/`formazienda` e `budget_rimanente >= 0` non tollera un piano in
+  sforamento. Rompe anche `AssignmentModal`.
+- **UI-04 — PDF timesheet 500 su dati Decimal.** Assignment 1 fallisce in
+  `timesheet_generator.py` (`float / Decimal`); assignment 52 è OK.
+- **UI-15 — HomeCockpit non naviga.** Contatori non cliccabili; “Gestisci” apre
+  endpoint di mutazione come GET in una nuova scheda (405/401), senza portare
+  alla pagina filtrata richiesta.
+- **UI-16 — Portale Allievi bloccato dal login ERP.** Il controllo
+  `/portale-allievi` avviene dopo `if (!currentUser)`: un allievo con token ma
+  senza sessione ERP vede la pagina di login gestionale.
 
-### 🟠 Incoerenti (pagina visibile → azione vietata)
+### 🟠 Incoerenti / sicurezza e contratto
 
-- **UI-05 — Timesheet: bottone "Export CSV" visibile all'operatore ma
-  `POST /reporting/timesheet/export` è admin-only** (pattern
-  `ADMIN_ONLY_PATTERNS`): 403 a runtime con messaggio grezzo
-  "Request failed with status code 403".
-- **UI-06 — Documenti collaboratore: bottoni "Scarica/Anteprima" documento
-  identità e CV visibili all'operatore ma endpoint `download-documento`/
-  `download-curriculum` admin-only**: 403 a runtime (verificato con click).
-- **UI-09 — Endpoint cross-resource a radice senza `require_role`**: i path
-  storici (`/collaborators/{id}/projects/{id}` ecc.) usano solo
-  `get_current_user` → nessun controllo RBAC (anche consultazione può fare POST
-  via API). L'alias `/api/v1` introdotto da UI-03 eredita lo stesso
-  comportamento. Da uniformare (candidato NEW).
-- **UI-10 — `GET /avvisi/{id}/deletion-impact` 403 per operatore** mentre la
-  sezione Archivio è visibile ai manager: coerente con hard-delete admin-only,
-  ma la UI non nasconde sempre il percorso (da verificare pulsante).
+- **UI-05 — Export CSV timesheet visibile all'operatore legacy ma admin-only:**
+  click → 403 grezzo.
+- **UI-06 — Download/anteprima documento e CV visibili all'operatore legacy ma
+  endpoint admin-only:** click → 403.
+- **UI-09 — Endpoint cross-resource senza RBAC di ruolo.** I path storici e gli
+  alias UI-03 dipendono solo da `get_current_user`; anche `consultazione` può
+  assegnare/rimuovere via API.
+- **UI-17 — Estrazione parziale marcata `estratto`.** Gruppi in timeout e date
+  non parsabili vengono conteggiati/scartati, ma il run `completed` porta la
+  revisione allo stato ottimistico `estratto` senza avviso operativo sufficiente.
 
-### 🟡 Attrito UX / incoerenze minori
+### 🟡 Attriti UX
 
-- **UI-07 — Archivio Risorse visibile a `manager` ma non a `user`**, benché per
-  il backend siano lo stesso ruolo (entrambi → operatore).
-- **UI-08 — "Revisione Agenti" è sezione nascosta**: per l'operatore è
-  raggiungibile solo con URL diretto `/agents/review`; l'unico link in-app parte
-  dall'Archivio Risorse, che l'utente `user` non vede. Percorso di revisione di
-  fatto irraggiungibile per una parte degli operatori.
-- **UI-11 — Footer "Documentazione API" hardcoded `http://localhost:8001/docs`**:
-  rotto da qualunque host diverso dal server; esposto a tutti i ruoli.
-- **UI-12 — Messaggi 403/errore grezzi** ("Request failed with status code 403")
-  invece di spiegazioni operative.
+- **UI-07 — Archivio Risorse visibile a `manager` ma non a `user`**, sebbene il
+  backend normalizzi entrambi come operatore.
+- **UI-08 — Revisione Agenti nascosta.** Per `user` legacy è raggiungibile solo
+  da Archivio, che quel ruolo non vede, oppure digitando l'URL.
+- **UI-11 — Link “Documentazione API” hardcoded a `localhost:8001`.** Rotto da
+  host client/remoto ed esposto a utenti non tecnici.
+- **UI-12 — Errori grezzi.** I 403 mostrano “Request failed with status code
+  403” invece di una spiegazione operativa.
+- **UI-18 — Quasi tutte le sezioni condividono `/`.** Nessun bookmark/deep-link
+  stabile per collaboratori, progetti, timesheet, ecc.
 
-### 🟢 Cosmetici / igiene
+### 🟢 Igiene
 
-- **UI-13 — Pagine orfane** (componenti esistenti mai raggiungibili, nessun
-  import): `AgenzieManager`, `ConsulentiManager`, `ProgettoMansioneEnteManager`,
-  `CalendarSimple`. I relativi endpoint backend (`/agenzie`, `/consulenti`,
-  `/project-assignments`) esistono e rispondono: funzionalità senza UI.
-- **UI-14 — Wrapper apiService morti** (`getCollaboratorsWithProjects`,
-  `getAssignmentsByCollaborator` e altri non importati da alcun componente).
+- **UI-13 — Componenti orfani:** `AgenzieManager`, `ConsulentiManager`,
+  `ProgettoMansioneEnteManager`, `CalendarSimple`.
+- **UI-14 — Wrapper API morti**, inclusi `getCollaboratorsWithProjects` e
+  `getAssignmentsByCollaborator`, senza consumer attivi.
 
-## UI-3 Flussi trasversali — stato parziale (su backend copia :8003)
+### Finding chiusi durante l'ondata
 
-1. **Avviso MD → estrazione → regole**: upload+ingest OK (201, revisione creata);
-   estrazione LLM eseguita ma `gruppi_totali 5, gruppi_falliti 5, regole_proposte 0`
-   sul MD di prova → DA INDAGARE alla ripresa (perché falliscono i gruppi?
-   ollama attivo, run `completed` senza errore).
-2. **Piano da template**: la feature template (B4) NON esiste — creazione piano
-   manuale OK (201, aggancia da avviso `avviso_pf_id` automaticamente dal
-   progetto). Massimali per voce: da riprovare col payload corretto
-   (`piano_id` richiesto nel body oltre che nel path).
-3. **Progetto → collaboratori → checklist → approvo**: OK end-to-end post-fix
-   UI-03 (assegnazione 200, documento richiesto creato, upload, validazione da
-   operatore 200 con `validato_da` obbligatorio).
-4. **Collaboratore incompleto → agenti**: creazione richiede anche
-   `fiscal_code` (stringa obbligatoria — 400 se assente: nota UX). Run
-   `data_quality` e `contract_agent` OK (proposal-only). Apply-fix su
-   suggestion non strutturata correttamente rifiutato (400) — comportamento
-   corretto post NEW-005.
-5. **Presenze → timesheet**: guardie reali funzionano (presenza fuori periodo
-   progetto → 400 con messaggio chiaro; fuori periodo assegnazione → 400).
-   Generazione PDF timesheet OK su assignment con dati sani; unlock con motivo
-   OK (`sbloccato_da` tracciato). Resta UI-04 su altri assignment.
-6. **Agenti review → approva → effetto**: parzialmente coperto (apply su
-   suggestion `field_update` da completare alla ripresa).
-7. **HomeCockpit card → pagina giusta**: da completare (click card verificato
-   solo in superficie).
-8. **"Chiedi all'archivio"**: NON ESISTE (Ondata L mai eseguita). Impossibile
-   verificare; il manuale (cap. 9) non potrà descriverla. Lo stesso vale per il
-   CRM (cap. 8): Ondata C2 mai eseguita.
+- **UI-03 — CORRETTO** con commit `4b226d6`: alias `/api/v1` per
+  assegna/rimuovi collaboratore↔progetto e test regressione.
+- **UI-10 — NON CONFERMATO:** il comando hard-delete e la chiamata
+  `deletion-impact` sono effettivamente renderizzati solo per `admin`; il manager
+  vede la disattivazione sicura ma non il percorso definitivo.
+- **UI-19 — CORRETTO** con commit `c9b9059`: test frontend riallineati ai moduli,
+  mock e profili correnti; nessun comportamento applicativo modificato.
 
-## Fix applicati
+## Fix applicati e fix rinviati
 
-- `4b226d6` fix(UI-03) — alias `/api/v1` assegna/rimuovi collaboratore-progetto + test.
+Applicati i soli fix piccoli e certi UI-03 (`4b226d6`) e UI-19 (`c9b9059`).
+UI-19 riguarda esclusivamente contratti/mock di test e l'export di una costante
+già esistente; non modifica i flussi applicativi.
 
-## Da fare alla ripresa
+Da decidere prima del manuale:
 
-1. Chiudere UI-3: F1 indagine gruppi falliti estrazione; F2 massimali con
-   payload corretto; F6 apply field_update con verifica effetto; F7 cockpit
-   card-by-card; poi teardown copia.
-2. UI-4: rifinire questo report (matrice finale, severità, dichiarazioni) e
-   fermarsi al GATE UI.
-3. GATE: decidere fix maggiori (UI-01 ruoli, UI-02 schema piani, UI-04 cast,
-   UI-05/06 nascondere azioni per ruolo, UI-09 RBAC endpoint radice).
+1. UI-01: mappa/normalizzazione definitiva dei ruoli canonici.
+2. UI-02: contratto di risposta dei piani, inclusa la semantica di sforamento.
+3. UI-04: normalizzazione numerica nel generatore timesheet.
+4. UI-05/UI-06: RBAC coerente oppure azioni nascoste/disabilitate con messaggio.
+5. UI-09: `require_role` sugli endpoint cross-resource.
+6. UI-15: destinazioni frontend e filtri del Cockpit.
+7. UI-16: montaggio del portale tokenizzato prima del login gestionale.
+8. UI-17: stato “parziale/da verificare” e dettaglio errori estrazione.
+
+## Gate tecnici eseguiti
+
+- Backend completo sul codice corrente: **569 passed, 3 skipped, 0 failed** su
+  572 test (8m36s). Include il test regressione UI-03.
+- Frontend completo: **6 suite passate, 54 test passati, 0 falliti**.
+- Build frontend production: completata. Warning residui non bloccanti:
+  `CATEGORIA_COLORE` inutilizzata in `HomeCockpit.js` e bundle sopra la soglia
+  consigliata.
+- `git diff --check`: pulito prima dei commit documentali.
+- Teardown completato: rimossi container/volumi anonimi di
+  `pythonpro_backend_uiverifica` e database `gestionale_ui_verifica`; backend,
+  frontend, worker, PostgreSQL e Redis reali restano healthy, `/health` → 200.
+
+## Verdetto del GATE
+
+**GATE UI: NON SUPERATO.**
+
+**TUTTE LE PAGINE COLLEGATE E FUNZIONANTI: NO.**
+
+**MANUALE VERIFICATO SU PIATTAFORMA REALE: non dichiarabile perché il manuale non
+è stato avviato e diverse procedure richieste non esistono o sono rotte.**
+
+L'Ondata M deve restare ferma finché l'utente non decide quali correzioni
+bloccanti includere e finché le relative prove runtime non sono verdi.

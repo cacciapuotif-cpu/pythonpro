@@ -786,3 +786,30 @@ con zero side effect esterni senza approvazione umana, kill switch globale e per
   frontend HTTP 200. Nessun hard-delete applicato al database reale.
 
 ---
+
+## 2026-07-19 | ONDATA UI | UI-1…UI-4 completati — GATE NON SUPERATO
+
+- Completati censimento route/componenti/API, runtime sui ruoli, otto flussi
+  trasversali e report finale `audit/UI_VERIFICA_REPORT.md`.
+- Esito dichiarato: **TUTTE LE PAGINE COLLEGATE E FUNZIONANTI: NO**. I ruoli
+  canonici `operatore` e `consultazione` non entrano nel frontend; restano inoltre
+  rotti piani finanziari, alcuni PDF timesheet, azioni Cockpit e portale allievi.
+- UI-3 su clone: massimale docenza provato (101 contro limite 100 → 422; 100 →
+  201); apply umano di una suggestion strutturata → `implemented` con effetto
+  visibile; estrazione Ollama ripetuta con rete corretta → 6 proposte, 1/5 gruppi
+  in timeout e una data non ISO scartata.
+- Fix piccoli chiusi: `4b226d6` UI-03 alias `/api/v1` per assegnazione
+  collaboratore↔progetto; `c9b9059` UI-19 riallineamento test frontend.
+- Finding ombrello: NEW-018. UI-10 non confermato: hard-delete correttamente
+  renderizzato soltanto agli admin.
+- Gate tecnici: backend completo **569 passed, 3 skipped, 0 failed** su 572;
+  frontend **54 passed, 0 failed**; build production completata con warning non
+  bloccanti.
+- Teardown clone completato: rimosso `pythonpro_backend_uiverifica` con i volumi
+  anonimi e droppato `gestionale_ui_verifica`; stack reale rimasto healthy e
+  `/health` HTTP 200.
+- Ondata M **NON AVVIATA**. CRM e “Chiedi all'archivio” non esistono ancora;
+  il manuale resta fermo finché i blocker UI non vengono decisi e corretti.
+- Nessun push.
+
+---

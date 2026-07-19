@@ -173,3 +173,21 @@
 - Descrizione: la copia delle voci nella nuova versione non conserva
   `needs_careful_review`, perdendo un segnale editoriale della versione precedente.
 - Stato: aperto; includere il flag nella clonazione delle voci.
+
+## 2026-07-19 | NEW-018 | GATE UI non superato: ruoli, flussi e navigazione rotti
+
+- Area: frontend / RBAC / flussi end-to-end
+- Severità stimata: alta
+- Emerso durante: Ondata UI, UI-1…UI-4
+- Descrizione: la verifica completa ha confermato più blocker coordinati. I ruoli
+  canonici `operatore` e `consultazione` non entrano nel frontend (UI-01);
+  l'elenco piani finanziari e alcuni PDF timesheet rispondono 500 (UI-02/UI-04);
+  il Cockpit non collega contatori e decisioni alle pagine operative (UI-15);
+  il portale allievi tokenizzato è montato dopo il gate di login ERP (UI-16).
+  Restano inoltre incoerenze RBAC/visibilità UI-05, UI-06 e UI-09 e uno stato
+  estrazione troppo ottimistico in presenza di risultati parziali (UI-17).
+- Impatto: non è possibile dichiarare tutte le pagine collegate e funzionanti,
+  né scrivere/verificare onestamente il manuale operativo richiesto.
+- Evidenze e decisioni puntuali: `audit/UI_VERIFICA_REPORT.md`.
+- Stato: aperto; GATE UI non superato. Decidere e correggere i blocker prima
+  dell'Ondata M, poi ripetere i flussi e la matrice sui tre ruoli canonici.

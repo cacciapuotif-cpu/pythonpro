@@ -1,6 +1,6 @@
 # PythonPro — Stato corrente
 
-**Aggiornato:** 2026-07-18 (ATT-01…ATT-07 chiusi e runtime migrato)
+**Aggiornato:** 2026-07-19 (GATE UI completato e non superato)
 **Branch:** `claude/platform-audit-compliance-XnH86` (locale, nessun push)
 **Percorso:** `/DATA/progetti/pythonpro`
 
@@ -8,7 +8,7 @@
 
 - Runtime: backend, frontend, PostgreSQL, Redis e ARQ worker healthy.
 - Schema reale: Alembic `058` head; `alembic check` senza drift.
-- Baseline backend: **568 passed, 3 skipped, 0 failed** su 571 test.
+- Baseline backend: **569 passed, 3 skipped, 0 failed** su 572 test.
 - V1 archivio avvisi e V2 pipeline ingestione sono chiuse.
 - Wave dominio 1 e Wave 2.1 timesheet snapshot immutabile sono chiuse.
 - Flusso agenti canonico attivo: collector puro → AgentRun/AgentSuggestion → approvazione umana → apply auditato. Nessun auto-apply.
@@ -104,36 +104,25 @@ L'utente ha autorizzato preventivamente i gate tecnici e ha chiesto di non ferma
 - Evidenze: `audit/ATTIVITA_PREDITTIVE_GATE_2026-07-18.md`; design e piano tracciati
   sotto `docs/superpowers/`. Prossimi sottosistemi predittivi B/C/D richiedono spec separate.
 
-## Ondata UI — verifica pagine e collegamenti (IN CORSO, 2026-07-19)
+## Ondata UI — GATE NON SUPERATO (2026-07-19)
 
-Prompt operativo: censimento UI (UI-1) → verifica runtime 3 ruoli (UI-2) →
-flussi trasversali (UI-3) → report + GATE UI (UI-4) → poi Ondata M (manuale).
-
-- UI-1 e UI-2 COMPLETATI; UI-3 a metà; UI-4 da scrivere. Bozza completa con
-  metodo, matrice e finding UI-01…UI-14 in `audit/UI_VERIFICA_REPORT.md`
-  (fonte di verità per riprendere).
-- Fix applicato: `4b226d6` fix(UI-03) alias `/api/v1` assegna/rimuovi
-  collaboratore↔progetto + test (`tests/test_assignments_features.py`).
-  Suite completa NON ancora rieseguita dopo il fix; il backend live NON è
-  stato riavviato (il fix è attivo solo sulla copia).
-- Finding maggiori aperti per il GATE: UI-01 (ruoli canonici operatore/
-  consultazione esclusi dal login/menu frontend), UI-02 (`GET /piani-finanziari/`
-  500 da schema stantio), UI-04 (PDF timesheet 500 float/Decimal),
-  UI-05/06 (azioni visibili all'operatore su endpoint admin-only).
-- Ambiente di prova attivo da riusare o smontare:
-  - utenti test nel DB reale: `ui_test_admin`, `ui_test_operatore`,
-    `ui_test_consultazione`, `ui_test_op_legacy` (password random non salvate:
-    per riusarli rifare reset hash via `docker exec -i pythonpro_backend python`
-    con `SecurityUtils.hash_password`);
-  - DB copia `gestionale_ui_verifica` + container `pythonpro_backend_uiverifica`
-    su porta 8003 (stesso codice via bind mount, volumi anonimi);
-  - immagine Playwright `mcr.microsoft.com/playwright:v1.59.1-noble`
-    (chromium richiede `--single-process --no-zygote` su questo host);
-    script e screenshot in scratchpad sessione (rigenerabili dal report).
-- Ripresa: seguire la sezione "Da fare alla ripresa" del report; al termine di
-  UI-3 completare UI-4 e FERMARSI AL GATE UI prima del manuale (Ondata M).
-- Nota per Ondata M: "Chiedi all'archivio" (Ondata L) e CRM (Ondata C2) non
-  esistono ancora — i capitoli 8 e 9 del manuale non sono scrivibili.
+- UI-1…UI-4 completati; report finale: `audit/UI_VERIFICA_REPORT.md`.
+- Dichiarazione: **TUTTE LE PAGINE COLLEGATE E FUNZIONANTI: NO**. Ondata M non
+  avviata. “Chiedi all'archivio” e CRM non esistono ancora.
+- Blocker principali: UI-01 ruoli canonici esclusi; UI-02 piani 500; UI-04 PDF
+  timesheet 500; UI-15 Cockpit non naviga; UI-16 portale allievi dietro login;
+  UI-17 estrazione parziale marcata come completata. NEW-018 raccoglie il gate.
+- UI-3: massimale verificato (101→422, 100→201); apply agentico umano verificato
+  fino all'effetto visibile; estrazione Ollama 6 proposte ma 1/5 gruppi timeout.
+- Fix piccoli: `4b226d6` UI-03 alias assegnazione e `c9b9059` UI-19 test frontend.
+- Gate: backend **569 passed, 3 skipped**; frontend **54 passed**; build production
+  completata con soli warning. Nessun push.
+- Ambiente copia smontato: container e volumi anonimi rimossi, database
+  `gestionale_ui_verifica` eliminato; stack reale verificato healthy (`/health` OK).
+- Utenti test nel DB reale ancora presenti: `ui_test_admin`, `ui_test_operatore`,
+  `ui_test_consultazione`, `ui_test_op_legacy`; password random non conservate.
+- Prossimo passo: decidere i blocker nel GATE, correggerli, ripetere i tre ruoli;
+  solo dopo iniziare il manuale.
 
 ## Regole di lavoro
 
