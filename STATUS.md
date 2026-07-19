@@ -1,6 +1,6 @@
 # PythonPro — Stato corrente
 
-**Aggiornato:** 2026-07-19 (ONDATA UI-FIX completata; GATE UI v2 non superato)
+**Aggiornato:** 2026-07-19 pomeriggio (ONDATA UI-COMPLETAMENTO avviata e interrotta su richiesta utente dopo Task E2.1)
 **Branch:** `claude/platform-audit-compliance-XnH86` (locale, nessun push)
 **Percorso:** `/DATA/progetti/pythonpro`
 
@@ -45,6 +45,54 @@
   il deploy locale/LAN corrente non è coinvolto.
 - **Ondata M congelata.** Prossimo passo: decisione utente sull'accettabilità
   delle tre eccezioni oppure completamento B4/L1 e test contratto prima del manuale.
+
+## Ondata UI-COMPLETAMENTO — IN CORSO, INTERROTTA (2026-07-19)
+
+Obiettivo: chiudere le 3 eccezioni del GATE UI v2 e rieseguire GATE UI v3.
+Ordine: **E2 → E1 → E3 → GATE v3**. Ondata M resta congelata fino a v3 superato.
+
+**Piano completo (fonte unica dei task):**
+`docs/superpowers/plans/2026-07-19-ui-completamento.md`
+Metodo: subagent-driven (team QA e2e, frontend React, backend, data engineer,
+UX reviewer). Brief per task già estratti in `.superpowers/sdd/briefs/`;
+ledger avanzamento in `.superpowers/sdd/progress.md`.
+
+**Fatto:**
+- Ricognizione completa (sezione "Ricognizione" nel piano — NON ripeterla):
+  B4 inesistente; FTS inesistente; trigger reale contract_agent già presente
+  nella `valida` documenti; massimali solo `MassimaleFondo` (precedenza regola
+  avviso da costruire in E1.3); pdfminer disponibile per estrazione testo PDF.
+- Backup fresco verificato:
+  `/app/backups/gestionale_backup_ui_completamento_pre_20260719_143401.sql.zip.gpg` (INTEGRITY=True).
+- **Task E2.1 CHIUSO dall'implementer** (test E2E catena contratto fino al PDF):
+  commit `3274988` (test), `2039703` fix NEW-021 (accept umano rotto per
+  suggestion non-collaborator), `7f6b170` fix NEW-022 (download contratto
+  negato a consultazione). Suite completa: **581 passed, 3 skipped, 0 failed**.
+  Findings NEW-021/NEW-022 censiti e chiusi in `audit/FINDINGS_NUOVI.md`.
+  Report: `.superpowers/sdd/briefs/task-E2_1-report.md`.
+
+**Resta da fare (in ordine, dal piano):**
+1. **Task review di E2.1** (mai eseguita — dispatch reviewer su diff
+   `eb243cf..7f6b170` con brief+report; fix findings Critical/Important).
+2. E2.2 test negativi catena (doc mancante, doc scaduto/non validato,
+   doppio accept) + E2.3 gate fase E2.
+3. E1.1 modello `PianoFinanziarioTemplate` + migration 060 (prova su clone,
+   poi DB reale) + seed idempotente; E1.2 endpoint listing/anteprima/
+   from-template; E1.3 massimali con precedenza regola avviso validata e
+   citazione articolo; E1.4 wizard UI 3 passi; E1.5 gate fase E1.
+4. E3.1 servizio ricerca FTS + migration 061 (fallback ILIKE per SQLite);
+   E3.2 endpoint search + chiedi (onestà: retrieval vuoto → "non presente"
+   senza LLM; citazioni obbligatorie validate server-side; LLM giù → degrado
+   pulito); E3.3 pagina "Chiedi all'archivio" (3 ruoli, disclaimer, citazioni
+   cliccabili); E3.4 gate fase E3.
+5. GATE UI v3: G3.1 riesecuzione matrice pagina×ruolo + flussi 1–8 + suite
+   complete; G3.2 report v3 (confronto v1→v2→v3, dichiarazione onesta) +
+   REMEDIATION_LOG; G3.3 se superato → sbloccare e avviare Ondata M
+   (manuale con capitoli 3 e 9), altrimenti fermarsi con elenco onesto.
+6. Review finale whole-branch prima di chiudere l'ondata.
+
+Regole invariate: commit atomici mai push, migration solo Alembic provate su
+copia, agenti solo proposte, nuovi problemi in FINDINGS_NUOVI, stop ai GATE.
 
 ## Lavoro corrente — programma giro completo
 
@@ -135,25 +183,12 @@ L'utente ha autorizzato preventivamente i gate tecnici e ha chiesto di non ferma
 - Evidenze: `audit/ATTIVITA_PREDITTIVE_GATE_2026-07-18.md`; design e piano tracciati
   sotto `docs/superpowers/`. Prossimi sottosistemi predittivi B/C/D richiedono spec separate.
 
-## Ondata UI — GATE NON SUPERATO (2026-07-19)
+## Ondata UI v1 — sintesi storica
 
-- UI-1…UI-4 completati; report finale: `audit/UI_VERIFICA_REPORT.md`.
-- Dichiarazione: **TUTTE LE PAGINE COLLEGATE E FUNZIONANTI: NO**. Ondata M non
-  avviata. “Chiedi all'archivio” e CRM non esistono ancora.
-- Blocker principali: UI-01 ruoli canonici esclusi; UI-02 piani 500; UI-04 PDF
-  timesheet 500; UI-15 Cockpit non naviga; UI-16 portale allievi dietro login;
-  UI-17 estrazione parziale marcata come completata. NEW-018 raccoglie il gate.
-- UI-3: massimale verificato (101→422, 100→201); apply agentico umano verificato
-  fino all'effetto visibile; estrazione Ollama 6 proposte ma 1/5 gruppi timeout.
-- Fix piccoli: `4b226d6` UI-03 alias assegnazione e `c9b9059` UI-19 test frontend.
-- Gate: backend **569 passed, 3 skipped**; frontend **54 passed**; build production
-  completata con soli warning. Nessun push.
-- Ambiente copia smontato: container e volumi anonimi rimossi, database
-  `gestionale_ui_verifica` eliminato; stack reale verificato healthy (`/health` OK).
+- GATE UI v1 non superato (blocker UI-01…UI-17, poi chiusi al v2); dettagli nel
+  report `audit/UI_VERIFICA_REPORT.md` e in `REMEDIATION_LOG.md`.
 - Utenti test nel DB reale ancora presenti: `ui_test_admin`, `ui_test_operatore`,
   `ui_test_consultazione`, `ui_test_op_legacy`; password random non conservate.
-- Prossimo passo: decidere i blocker nel GATE, correggerli, ripetere i tre ruoli;
-  solo dopo iniziare il manuale.
 
 ## Regole di lavoro
 
