@@ -1,19 +1,50 @@
 # PythonPro — Stato corrente
 
-**Aggiornato:** 2026-07-19 (GATE UI completato e non superato)
+**Aggiornato:** 2026-07-19 (ONDATA UI-FIX completata; GATE UI v2 non superato)
 **Branch:** `claude/platform-audit-compliance-XnH86` (locale, nessun push)
 **Percorso:** `/DATA/progetti/pythonpro`
 
 ## Stato operativo
 
 - Runtime: backend, frontend, PostgreSQL, Redis e ARQ worker healthy.
-- Schema reale: Alembic `058` head; `alembic check` senza drift.
-- Baseline backend: **569 passed, 3 skipped, 0 failed** su 572 test.
+- Schema reale: Alembic `059` head.
+- Baseline backend: **578 passed, 3 skipped, 0 failed** su 581 test.
+- Baseline frontend: **96 passed, 3 snapshot, 0 failed**; build production verde.
 - V1 archivio avvisi e V2 pipeline ingestione sono chiuse.
 - Wave dominio 1 e Wave 2.1 timesheet snapshot immutabile sono chiuse.
 - Flusso agenti canonico attivo: collector puro → AgentRun/AgentSuggestion → approvazione umana → apply auditato. Nessun auto-apply.
 - `AGENT_DATA_RETENTION_ENABLED=false` resta invariato.
 - History Git contiene vecchi `.env`: **MAI push** finché non viene ripulita con procedura dedicata.
+
+## Ondata UI-FIX — stato al GATE v2
+
+- FIX-1…8 completati con commit atomici locali e test di regressione UI/
+  integrazione: `cbb255a`, `396765c`, `c63ebdd`, `1e027c1`, `c06ae57`,
+  `23ad325`, `53e6e39`, `8058f57`.
+- Il crawl v2 ha trovato UI-20/NEW-019 (Dashboard consultazione → reporting
+  timesheet 403), corretto in `6065fe5` con test ruolo×chiamata.
+- Crawl definitivo: utenti canonici 3/3, menu 18/17/16, pagine pertinenti
+  19/18/17, **0 errori console, 0 errori network, 0 spinner**.
+- UI-3: 123 test mirati verdi; clone PostgreSQL con 4/4 piani apribili, 9/9 PDF
+  timesheet e snapshot congelato 1/1; Home 5/5 destinazioni/filtri corretti.
+- Stato estrazione onesto in migration 059: `completata/parziale/fallita`,
+  sezioni/categorie/scarti e retry delle sole parti mancanti. DB reale: sei
+  revisioni tutte `caricato`, quindi nessun backfill inventato.
+- Backup pre-fix verificato:
+  `/app/backups/gestionale_backup_ui_fix_pre_20260719_103215.sql.zip.gpg`.
+- Ambiente clone `pythonpro_ui059_test` e backend temporaneo rimossi; stack reale
+  healthy, `/health` 200, DB reale ancora 6 revisioni e 4 piani.
+- Report v2 completo e confronto prima/dopo:
+  `audit/UI_VERIFICA_REPORT.md`.
+- **Verdetto: GATE UI v2 NON SUPERATO; TUTTE LE PAGINE COLLEGATE E FUNZIONANTI:
+  NO.** Le pagine esistenti sono pulite, ma restano tre eccezioni:
+  1. creazione piano da template assente (B4);
+  2. catena contratto priva di un'unica prova E2E fino alla generazione;
+  3. “Chiedi all'archivio” con citazioni assente (L1).
+- NEW-020 aperto: health frontend non portabile su hostname pubblico same-origin;
+  il deploy locale/LAN corrente non è coinvolto.
+- **Ondata M congelata.** Prossimo passo: decisione utente sull'accettabilità
+  delle tre eccezioni oppure completamento B4/L1 e test contratto prima del manuale.
 
 ## Lavoro corrente — programma giro completo
 

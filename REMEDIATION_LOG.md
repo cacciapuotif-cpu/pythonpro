@@ -669,6 +669,47 @@ con zero side effect esterni senza approvazione umana, kill switch globale e per
 - Nessun push.
 
 ---
+
+## 2026-07-19 | ONDATA UI-FIX | FIX-1…8 completati — GATE v2 NON SUPERATO
+
+- Backup DB reale creato e verificato prima dei fix:
+  `gestionale_backup_ui_fix_pre_20260719_103215.sql.zip.gpg`.
+- **UI-01** (`cbb255a`): ruoli canonici/legacy, menu, route e azioni centralizzati
+  in `frontend/src/auth/permissions.js`; snapshot navigazione admin/operatore/
+  consultazione.
+- **UI-09** (`396765c`): azioni sensibili allineate al backend e endpoint
+  cross-resource protetti; test parametrizzati ruolo×azione.
+- **UI-02** (`c63ebdd`): schema piani compatibile con fondi reali e budget in
+  sforamento; 4/4 piani del clone apribili.
+- **UI-04** (`1e027c1`): normalizzazione numerica PDF; 9/9 assignment e snapshot
+  congelati verificati sul clone.
+- **UI-15** (`c06ae57`): tutte le card/decisioni Home navigano con filtro; click
+  Playwright reali senza errori.
+- **UI-16** (`23ad325`): portale magic-token montato prima del login ERP; valido
+  e no-token coperti in test e browser.
+- **UI-17** (`53e6e39`): stati estrazione `completata/parziale/fallita`, progresso
+  sezioni/categorie, scarti e retry mirato. Migration Alembic 059 provata su
+  clone e applicata al reale; sei revisioni reali `caricato`, nessun backfill
+  inventato.
+- **UI-11** (`8058f57`): rimosso il link API hardcoded/non operativo dalla UI.
+- Il crawl v2 ha scoperto **UI-20/NEW-019**: Dashboard consultazione chiamava
+  reporting timesheet admin-only. Corretto in `6065fe5` con test ruolo×chiamata;
+  nuovo crawl integrale: 3/3 ruoli autenticati, menu 18/17/16, 0 errori console,
+  0 errori network, 0 spinner.
+- UI-3: 123 test d'integrazione verdi; clone 4/4 piani, 9/9 PDF e snapshot 1/1;
+  card Home e decisione 5/5 destinazioni corrette.
+- Gate finali: backend **578 passed, 3 skipped, 0 failed** su 581; frontend
+  **96 passed, 0 failed**, 3 snapshot; build production riuscita; Alembic
+  `059 (head)`; stack reale healthy.
+- Report completo prima/dopo: `audit/UI_VERIFICA_REPORT.md`, sezione GATE UI v2.
+- **Verdetto: GATE UI v2 NON SUPERATO. TUTTE LE PAGINE COLLEGATE E FUNZIONANTI:
+  NO.** Le pagine esistenti sono pulite, ma il protocollo comprende ancora:
+  piano da template assente (B4), catena contratto senza una singola prova E2E
+  fino alla generazione, ricerca archivio con citazioni assente (L1).
+- NEW-020 censisce il health check non portabile su hostname pubblico.
+- Ondata M resta congelata; nessun push.
+
+---
 # 2026-07-17 — ONDATA ARCHIVIO AVVISI | V1 design gate
 
 ## 2026-07-17 — Stabilizzazione post-V1

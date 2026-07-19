@@ -191,6 +191,11 @@
 - Evidenze e decisioni puntuali: `audit/UI_VERIFICA_REPORT.md`.
 - Stato: aperto; GATE UI non superato. Decidere e correggere i blocker prima
   dell'Ondata M, poi ripetere i flussi e la matrice sui tre ruoli canonici.
+- Aggiornamento GATE v2 2026-07-19: i blocker UI-01/02/04/05/06/09/15/16/17
+  sono chiusi e il crawl finale è pulito sui tre ruoli. NEW-018 resta aperto
+  perché il protocollo richiesto include funzioni non implementate: piano da
+  template (B4) e ricerca archivio con citazioni (L1); manca inoltre una prova
+  E2E unica fino alla generazione del contratto. Dettaglio nel report v2.
 
 ## 2026-07-19 | NEW-019 | Dashboard consultazione chiamava reporting admin-only
 

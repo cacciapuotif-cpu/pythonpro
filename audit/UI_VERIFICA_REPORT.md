@@ -247,3 +247,145 @@ Da decidere prima del manuale:
 
 L'Ondata M deve restare ferma finché l'utente non decide quali correzioni
 bloccanti includere e finché le relative prove runtime non sono verdi.
+
+---
+
+# GATE UI v2 — riesecuzione integrale dopo ONDATA UI-FIX
+
+Data: 2026-07-19
+Stato del manuale: **congelato**
+
+## Metodo v2
+
+- UI-1: ricensimento di `SECTION_CONFIG`, mapping path→sezione, switch dei
+  componenti, modulo unico `auth/permissions.js`, chiamate HTTP e router FastAPI.
+- UI-2: Playwright headless sul bundle nginx reale, con i tre utenti canonici di
+  test già presenti nel DB. Visitate 54 combinazioni menu×ruolo e le tre aperture
+  dirette di Revisione Agenti; raccolti errori console/network, spinner, URL e
+  contenuto renderizzato.
+- UI-3: prove browser dei collegamenti, 123 test di integrazione mirati e smoke
+  HTTP su clone PostgreSQL `pythonpro_ui059_test`. Nessuna azione mutante sul DB
+  reale.
+- Gate: suite backend completa, suite frontend completa, build production,
+  migration 059 su clone e DB reale, smoke dei dati copiati.
+
+## UI-1 v2 — matrice completa pagina × ruolo
+
+Legenda: `OK` = pagina caricata senza errori; `—` = non prevista dalla matrice
+RBAC. “Menu” indica la voce visibile; Revisione Agenti è una route contestuale.
+
+| Route | Componente pagina | Menu/link | Admin | Operatore | Consultazione |
+|---|---|---|:---:|:---:|:---:|
+| `/` | `HomeCockpit` | Home | OK | OK | OK |
+| `/` | `Dashboard` | Dashboard | OK | OK | OK |
+| `/` | `Calendar` | Calendario | OK | OK | OK |
+| `/` | `TimesheetView` | Timesheet | OK | OK | — |
+| `/documenti-mancanti` | `DocumentiMancanti` | Documenti | OK | OK | OK |
+| `/` | `CollaboratorManager` | Collaboratori | OK | OK | OK |
+| `/` | `AllieviManager` | Allievi | OK | OK | OK |
+| `/projects` | `ProjectManager` | Progetti | OK | OK | OK |
+| `/` | `AziendeClientiManager` | Aziende | OK | OK | OK |
+| `/` | `CatalogoManager` | Catalogo | OK | OK | OK |
+| `/` | `ListiniManager` | Listini | OK | OK | OK |
+| `/` | `PreventiviManager` | Preventivi | OK | OK | OK |
+| `/` | `OrdiniManager` | Ordini | OK | OK | OK |
+| `/resources` | `ResourceArchive` | Archivio Risorse | OK | OK | OK |
+| `/` | `ImplementingEntitiesList` | Enti Attuatori | OK | OK | OK |
+| `/agents/dashboard` | `AgentsDashboard` | Agents Dashboard | OK | OK | OK |
+| `/agents` | `AgentsManager` | Agenti | OK | OK | OK |
+| `/agents/review` | `AgentSuggestionsReview` | Archivio/Cockpit → Revisione | OK | OK | OK |
+| `/` | `ContractTemplatesManager` | Template | OK | — | — |
+| `/portale-allievi?token=…` | `PortaleAllievi` | link magic-token esterno | OK pubblico | OK pubblico | OK pubblico |
+
+Risultato automatico UI-2: autenticazione `3/3`; voci menu `18/17/16` come da
+snapshot; pagine pertinenti `19/18/17`; **0 errori network, 0 errori console, 0
+spinner residui**.
+
+### Collegamenti, pagine orfane e link fantasma
+
+- Nessun link di menu punta a una sezione inesistente.
+- Revisione Agenti non è più orfana: è raggiunta dall'Archivio e dalle decisioni
+  Home; resta correttamente nascosta dal menu principale.
+- Il portale è intenzionalmente esterno al menu ERP e usa solo il magic token.
+- Restano componenti sorgente non montati (UI-13) e wrapper API morti (UI-14),
+  senza impatto sulle pagine runtime.
+- UI-18 resta: molte sezioni condividono `/`, quindi non tutte hanno un bookmark
+  stabile. I deep-link necessari ai fix (`projects`, `resources`, documenti e
+  agenti) sono presenti e provati.
+
+### Contratti API e RBAC
+
+La tabella API della v1 resta il censimento completo delle chiamate per pagina.
+La riesecuzione v2 ne ha verificato il comportamento runtime sui tre ruoli:
+
+- menu, route e azioni leggono la stessa matrice frontend centralizzata;
+- export timesheet e documenti sensibili non sono offerti a ruoli vietati;
+- endpoint cross-resource bloccano `consultazione` anche se chiamati direttamente;
+- Dashboard consultazione non chiama più il reporting timesheet admin-only
+  (UI-20, trovato e corretto durante il crawl v2);
+- nessuna pagina visibile ha prodotto 401/403/404/405/500 nel crawl finale.
+
+## UI-3 v2 — flussi trasversali 1–8
+
+| # | Flusso | Esito v2 | Evidenza / attrito residuo |
+|---:|---|---|---|
+| 1 | MD → estrazione → regole | **OK sul percorso implementato** | Stati `completata/parziale/fallita`, copertura 5 sezioni/12 categorie, scarti e retry delle sole sezioni mancanti provati in integrazione e nel browser. La validazione umana resta obbligatoria. |
+| 2 | Piano da template → massimali → avviso | **PARZIALE** | Tutti i 4 piani del clone aprono; massimale 101→422 e 100→201; link avviso presenti. La creazione da entità `PianoFinanziarioTemplate` non esiste: B4 non è stata realizzata. |
+| 3 | Progetto → collaboratori → checklist → approvo | **OK** | Creazione/assegnazione, RBAC ruolo, upload e validazione documentale coperti dai test d'integrazione; consultazione non può mutare. |
+| 4 | Collaboratore incompleto → agenti → contratto | **PARZIALE** | Documento mancante → proposta → validazione umana → `contract_ready` verificato. Il codice fiscale resta obbligatorio e manca un unico test E2E che prosegua dalla proposta al click finale di generazione contratto. |
+| 5 | Presenze → timesheet → esito | **OK** | Guardie periodo/sovrapposizione, rendicontazione e snapshot verdi. Clone: PDF 9/9 e snapshot congelato 1/1, incluso l'assignment che prima falliva su float/Decimal. |
+| 6 | Dashboard agenti → review → approvo → effetto | **OK** | Apply umano strutturato, audit e modifica visibile coperti dai test E2E/agenti; nessun auto-apply. |
+| 7 | Home → pagina filtrata | **OK** | Click reali: pratiche→`/documenti-mancanti?status=open`; progetti→`/projects?status=active`; agenti→`/agents/dashboard?run_status=running`; scadenze→`/projects?status=deadline-7-days`; decisione→progetto filtrato. Zero errori. |
+| 8 | Chiedi all'archivio → citazioni → avviso | **NON ESISTE** | Ondata L1 non eseguita: nessuna UI/API di ricerca con citazioni. Il flusso non è verificabile. |
+
+Anche il CRM previsto dal futuro manuale resta assente e subordinato all'Ondata
+C2 e al prerequisito legale già censito.
+
+## Confronto prima/dopo e commit
+
+| Finding | Prima | Dopo v2 |
+|---|---|---|
+| UI-01/UI-07/UI-08 | ruoli canonici esclusi/orfani | chiusi, snapshot navigazione 3 ruoli |
+| UI-02 | piani 500 | chiuso, 4/4 sul clone |
+| UI-04 | PDF Decimal 500 | chiuso, 9/9 + snapshot |
+| UI-05/UI-06/UI-09 | azioni/RBAC incoerenti | chiusi, test ruolo×azione |
+| UI-15 | Home senza navigazione | chiuso, cinque click reali |
+| UI-16 | portale dietro login ERP | chiuso, token valido/no-token senza login ERP |
+| UI-17 | parziale marcata completa | chiuso, stato e progresso onesti + migration 059 |
+| UI-11 | link API localhost | chiuso, link tecnico rimosso dalla UI operativa |
+| UI-20 | Dashboard consultazione 403 | trovato nel v2 e chiuso |
+
+Commit locali, nessun push: `cbb255a`, `396765c`, `c63ebdd`, `1e027c1`,
+`c06ae57`, `23ad325`, `53e6e39`, `8058f57`, `6065fe5`.
+
+## Gate tecnici v2
+
+- Backup pre-fix verificato: `gestionale_backup_ui_fix_pre_20260719_103215.sql.zip.gpg`.
+- Alembic reale: **059 (head)**; migration provata prima su clone con casi
+  completo/parziale/fallito.
+- Backend completo: **578 passed, 3 skipped, 0 failed** su 581 (9m17s).
+- Integrazione UI-3 mirata: **123 passed, 0 failed**.
+- Frontend completo: **12 suite, 96 passed, 3 snapshot, 0 failed**.
+- Build frontend production: completata.
+- Stack pubblicato: backend e frontend healthy; `/health` 200.
+
+## Verdetto GATE UI v2
+
+**GATE UI v2: NON SUPERATO.**
+
+**TUTTE LE PAGINE COLLEGATE E FUNZIONANTI: NO.**
+
+Le pagine e i collegamenti **esistenti** sono ora funzionanti sui tre ruoli, ma
+la dichiarazione complessiva resta NO per tre eccezioni non accettate:
+
+1. creazione piano da template assente (flusso 2);
+2. generazione contratto non coperta da una singola prova E2E completa (flusso 4);
+3. “Chiedi all'archivio” con citazioni assente (flusso 8).
+
+Residui non bloccanti ma aperti: UI-12, UI-18, UI-13/UI-14 e NEW-020.
+
+**MANUALE VERIFICATO SU PIATTAFORMA REALE: NO — Ondata M non avviata.**
+
+Come richiesto, il lavoro si ferma al GATE: l'utente deve decidere se le tre
+eccezioni sono accettabili oppure se B4/L1 e il test contratto devono precedere
+il manuale.
