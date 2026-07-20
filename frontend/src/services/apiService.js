@@ -890,6 +890,8 @@ export const getProjectModuloVocePiano = (projectId, moduloId) =>
   http.get(`/projects/${projectId}/moduli-formativi/${moduloId}/voce-piano`).then(r => r.data);
 export const createPianoFinanziario = (data) =>
   http.post('/piani-finanziari/', data).then(r => r.data);
+export const createPianoFinanziarioFromTemplate = (data) =>
+  http.post('/piani-finanziari/from-template', data).then(r => r.data);
 export const updatePianoFinanziario = (id, data) =>
   http.put(`/piani-finanziari/${id}`, data).then(r => r.data);
 export const deletePianoFinanziario = (id, softDelete = true) =>
@@ -908,6 +910,12 @@ export const getRiepilogoPianoFinanziario = (pianoId) =>
   http.get(`/piani-finanziari/${pianoId}/riepilogo`).then(r => r.data);
 export const exportPianoFinanziarioExcel = (pianoId) =>
   http.get(`/piani-finanziari/${pianoId}/export-excel`, { responseType: 'blob' });
+// ── Piano Templates (E1.5: wizard piano da template) ───────────────────────
+export const getPianoTemplates = (params = {}) =>
+  http.get('/piano-templates/', { params }).then(r => r.data);
+export const getPianoTemplateAnteprima = (templateId, params = {}) =>
+  http.get(`/piano-templates/${templateId}/anteprima`, { params }).then(r => r.data);
+
 export const getProjectBeneficiari = (projectId) =>
   http.get(`/projects/${projectId}/beneficiari`).then(r => r.data);
 export const updateProjectBeneficiarioRegime = (projectId, aziendaId, data) =>

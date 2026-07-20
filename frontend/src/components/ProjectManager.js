@@ -13,6 +13,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useProjects, useImplementingEntities, useCollaborators, useNotifications } from '../hooks/useEntity';
 import { getAziendeClienti, getAllievi, getProjectBeneficiari, getProjectModuliFormativi, updateProjectBeneficiarioRegime } from '../services/apiService';
 import { FapiUploadSection } from './FapiUpload';
+import { PianoTemplateWizardButton } from './PianoTemplateWizard';
 import AssignmentModal from './AssignmentModal';
 import { canPerform, normalizeRole } from '../auth/permissions';
 import './ProjectManager.css';
@@ -755,6 +756,14 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
             >
               📄 Carica Atto / Convenzione
             </button>
+            {/* E1.5: percorso guidato da template, ACCANTO al percorso libero
+                (upload atto/convenzione + piano XLSX) che resta invariato.
+                RBAC dentro al bottone: solo admin+operatore. */}
+            <PianoTemplateWizardButton
+              currentUser={currentUser}
+              availableProjects={projects}
+              onCreated={refresh}
+            />
           </div>
         ) : (
           <div className="project-guidance-pill">
