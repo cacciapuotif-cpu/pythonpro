@@ -96,7 +96,13 @@ export const allowedRolesForRequest = (method, path) => {
   const normalizedMethod = method.toUpperCase();
   if (pathMatches(path, ADMIN_ONLY_PREFIXES)) return [ROLES.ADMIN];
   if (pathMatches(path, AGENT_PLATFORM_PREFIXES)) {
-    if (SAFE_METHODS.has(normalizedMethod)) return Object.values(ROLES);
+    if (SAFE_METHODS.has(normalizedMethod)) {
+      // NEW-025: allegato email = file binario dal contenuto arbitrario,
+      // escluso dalla regola A5a "GET per tutti" (allineato a backend/auth.py
+      // _agent_platform_allowed_roles).
+      if (path.endsWith('/attachment')) return [ROLES.ADMIN, ROLES.OPERATOR];
+      return Object.values(ROLES);
+    }
     const isAgentRun = path === '/api/v1/agents/run'
       || (path.startsWith('/api/v1/agents/') && path.endsWith('/run'));
     if (isAgentRun || AGENT_ADMIN_ONLY_PATHS.includes(path)) return [ROLES.ADMIN];

@@ -204,6 +204,13 @@ def _path_starts_with_any(path: str, prefixes: Iterable[str]) -> bool:
 
 def _agent_platform_allowed_roles(method: str, path: str) -> set[str]:
     if method in SAFE_METHODS:
+        # NEW-025: il download dell'allegato email
+        # (GET /api/v1/email-inbox/items/{id}/attachment) serve un file dal
+        # contenuto arbitrario (documenti identita', CV, contratti in arrivo
+        # via email). La regola A5a "GET consultabili da tutti i ruoli" copre
+        # i metadati inbox, non i file binari: stessa classe di NEW-022.
+        if path.endswith("/attachment"):
+            return {UserRole.ADMIN.value, UserRole.OPERATORE.value}
         return {UserRole.ADMIN.value, UserRole.OPERATORE.value, UserRole.CONSULTAZIONE.value}
     # Run manuale agenti: /api/v1/agents/run e /api/v1/agents/<tipo>/run
     # (copre anche gli endpoint sprint7 contract-generator/certification).
