@@ -10,6 +10,7 @@ persistenza (AgentRun + AgentSuggestion) avviene solo dentro
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Any, Optional
 
 import models
@@ -17,9 +18,21 @@ from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
+def _documento_valido(richiesta, now: datetime) -> bool:
+    """NEW-027: un documento conta come valido solo se validato E non scaduto.
+    Un doc con data_scadenza passata non copre piu' il requisito, anche se lo
+    stato e' ancora 'validato' (marca_scaduti gira solo periodicamente)."""
+    if richiesta.stato != "validato":
+        return False
+    if richiesta.data_scadenza is not None and richiesta.data_scadenza < now:
+        return False
+    return True
+
+
 def _pratica_completa(db: Session, collaboratore_id: int) -> bool:
     """
-    Verifica se tutti i documenti obbligatori del collaboratore sono validati.
+    Verifica se tutti i documenti obbligatori del collaboratore sono validati
+    e non scaduti.
     """
     richieste = db.query(models.DocumentoRichiesto).filter(
         models.DocumentoRichiesto.collaboratore_id == collaboratore_id,
@@ -29,7 +42,8 @@ def _pratica_completa(db: Session, collaboratore_id: int) -> bool:
     if not richieste:
         return False
 
-    tipi_validati = {r.tipo_documento for r in richieste if r.stato == "validato"}
+    now = datetime.now()
+    tipi_validati = {r.tipo_documento for r in richieste if _documento_valido(r, now)}
     tipi_obbligatori = {r.tipo_documento for r in richieste}
 
     return tipi_obbligatori.issubset(tipi_validati)

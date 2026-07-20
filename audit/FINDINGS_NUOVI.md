@@ -406,3 +406,28 @@
   applicata in Task R1: ampliare un accesso è una scelta di prodotto, non
   di remediation.
 - Stato: **aperto — decisione utente**.
+
+## 2026-07-20 | NEW-027 | Documento obbligatorio scaduto considerato valido dal contract_agent
+
+- Area: piattaforma agenti / contract_agent (Task E2.2)
+- Severità stimata: media
+- Emerso durante: Task E2.2, test negativi della catena contratto
+  (`test_documento_scaduto_pratica_non_completa`, RED osservato prima del fix)
+- Descrizione: `ai_agents/contract_agent.py::_pratica_completa` considerava
+  la pratica documentale completa guardando SOLO `stato == "validato"`,
+  ignorando `data_scadenza`. Un documento obbligatorio caricato con
+  `data_scadenza` passata e poi validato (la `POST /valida` non blocca i
+  documenti scaduti, e `crud.marca_scaduti` gira solo periodicamente)
+  rendeva la pratica "completa": il collector proponeva la suggestion
+  `contract_ready` e il contratto risultava generabile su documentazione
+  scaduta.
+- Fix applicato (commit dedicato `fix(E2-NEW-027)`): nuovo helper
+  `_documento_valido(richiesta, now)` in `ai_agents/contract_agent.py` —
+  un documento copre il requisito solo se `stato == "validato"` E
+  (`data_scadenza` assente O `>= now`). Convenzione temporale allineata a
+  `crud.marca_scaduti` (`datetime.now()` naive).
+- Verifica: `backend/tests/test_e2e_catena_contratto.py::
+  test_documento_scaduto_pratica_non_completa` (upload con data_scadenza
+  passata + valida via API reali, trigger reale dell'agente → nessuna
+  suggestion contract_ready). RED→GREEN osservato.
+- Stato: **chiuso il 2026-07-20** nell'ambito del Task E2.2.
