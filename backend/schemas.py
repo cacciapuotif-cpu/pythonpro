@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, Field, ConfigDict, field_validator, computed_field
+from pydantic import BaseModel, EmailStr, Field, ConfigDict, field_validator, computed_field, model_validator
 from typing import Any, Dict, Generic, List, Literal, Optional, TypeVar
 from datetime import date, datetime
 
@@ -130,6 +130,22 @@ class Collaborator(CollaboratorBase):
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True, use_enum_values=True)
 
+# E1.2.d — chiavi legacy dei progetti: prima venivano scartate in silenzio
+# (Pydantic extra=ignore + pop difensivi in crud). Ora il payload le rifiuta.
+_PROJECT_LEGACY_KEYS = ("template_piano_finanziario_id", "avviso_pf_id")
+
+
+def _reject_project_legacy_keys(data):
+    if isinstance(data, dict):
+        present = [key for key in _PROJECT_LEGACY_KEYS if key in data]
+        if present:
+            raise ValueError(
+                "Campo non supportato: {}. I riferimenti finanziari del progetto si impostano "
+                "con avviso_id/avviso_revisione_id.".format(", ".join(present))
+            )
+    return data
+
+
 class ProjectBase(BaseModel):
     name: str = Field(...)
     description: Optional[str] = Field(None)
@@ -147,6 +163,11 @@ class ProjectBase(BaseModel):
     avviso: Optional[str] = None
     avviso_id: Optional[int] = None
     avviso_revisione_id: Optional[int] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _no_legacy_keys(cls, data):
+        return _reject_project_legacy_keys(data)
 
 class ProjectCreate(ProjectBase):
     pass
@@ -169,6 +190,11 @@ class ProjectUpdate(BaseModel):
     avviso_id: Optional[int] = None
     avviso_revisione_id: Optional[int] = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def _no_legacy_keys(cls, data):
+        return _reject_project_legacy_keys(data)
+
 class Project(ProjectBase):
     id: int
     ente_attuatore_id: Optional[int] = None
@@ -177,6 +203,17 @@ class Project(ProjectBase):
     updated_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True, use_enum_values=True)
+
+
+# E1.2.c — avvisi.template_id è stata rinominata contract_template_id (punta ai
+# template CONTRATTI). Il vecchio nome viene rifiutato invece che ignorato.
+def _reject_avviso_legacy_template_id(data):
+    if isinstance(data, dict) and "template_id" in data:
+        raise ValueError(
+            "Campo non supportato: template_id. Usare contract_template_id "
+            "(FK verso i template contratti)."
+        )
+    return data
 
 
 class AvvisoBase(BaseModel):
@@ -189,8 +226,13 @@ class AvvisoBase(BaseModel):
     titolo: Optional[str] = None
     descrizione_breve: Optional[str] = None
     stato: Literal['bozza', 'attivo', 'in_scadenza', 'scaduto', 'archiviato'] = 'bozza'
-    template_id: Optional[int] = None
+    contract_template_id: Optional[int] = None  # E1.2.c: ex template_id (template contratti)
     is_active: bool = True
+
+    @model_validator(mode="before")
+    @classmethod
+    def _no_legacy_template_id(cls, data):
+        return _reject_avviso_legacy_template_id(data)
 
 
 class AvvisoCreate(AvvisoBase):
@@ -204,8 +246,13 @@ class AvvisoUpdate(BaseModel):
     titolo: Optional[str] = None
     descrizione_breve: Optional[str] = None
     stato: Optional[Literal['bozza', 'attivo', 'in_scadenza', 'scaduto', 'archiviato']] = None
-    template_id: Optional[int] = None
+    contract_template_id: Optional[int] = None  # E1.2.c: ex template_id (template contratti)
     is_active: Optional[bool] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _no_legacy_template_id(cls, data):
+        return _reject_avviso_legacy_template_id(data)
 
 
 class Avviso(AvvisoBase):
@@ -764,28 +811,10 @@ class ProgettoMansioneEnteWithDetails(ProgettoMansioneEnte):
 # SCHEMI PER PIANI FINANZIARI
 # ========================================
 
-class PianoFinanziarioLegacyBase(BaseModel):
-    progetto_id: int
-    template_id: Optional[int] = None
-    avviso_id: Optional[int] = None
-    anno: int = Field(..., ge=2020, le=2100)
-    ente_erogatore: str = "Formazienda"
-    avviso: str = ""
-
-
-class PianoFinanziarioLegacyCreate(PianoFinanziarioLegacyBase):
-    pass
-
-
-class PianoFinanziarioLegacy(PianoFinanziarioLegacyBase):
-    id: int
-    avviso_rel: Optional["Avviso"] = None
-    created_at: datetime
-    updated_at: Optional[datetime] = None
-
-    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
-
-
+# E1.2.b — rimossi gli schemi legacy PianoFinanziarioLegacyBase/Create/Legacy e
+# PianoFinanziarioDettaglio: senza consumatori, esponevano `template_id` come
+# link improprio ai contract_templates. VocePianoFinanziarioLegacyBase resta
+# perché è la base di VocePianoFinanziarioUpsert (bulk update voci, usato).
 class VocePianoFinanziarioLegacyBase(BaseModel):
     macrovoce: str
     voce_codice: str
@@ -799,40 +828,12 @@ class VocePianoFinanziarioLegacyBase(BaseModel):
     collaborator_id: Optional[int] = None
 
 
-class VocePianoFinanziarioLegacyCreate(VocePianoFinanziarioLegacyBase):
-    piano_id: int
-
-
 class VocePianoFinanziarioUpsert(VocePianoFinanziarioLegacyBase):
     id: Optional[int] = None
 
 
 class PianoFinanziarioBulkUpdate(BaseModel):
     voci: List[VocePianoFinanziarioUpsert]
-
-
-class VocePianoFinanziarioLegacy(VocePianoFinanziarioLegacyBase):
-    id: int
-    piano_id: int
-    created_at: datetime
-    updated_at: Optional[datetime] = None
-    created_by_user: Optional[str] = None
-    totale_consuntivo_riferimento: float = 0.0
-
-    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
-
-    @computed_field(return_type=float)
-    @property
-    def perc_consuntivo(self) -> float:
-        if not self.totale_consuntivo_riferimento:
-            return 0.0
-        return round((self.importo_consuntivo / self.totale_consuntivo_riferimento) * 100, 2)
-
-
-class PianoFinanziarioDettaglio(PianoFinanziarioLegacy):
-    progetto: "Project"
-    voci: List[VocePianoFinanziarioLegacy]
-    template_documento: Optional["TemplateDocumentoSelezionato"] = None
 
 
 class PianoFinanziarioAlert(BaseModel):

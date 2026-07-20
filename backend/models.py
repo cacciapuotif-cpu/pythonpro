@@ -347,7 +347,9 @@ class Avviso(Base):
         nullable=True,
         index=True,
     )
-    template_id = Column(
+    # E1.2.c: rinominata da template_id — punta ai template CONTRATTI, non ai
+    # template dei piani finanziari (PianoFinanziarioTemplate).
+    contract_template_id = Column(
         Integer,
         ForeignKey("contract_templates.id", ondelete="SET NULL", use_alter=True),
         nullable=True,
@@ -357,7 +359,7 @@ class Avviso(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
-    template = relationship("ContractTemplate", back_populates="avvisi", lazy="select")
+    contract_template = relationship("ContractTemplate", back_populates="avvisi", lazy="select")
     projects = relationship("Project", back_populates="avviso_rel", lazy="select")
     revisioni = relationship(
         "AvvisoRevisione",
@@ -1087,8 +1089,8 @@ class PianoFinanziario(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     progetto_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    # Relitto censito (NEW-029): contiene ancora dati sul DB reale, non droppabile in E1.2.
     legacy_template_id = Column(Integer, nullable=True)
-    legacy_avviso_id = Column(Integer, nullable=True)
     anno = Column(Integer, nullable=False, index=True)
     ente_erogatore = Column(String(100), nullable=False, default="Formazienda")
     avviso_pf_id = Column(Integer, ForeignKey("avvisi.id", ondelete="SET NULL"), nullable=True, index=True)
@@ -2143,7 +2145,7 @@ class ContractTemplate(Base):
 
     ente_attuatore = relationship("ImplementingEntity", lazy="joined")
     progetto = relationship("Project", foreign_keys=[progetto_id], lazy="joined")
-    avvisi = relationship("Avviso", back_populates="template", lazy="select")
+    avvisi = relationship("Avviso", back_populates="contract_template", lazy="select")
 
     # === VALIDAZIONI ===
 

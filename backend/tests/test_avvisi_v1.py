@@ -288,7 +288,6 @@ def test_relation_to_financial_plans_uses_real_fk_not_legacy(db_session):
         nome="Piano",
         tipo_fondo="fondimpresa",
         avviso_pf_id=avviso.id,
-        legacy_avviso_id=999999,
         budget_totale=Decimal("1000"),
         data_inizio=datetime(2026, 1, 1),
         data_fine=datetime(2026, 12, 31),

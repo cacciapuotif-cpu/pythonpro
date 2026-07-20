@@ -806,9 +806,8 @@ def _resolve_project_financial_refs(
     avviso_revisione_id = payload.get("avviso_revisione_id")
     legacy_avviso_code = _normalize_optional_text(payload.get("avviso"))
 
-    payload.pop("avviso_pf_id", None)
-    payload.pop("template_piano_finanziario_id", None)
-
+    # E1.2.d: le chiavi legacy (template_piano_finanziario_id, avviso_pf_id)
+    # sono rifiutate con 422 dagli schemi Project* — niente più scarti silenziosi qui.
     if legacy_avviso_id_marker:
         legacy_avviso = db.query(models.Avviso).filter(
             models.Avviso.id == legacy_avviso_id_marker,
@@ -3776,7 +3775,7 @@ def _resolve_financial_template(
         if linked_avviso:
             query = query.filter(
                 or_(
-                    models.ContractTemplate.id == linked_avviso.template_id,
+                    models.ContractTemplate.id == linked_avviso.contract_template_id,
                     models.ContractTemplate.avviso.is_(None),
                 )
             )
@@ -3981,8 +3980,6 @@ def create_piano_finanziario(db: Session, piano: schemas.PianoFinanziarioCreate)
     payload["budget_approvato"] = float(payload.get("budget_approvato") or 0.0)
     payload["budget_utilizzato"] = float(payload.get("budget_utilizzato") or 0.0)
     payload["budget_rimanente"] = float(payload.get("budget_totale") or 0.0) - payload["budget_utilizzato"]
-    payload["legacy_avviso_id"] = getattr(progetto, "avviso_id", None)
-    payload["legacy_template_id"] = None
 
     db_obj = models.PianoFinanziario(**payload)
     db.add(db_obj)

@@ -460,3 +460,43 @@
 - Verifica: run completa `docker exec pythonpro_backend python -m pytest
   tests/ -q` verde con i 3 nuovi test E2.2 inclusi.
 - Stato: **chiuso il 2026-07-20** nell'ambito del Task E2.2.
+
+## 2026-07-20 | NEW-029 | piani_finanziari.legacy_template_id contiene ancora dati: colonna relitto non droppabile
+
+- Area: modello dati / piani finanziari (Task E1.2.a)
+- Severità stimata: bassa (relitto censito, nessun impatto funzionale)
+- Emerso durante: Task E1.2, verifica pre-drop dei relitti sul DB reale
+  (`information_schema` + conteggi via `docker exec pythonpro_db psql`).
+- Descrizione: la bonifica prevedeva il drop di `legacy_template_id` e
+  `legacy_avviso_id` se vuote. Verifica sul DB reale (2026-07-20):
+  `legacy_avviso_id` tutta NULL → droppata in migration 060;
+  `legacy_template_id` ha 1 riga valorizzata — piano id=4 ("Piano
+  Finanziario - poppi - FAPI - Avviso 4/2025") → valore 14, che su
+  `contract_templates` è "Piano FAPI Standard" (traccia del vecchio uso
+  improprio dei contract_templates come template di piani). Da regola di
+  ondata i dati non si droppano: colonna mantenuta (modello e DB) con
+  commento nel modello.
+- Da fare (fuori scope E1.2): decidere se migrare il riferimento del piano 4
+  verso la nuova entità `PianoFinanziarioTemplate` (una volta seedata) o
+  azzerarlo con consenso utente; poi drop della colonna in una migration
+  successiva.
+- Stato: **aperto** (censito; nessun drop applicato).
+
+## 2026-07-20 | NEW-030 | POST/PUT /projects: azienda_ids e allievo_ids inviati dal frontend ma scartati in silenzio dallo schema
+
+- Area: API progetti / schemi Pydantic (Task E1.2.d, scoperto durante l'analisi
+  degli scarti silenziosi in `crud._resolve_project_financial_refs`)
+- Severità stimata: alta (funzionalità di collegamento aziende/allievi alla
+  creazione progetto di fatto inerte via API)
+- Descrizione: `frontend/src/components/ProjectManager.js` invia
+  `azienda_ids` e `allievo_ids` nel payload di create/update progetto e
+  `crud.create_project`/`update_project` fanno `payload.pop("azienda_ids")` +
+  `_sync_project_azienda_links`/`_sync_project_allievi`, MA gli schemi
+  `ProjectCreateExtended`/`ProjectUpdateExtended` NON dichiarano quei campi:
+  Pydantic (extra=ignore) li scarta prima che crud li veda, quindi i pop
+  ricevono sempre il default e i link non vengono mai creati/aggiornati da
+  questi endpoint. Il ramo di sync in crud è codice morto.
+- Nota: fix NON applicato in E1.2 (dichiarare i campi cambia il comportamento
+  API e va coperto con test dedicati; è una scelta funzionale, non una
+  bonifica relitti). Candidato a task dedicato.
+- Stato: **aperto**.

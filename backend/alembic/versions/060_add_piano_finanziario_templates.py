@@ -1,4 +1,11 @@
-"""Entità PianoFinanziarioTemplate versionata (FASE E1).
+"""Entità PianoFinanziarioTemplate versionata + bonifica relitti template (FASE E1).
+
+- E1.1: create_table piano_finanziario_templates (+ indici).
+- E1.2.a: drop piani_finanziari.legacy_avviso_id (verificata tutta NULL sul DB
+  reale il 2026-07-20). legacy_template_id NON droppata: contiene ancora dati
+  (piano 4 → contract_templates 14) — censita come NEW-029.
+- E1.2.c: rename avvisi.template_id → contract_template_id (FK verso i template
+  CONTRATTI: il nome vecchio suggeriva un legame con i template dei piani).
 
 Revision ID: 060
 Revises: 059
@@ -41,8 +48,22 @@ def upgrade() -> None:
     op.create_index("ix_piano_finanziario_templates_tipo_fondo", "piano_finanziario_templates", ["tipo_fondo"])
     op.create_index("ix_piano_finanziario_templates_avviso_id", "piano_finanziario_templates", ["avviso_id"])
 
+    # ── E1.2.a: drop colonna relitto (tutta NULL sul DB reale) ─────────
+    op.drop_column("piani_finanziari", "legacy_avviso_id")
+
+    # ── E1.2.c: rename avvisi.template_id → contract_template_id ──────
+    op.alter_column("avvisi", "template_id", new_column_name="contract_template_id")
+    op.execute("ALTER INDEX ix_avvisi_template_id RENAME TO ix_avvisi_contract_template_id")
+    op.execute("ALTER TABLE avvisi RENAME CONSTRAINT avvisi_template_id_fkey TO avvisi_contract_template_id_fkey")
+
 
 def downgrade() -> None:
+    op.execute("ALTER TABLE avvisi RENAME CONSTRAINT avvisi_contract_template_id_fkey TO avvisi_template_id_fkey")
+    op.execute("ALTER INDEX ix_avvisi_contract_template_id RENAME TO ix_avvisi_template_id")
+    op.alter_column("avvisi", "contract_template_id", new_column_name="template_id")
+
+    op.add_column("piani_finanziari", sa.Column("legacy_avviso_id", sa.Integer(), nullable=True))
+
     op.drop_index("ix_piano_finanziario_templates_avviso_id", table_name="piano_finanziario_templates")
     op.drop_index("ix_piano_finanziario_templates_tipo_fondo", table_name="piano_finanziario_templates")
     op.drop_index("ix_piano_finanziario_templates_id", table_name="piano_finanziario_templates")
