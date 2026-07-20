@@ -1224,6 +1224,36 @@ class MassimaleFondo(Base):
     )
 
 
+class PianoFinanziarioTemplate(Base):
+    """Template versionato per la creazione guidata di piani finanziari (FASE E1).
+
+    ``struttura_voci`` è una lista JSON di voci:
+    ``[{"categoria": "docenza", "descrizione": ..., "macrovoce": ...}, ...]``.
+    """
+
+    __tablename__ = "piano_finanziario_templates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    nome = Column(String(200), nullable=False)
+    descrizione = Column(Text, nullable=True)
+    tipo_fondo = Column(String(30), nullable=False, index=True)  # stessi valori di PianoFinanziario.tipo_fondo
+    ente_erogatore = Column(String(100), nullable=True)
+    avviso_id = Column(Integer, ForeignKey("avvisi.id", ondelete="SET NULL"), nullable=True, index=True)
+    versione = Column(Integer, nullable=False, default=1, server_default="1")
+    is_active = Column(Boolean, nullable=False, default=True, server_default=text("true"))
+    struttura_voci = Column(AVVISO_JSON_TYPE, nullable=False)
+    created_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    avviso = relationship("Avviso", foreign_keys=[avviso_id], lazy="select")
+
+    __table_args__ = (
+        UniqueConstraint("nome", "versione", name="uq_pf_template_nome_versione"),
+        CheckConstraint("versione > 0", name="ck_pf_template_versione_positiva"),
+    )
+
+
 class VocePianoFinanziario(Base):
     """Singola voce del piano finanziario."""
     __tablename__ = "voci_piano_finanziario"
