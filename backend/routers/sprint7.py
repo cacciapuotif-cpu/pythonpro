@@ -122,7 +122,7 @@ def run_certification(
 def genera_contratto(
     assignment_id: int,
     db: Session = Depends(get_db),
-    # NEW-021: dipendenza esplicita coerente con timesheet/documenti
+    # NEW-022: dipendenza esplicita coerente con timesheet/documenti
     # (require_agents_execute non e' adatta: e' un download operatore, non
     # un'esecuzione agente). Il gate ruolo (admin/operatore, no consultazione)
     # e' nella matrice RBAC (auth.OPERATORE_ALLOWED_SENSITIVE_GET_SUFFIXES).

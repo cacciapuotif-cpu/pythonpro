@@ -20,6 +20,7 @@ from pdfminer.high_level import extract_text
 
 from main import app
 from database import Base, get_db
+import auth
 from auth import get_current_user, User
 import file_upload
 import models  # noqa: F401
@@ -240,7 +241,7 @@ def test_catena_contratto_completa(client, db_session, admin_user):
         json={"action": "accepted", "reviewed_by_user_id": admin_user.id},
     )
     assert acc.status_code == 200, acc.text
-    assert acc.json()["status"] not in ("pending", None)
+    assert acc.json()["status"] == "approved"
 
     # 7. generazione dall'endpoint reale
     pdf = client.get(payload["generate_url"])
@@ -265,9 +266,70 @@ def test_catena_contratto_completa(client, db_session, admin_user):
     assert sugg_after["review_actions"], "review action assente"
 
 
+def test_accept_diretto_idempotente_su_suggestion_gia_revisionata(client, db_session, admin_user):
+    """NEW-023 (review R0 su E2.1, finding I-1): il ramo approve diretto per
+    suggerimenti non-collaboratore non aveva guardia di stato — un doppio
+    accept duplicava le AgentReviewAction e un accept su una suggestion
+    'rejected' la riportava 'approved'. Il secondo accept deve rispondere 400
+    lasciando stato e review_actions invariati."""
+    _crea_template_contratto(db_session)
+    ente, collab, project, assignment = _crea_catena_base(client)
+
+    for tipo in ["documento_identita", "codice_fiscale"]:
+        r = client.post("/api/v1/documenti-richiesti/", json={
+            "collaboratore_id": collab["id"],
+            "tipo_documento": tipo,
+            "obbligatorio": True,
+        })
+        assert r.status_code == 201, r.text
+        doc_id = r.json()["id"]
+        up = client.post(
+            f"/api/v1/documenti-richiesti/{doc_id}/upload",
+            files={"file": ("doc.pdf", io.BytesIO(create_test_pdf_bytes()), "application/pdf")},
+        )
+        assert up.status_code == 200, up.text
+        ok = client.post(
+            f"/api/v1/documenti-richiesti/{doc_id}/valida",
+            json={"validato_da": "admin_test"},
+        )
+        assert ok.status_code == 200, ok.text
+
+    pend = client.get("/api/v1/agents/suggestions/pending").json()
+    contract = [
+        s for s in pend
+        if s["suggestion_type"] == "contract_ready" and s["entity_id"] == assignment["id"]
+    ]
+    assert len(contract) == 1, pend
+    sugg = contract[0]
+
+    # primo accept: ok
+    acc1 = client.post(
+        f"/api/v1/agents/suggestions/{sugg['id']}/accept",
+        json={"action": "accepted", "reviewed_by_user_id": admin_user.id},
+    )
+    assert acc1.status_code == 200, acc1.text
+    assert acc1.json()["status"] == "approved"
+    review_actions_dopo_primo = acc1.json()["review_actions"]
+    assert len(review_actions_dopo_primo) == 1, review_actions_dopo_primo
+
+    # secondo accept: 400, nessuna mutazione
+    acc2 = client.post(
+        f"/api/v1/agents/suggestions/{sugg['id']}/accept",
+        json={"action": "accepted", "reviewed_by_user_id": admin_user.id},
+    )
+    assert acc2.status_code == 400, acc2.text
+    assert "revisionat" in acc2.json()["detail"].lower()
+
+    dopo = client.get(f"/api/v1/agents/suggestions/{sugg['id']}")
+    assert dopo.status_code == 200, dopo.text
+    dopo = dopo.json()
+    assert dopo["status"] == "approved"
+    assert len(dopo["review_actions"]) == len(review_actions_dopo_primo)
+
+
 def test_contract_endpoint_richiede_autenticazione(client, db_session, admin_user):
     """RBAC: il download del contratto deve richiedere un utente autenticato
-    (NEW-021: verifica che l'endpoint non sia accessibile senza credenziali)."""
+    (NEW-022: verifica che l'endpoint non sia accessibile senza credenziali)."""
     _crea_template_contratto(db_session)
     ente, collab, project, assignment = _crea_catena_base(client)
 
@@ -281,9 +343,14 @@ def test_contract_endpoint_richiede_autenticazione(client, db_session, admin_use
     )
 
 
-def test_contract_endpoint_nega_consultazione(client, db_session):
+def test_contract_endpoint_nega_consultazione(client, db_session, monkeypatch):
     """RBAC: un utente 'consultazione' non deve poter scaricare il contratto
-    firmato (contiene PII: codice fiscale, indirizzo, compenso)."""
+    firmato (contiene PII: codice fiscale, indirizzo, compenso).
+
+    M-2 (review R0): l'enforcement non deve dipendere dall'env RBAC_ENFORCE
+    del container — lo forziamo esplicitamente come in
+    test_assignments_features.py."""
+    monkeypatch.setattr(auth, "RBAC_ENFORCE", True)
     _crea_template_contratto(db_session)
     ente, collab, project, assignment = _crea_catena_base(client)
 

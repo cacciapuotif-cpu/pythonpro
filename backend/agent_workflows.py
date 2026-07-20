@@ -750,6 +750,12 @@ def apply_workflow_action(
                 # non hanno mai un draft email/whatsapp — _ensure_collaborator_draft
                 # ritorna None per costruzione. "approve" qui e' una conferma
                 # operativa diretta dell'umano, non un invio.
+                # NEW-023: guardia di stato — un suggerimento gia' revisionato
+                # non puo' essere ri-approvato (doppio accept duplicherebbe le
+                # AgentReviewAction e un accept su "rejected" ribalterebbe la
+                # decisione umana precedente).
+                if suggestion.status in {"approved", "rejected", "completed"}:
+                    raise ValueError("Suggerimento già revisionato")
                 suggestion.status = "approved"
                 suggestion.reviewed_at = utc_now()
                 suggestion.reviewed_by_user_id = reviewed_by_user_id
@@ -763,7 +769,9 @@ def apply_workflow_action(
                 create_audit_log(
                     db,
                     entity="agent_suggestion",
-                    action=f"workflow_{action}",
+                    # N-1 (review R0): azione onesta — qui non c'e' nessun
+                    # invio email/whatsapp, e' un'approvazione diretta.
+                    action="workflow_approve_direct",
                     old_value={"suggestion_id": suggestion.id, "status": old_status},
                     new_value={"suggestion_id": suggestion.id, "status": suggestion.status, "notes": notes},
                     user_id=reviewed_by_user_id,

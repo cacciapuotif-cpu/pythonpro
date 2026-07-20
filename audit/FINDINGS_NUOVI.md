@@ -299,3 +299,31 @@
   (401/403 senza utente autenticato), entrambi in
   `backend/tests/test_e2e_catena_contratto.py`.
 - Stato: **chiuso il 2026-07-19** nell'ambito del Task E2.1.
+
+## 2026-07-20 | NEW-023 | Approve diretto senza guardia di stato: doppio accept e ribaltamento di reject
+
+- Area: agenti / workflow review umana
+- Severità stimata: media (Important in review R0)
+- Emerso durante: review R0 del diff E2.1 (finding I-1)
+- Descrizione: il ramo di approvazione diretta introdotto con NEW-021 in
+  `backend/agent_workflows.py::apply_workflow_action` (approve su suggestion
+  con `entity_type != "collaborator"`, es. `contract_ready`) non verificava
+  lo stato corrente della suggestion. Conseguenze: (1) un doppio accept
+  creava due `AgentReviewAction` duplicate e due audit log per la stessa
+  decisione; (2) un accept su una suggestion già `rejected` la riportava
+  silenziosamente ad `approved`, ribaltando una decisione umana precedente
+  senza traccia di conflitto.
+- Fix applicato (minimo, confinato al ramo nuovo — il flusso
+  collaborator/draft non è toccato): all'ingresso del ramo, se
+  `suggestion.status in {"approved", "rejected", "completed"}` →
+  `raise ValueError("Suggerimento già revisionato")`, che il router
+  (`routers/agents.py::accept_suggestion`) trasforma in HTTP 400. Nello
+  stesso intervento (N-1 della review) l'audit log del ramo diretto usa ora
+  l'azione onesta `workflow_approve_direct` invece di `workflow_approve_email`
+  (nessun invio email avviene in quel ramo; nessun test assertiva il valore
+  precedente).
+- Verifica: nuovo test
+  `test_accept_diretto_idempotente_su_suggestion_gia_revisionata` in
+  `backend/tests/test_e2e_catena_contratto.py`: secondo accept → 400,
+  status resta `approved`, `review_actions` non duplicate.
+- Stato: **chiuso il 2026-07-20** nell'ambito della review R0 su E2.1.

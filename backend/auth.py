@@ -170,7 +170,7 @@ OPERATORE_ALLOWED_SENSITIVE_GET_PATHS = (
 )
 OPERATORE_ALLOWED_SENSITIVE_GET_SUFFIXES = (
     "/export-excel",
-    # NEW-021: il download del contratto firmato (PII: CF, indirizzo,
+    # NEW-022: il download del contratto firmato (PII: CF, indirizzo,
     # compenso) non deve essere raggiungibile dal ruolo consultazione, a
     # differenza delle GET generiche su /api/v1/assignments.
     "/contract",
