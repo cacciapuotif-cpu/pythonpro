@@ -431,3 +431,27 @@
   passata + valida via API reali, trigger reale dell'agente → nessuna
   suggestion contract_ready). RED→GREEN osservato.
 - Stato: **chiuso il 2026-07-20** nell'ambito del Task E2.2.
+
+## 2026-07-20 | NEW-028 | Suite di test non isolata dal rate limiter in-memory: 429 nondeterministici
+
+- Area: test infrastructure / request_middleware (Task E2.2)
+- Severità stimata: media (affidabilità suite, nessun impatto runtime prod)
+- Emerso durante: Task E2.2 — l'aggiunta di 3 test E2E (~45 richieste HTTP)
+  ha fatto fallire con 429 sei test NON correlati in `test_listini_api.py` e
+  `test_main.py` nella run completa; gli stessi test passano in isolamento e
+  la baseline senza i nuovi test è verde (655 passed). Riproduzione doppia.
+- Descrizione: `request_middleware.RateLimitingMiddleware` tiene lo stato
+  per-IP in-memory sull'istanza; l'app FastAPI è un singleton di modulo,
+  quindi il budget (120 req/min sul bucket "*" per l'IP "testclient") è
+  CONDIVISO fra tutti i test del processo pytest. La suite era già al limite
+  del budget: qualunque nuovo test che aggiunga richieste HTTP fa fallire
+  test lontani con 429 in modo dipendente dal timing (flakiness strutturale).
+- Fix applicato (commit dedicato `fix(E2-NEW-028)`): nuovo
+  `backend/tests/conftest.py` con fixture autouse che azzera
+  `client_requests` del middleware prima di ogni test (traversal dello
+  middleware_stack). Ogni test riparte con budget pieno; il comportamento
+  del limiter entro il singolo test resta verificabile (oggi nessun test
+  asserisce un 429 cross-test).
+- Verifica: run completa `docker exec pythonpro_backend python -m pytest
+  tests/ -q` verde con i 3 nuovi test E2.2 inclusi.
+- Stato: **chiuso il 2026-07-20** nell'ambito del Task E2.2.
