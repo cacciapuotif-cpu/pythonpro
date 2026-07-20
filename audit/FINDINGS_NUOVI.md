@@ -500,3 +500,25 @@
   API e va coperto con test dedicati; è una scelta funzionale, non una
   bonifica relitti). Candidato a task dedicato.
 - Stato: **aperto**.
+
+## 2026-07-20 | NEW-031 | Nessuna UI di consultazione/navigazione dei piani finanziari; POST /piani-finanziari/ libero senza chiamante frontend
+
+- Area: frontend / piani finanziari (Task E1.4 — wizard piano da template)
+- Severità stimata: media (gap funzionale UI, nessun dato a rischio)
+- Emerso durante: aggancio del bottone "Nuovo piano da template" — la
+  ricognizione del "percorso libero" ha mostrato che:
+  1. `apiService.createPianoFinanziario` (POST /api/v1/piani-finanziari/,
+     percorso libero) esiste in `frontend/src/services/apiService.js` ma
+     NON ha alcun chiamante nei componenti: l'unica creazione piano da UI
+     è l'upload XLSX per progetto (`FapiUpload.js::PianoFinanziarioModal`,
+     FAPI/Formazienda) che passa da /projects/{id}/upload-piano-finanziario.
+  2. Non esiste alcun componente che navighi/apra un piano finanziario
+     (zero chiamanti di getVociPianoFinanziario/getRiepilogoPianoFinanziario/
+     exportPianoFinanziarioExcel; AssignmentModal legge le voci solo come
+     opzioni mansione). Il "redirect al piano creato" previsto dal piano
+     E1.4 non ha quindi una destinazione esistente: il wizard mostra il
+     piano creato con le sue voci nella vista finale del wizard stesso.
+- Da fare (fuori scope E1.4): valutare una sezione/vista piani finanziari
+  (elenco, dettaglio voci, riepilogo, export) che dia una casa sia al
+  percorso libero sia ai piani creati da template.
+- Stato: **aperto** (censito; wizard E1.4 consegnato con vista inline).
