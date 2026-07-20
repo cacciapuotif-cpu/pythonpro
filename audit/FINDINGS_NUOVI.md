@@ -327,3 +327,82 @@
   `backend/tests/test_e2e_catena_contratto.py`: secondo accept → 400,
   status resta `approved`, `review_actions` non duplicate.
 - Stato: **chiuso il 2026-07-20** nell'ambito della review R0 su E2.1.
+
+## 2026-07-20 | NEW-024 | PDF timesheet scaricabile dal ruolo consultazione
+
+- Area: RBAC / endpoint file (Task R1, stessa classe di NEW-022)
+- Severità stimata: media
+- Emerso durante: Task R1, sweep sistematico degli endpoint file/export
+- Descrizione: `GET /api/v1/assignments/{assignment_id}/timesheet`
+  (`backend/routers/timesheet.py::genera_o_scarica_timesheet`) genera/scarica
+  il PDF del timesheet (nome e cognome collaboratore, ruolo, righe presenze,
+  ore totali — dato lavorativo individuale). Il path ricade nella regola
+  generica `OPERATIONAL_PREFIXES` (`/api/v1/assignments`) che per i GET
+  ammette tutti e tre i ruoli, quindi anche `consultazione`, in violazione
+  della matrice Ondata 1 (timesheet: admin + operatore). Effetto collaterale:
+  la prima GET su un assignment senza timesheet bloccato **genera e persiste**
+  un nuovo `TimesheetGenerato` bloccato — un ruolo di sola lettura poteva
+  quindi anche produrre side effect di scrittura.
+- Fix applicato (commit dedicato `fix(RBAC-DL)`): aggiunto suffisso
+  `"/timesheet"` a `auth.OPERATORE_ALLOWED_SENSITIVE_GET_SUFFIXES` (stesso
+  meccanismo di NEW-022) e a `OPERATOR_SENSITIVE_GET_SUFFIXES` in
+  `frontend/src/auth/permissions.js` (matrice speculare). Verificata la
+  bidirezionalità della regola a suffisso (nota N-2, review R0): l'unico
+  altro endpoint GET che termina con `/timesheet` è
+  `/api/v1/reporting/timesheet`, già ristretto allo stesso insieme
+  {admin, operatore} via `OPERATORE_ALLOWED_SENSITIVE_GET_PATHS` — nessuna
+  concessione involontaria (test dedicato
+  `test_suffisso_timesheet_non_concede_percorsi_admin_only`).
+- Verifica: `backend/tests/test_rbac_download_endpoints.py` (matrice pura +
+  HTTP con `RBAC_ENFORCE=True`: consultazione → 403, admin/operatore
+  passano il gate).
+- Stato: **chiuso il 2026-07-20** nell'ambito del Task R1.
+
+## 2026-07-20 | NEW-025 | Allegato email inbox scaricabile dal ruolo consultazione
+
+- Area: RBAC / endpoint file, piattaforma agenti (Task R1)
+- Severità stimata: media
+- Emerso durante: Task R1, sweep sistematico degli endpoint file/export
+- Descrizione: `GET /api/v1/email-inbox/items/{item_id}/attachment`
+  (`backend/routers/email_inbox.py::download_item_attachment`) serve il file
+  allegato di un item della inbox. Il path ricade in
+  `AGENT_PLATFORM_PREFIXES` la cui regola A5a "GET consultabili da tutti i
+  ruoli" ammetteva anche `consultazione`. Gli allegati email hanno contenuto
+  arbitrario e nel flusso reale sono spesso documenti del collaboratore
+  (carte d'identità, CV, contratti in arrivo) — la stessa categoria di file
+  che, una volta archiviata, è scaricabile **solo da admin** via
+  `/download-documento`. Classe identica a NEW-022: la regola generica sui
+  GET non deve estendersi ai file binari.
+- Fix applicato (commit dedicato `fix(RBAC-DL)`): in
+  `auth._agent_platform_allowed_roles` i GET che terminano con
+  `"/attachment"` sono ristretti a {admin, operatore}; matrice speculare
+  allineata in `frontend/src/auth/permissions.js` (ramo agent platform).
+  Nota per decisione utente: la scelta {admin, operatore} (e non solo admin)
+  privilegia il flusso operativo inbox (assign/followup sono azioni
+  operatore per A5a); se si vuole parità piena con `/download-documento`
+  (solo admin) va deciso esplicitamente.
+- Verifica: `backend/tests/test_rbac_download_endpoints.py` (matrice pura +
+  HTTP con `RBAC_ENFORCE=True`).
+- Stato: **chiuso il 2026-07-20** nell'ambito del Task R1 (con nota di
+  decisione utente sull'eventuale restrizione a solo admin).
+
+## 2026-07-20 | NEW-026 | Export CSV timesheet negato all'operatore: possibile eccesso di restrizione
+
+- Area: RBAC / endpoint file (Task R1) — finding UX, non di sicurezza
+- Severità stimata: bassa
+- Emerso durante: Task R1, confronto censimento vs matrice Ondata 1
+- Descrizione: `POST /api/v1/reporting/timesheet/export` e
+  `GET /api/v1/reporting/timesheet/export/{export_id}` (CSV massivo dei
+  timesheet) sono **solo admin** per via del pattern esplicito
+  `"/api/v1/reporting/timesheet/export"` in `auth.ADMIN_ONLY_PATTERNS`.
+  La matrice Ondata 1 però recita "timesheet: sì operatore", e l'operatore
+  può già scaricare il PDF del singolo timesheet e la vista
+  `GET /api/v1/reporting/timesheet`. Le due letture sono in tensione:
+  o l'export massivo è deliberatamente più restrittivo (admin-only) in
+  quanto estrazione bulk, oppure è un residuo troppo restrittivo.
+- Decisione richiesta all'utente: confermare admin-only per l'export CSV
+  massivo (stato attuale, nessun cambio) oppure estenderlo all'operatore
+  (rimozione del pattern + allineamento frontend). Nessuna modifica
+  applicata in Task R1: ampliare un accesso è una scelta di prodotto, non
+  di remediation.
+- Stato: **aperto — decisione utente**.
