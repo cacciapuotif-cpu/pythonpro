@@ -74,7 +74,10 @@ const OPERATIONAL_PREFIXES = [
   '/api/v1/contracts', '/api/v1/reporting', '/api/v1/agenzie',
   '/api/v1/consulenti', '/api/v1/aziende-clienti', '/api/v1/allievi',
   '/api/v1/catalogo', '/api/v1/listini', '/api/v1/preventivi',
-  '/api/v1/ordini', '/api/v1/piani-finanziari', '/api/v1/documenti-richiesti',
+  // E1.2/E1.5: '/api/v1/piano-templates' allineato a backend/auth.py — GET
+  // (listing/anteprima template piani) per tutti i ruoli, scritture operatore+.
+  '/api/v1/ordini', '/api/v1/piani-finanziari', '/api/v1/piano-templates',
+  '/api/v1/documenti-richiesti',
   '/api/v1/avvisi', '/api/v1/attivita', '/api/v1/cockpit',
 ];
 const OPERATIONAL_EXACT_PREFIXES = ['/collaborators-with-projects', '/collaborators/'];

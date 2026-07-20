@@ -16,8 +16,10 @@ from sqlalchemy.orm import Session
 import crud
 import models
 import schemas
+from auth import get_current_user
 from database import get_db
 from services.massimali import FONTE_REGOLA_AVVISO, get_massimale_effettivo
+from services.piano_templates import crea_piano_da_template
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/piani-finanziari", tags=["Piani Finanziari"])
@@ -248,6 +250,38 @@ def get_piano_finanziario(
             detail="Piano finanziario non trovato",
         )
     return piano
+
+
+@router.post(
+    "/from-template",
+    response_model=schemas.PianoFinanziarioWithVoci,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_piano_finanziario_da_template(
+    payload: schemas.PianoDaTemplateCreate,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """FASE E1 (E1.2/E1.5): creazione guidata del piano da un
+    ``PianoFinanziarioTemplate``. Il percorso libero ``POST /`` resta invariato.
+    RBAC: stesso gate router-level di ``POST /`` (matrice operational:
+    admin+operatore sui metodi non-safe, vedi ``auth.rbac_allowed_roles``)."""
+    try:
+        piano = crea_piano_da_template(
+            db,
+            template_id=payload.template_id,
+            progetto_id=payload.progetto_id,
+            testata=payload.model_dump(exclude={"template_id", "progetto_id"}),
+            user=current_user,
+        )
+        logger.info(
+            "Created piano finanziario %s da template %s", piano.id, payload.template_id
+        )
+        return piano
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
 
 @router.post("/", response_model=schemas.PianoFinanziarioWithVoci, status_code=status.HTTP_201_CREATED)

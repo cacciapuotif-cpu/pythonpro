@@ -1748,6 +1748,60 @@ class PianoFinanziarioWithVoci(PianoFinanziario):
     voci: List[VocePianoFinanziario] = []
 
 
+# ---- Template piani finanziari (FASE E1 — Task E1.2/E1.5) ----
+
+class PianoTemplateRead(BaseModel):
+    id: int
+    nome: str
+    descrizione: Optional[str] = None
+    tipo_fondo: str
+    ente_erogatore: Optional[str] = None
+    avviso_id: Optional[int] = None
+    versione: int
+    is_active: bool
+    struttura_voci: Dict[str, Any]
+    # true solo nel listing quando il template è collegato all'avviso richiesto
+    preselezionato: bool = False
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PianoTemplateMassimale(BaseModel):
+    """Badge massimale per l'anteprima template (fonte esplicita, mai inventata)."""
+    categoria: Literal['docenza', 'tutoraggio']
+    limite: float
+    fonte: Literal['regola_avviso', 'massimale_fondo']
+    riferimento_articolo: Optional[str] = None
+
+
+class PianoTemplateAnteprima(BaseModel):
+    template: PianoTemplateRead
+    voci: List[Dict[str, Any]]
+    massimali: List[PianoTemplateMassimale]
+
+
+class PianoDaTemplateCreate(BaseModel):
+    """Body di POST /api/v1/piani-finanziari/from-template.
+
+    tipo_fondo NON è nel body: lo detta il template. ``anno`` guida i default
+    di data_inizio/data_fine (il crud deriva l'anno del piano da data_inizio).
+    """
+    template_id: int
+    progetto_id: int
+    avviso_id: Optional[int] = None
+    anno: int = Field(ge=2000, le=2100)
+    nome: str = Field(max_length=200)
+    budget_totale: float = Field(default=0.0, ge=0)
+    data_inizio: Optional[datetime] = None
+    data_fine: Optional[datetime] = None
+    codice_progetto_fondo: Optional[str] = Field(default=None, max_length=50)
+    importo_ammesso: Optional[float] = Field(default=None, ge=0)
+    data_ammissione: Optional[date] = None
+    note: Optional[str] = None
+
+
 # ---- Email Inbox ----
 
 class EmailInboxItemOut(BaseModel):

@@ -151,6 +151,10 @@ OPERATIONAL_PREFIXES = (
     "/api/v1/preventivi",
     "/api/v1/ordini",
     "/api/v1/piani-finanziari",
+    # E1.2/E1.5: listing/anteprima template piani = GET consultabili da tutti
+    # i ruoli; la creazione da template è POST /api/v1/piani-finanziari/
+    # from-template e ricade nella regola operational (admin+operatore).
+    "/api/v1/piano-templates",
     "/api/v1/documenti-richiesti",
     "/api/v1/avvisi",
     "/api/v1/attivita",

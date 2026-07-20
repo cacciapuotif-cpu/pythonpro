@@ -128,6 +128,7 @@ from routers import (
     preventivi,
     ordini,
     piani_finanziari,
+    piano_templates,
     documenti_richiesti,
     avvisi,
     agents,
@@ -294,6 +295,7 @@ include_protected_router(ordini.router)
 
 # Router Piano Finanziario Formazienda
 include_protected_router(piani_finanziari.router)
+include_protected_router(piano_templates.router)
 include_protected_router(documenti_richiesti.router)
 include_protected_router(avvisi.router)
 include_protected_router(agents.router)
