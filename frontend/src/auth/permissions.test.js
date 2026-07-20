@@ -63,3 +63,9 @@ test('la route guard usa la stessa matrice delle richieste backend', () => {
   expect(canAccessSection('operatore', 'templates')).toBe(false);
   expect(canRequest('operatore', 'GET', '/api/v1/contract-templates')).toBe(false);
 });
+
+test('il download del contratto (NEW-022) segue la matrice backend', () => {
+  expect(canRequest('consultazione', 'GET', '/api/v1/assignments/1/contract')).toBe(false);
+  expect(canRequest('operatore', 'GET', '/api/v1/assignments/1/contract')).toBe(true);
+  expect(canRequest('admin', 'GET', '/api/v1/assignments/1/contract')).toBe(true);
+});

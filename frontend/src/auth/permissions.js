@@ -80,7 +80,10 @@ const OPERATIONAL_PREFIXES = [
 const OPERATIONAL_EXACT_PREFIXES = ['/collaborators-with-projects', '/collaborators/'];
 const ADMIN_ONLY_PATTERNS = ['/download-documento', '/download-curriculum', '/api/v1/reporting/timesheet/export'];
 const OPERATOR_SENSITIVE_GET_PATHS = ['/api/v1/reporting/timesheet'];
-const OPERATOR_SENSITIVE_GET_SUFFIXES = ['/export-excel'];
+// NEW-022: '/contract' allineato al backend (auth.py:
+// OPERATORE_ALLOWED_SENSITIVE_GET_SUFFIXES) — il PDF del contratto contiene
+// PII e non deve essere scaricabile dal ruolo consultazione.
+const OPERATOR_SENSITIVE_GET_SUFFIXES = ['/export-excel', '/contract'];
 
 const pathMatches = (path, prefixes) => prefixes.some(
   (prefix) => path === prefix || path.startsWith(`${prefix}/`),
