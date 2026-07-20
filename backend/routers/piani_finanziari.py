@@ -17,29 +17,40 @@ import crud
 import models
 import schemas
 from database import get_db
+from services.massimali import FONTE_REGOLA_AVVISO, get_massimale_effettivo
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/piani-finanziari", tags=["Piani Finanziari"])
 
 
 def _validate_massimale_voce(db: Session, piano, voce_payload) -> None:
+    """E1.3/E1.4: delega a services.massimali (precedenza regola avviso
+    validata > MassimaleFondo); mantiene il 422 e cita fonte e articolo."""
     tariffa = getattr(voce_payload, "tariffa_oraria", None)
     if tariffa is None:
         return
     categoria = (getattr(voce_payload, "categoria", None) or "").lower()
     if categoria not in {"docenza", "tutoraggio"}:
         return
-    massimale = db.query(models.MassimaleFondo).filter(
-        models.MassimaleFondo.tipo_fondo == piano.tipo_fondo,
-        models.MassimaleFondo.anno == piano.anno,
-    ).first()
-    if not massimale:
+    effettivo = get_massimale_effettivo(db, piano, categoria)
+    if effettivo is None:
         return
-    limit = massimale.massimale_orario_docenza if categoria == "docenza" else massimale.massimale_orario_tutoraggio
-    if limit is not None and float(tariffa) > float(limit):
+    if float(tariffa) > float(effettivo.limite):
+        if effettivo.fonte == FONTE_REGOLA_AVVISO:
+            detail = (
+                f"Costo orario {categoria} ({float(tariffa):.2f}) supera il massimale "
+                f"da regola avviso validata ({float(effettivo.limite):.2f})"
+            )
+            if effettivo.riferimento_articolo:
+                detail += f" — rif. {effettivo.riferimento_articolo}"
+        else:
+            detail = (
+                f"Costo orario {categoria} ({float(tariffa):.2f}) supera massimale "
+                f"fondo ({float(effettivo.limite):.2f})"
+            )
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Costo orario {categoria} ({float(tariffa):.2f}) supera massimale fondo ({float(limit):.2f})",
+            detail=detail,
         )
 
 
