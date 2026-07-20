@@ -174,6 +174,13 @@ OPERATORE_ALLOWED_SENSITIVE_GET_SUFFIXES = (
     # compenso) non deve essere raggiungibile dal ruolo consultazione, a
     # differenza delle GET generiche su /api/v1/assignments.
     "/contract",
+    # NEW-024: il PDF del timesheet (GET /api/v1/assignments/{id}/timesheet)
+    # contiene nome collaboratore, ore e righe presenze — dato lavorativo
+    # individuale, matrice: solo admin+operatore. Nessun altro endpoint GET
+    # termina con questo suffisso oltre a /api/v1/reporting/timesheet, che
+    # ha gia' lo stesso insieme di ruoli via
+    # OPERATORE_ALLOWED_SENSITIVE_GET_PATHS.
+    "/timesheet",
 )
 
 

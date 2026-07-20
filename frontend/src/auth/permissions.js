@@ -83,7 +83,9 @@ const OPERATOR_SENSITIVE_GET_PATHS = ['/api/v1/reporting/timesheet'];
 // NEW-022: '/contract' allineato al backend (auth.py:
 // OPERATORE_ALLOWED_SENSITIVE_GET_SUFFIXES) — il PDF del contratto contiene
 // PII e non deve essere scaricabile dal ruolo consultazione.
-const OPERATOR_SENSITIVE_GET_SUFFIXES = ['/export-excel', '/contract'];
+// NEW-024: '/timesheet' — il PDF del timesheet (dato lavorativo individuale)
+// segue la stessa regola: solo admin+operatore.
+const OPERATOR_SENSITIVE_GET_SUFFIXES = ['/export-excel', '/contract', '/timesheet'];
 
 const pathMatches = (path, prefixes) => prefixes.some(
   (prefix) => path === prefix || path.startsWith(`${prefix}/`),
