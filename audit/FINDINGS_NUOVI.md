@@ -405,7 +405,12 @@
   (rimozione del pattern + allineamento frontend). Nessuna modifica
   applicata in Task R1: ampliare un accesso è una scelta di prodotto, non
   di remediation.
-- Stato: **aperto — decisione utente**.
+- Decisione utente (2026-07-20): **resta admin-only**. L'export massivo è
+  un'estrazione bulk dei dati economici di tutti i collaboratori: la
+  restrizione esplicita è deliberata e viene mantenuta. Nessun cambio a
+  codice o matrice; la matrice Ondata 1 va letta come "timesheet
+  individuale: sì operatore; export massivo: solo admin".
+- Stato: **chiuso 2026-07-20 (decisione: nessun cambio)**.
 
 ## 2026-07-20 | NEW-027 | Documento obbligatorio scaduto considerato valido dal contract_agent
 
