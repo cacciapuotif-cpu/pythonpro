@@ -327,6 +327,112 @@ def test_accept_diretto_idempotente_su_suggestion_gia_revisionata(client, db_ses
     assert len(dopo["review_actions"]) == len(review_actions_dopo_primo)
 
 
+def _crea_doc_richiesto(client, collaboratore_id, tipo):
+    r = client.post("/api/v1/documenti-richiesti/", json={
+        "collaboratore_id": collaboratore_id,
+        "tipo_documento": tipo,
+        "obbligatorio": True,
+    })
+    assert r.status_code == 201, r.text
+    return r.json()["id"]
+
+
+def _upload_doc(client, doc_id, data_scadenza=None):
+    data = {}
+    if data_scadenza is not None:
+        data["data_scadenza"] = data_scadenza
+    up = client.post(
+        f"/api/v1/documenti-richiesti/{doc_id}/upload",
+        files={"file": ("doc.pdf", io.BytesIO(create_test_pdf_bytes()), "application/pdf")},
+        data=data,
+    )
+    assert up.status_code == 200, up.text
+    return up.json()
+
+
+def _valida_doc(client, doc_id):
+    ok = client.post(
+        f"/api/v1/documenti-richiesti/{doc_id}/valida",
+        json={"validato_da": "admin_test"},
+    )
+    assert ok.status_code == 200, ok.text
+    return ok.json()
+
+
+def _pending_contract_ready(client, assignment_id):
+    pend = client.get("/api/v1/agents/suggestions/pending")
+    assert pend.status_code == 200, pend.text
+    return [
+        s for s in pend.json()
+        if s["suggestion_type"] == "contract_ready" and s["entity_id"] == assignment_id
+    ]
+
+
+def test_documento_mancante_nessuna_suggestion(client, db_session):
+    """E2.2: doc obbligatorio mai caricato -> la valida degli altri non
+    produce alcuna suggestion contract_ready per l'assignment."""
+    _crea_template_contratto(db_session)
+    ente, collab, project, assignment = _crea_catena_base(client)
+
+    doc1 = _crea_doc_richiesto(client, collab["id"], "documento_identita")
+    _crea_doc_richiesto(client, collab["id"], "codice_fiscale")  # mai caricato
+
+    # upload + valida SOLO del primo: il trigger reale parte ma la pratica
+    # e' incompleta.
+    _upload_doc(client, doc1)
+    _valida_doc(client, doc1)
+
+    assert _pending_contract_ready(client, assignment["id"]) == []
+
+
+def test_documento_non_validato_nessuna_suggestion(client, db_session):
+    """E2.2: tutti i doc caricati ma nessuno validato (stato 'caricato') ->
+    il run manuale reale dell'agente non produce suggestion contract_ready."""
+    _crea_template_contratto(db_session)
+    ente, collab, project, assignment = _crea_catena_base(client)
+
+    for tipo in ["documento_identita", "codice_fiscale"]:
+        doc_id = _crea_doc_richiesto(client, collab["id"], tipo)
+        doc = _upload_doc(client, doc_id)
+        assert doc["stato"] == "caricato", doc
+
+    # nessuna valida => nessun trigger automatico: run manuale via endpoint
+    # reale POST /api/v1/agents/{agent_type}/run (routers/agents.py).
+    run = client.post("/api/v1/agents/contract_agent/run")
+    assert run.status_code == 200, run.text
+    run = run.json()
+    assert run["status"] == "completed", run
+    assert [
+        s for s in run["suggestions"] if s["suggestion_type"] == "contract_ready"
+    ] == []
+
+    assert _pending_contract_ready(client, assignment["id"]) == []
+
+
+def test_documento_scaduto_pratica_non_completa(client, db_session):
+    """E2.2 / NEW-027: un documento obbligatorio validato ma con
+    data_scadenza passata NON deve rendere completa la pratica: nessuna
+    suggestion contract_ready deve essere proposta."""
+    _crea_template_contratto(db_session)
+    ente, collab, project, assignment = _crea_catena_base(client)
+
+    scadenza_passata = (datetime.now() - timedelta(days=30)).isoformat()
+
+    doc1 = _crea_doc_richiesto(client, collab["id"], "documento_identita")
+    doc = _upload_doc(client, doc1, data_scadenza=scadenza_passata)
+    assert doc["data_scadenza"] is not None, doc
+    _valida_doc(client, doc1)
+
+    doc2 = _crea_doc_richiesto(client, collab["id"], "codice_fiscale")
+    _upload_doc(client, doc2)
+    _valida_doc(client, doc2)  # trigger reale sull'ultima valida
+
+    assert _pending_contract_ready(client, assignment["id"]) == [], (
+        "Pratica considerata completa nonostante un documento obbligatorio "
+        "sia scaduto (data_scadenza passata)"
+    )
+
+
 def test_contract_endpoint_richiede_autenticazione(client, db_session, admin_user):
     """RBAC: il download del contratto deve richiedere un utente autenticato
     (NEW-022: verifica che l'endpoint non sia accessibile senza credenziali)."""
