@@ -1229,8 +1229,14 @@ class MassimaleFondo(Base):
 class PianoFinanziarioTemplate(Base):
     """Template versionato per la creazione guidata di piani finanziari (FASE E1).
 
-    ``struttura_voci`` è una lista JSON di voci:
-    ``[{"categoria": "docenza", "descrizione": ..., "macrovoce": ...}, ...]``.
+    ``struttura_voci`` è JSON; la forma canonica (usata dai template seed,
+    vedi ``services/piano_templates.py``) è::
+
+        {
+            "voci": [{"voce_codice": ..., "macrovoce": ..., "categoria": ...,
+                      "descrizione": ..., "is_dynamic": ...}, ...],
+            "limiti_macrovoce": {"A": 20.0, "B": 50.0, "C": 30.0, "D": null}
+        }
     """
 
     __tablename__ = "piano_finanziario_templates"
