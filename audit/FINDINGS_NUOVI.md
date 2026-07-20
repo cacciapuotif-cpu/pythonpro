@@ -522,3 +522,51 @@
   (elenco, dettaglio voci, riepilogo, export) che dia una casa sia al
   percorso libero sia ai piani creati da template.
 - Stato: **aperto** (censito; wizard E1.4 consegnato con vista inline).
+
+## 2026-07-20 | NEW-032 | from-template senza avviso_id eredita comunque l'avviso dal progetto
+
+- Area: backend / piani da template (demo GATE E1)
+- Severità stimata: media (comportamento potenzialmente inatteso, nessun dato errato)
+- Emerso durante: demo GATE E1 su clone (caso 4c "piano senza avviso")
+- Descrizione: `POST /api/v1/piani-finanziari/from-template` senza `avviso_id`
+  nel body valorizza comunque `avviso_pf_id`/`avviso_revisione_id` ereditandoli
+  dal progetto (`crud.create_piano_finanziario`, crud.py:3977-3978). L'utente
+  del wizard può credere di creare un piano "senza avviso" mentre il piano
+  risulta agganciato all'avviso del progetto (e alle sue regole validate).
+- Nota: l'enforcement resta corretto (revisione senza regole → fallback fondo).
+- Da decidere: comportamento voluto (ereditarietà esplicitata in UI) o no.
+- Stato: **aperto — decisione al GATE E1**.
+
+## 2026-07-20 | NEW-033 | VocePianoFinanziario API non espone voce_codice/macrovoce
+
+- Area: backend / schemi piani finanziari (demo GATE E1)
+- Severità stimata: media
+- Emerso durante: demo GATE E1, verifica risposta 201 from-template
+- Descrizione: `schemas.VocePianoFinanziario` (schemas.py:~1650) non espone
+  `voce_codice` e `macrovoce`: in DB sono valorizzati (29/29 voci dei piani
+  da template), ma nelle risposte API escono assenti/null. La UI non può
+  mostrare i codici voce (A.1…D.4) né raggruppare per macrovoce dagli
+  endpoint piani.
+- Stato: **aperto**.
+
+## 2026-07-20 | NEW-034 | PianoFinanziarioWithVoci non include anno
+
+- Area: backend / schemi piani finanziari (demo GATE E1)
+- Severità stimata: bassa
+- Emerso durante: demo GATE E1
+- Descrizione: la risposta `PianoFinanziarioWithVoci` non include il campo
+  `anno` (presente in DB). Il wizard lo conosce dal form, ma qualunque altra
+  vista futura dei piani non potrà mostrarlo senza query aggiuntiva.
+- Stato: **aperto**.
+
+## 2026-07-20 | NEW-035 | Messaggio dedup piani cita l'avviso del piano esistente
+
+- Area: backend / piani finanziari UX (demo GATE E1)
+- Severità stimata: bassa
+- Emerso durante: demo GATE E1 (400 su progetto con piano esistente)
+- Descrizione: il 400 di dedup ("Esiste già un piano finanziario FORMAZIENDA /
+  avviso 2/2022 per questo progetto e anno") cita l'avviso del piano GIÀ
+  esistente, non quello richiesto: con avvisi diversi il messaggio confonde.
+- Fix suggerito: esplicitare entrambi ("richiesto avviso X; esiste già un
+  piano per avviso Y, anno Z").
+- Stato: **aperto**.
