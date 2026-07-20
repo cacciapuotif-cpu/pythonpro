@@ -1,6 +1,6 @@
 # PythonPro — Stato corrente
 
-**Aggiornato:** 2026-07-19 pomeriggio (ONDATA UI-COMPLETAMENTO avviata e interrotta su richiesta utente dopo Task E2.1)
+**Aggiornato:** 2026-07-20 (ONDATA UI-COMPLETAMENTO ripresa: R0+R1+E2.2 chiusi, GATE FASE E2 superato)
 **Branch:** `claude/platform-audit-compliance-XnH86` (locale, nessun push)
 **Percorso:** `/DATA/progetti/pythonpro`
 
@@ -46,7 +46,7 @@
 - **Ondata M congelata.** Prossimo passo: decisione utente sull'accettabilità
   delle tre eccezioni oppure completamento B4/L1 e test contratto prima del manuale.
 
-## Ondata UI-COMPLETAMENTO — IN CORSO, INTERROTTA (2026-07-19)
+## Ondata UI-COMPLETAMENTO — IN CORSO, FASE E2 CHIUSA (2026-07-20)
 
 Obiettivo: chiudere le 3 eccezioni del GATE UI v2 e rieseguire GATE UI v3.
 Ordine: **E2 → E1 → E3 → GATE v3**. Ondata M resta congelata fino a v3 superato.
@@ -70,26 +70,39 @@ ledger avanzamento in `.superpowers/sdd/progress.md`.
   negato a consultazione). Suite completa: **581 passed, 3 skipped, 0 failed**.
   Findings NEW-021/NEW-022 censiti e chiusi in `audit/FINDINGS_NUOVI.md`.
   Report: `.superpowers/sdd/briefs/task-E2_1-report.md`.
+- **Review R0 di E2.1 (2026-07-20): APPROVE-CON-FIX**, findings tutti chiusi:
+  NEW-023 guardia di stato su accept diretto (`78d40a3`), matrice RBAC
+  frontend allineata su `/contract` (`20c35e5`).
+- **Task R1 sweep RBAC file/export (2026-07-20)**: censiti 12 endpoint.
+  NEW-024 PDF timesheet negato a consultazione (`b107046`); NEW-025 allegato
+  email inbox negato a consultazione (`beeb22c`); test parametrizzato
+  ruolo×endpoint `test_rbac_download_endpoints.py`, 73 test (`2bb0468`).
+  **NEW-026 APERTO — decisione utente**: export CSV timesheet massivo oggi
+  admin-only esplicito; matrice Ondata 1 direbbe operatore. Non ampliato.
+- **Task E2.2 test negativi (2026-07-20)**: doc mancante/non validato/scaduto
+  (`ad256cc`). NEW-027 doc scaduto completava la pratica → fix collector
+  (`fa75b30`); NEW-028 suite non isolata dal rate limiter → `tests/conftest.py`
+  (`137fecd`). Doppio accept già coperto dal test NEW-023.
+- **Task E2.3 GATE FASE E2 SUPERATO (2026-07-20)**: suite backend
+  **658 passed, 3 skipped, 0 failed**; frontend **97 passed, 3 snapshot**.
+  Nota design confermata: `genera_contratto` indipendente dallo stato
+  workflow (download = azione operatore, mai auto-apply).
 
 **Resta da fare (in ordine, dal piano):**
-1. **Task review di E2.1** (mai eseguita — dispatch reviewer su diff
-   `eb243cf..7f6b170` con brief+report; fix findings Critical/Important).
-2. E2.2 test negativi catena (doc mancante, doc scaduto/non validato,
-   doppio accept) + E2.3 gate fase E2.
-3. E1.1 modello `PianoFinanziarioTemplate` + migration 060 (prova su clone,
+1. E1.1 modello `PianoFinanziarioTemplate` + migration 060 (prova su clone,
    poi DB reale) + seed idempotente; E1.2 endpoint listing/anteprima/
    from-template; E1.3 massimali con precedenza regola avviso validata e
    citazione articolo; E1.4 wizard UI 3 passi; E1.5 gate fase E1.
-4. E3.1 servizio ricerca FTS + migration 061 (fallback ILIKE per SQLite);
+2. E3.1 servizio ricerca FTS + migration 061 (fallback ILIKE per SQLite);
    E3.2 endpoint search + chiedi (onestà: retrieval vuoto → "non presente"
    senza LLM; citazioni obbligatorie validate server-side; LLM giù → degrado
    pulito); E3.3 pagina "Chiedi all'archivio" (3 ruoli, disclaimer, citazioni
    cliccabili); E3.4 gate fase E3.
-5. GATE UI v3: G3.1 riesecuzione matrice pagina×ruolo + flussi 1–8 + suite
+3. GATE UI v3: G3.1 riesecuzione matrice pagina×ruolo + flussi 1–8 + suite
    complete; G3.2 report v3 (confronto v1→v2→v3, dichiarazione onesta) +
    REMEDIATION_LOG; G3.3 se superato → sbloccare e avviare Ondata M
    (manuale con capitoli 3 e 9), altrimenti fermarsi con elenco onesto.
-6. Review finale whole-branch prima di chiudere l'ondata.
+4. Review finale whole-branch prima di chiudere l'ondata.
 
 Regole invariate: commit atomici mai push, migration solo Alembic provate su
 copia, agenti solo proposte, nuovi problemi in FINDINGS_NUOVI, stop ai GATE.
