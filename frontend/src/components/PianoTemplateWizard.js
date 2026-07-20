@@ -2,19 +2,21 @@
  * WIZARD CREAZIONE PIANO FINANZIARIO DA TEMPLATE (FASE E1 — Task E1.4/E1.5)
  *
  * Tre passi:
- *  1. SELEZIONE  — fondo (obbligatorio) + avviso (opzionale, filtrato per fondo)
- *                  + scelta del template; il template collegato all'avviso è
- *                  evidenziato ("Consigliato dall'avviso") e preselezionato.
- *  2. ANTEPRIMA  — voci del template + massimali con fonte esplicita:
- *                  "Regola avviso (art. X)" vs "Massimale fondo generico".
- *  3. CONFERMA   — testata (progetto, nome, anno, budget) →
+ *  1. SELEZIONE  — fondo (obbligatorio) + anno + avviso (opzionale, filtrato
+ *                  per fondo) + scelta del template; il template collegato
+ *                  all'avviso è evidenziato ("Consigliato dall'avviso") e
+ *                  preselezionato. L'anno vive qui perché determina i
+ *                  massimali mostrati in anteprima (I1).
+ *  2. ANTEPRIMA  — voci del template + massimali per l'anno scelto, con fonte
+ *                  esplicita: "Regola avviso (art. X)" vs "Massimale fondo generico".
+ *  3. CONFERMA   — testata (progetto, nome, budget) →
  *                  POST /api/v1/piani-finanziari/from-template → piano creato
  *                  mostrato con le sue voci.
  *
  * Il percorso libero di creazione piano (upload/POST esistenti) resta invariato.
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   createPianoFinanziarioFromTemplate,
   getAvvisi,
@@ -55,6 +57,8 @@ const extractApiError = (err, fallback) => {
   return detail || fallback;
 };
 
+const CLOSE_CONFIRM_MESSAGE = 'Chiudere il wizard? Le selezioni andranno perse.';
+
 const PianoTemplateWizard = ({ project = null, availableProjects = [], onClose, onSuccess }) => {
   const [step, setStep] = useState(1);
 
@@ -62,12 +66,16 @@ const PianoTemplateWizard = ({ project = null, availableProjects = [], onClose, 
   const [fondo, setFondo] = useState('');
   const [avvisi, setAvvisi] = useState([]);
   const [avvisoId, setAvvisoId] = useState('');
+  const [avvisiLoadFailed, setAvvisiLoadFailed] = useState(false);
+  const [avvisiFetchTick, setAvvisiFetchTick] = useState(0);
   const [templates, setTemplates] = useState([]);
   const [templateId, setTemplateId] = useState('');
   const [loadingTemplates, setLoadingTemplates] = useState(false);
+  const fondoSelectRef = useRef(null);
 
   // Passo 2 — anteprima
   const [anteprima, setAnteprima] = useState(null);
+  const [anteprimaAnno, setAnteprimaAnno] = useState(null);
   const [loadingAnteprima, setLoadingAnteprima] = useState(false);
 
   // Passo 3 — conferma
@@ -84,13 +92,44 @@ const PianoTemplateWizard = ({ project = null, availableProjects = [], onClose, 
 
   // Avvisi caricati una volta e filtrati per fondo lato client
   // (GET /avvisi/ non espone un filtro fondo server-side).
+  // avvisiFetchTick permette il retry esplicito in caso di errore (I3).
   useEffect(() => {
     let cancelled = false;
+    setAvvisiLoadFailed(false);
     getAvvisi({ active_only: true, limit: 1000 })
       .then((data) => { if (!cancelled) setAvvisi(Array.isArray(data) ? data : []); })
-      .catch(() => { if (!cancelled) setAvvisi([]); });
+      .catch(() => {
+        if (!cancelled) {
+          setAvvisi([]);
+          setAvvisiLoadFailed(true);
+        }
+      });
     return () => { cancelled = true; };
+  }, [avvisiFetchTick]);
+
+  // A11y (I5): focus iniziale sulla select del fondo al mount.
+  useEffect(() => {
+    fondoSelectRef.current?.focus();
   }, []);
+
+  // Chiusura protetta (I2/I5): libera al passo 1 o a piano creato,
+  // conferma esplicita dai passi 2-3 (le selezioni andrebbero perse).
+  const requestClose = useCallback(() => {
+    if (pianoCreato || step === 1) {
+      onClose();
+      return;
+    }
+    if (window.confirm(CLOSE_CONFIRM_MESSAGE)) onClose();
+  }, [pianoCreato, step, onClose]);
+
+  // A11y (I5): Escape → stessa logica di chiusura del bottone ✕.
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') requestClose();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [requestClose]);
 
   const avvisiDelFondo = useMemo(
     () => avvisi.filter((avviso) => avviso.fondo === fondo),
@@ -134,20 +173,41 @@ const PianoTemplateWizard = ({ project = null, availableProjects = [], onClose, 
 
   const selectedTemplate = templates.find((item) => String(item.id) === String(templateId)) || null;
 
+  const annoValido = useMemo(() => {
+    const anno = Number(formData.anno);
+    return Number.isFinite(anno) && anno >= 2000 && anno <= 2100;
+  }, [formData.anno]);
+
+  // I1: l'anno è scelto al passo 1 e ogni ingresso al passo 2 dal passo 1
+  // ricalcola l'anteprima con l'anno corrente (anteprimaAnno traccia
+  // l'anno effettivamente usato, mostrato nell'intestazione dei massimali).
   const loadAnteprima = async () => {
     try {
       setLoadingAnteprima(true);
       setError(null);
-      const params = { anno: Number(formData.anno) || new Date().getFullYear() };
+      const annoRichiesto = Number(formData.anno) || new Date().getFullYear();
+      const params = { anno: annoRichiesto };
       if (avvisoId) params.avviso_id = Number(avvisoId);
       const data = await getPianoTemplateAnteprima(Number(templateId), params);
       setAnteprima(data);
+      setAnteprimaAnno(annoRichiesto);
       setStep(2);
     } catch (err) {
       setError(extractApiError(err, 'Errore nel caricamento dell\'anteprima.'));
     } finally {
       setLoadingAnteprima(false);
     }
+  };
+
+  // M6: al passaggio 2→3, se il nome è vuoto lo precompiliamo
+  // con "Piano {template} {anno}" (resta modificabile).
+  const goToConferma = () => {
+    setFormData((prev) => {
+      if (prev.nome.trim()) return prev;
+      const nomeTemplate = selectedTemplate?.nome || anteprima?.template?.nome || '';
+      return { ...prev, nome: `Piano ${nomeTemplate} ${prev.anno}`.replace(/\s+/g, ' ').trim() };
+    });
+    setStep(3);
   };
 
   const handleFormChange = (event) => {
@@ -204,6 +264,7 @@ const PianoTemplateWizard = ({ project = null, availableProjects = [], onClose, 
         <label htmlFor="ptw-fondo">Fondo *</label>
         <select
           id="ptw-fondo"
+          ref={fondoSelectRef}
           value={fondo}
           onChange={(event) => {
             setFondo(event.target.value);
@@ -217,6 +278,21 @@ const PianoTemplateWizard = ({ project = null, availableProjects = [], onClose, 
             <option key={item.value} value={item.value}>{item.label}</option>
           ))}
         </select>
+      </div>
+
+      <div className="ptw-form-group">
+        <label htmlFor="ptw-anno">Anno *</label>
+        <input
+          id="ptw-anno"
+          name="anno"
+          type="number"
+          min="2000"
+          max="2100"
+          value={formData.anno}
+          onChange={handleFormChange}
+          required
+        />
+        <small>L'anno determina i massimali applicati nell'anteprima e nel piano.</small>
       </div>
 
       {fondo && (
@@ -234,7 +310,20 @@ const PianoTemplateWizard = ({ project = null, availableProjects = [], onClose, 
               </option>
             ))}
           </select>
-          <small>Con un avviso selezionato i massimali usano le regole validate dell'avviso.</small>
+          {avvisiLoadFailed ? (
+            <p className="ptw-avvisi-error" role="alert">
+              Impossibile caricare gli avvisi. Riprova.
+              <button
+                type="button"
+                className="ptw-btn-link"
+                onClick={() => setAvvisiFetchTick((tick) => tick + 1)}
+              >
+                Riprova
+              </button>
+            </p>
+          ) : (
+            <small>Con un avviso selezionato i massimali usano le regole validate dell'avviso.</small>
+          )}
         </div>
       )}
 
@@ -271,6 +360,9 @@ const PianoTemplateWizard = ({ project = null, availableProjects = [], onClose, 
               </label>
             ))
           )}
+          {!loadingTemplates && templates.length > 0 && !templateId && (
+            <p className="ptw-hint">Seleziona un template per proseguire</p>
+          )}
         </div>
       )}
     </div>
@@ -279,28 +371,32 @@ const PianoTemplateWizard = ({ project = null, availableProjects = [], onClose, 
   const renderAnteprima = () => (
     <div className="ptw-body">
       <h4>{anteprima?.template?.nome}</h4>
-      <table className="ptw-table">
-        <thead>
-          <tr>
-            <th>Voce</th>
-            <th>Categoria</th>
-            <th>Descrizione</th>
-            <th>Macrovoce</th>
-          </tr>
-        </thead>
-        <tbody>
-          {(anteprima?.voci || []).map((voce) => (
-            <tr key={voce.voce_codice}>
-              <td>{voce.voce_codice}</td>
-              <td>{voce.categoria || '—'}</td>
-              <td>{voce.descrizione}</td>
-              <td>{voce.macrovoce}</td>
+      {(anteprima?.voci || []).length === 0 ? (
+        <p className="ptw-muted">Il template non contiene voci.</p>
+      ) : (
+        <table className="ptw-table">
+          <thead>
+            <tr>
+              <th>Voce</th>
+              <th>Categoria</th>
+              <th>Descrizione</th>
+              <th>Macrovoce</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {(anteprima?.voci || []).map((voce) => (
+              <tr key={voce.voce_codice}>
+                <td>{voce.voce_codice}</td>
+                <td>{voce.categoria || '—'}</td>
+                <td>{voce.descrizione}</td>
+                <td>{voce.macrovoce}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
 
-      <h4>Massimali applicati</h4>
+      <h4>Massimali applicati (anno {anteprimaAnno})</h4>
       {(anteprima?.massimali || []).length === 0 ? (
         <p className="ptw-muted">Nessun massimale configurato per fondo/avviso selezionati.</p>
       ) : (
@@ -356,19 +452,9 @@ const PianoTemplateWizard = ({ project = null, availableProjects = [], onClose, 
         />
       </div>
 
-      <div className="ptw-form-group">
-        <label htmlFor="ptw-anno">Anno *</label>
-        <input
-          id="ptw-anno"
-          name="anno"
-          type="number"
-          min="2000"
-          max="2100"
-          value={formData.anno}
-          onChange={handleFormChange}
-          required
-        />
-      </div>
+      <p className="ptw-muted">
+        Anno del piano: <strong>{formData.anno}</strong> (impostato al passo 1).
+      </p>
 
       <div className="ptw-form-group">
         <label htmlFor="ptw-budget">Budget totale (€)</label>
@@ -395,12 +481,27 @@ const PianoTemplateWizard = ({ project = null, availableProjects = [], onClose, 
     </form>
   );
 
-  const renderPianoCreato = () => (
-    <div className="ptw-body">
-      <p className="ptw-success">
-        ✅ Piano creato — ID: <strong>{pianoCreato.id}</strong> · {pianoCreato.nome}
-      </p>
-      <h4>Voci del piano</h4>
+  const renderPianoCreato = () => {
+    // I4: nome progetto risolto dalla lista disponibile (il backend
+    // restituisce solo l'id); fallback sull'id se non risolvibile.
+    const progettoId = pianoCreato.progetto_id ?? formData.progetto_id;
+    const progettoDelPiano = (project ? [project] : availableProjects)
+      .find((item) => String(item.id) === String(progettoId));
+    const nomeProgetto = progettoDelPiano?.name || `#${progettoId}`;
+    const annoPiano = pianoCreato.anno ?? formData.anno;
+
+    return (
+      <div className="ptw-body">
+        <p className="ptw-success">
+          ✅ Il piano «{pianoCreato.nome}» per l'anno {annoPiano} è stato creato
+          nel progetto «{nomeProgetto}».
+        </p>
+        <p className="ptw-muted">
+          Al momento non è consultabile da questa interfaccia: resta disponibile
+          per la rendicontazione e l'export.
+        </p>
+        <p className="ptw-muted">Codice interno: {pianoCreato.id}</p>
+        <h4>Voci del piano</h4>
       <table className="ptw-table">
         <thead>
           <tr>
@@ -421,24 +522,32 @@ const PianoTemplateWizard = ({ project = null, availableProjects = [], onClose, 
           ))}
         </tbody>
       </table>
-      <div className="ptw-footer">
-        <button type="button" className="ptw-btn primary" onClick={onClose}>Chiudi</button>
+        <div className="ptw-footer">
+          <button type="button" className="ptw-btn primary" onClick={onClose}>Chiudi</button>
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   return (
-    <div className="modal-overlay" onClick={(event) => event.target === event.currentTarget && onClose()}>
-      <div className="ptw-modal">
+    <div
+      className="modal-overlay"
+      onClick={(event) => {
+        // I2: click sull'overlay chiude solo quando non c'è nulla da perdere
+        // (passo 1 o piano già creato); dai passi 2-3 restano ✕ e Annulla.
+        if (event.target === event.currentTarget && (pianoCreato || step === 1)) onClose();
+      }}
+    >
+      <div className="ptw-modal" role="dialog" aria-modal="true" aria-labelledby="ptw-title">
         <div className="ptw-header">
-          <h2>🧩 Nuovo piano da template</h2>
-          <button type="button" onClick={onClose} className="ptw-close" aria-label="Chiudi wizard">✕</button>
+          <h2 id="ptw-title">🧩 Nuovo piano da template</h2>
+          <button type="button" onClick={requestClose} className="ptw-close" aria-label="Chiudi wizard">✕</button>
         </div>
 
         {!pianoCreato && renderStepIndicator()}
 
         {error && (
-          <div className="ptw-error">⚠️ <ErrorBanner error={error} /></div>
+          <div className="ptw-error" role="alert">⚠️ <ErrorBanner error={error} /></div>
         )}
 
         {pianoCreato
@@ -461,13 +570,13 @@ const PianoTemplateWizard = ({ project = null, availableProjects = [], onClose, 
                 type="button"
                 className="ptw-btn primary"
                 onClick={loadAnteprima}
-                disabled={!fondo || !templateId || loadingAnteprima}
+                disabled={!fondo || !templateId || !annoValido || loadingAnteprima}
               >
                 {loadingAnteprima ? '⏳ Caricamento...' : 'Avanti →'}
               </button>
             )}
             {step === 2 && (
-              <button type="button" className="ptw-btn primary" onClick={() => setStep(3)}>
+              <button type="button" className="ptw-btn primary" onClick={goToConferma}>
                 Avanti →
               </button>
             )}

@@ -79,9 +79,10 @@ const pianoCreato = {
   ],
 };
 
-/** Porta il wizard dal passo 1 al passo 2 (fondo fapi + avviso + template consigliato). */
+/** Porta il wizard dal passo 1 al passo 2 (fondo fapi + anno 2026 + avviso + template consigliato). */
 async function arrivaAllAnteprima() {
   fireEvent.change(screen.getByLabelText(/fondo/i), { target: { value: 'fapi' } });
+  fireEvent.change(screen.getByLabelText(/^anno/i), { target: { value: '2026' } });
   await screen.findByRole('option', { name: /avviso fapi 1\/2026/i });
   fireEvent.change(screen.getByLabelText(/avviso/i), { target: { value: '9' } });
 
@@ -104,16 +105,21 @@ describe('PianoTemplateWizard', () => {
     createPianoFinanziarioFromTemplate.mockResolvedValue(pianoCreato);
   });
 
-  test('naviga i 3 passi: selezione, anteprima, conferma (e torna indietro)', async () => {
+  test('naviga i 3 passi: selezione (con anno), anteprima, conferma (e torna indietro)', async () => {
     render(<PianoTemplateWizard availableProjects={progetti} onClose={jest.fn()} />);
 
-    // Passo 1 — selezione
+    // Passo 1 — selezione: anno vive qui (I1)
     expect(screen.getByText(/passo 1 di 3/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^anno/i)).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText(/fondo/i), { target: { value: 'fapi' } });
+    fireEvent.change(screen.getByLabelText(/^anno/i), { target: { value: '2026' } });
 
     await waitFor(() => expect(getPianoTemplates).toHaveBeenCalledWith({ tipo_fondo: 'fapi' }));
     const radioTemplate = await screen.findByRole('radio', { name: /template fapi generico/i });
+    // M4 — hint finché nessun template è selezionato
+    expect(screen.getByText('Seleziona un template per proseguire')).toBeInTheDocument();
     fireEvent.click(radioTemplate);
+    expect(screen.queryByText('Seleziona un template per proseguire')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /avanti/i }));
 
     // Passo 2 — anteprima
@@ -124,10 +130,11 @@ describe('PianoTemplateWizard', () => {
     expect(screen.getByText('Materiali didattici')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /avanti/i }));
 
-    // Passo 3 — conferma
+    // Passo 3 — conferma: niente input anno (spostato al passo 1), solo recap
     expect(await screen.findByText(/passo 3 di 3/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/nome del piano/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/anno/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/^anno/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/anno del piano/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/budget totale/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/progetto/i)).toBeInTheDocument();
 
@@ -159,7 +166,111 @@ describe('PianoTemplateWizard', () => {
     expect(screen.getAllByTestId('badge-fonte-massimale')).toHaveLength(2);
   });
 
-  test('conferma: submit chiama createFromTemplate col payload giusto e mostra il piano creato con le voci', async () => {
+  test('I1: anteprima calcolata con l\'anno del passo 1 e ricalcolata quando cambia', async () => {
+    render(<PianoTemplateWizard availableProjects={progetti} onClose={jest.fn()} />);
+    await arrivaAllAnteprima();
+
+    // Intestazione massimali con l'anno effettivamente usato
+    expect(getPianoTemplateAnteprima).toHaveBeenLastCalledWith(4, { anno: 2026, avviso_id: 9 });
+    expect(screen.getByText(/massimali applicati \(anno 2026\)/i)).toBeInTheDocument();
+
+    // Torno al passo 1, cambio anno → rientrando al passo 2 l'anteprima è rifetchata
+    fireEvent.click(screen.getByRole('button', { name: /indietro/i }));
+    await screen.findByText(/passo 1 di 3/i);
+    fireEvent.change(screen.getByLabelText(/^anno/i), { target: { value: '2027' } });
+    fireEvent.click(screen.getByRole('button', { name: /avanti/i }));
+
+    expect(await screen.findByText(/massimali applicati \(anno 2027\)/i)).toBeInTheDocument();
+    expect(getPianoTemplateAnteprima).toHaveBeenLastCalledWith(4, { anno: 2027, avviso_id: 9 });
+    expect(getPianoTemplateAnteprima).toHaveBeenCalledTimes(2);
+  });
+
+  test('I2: al passo 1 l\'overlay chiude il wizard', async () => {
+    const onClose = jest.fn();
+    const { container } = render(<PianoTemplateWizard availableProjects={progetti} onClose={onClose} />);
+    await waitFor(() => expect(getAvvisi).toHaveBeenCalled());
+
+    fireEvent.click(container.querySelector('.modal-overlay'));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  test('I2: dai passi 2-3 l\'overlay non chiude e ✕/Escape chiedono conferma', async () => {
+    const onClose = jest.fn();
+    const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(false);
+    const { container } = render(<PianoTemplateWizard availableProjects={progetti} onClose={onClose} />);
+    await arrivaAllAnteprima();
+
+    // Overlay al passo 2: nessuna chiusura, nessun confirm
+    fireEvent.click(container.querySelector('.modal-overlay'));
+    expect(onClose).not.toHaveBeenCalled();
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(screen.getByText(/passo 2 di 3/i)).toBeInTheDocument();
+
+    // ✕ al passo 2: confirm rifiutato → resta aperto
+    fireEvent.click(screen.getByRole('button', { name: /chiudi wizard/i }));
+    expect(confirmSpy).toHaveBeenCalledWith('Chiudere il wizard? Le selezioni andranno perse.');
+    expect(onClose).not.toHaveBeenCalled();
+
+    // Escape al passo 2: stessa logica (confirm rifiutato → resta aperto)
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(confirmSpy).toHaveBeenCalledTimes(2);
+    expect(onClose).not.toHaveBeenCalled();
+
+    // ✕ con confirm accettato → chiude
+    confirmSpy.mockReturnValue(true);
+    fireEvent.click(screen.getByRole('button', { name: /chiudi wizard/i }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    confirmSpy.mockRestore();
+  });
+
+  test('I3: errore nel caricamento avvisi visibile, con retry funzionante', async () => {
+    getAvvisi.mockRejectedValueOnce(new Error('network down'));
+    render(<PianoTemplateWizard availableProjects={progetti} onClose={jest.fn()} />);
+
+    fireEvent.change(screen.getByLabelText(/fondo/i), { target: { value: 'fapi' } });
+    expect(await screen.findByText(/impossibile caricare gli avvisi/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Riprova' }));
+    expect(await screen.findByRole('option', { name: /avviso fapi 1\/2026/i })).toBeInTheDocument();
+    expect(screen.queryByText(/impossibile caricare gli avvisi/i)).not.toBeInTheDocument();
+    expect(getAvvisi).toHaveBeenCalledTimes(2);
+  });
+
+  test('I5: dialog accessibile, focus iniziale sul fondo, Escape chiude al passo 1', async () => {
+    const onClose = jest.fn();
+    render(<PianoTemplateWizard availableProjects={progetti} onClose={onClose} />);
+    await waitFor(() => expect(getAvvisi).toHaveBeenCalled());
+
+    const dialog = screen.getByRole('dialog', { name: /nuovo piano da template/i });
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+    expect(screen.getByLabelText(/fondo/i)).toHaveFocus();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  test('M5: anteprima senza voci mostra il messaggio dedicato al posto della tabella', async () => {
+    getPianoTemplateAnteprima.mockResolvedValue({ ...anteprima, voci: [] });
+    render(<PianoTemplateWizard availableProjects={progetti} onClose={jest.fn()} />);
+
+    fireEvent.change(screen.getByLabelText(/fondo/i), { target: { value: 'fapi' } });
+    const radioTemplate = await screen.findByRole('radio', { name: /template fapi generico/i });
+    fireEvent.click(radioTemplate);
+    fireEvent.click(screen.getByRole('button', { name: /avanti/i }));
+
+    expect(await screen.findByText('Il template non contiene voci.')).toBeInTheDocument();
+  });
+
+  test('M6: al passaggio 2→3 il nome vuoto viene precompilato con template e anno', async () => {
+    render(<PianoTemplateWizard availableProjects={progetti} onClose={jest.fn()} />);
+    await arrivaAllAnteprima();
+
+    fireEvent.click(screen.getByRole('button', { name: /avanti/i }));
+    await screen.findByText(/passo 3 di 3/i);
+    expect(screen.getByLabelText(/nome del piano/i)).toHaveValue('Piano Template FAPI generico 2026');
+  });
+
+  test('conferma: submit chiama createFromTemplate col payload giusto e mostra il piano creato (I4)', async () => {
     render(<PianoTemplateWizard availableProjects={progetti} onClose={jest.fn()} />);
     await arrivaAllAnteprima();
 
@@ -168,7 +279,6 @@ describe('PianoTemplateWizard', () => {
 
     fireEvent.change(screen.getByLabelText(/progetto/i), { target: { value: '5' } });
     fireEvent.change(screen.getByLabelText(/nome del piano/i), { target: { value: 'Piano da template' } });
-    fireEvent.change(screen.getByLabelText(/anno/i), { target: { value: '2026' } });
     fireEvent.change(screen.getByLabelText(/budget totale/i), { target: { value: '10000' } });
 
     fireEvent.click(screen.getByRole('button', { name: /crea piano/i }));
@@ -182,10 +292,15 @@ describe('PianoTemplateWizard', () => {
       budget_totale: 10000,
     }));
 
-    // il piano creato viene selezionato/mostrato con le sue voci
-    const conferma = await screen.findByText(/piano creato/i);
-    expect(conferma).toHaveTextContent('ID: 77');
+    // I4 — frase esplicita con nome piano, anno e nome progetto
+    const conferma = await screen.findByText(/è stato creato nel progetto/i);
     expect(conferma).toHaveTextContent('Piano da template');
+    expect(conferma).toHaveTextContent('per l\'anno 2026');
+    expect(conferma).toHaveTextContent('Progetto Alfa');
+    // ID retrocesso a codice interno + nota sulla consultazione
+    expect(screen.getByText('Codice interno: 77')).toBeInTheDocument();
+    expect(screen.getByText(/non è consultabile da questa interfaccia/i)).toBeInTheDocument();
+    // le voci del piano creato restano visibili
     expect(screen.getByText('B.2')).toBeInTheDocument();
     expect(screen.getByText('B.3')).toBeInTheDocument();
   });
