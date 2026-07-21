@@ -1881,3 +1881,65 @@ class CollaboratorManualUpdatePayload(BaseModel):
     fields: CollaboratorUpdate
     reviewed_by_user_id: Optional[int] = None
     source_item_id: Optional[int] = None
+
+
+# ---------------------------------------------------------------------------
+# FASE E3 — Archivio avvisi: ricerca full-text (E3.1) e "chiedi" (E3.2)
+# ---------------------------------------------------------------------------
+
+
+class ArchivioSearchResult(BaseModel):
+    """Serializzazione di ``services.archivio_search.RisultatoArchivio``."""
+
+    fonte: str
+    avviso_id: int
+    avviso_titolo: str
+    revisione_id: Optional[int] = None
+    regola_id: Optional[int] = None
+    conoscenza_id: Optional[int] = None
+    esito_id: Optional[int] = None
+    riferimento_articolo: Optional[str] = None
+    estratto: str
+    rank: float
+
+
+class ArchivioCitazione(BaseModel):
+    """Passaggio dell'archivio effettivamente citato dalla risposta LLM.
+
+    Ogni citazione referenzia un risultato realmente presente nel retrieval
+    (validazione server-side in ``services.archivio_chiedi``): non esiste una
+    citazione senza il passaggio di origine.
+    """
+
+    avviso_id: int
+    avviso_titolo: str
+    revisione_id: Optional[int] = None
+    regola_id: Optional[int] = None
+    conoscenza_id: Optional[int] = None
+    esito_id: Optional[int] = None
+    riferimento_articolo: Optional[str] = None
+    estratto: str
+
+
+class ArchivioChiediRequest(BaseModel):
+    domanda: str
+    avviso_id: Optional[int] = None
+    tipo_fondo: Optional[str] = None
+
+
+class ArchivioChiediResponse(BaseModel):
+    """Esito di "chiedi all'archivio".
+
+    ``stato``:
+    - ``ok``: risposta sintetizzata dall'LLM, con citazioni tutte valide;
+    - ``non_presente``: il retrieval non ha prodotto alcun passaggio (l'LLM
+      non viene mai interpellato);
+    - ``degradato``: l'LLM non e' disponibile oppure ha prodotto una risposta
+      non affidabile (citazioni fuori dal retrieval / vuota); si restituiscono
+      i soli risultati di ricerca, che funzionano sempre.
+    """
+
+    stato: Literal["ok", "non_presente", "degradato"]
+    risposta: Optional[str] = None
+    citazioni: List[ArchivioCitazione] = Field(default_factory=list)
+    risultati: List[ArchivioSearchResult] = Field(default_factory=list)

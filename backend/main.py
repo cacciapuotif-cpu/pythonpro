@@ -131,6 +131,7 @@ from routers import (
     piano_templates,
     documenti_richiesti,
     avvisi,
+    archivio,
     agents,
     email_inbox,
     whatsapp,
@@ -298,6 +299,8 @@ include_protected_router(piani_finanziari.router)
 include_protected_router(piano_templates.router)
 include_protected_router(documenti_richiesti.router)
 include_protected_router(avvisi.router)
+# E3.2: ricerca e "chiedi" sull'archivio avvisi (lettura, 3 ruoli)
+include_protected_router(archivio.router)
 include_protected_router(agents.router)
 include_protected_router(agents.suggestion_actions_router)
 include_protected_router(email_inbox.router)
