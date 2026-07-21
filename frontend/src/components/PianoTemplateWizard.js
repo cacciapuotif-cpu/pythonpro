@@ -173,6 +173,23 @@ const PianoTemplateWizard = ({ project = null, availableProjects = [], onClose, 
 
   const selectedTemplate = templates.find((item) => String(item.id) === String(templateId)) || null;
 
+  // NEW-032: risolve l'etichetta di un avviso dal suo id usando l'elenco
+  // avvisi già caricato dal wizard; fallback "avviso #id" se non risolvibile.
+  const resolveAvvisoLabel = useCallback((id) => {
+    const found = avvisi.find((item) => String(item.id) === String(id));
+    if (found) return found.titolo || found.codice;
+    return `avviso #${id}`;
+  }, [avvisi]);
+
+  // NEW-032: progetto selezionato al passo 3 (shape GET /projects: include
+  // avviso_id/avviso quando il progetto è collegato a un avviso).
+  const progettoSelezionato = (project ? [project] : availableProjects)
+    .find((item) => String(item.id) === String(formData.progetto_id)) || null;
+
+  // NEW-032 (comportamento voluto, esplicitato in UI): senza avviso scelto al
+  // passo 1, il backend eredita comunque l'avviso del progetto (crud.py).
+  const avvisoEreditatoId = !avvisoId ? (progettoSelezionato?.avviso_id ?? null) : null;
+
   const annoValido = useMemo(() => {
     const anno = Number(formData.anno);
     return Number.isFinite(anno) && anno >= 2000 && anno <= 2100;
@@ -436,6 +453,13 @@ const PianoTemplateWizard = ({ project = null, availableProjects = [], onClose, 
             <option key={item.id} value={item.id}>{item.name}</option>
           ))}
         </select>
+        {avvisoEreditatoId != null && (
+          <p className="ptw-hint" data-testid="ptw-nota-ereditarieta-avviso">
+            ℹ️ Il progetto è collegato all'avviso
+            «{resolveAvvisoLabel(avvisoEreditatoId)}»: il piano erediterà
+            l'avviso e le sue regole validate.
+          </p>
+        )}
       </div>
 
       <div className="ptw-form-group">
@@ -496,6 +520,14 @@ const PianoTemplateWizard = ({ project = null, availableProjects = [], onClose, 
           ✅ Il piano «{pianoCreato.nome}» per l'anno {annoPiano} è stato creato
           nel progetto «{nomeProgetto}».
         </p>
+        {/* NEW-032: avviso effettivo del piano (dalla risposta 201, incluso
+            quello ereditato dal progetto quando non scelto esplicitamente). */}
+        {pianoCreato.avviso_pf_id != null && (
+          <p className="ptw-muted" data-testid="ptw-avviso-piano-creato">
+            Avviso del piano: «{resolveAvvisoLabel(pianoCreato.avviso_pf_id)}»
+            {!avvisoId ? ' (ereditato dal progetto)' : ''}
+          </p>
+        )}
         <p className="ptw-muted">
           Al momento non è consultabile da questa interfaccia: resta disponibile
           per la rendicontazione e l'export.

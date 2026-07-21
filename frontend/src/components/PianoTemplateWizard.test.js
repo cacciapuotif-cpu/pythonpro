@@ -306,6 +306,111 @@ describe('PianoTemplateWizard', () => {
   });
 });
 
+describe('NEW-032: ereditarietà avviso dal progetto esplicitata in UI', () => {
+  // Shape reale GET /projects (schemas.Project): avviso_id presente quando
+  // il progetto è collegato a un avviso.
+  const progettiConAvviso = [
+    { id: 5, name: 'Progetto Alfa', avviso_id: 9 },
+    { id: 6, name: 'Progetto Beta', avviso_id: null },
+  ];
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    getAvvisi.mockResolvedValue([avvisoFapi]);
+    getPianoTemplates.mockImplementation((params = {}) => Promise.resolve(
+      params.avviso_id ? [templateConsigliato, templateAlternativo] : [
+        { ...templateConsigliato, preselezionato: false },
+        templateAlternativo,
+      ],
+    ));
+    getPianoTemplateAnteprima.mockResolvedValue(anteprima);
+    createPianoFinanziarioFromTemplate.mockResolvedValue(pianoCreato);
+  });
+
+  /** Porta il wizard al passo 3 SENZA selezionare alcun avviso al passo 1. */
+  async function arrivaAllaConfermaSenzaAvviso() {
+    fireEvent.change(screen.getByLabelText(/fondo/i), { target: { value: 'fapi' } });
+    fireEvent.change(screen.getByLabelText(/^anno/i), { target: { value: '2026' } });
+    const radioTemplate = await screen.findByRole('radio', { name: /template fapi generico/i });
+    fireEvent.click(radioTemplate);
+    fireEvent.click(screen.getByRole('button', { name: /avanti/i }));
+    await screen.findByText(/passo 2 di 3/i);
+    fireEvent.click(screen.getByRole('button', { name: /avanti/i }));
+    await screen.findByText(/passo 3 di 3/i);
+  }
+
+  test('nota ereditarietà visibile: nessun avviso scelto + progetto con avviso', async () => {
+    render(<PianoTemplateWizard availableProjects={progettiConAvviso} onClose={jest.fn()} />);
+    await arrivaAllaConfermaSenzaAvviso();
+
+    fireEvent.change(screen.getByLabelText(/progetto/i), { target: { value: '5' } });
+    const nota = screen.getByTestId('ptw-nota-ereditarieta-avviso');
+    expect(nota).toHaveTextContent('Il progetto è collegato all\'avviso «Avviso FAPI 1/2026»');
+    expect(nota).toHaveTextContent('il piano erediterà l\'avviso e le sue regole validate');
+  });
+
+  test('nota assente: progetto senza avviso', async () => {
+    render(<PianoTemplateWizard availableProjects={progettiConAvviso} onClose={jest.fn()} />);
+    await arrivaAllaConfermaSenzaAvviso();
+
+    fireEvent.change(screen.getByLabelText(/progetto/i), { target: { value: '6' } });
+    expect(screen.queryByTestId('ptw-nota-ereditarieta-avviso')).not.toBeInTheDocument();
+  });
+
+  test('nota assente: avviso scelto esplicitamente al passo 1', async () => {
+    render(<PianoTemplateWizard availableProjects={progettiConAvviso} onClose={jest.fn()} />);
+    await arrivaAllAnteprima();
+    fireEvent.click(screen.getByRole('button', { name: /avanti/i }));
+    await screen.findByText(/passo 3 di 3/i);
+
+    fireEvent.change(screen.getByLabelText(/progetto/i), { target: { value: '5' } });
+    expect(screen.queryByTestId('ptw-nota-ereditarieta-avviso')).not.toBeInTheDocument();
+  });
+
+  test('vista finale: avviso effettivo del piano (ereditato) risolto dal titolo', async () => {
+    createPianoFinanziarioFromTemplate.mockResolvedValue({ ...pianoCreato, avviso_pf_id: 9 });
+    render(<PianoTemplateWizard availableProjects={progettiConAvviso} onClose={jest.fn()} />);
+    await arrivaAllaConfermaSenzaAvviso();
+
+    fireEvent.change(screen.getByLabelText(/progetto/i), { target: { value: '5' } });
+    fireEvent.change(screen.getByLabelText(/nome del piano/i), { target: { value: 'Piano da template' } });
+    fireEvent.click(screen.getByRole('button', { name: /crea piano/i }));
+
+    const riga = await screen.findByTestId('ptw-avviso-piano-creato');
+    expect(riga).toHaveTextContent('Avviso del piano: «Avviso FAPI 1/2026»');
+    expect(riga).toHaveTextContent('(ereditato dal progetto)');
+  });
+
+  test('vista finale: avviso scelto esplicitamente mostrato senza "(ereditato)"', async () => {
+    createPianoFinanziarioFromTemplate.mockResolvedValue({ ...pianoCreato, avviso_pf_id: 9 });
+    render(<PianoTemplateWizard availableProjects={progettiConAvviso} onClose={jest.fn()} />);
+    await arrivaAllAnteprima();
+    fireEvent.click(screen.getByRole('button', { name: /avanti/i }));
+    await screen.findByText(/passo 3 di 3/i);
+
+    fireEvent.change(screen.getByLabelText(/progetto/i), { target: { value: '5' } });
+    fireEvent.change(screen.getByLabelText(/nome del piano/i), { target: { value: 'Piano da template' } });
+    fireEvent.click(screen.getByRole('button', { name: /crea piano/i }));
+
+    const riga = await screen.findByTestId('ptw-avviso-piano-creato');
+    expect(riga).toHaveTextContent('Avviso del piano: «Avviso FAPI 1/2026»');
+    expect(riga).not.toHaveTextContent('(ereditato dal progetto)');
+  });
+
+  test('vista finale: avviso non risolvibile → fallback "avviso #id"', async () => {
+    createPianoFinanziarioFromTemplate.mockResolvedValue({ ...pianoCreato, avviso_pf_id: 123 });
+    render(<PianoTemplateWizard availableProjects={progettiConAvviso} onClose={jest.fn()} />);
+    await arrivaAllaConfermaSenzaAvviso();
+
+    fireEvent.change(screen.getByLabelText(/progetto/i), { target: { value: '6' } });
+    fireEvent.change(screen.getByLabelText(/nome del piano/i), { target: { value: 'Piano da template' } });
+    fireEvent.click(screen.getByRole('button', { name: /crea piano/i }));
+
+    const riga = await screen.findByTestId('ptw-avviso-piano-creato');
+    expect(riga).toHaveTextContent('Avviso del piano: «avviso #123»');
+  });
+});
+
 describe('PianoTemplateWizardButton (RBAC)', () => {
   beforeEach(() => {
     jest.clearAllMocks();

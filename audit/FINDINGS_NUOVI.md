@@ -534,8 +534,16 @@
   del wizard può credere di creare un piano "senza avviso" mentre il piano
   risulta agganciato all'avviso del progetto (e alle sue regole validate).
 - Nota: l'enforcement resta corretto (revisione senza regole → fallback fondo).
-- Da decidere: comportamento voluto (ereditarietà esplicitata in UI) o no.
-- Stato: **aperto — decisione al GATE E1**.
+- Decisione utente (2026-07-21): comportamento VOLUTO, backend invariato;
+  l'ereditarietà va esplicitata nella UI del wizard.
+- Fix applicato: `PianoTemplateWizard.js` — al passo 3, se nessun avviso è
+  stato scelto al passo 1 e il progetto selezionato ha `avviso_id`, nota
+  informativa sull'ereditarietà (titolo avviso risolto dall'elenco avvisi già
+  caricato); nella vista finale mostrato l'avviso effettivo del piano creato
+  da `avviso_pf_id` (fallback "avviso #id" se non risolvibile), con suffisso
+  "(ereditato dal progetto)" quando non scelto esplicitamente. 6 test jest.
+- Stato: **chiuso** (2026-07-21, commit `fix(E1-NEW-032): wizard esplicita
+  ereditarietà avviso dal progetto`).
 
 ## 2026-07-20 | NEW-033 | VocePianoFinanziario API non espone voce_codice/macrovoce
 
