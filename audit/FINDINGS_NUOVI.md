@@ -609,4 +609,32 @@
   empirica delle 10 query darà "non_presente" ovunque per assenza dati.
 - Nota già nel piano E3: i markdown puliti delle revisioni stanno su file
   (`cleaned_md_path`), fuori dal DB: non sono una fonte della ricerca v1.
-- Stato: **aperto** (dato, non codice).
+- Stato: **aperto** (dato, non codice). Confermato al gate E3.4 (2026-07-21):
+  DB reale ancora 0/0/0, i 3 ruoli su `/chiedi` danno `non_presente`; motore FTS
+  provato su clone seedato (vedi `audit/E3_GATE_REPORT.md`).
+
+## 2026-07-21 | NEW-037 | `/chiedi` passa la domanda in linguaggio naturale grezza a websearch_to_tsquery (AND) → domande verbose recuperano 0
+
+- Area: ricerca archivio / "Chiedi all'archivio" (Task E3.1/E3.2)
+- Severità stimata: media (usabilità: `/chiedi` è progettato per domande in
+  linguaggio naturale, ma le penalizza)
+- Emerso durante: verifica empirica FTS del gate E3.4 su clone seedato.
+- Dettaglio: `search_archivio` sul percorso PostgreSQL usa
+  `websearch_to_tsquery('italian', q)`, che mette in **AND** tutti i lessemi
+  content della stringa. `chiedi_archivio` passa la domanda **grezza** a questa
+  funzione. Esempio verificato: `Qual è il massimale orario per la docenza?` →
+  `'qual' & 'massimal' & 'orar' & 'docenz'` → **0 risultati** (nessun documento
+  contiene "qual"), quindi `stato="non_presente"` **anche se il contenuto
+  pertinente esiste**. La stessa domanda in forma keyword
+  `massimale orario docenza` → 2 risultati. Quindi più parole "di contorno" nella
+  domanda ⇒ più facile lo zero-result ingiustificato.
+- Impatto: `/chiedi` (che riceve domande intere) ne soffre più della `search`
+  (parole chiave). Amplifica la percezione di "archivio vuoto" quando invece è
+  solo un problema di formulazione della query.
+- Mitigazione a basso costo (indipendente da pgvector): pre-processare la
+  domanda prima della FTS — estrazione parole chiave / rimozione stopword / uso
+  di `to_tsquery` con OR tra i termini invece dell'AND implicito, oppure
+  soglia/fallback su OR quando l'AND dà 0.
+- Nota: distinto dal limite di recall semantico inter-fondo (sinonimi
+  docenza/formatori), che invece richiede il layer pgvector raccomandato.
+- Stato: **aperto** (codice — miglioria di robustezza query).
