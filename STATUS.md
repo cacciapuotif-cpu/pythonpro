@@ -1,6 +1,6 @@
 # PythonPro — Stato corrente
 
-**Aggiornato:** 2026-07-20 sera (fase E2 chiusa; fase E1 completa, GATE E1 dimostrato su clone — in attesa conferma utente)
+**Aggiornato:** 2026-07-21 (fasi E2/E1/E3 chiuse, GATE E1 confermato; prossimo: GATE UI v3)
 **Branch:** `claude/platform-audit-compliance-XnH86` (locale, nessun push)
 **Percorso:** `/DATA/progetti/pythonpro`
 
@@ -110,19 +110,35 @@ ledger avanzamento in `.superpowers/sdd/progress.md`.
     completo. Finding demo censiti: NEW-032…035 (`d4f143a`).
   - Suite: backend **701 passed, 3 skipped**; frontend **110 passed**; build
     verde. Aperti: NEW-029, NEW-030 (alta, fuori scope), NEW-031…035.
-  - **In attesa di conferma utente al GATE E1.**
+  - **GATE E1 CONFERMATO dall'utente (2026-07-21).** Decisioni: NEW-032
+    ereditarietà avviso VOLUTA → esplicitata in UI (`20163b7`); NEW-033/034
+    fix subito → API piani espone voce_codice/macrovoce/anno (`e89c970`).
+
+- **FASE E3 COMPLETA (2026-07-21)** — "Chiedi all'archivio":
+  - E3.1 `services/archivio_search.py` FTS dialect-aware (PG to_tsvector
+    italian + websearch_to_tsquery + ts_rank; SQLite ILIKE = anche degrado
+    runtime) + migration 061 (3 indici GIN, su DB reale, head=061) (`24b1402`).
+  - E3.2 `routers/archivio.py` + `services/archivio_chiedi.py`: GET /search,
+    POST /chiedi. Onestà non negoziabile: retrieval vuoto → non_presente
+    (LLM mai chiamato); citazioni validate server-side (id namespaced, fuori
+    retrieval → scartate); LLM giù → degradato con soli risultati
+    (`9f94598` RBAC 3 ruoli + `3bd68f4`).
+  - E3.3 UI `ArchivioChiedi.js` (tab Chiedi/Cerca, disclaimer fisso, 3 stati
+    visibili, citazioni cliccabili → deep-link avviso) (`b6ece41`).
+  - **GATE E3 dimostrato** (`5620825`, `audit/E3_GATE_REPORT.md`): RBAC 3
+    ruoli su DB reale; onestà ok/degradato/non_presente empirica su clone
+    seedato; 10 query FTS 10/10 pertinenti; 4/4 query sinonimiche MISS →
+    **raccomandazione pgvector riaperta** (non implementata, prematura con
+    corpus vuoto). NEW-036: fonti archivio vuote in produzione → feature
+    pronta ma inerte fino all'ingestione reale.
+  - Suite: backend 725 passed 5 skipped; frontend 123 passed; build verde.
 
 **Resta da fare (in ordine, dal piano):**
-1. E3.1 servizio ricerca FTS + migration 061 (fallback ILIKE per SQLite);
-   E3.2 endpoint search + chiedi (onestà: retrieval vuoto → "non presente"
-   senza LLM; citazioni obbligatorie validate server-side; LLM giù → degrado
-   pulito); E3.3 pagina "Chiedi all'archivio" (3 ruoli, disclaimer, citazioni
-   cliccabili); E3.4 gate fase E3.
-2. GATE UI v3: G3.1 riesecuzione matrice pagina×ruolo + flussi 1–8 + suite
+1. GATE UI v3: G3.1 riesecuzione matrice pagina×ruolo + flussi 1–8 + suite
    complete; G3.2 report v3 (confronto v1→v2→v3, dichiarazione onesta) +
    REMEDIATION_LOG; G3.3 se superato → sbloccare e avviare Ondata M
    (manuale con capitoli 3 e 9), altrimenti fermarsi con elenco onesto.
-3. Review finale whole-branch prima di chiudere l'ondata.
+2. Review finale whole-branch prima di chiudere l'ondata.
 
 Regole invariate: commit atomici mai push, migration solo Alembic provate su
 copia, agenti solo proposte, nuovi problemi in FINDINGS_NUOVI, stop ai GATE.
