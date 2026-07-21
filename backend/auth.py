@@ -157,8 +157,18 @@ OPERATIONAL_PREFIXES = (
     "/api/v1/piano-templates",
     "/api/v1/documenti-richiesti",
     "/api/v1/avvisi",
+    # E3.2: archivio avvisi = consultazione (lettura). Le GET (/search) sono
+    # cosi' aperte a tutti e tre i ruoli. La POST /chiedi e' pure lettura
+    # semantica: e' trattata a parte (ARCHIVIO_QUERY_PATHS) perche' la regola
+    # operational nega di norma le POST alla consultazione.
+    "/api/v1/archivio",
     "/api/v1/attivita",
     "/api/v1/cockpit",
+)
+# E3.2: POST di sola lettura semantica (la "domanda" viaggia nel body, non e'
+# una scrittura): i tre ruoli devono raggiungerle come le GET.
+ARCHIVIO_QUERY_PATHS = (
+    "/api/v1/archivio/chiedi",
 )
 OPERATIONAL_EXACT_PREFIXES = (
     "/collaborators-with-projects",
@@ -239,6 +249,8 @@ def rbac_allowed_roles(method: str, path: str) -> set[str]:
         return {UserRole.ADMIN.value, UserRole.OPERATORE.value}
     if any(pattern in path for pattern in ADMIN_ONLY_PATTERNS):
         return {UserRole.ADMIN.value}
+    if path in ARCHIVIO_QUERY_PATHS:
+        return {UserRole.ADMIN.value, UserRole.OPERATORE.value, UserRole.CONSULTAZIONE.value}
     if _path_matches(path, OPERATIONAL_PREFIXES) or _path_starts_with_any(path, OPERATIONAL_EXACT_PREFIXES):
         if method in SAFE_METHODS:
             return {UserRole.ADMIN.value, UserRole.OPERATORE.value, UserRole.CONSULTAZIONE.value}

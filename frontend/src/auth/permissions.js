@@ -78,8 +78,14 @@ const OPERATIONAL_PREFIXES = [
   // (listing/anteprima template piani) per tutti i ruoli, scritture operatore+.
   '/api/v1/ordini', '/api/v1/piani-finanziari', '/api/v1/piano-templates',
   '/api/v1/documenti-richiesti',
+  // E3.2: archivio avvisi = consultazione (lettura). GET /search aperte ai 3
+  // ruoli; POST /chiedi trattata a parte (ARCHIVIO_QUERY_PATHS).
+  '/api/v1/archivio',
   '/api/v1/avvisi', '/api/v1/attivita', '/api/v1/cockpit',
 ];
+// E3.2: POST di sola lettura semantica (la domanda viaggia nel body): i tre
+// ruoli devono raggiungerla come le GET. Allineato a backend/auth.py.
+const ARCHIVIO_QUERY_PATHS = ['/api/v1/archivio/chiedi'];
 const OPERATIONAL_EXACT_PREFIXES = ['/collaborators-with-projects', '/collaborators/'];
 const ADMIN_ONLY_PATTERNS = ['/download-documento', '/download-curriculum', '/api/v1/reporting/timesheet/export'];
 const OPERATOR_SENSITIVE_GET_PATHS = ['/api/v1/reporting/timesheet'];
@@ -116,6 +122,7 @@ export const allowedRolesForRequest = (method, path) => {
     || OPERATOR_SENSITIVE_GET_SUFFIXES.some((suffix) => path.endsWith(suffix))
   )) return [ROLES.ADMIN, ROLES.OPERATOR];
   if (ADMIN_ONLY_PATTERNS.some((pattern) => path.includes(pattern))) return [ROLES.ADMIN];
+  if (ARCHIVIO_QUERY_PATHS.includes(path)) return Object.values(ROLES);
   if (pathMatches(path, OPERATIONAL_PREFIXES) || pathStartsWith(path, OPERATIONAL_EXACT_PREFIXES)) {
     return SAFE_METHODS.has(normalizedMethod)
       ? Object.values(ROLES)
