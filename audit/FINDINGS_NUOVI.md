@@ -499,7 +499,37 @@
 - Nota: fix NON applicato in E1.2 (dichiarare i campi cambia il comportamento
   API e va coperto con test dedicati; è una scelta funzionale, non una
   bonifica relitti). Candidato a task dedicato.
-- Stato: **aperto**.
+- Ricognizione (2026-07-21): confermato. Il frontend invia davvero
+  `azienda_ids`/`allievo_ids` (`ProjectManager.js`, righe 456-457 nel payload di
+  create/update; 536-537 li rilegge da `project.*` per pre-popolare il form in
+  modifica). Il sync in `crud._sync_project_azienda_links`/`_sync_project_allievi`
+  (crud.py:639-700) era già corretto e con semantica None/[] giusta
+  (`create_project` pop default `[]`; `update_project` usa `exclude_unset` + pop
+  default `None`, sincronizza solo se `not None`) — mancava solo la dichiarazione
+  dei campi negli schemi. Modelli di associazione reali:
+  `AziendaClienteProjectLink` (link azienda↔progetto) e la secondary
+  `allievo_project` via relationship `Project.allievi_coinvolti`. Le @property
+  `Project.azienda_ids`/`allievo_ids` (models.py:319-328) esistono già.
+- Fix applicato (commit `fix(NEW-030): ...`):
+  - `schemas.ProjectBaseExtended` (→ `ProjectCreateExtended`) e
+    `schemas.ProjectUpdateExtended`: dichiarati `azienda_ids: Optional[List[int]]
+    = None` e `allievo_ids: Optional[List[int]] = None` (i nomi combaciano già con
+    il frontend, nessuna modifica frontend necessaria).
+  - `schemas.Project` (schema di lettura): esposti `azienda_ids: List[int] = []` e
+    `allievo_ids: List[int] = []` (letti dalle @property del modello via
+    `from_attributes`), così la GET pre-popola il form in modifica ed evita il
+    footgun di cancellare i link a un salvataggio successivo.
+  - Il validator NEW-021 (`_no_legacy_keys`) rifiuta solo
+    `template_piano_finanziario_id`/`avviso_pf_id`: non confligge con i nuovi
+    campi, che restano accettati.
+- Codice morto risolto: prima del fix, con dati reali il ramo di sync non veniva
+  mai raggiunto (Pydantic scartava i campi → i pop ricevevano sempre il default).
+- Verifica: nuovo `backend/tests/test_projects_sync_ids.py` (create con id → link
+  creati; update aggiunge/rimuove; None invariato; [] svuota; azienda inesistente
+  → 400; legacy key → 422; RBAC create/update admin+operatore, consultazione 403;
+  read exposure). RED→GREEN dimostrato (5 test di sync rossi senza la modifica
+  schema, verdi dopo). Suite backend completa verde.
+- Stato: **chiuso il 2026-07-21**.
 
 ## 2026-07-20 | NEW-031 | Nessuna UI di consultazione/navigazione dei piani finanziari; POST /piani-finanziari/ libero senza chiamante frontend
 
@@ -637,4 +667,17 @@
   soglia/fallback su OR quando l'AND dà 0.
 - Nota: distinto dal limite di recall semantico inter-fondo (sinonimi
   docenza/formatori), che invece richiede il layer pgvector raccomandato.
-- Stato: **aperto** (codice — miglioria di robustezza query).
+- Risoluzione (2026-07-21): retrieval a **due stadi** in `search_archivio`
+  (nuovo parametro `or_fallback`, usato solo da `chiedi_archivio`/`/chiedi`;
+  `GET /search` invariato → nessuna regressione sulla keyword pura). Primo
+  stadio AND (precisione: `websearch_to_tsquery` su PG, `AND` di ILIKE su
+  SQLite); se rende 0, secondo stadio OR sui **soli termini della domanda**
+  (`plainto_tsquery` uniti da `|` su PG, `OR` di ILIKE su SQLite). Le 3 regole
+  di onesta' restano intatte: se anche l'OR e' vuoto → `non_presente` senza
+  interpellare l'LLM; citazioni sempre validate; LLM giu' → degradato. Il
+  fallback allarga solo il match lessicale su termini realmente presenti nella
+  domanda: non inventa risultati. Test: caso letterale del finding PG-only
+  (`test_pg_new_037_domanda_naturale_and_zero_or_recupera`, AND=0 → OR>0) +
+  copertura portabile SQLite in `test_archivio_search.py` e `test_archivio_chiedi.py`
+  (domanda NL recuperata, tema assente resta `non_presente`, OR non "sballa").
+- Stato: **chiuso** (2026-07-21, commit `fix(E3-NEW-037)`).

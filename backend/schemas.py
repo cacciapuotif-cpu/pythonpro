@@ -201,6 +201,11 @@ class Project(ProjectBase):
     avviso_rel: Optional["Avviso"] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
+    # NEW-030: espone i link letti dalle @property del modello Project, cosi' il
+    # frontend puo' pre-popolare il form in modifica (altrimenti un salvataggio
+    # successivo con form vuoto cancellerebbe i link esistenti).
+    azienda_ids: List[int] = []
+    allievo_ids: List[int] = []
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True, use_enum_values=True)
 
@@ -719,6 +724,12 @@ class ImplementingEntityWithProjects(ImplementingEntity):
 class ProjectBaseExtended(ProjectBase):
     """Estensione ProjectBase con FK ente_attuatore"""
     ente_attuatore_id: Optional[int] = None
+    # NEW-030: il frontend (ProjectManager) invia questi campi in create/update.
+    # Prima non erano dichiarati -> Pydantic (extra=ignore) li scartava e il sync
+    # in crud (_sync_project_azienda_links/_sync_project_allievi) era codice morto.
+    # None = link non toccati; [] = svuota; lista = sincronizza a quella lista.
+    azienda_ids: Optional[List[int]] = None
+    allievo_ids: Optional[List[int]] = None
 
 class ProjectCreateExtended(ProjectBaseExtended):
     """Schema creazione progetto con ente"""
@@ -727,6 +738,10 @@ class ProjectCreateExtended(ProjectBaseExtended):
 class ProjectUpdateExtended(ProjectUpdate):
     """Schema update progetto con ente"""
     ente_attuatore_id: Optional[int] = None
+    # NEW-030: vedi ProjectBaseExtended. In update exclude_unset distingue
+    # "non passato" (None -> skip) da "[] esplicito" (svuota i link).
+    azienda_ids: Optional[List[int]] = None
+    allievo_ids: Optional[List[int]] = None
 
 class ProjectWithEntity(Project):
     """Schema progetto con ente attuatore completo"""
