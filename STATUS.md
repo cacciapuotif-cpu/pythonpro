@@ -7,138 +7,61 @@
 ## Stato operativo
 
 - Runtime: backend, frontend, PostgreSQL, Redis e ARQ worker healthy.
-- Schema reale: Alembic `060` head (piano_finanziario_templates + bonifica).
-- Baseline backend: **701 passed, 3 skipped, 0 failed**.
-- Baseline frontend: **110 passed, 3 snapshot, 0 failed**; build production verde.
+- Schema reale: Alembic **`061` head** (template piani 060 + indici FTS archivio 061).
+- Baseline backend: **725 passed, 5 skipped, 0 failed**.
+- Baseline frontend: **123 passed, 3 snapshot, 0 failed**; build production verde.
+- **Backend riavviato il 2026-07-21**: le rotte `/api/v1/archivio/*` sono live
+  (openapi le espone). **Frontend nginx NON ricostruito**: il bundle live è
+  ancora pre-E3, la pagina "Chiedi all'archivio" non è servita finché non si fa
+  rebuild+redeploy. Rilascio completo (rebuild frontend + ri-crawl Playwright)
+  resta condizione fuori ondata.
 - V1 archivio avvisi e V2 pipeline ingestione sono chiuse.
 - Wave dominio 1 e Wave 2.1 timesheet snapshot immutabile sono chiuse.
 - Flusso agenti canonico attivo: collector puro → AgentRun/AgentSuggestion → approvazione umana → apply auditato. Nessun auto-apply.
 - `AGENT_DATA_RETENTION_ENABLED=false` resta invariato.
 - History Git contiene vecchi `.env`: **MAI push** finché non viene ripulita con procedura dedicata.
 
-## Ondata UI-FIX — stato al GATE v2
+## Ondata UI-COMPLETAMENTO — CHIUSA, GATE UI v3 SUPERATO (2026-07-21)
 
-- FIX-1…8 completati con commit atomici locali e test di regressione UI/
-  integrazione: `cbb255a`, `396765c`, `c63ebdd`, `1e027c1`, `c06ae57`,
-  `23ad325`, `53e6e39`, `8058f57`.
-- Il crawl v2 ha trovato UI-20/NEW-019 (Dashboard consultazione → reporting
-  timesheet 403), corretto in `6065fe5` con test ruolo×chiamata.
-- Crawl definitivo: utenti canonici 3/3, menu 18/17/16, pagine pertinenti
-  19/18/17, **0 errori console, 0 errori network, 0 spinner**.
-- UI-3: 123 test mirati verdi; clone PostgreSQL con 4/4 piani apribili, 9/9 PDF
-  timesheet e snapshot congelato 1/1; Home 5/5 destinazioni/filtri corretti.
-- Stato estrazione onesto in migration 059: `completata/parziale/fallita`,
-  sezioni/categorie/scarti e retry delle sole parti mancanti. DB reale: sei
-  revisioni tutte `caricato`, quindi nessun backfill inventato.
-- Backup pre-fix verificato:
-  `/app/backups/gestionale_backup_ui_fix_pre_20260719_103215.sql.zip.gpg`.
-- Ambiente clone `pythonpro_ui059_test` e backend temporaneo rimossi; stack reale
-  healthy, `/health` 200, DB reale ancora 6 revisioni e 4 piani.
-- Report v2 completo e confronto prima/dopo:
-  `audit/UI_VERIFICA_REPORT.md`.
-- **Verdetto: GATE UI v2 NON SUPERATO; TUTTE LE PAGINE COLLEGATE E FUNZIONANTI:
-  NO.** Le pagine esistenti sono pulite, ma restano tre eccezioni:
-  1. creazione piano da template assente (B4);
-  2. catena contratto priva di un'unica prova E2E fino alla generazione;
-  3. “Chiedi all'archivio” con citazioni assente (L1).
-- NEW-020 aperto: health frontend non portabile su hostname pubblico same-origin;
-  il deploy locale/LAN corrente non è coinvolto.
-- **Ondata M congelata.** Prossimo passo: decisione utente sull'accettabilità
-  delle tre eccezioni oppure completamento B4/L1 e test contratto prima del manuale.
+Chiuse le 3 eccezioni del GATE UI v2 (piano da template, E2E contratto, Chiedi
+all'archivio) con ordine E2 → E1 → E3 → GATE v3. Metodo subagent-driven.
+Fonti dettaglio (non ripetere qui): piano `docs/superpowers/plans/2026-07-19-ui-completamento.md`,
+ledger `.superpowers/sdd/progress.md`, `REMEDIATION_LOG.md` (sez. 2026-07-21),
+report gate `audit/UI_VERIFICA_REPORT.md` (v3) e `audit/E3_GATE_REPORT.md`.
 
-## Ondata UI-COMPLETAMENTO — IN CORSO, FASE E2 CHIUSA (2026-07-20)
+- **Fase E2 — catena contratto (GATE superato):** test E2E fino al PDF + negativi;
+  review R0 APPROVE-CON-FIX; sweep RBAC su 12 endpoint file/export. Finding chiusi
+  NEW-021…028 (di cui NEW-022/024/025 di sicurezza: contratto/PDF timesheet/
+  allegato email erano scaricabili da consultazione). NEW-026 resta admin-only
+  per decisione utente.
+- **Fase E1 — piano da template (GATE confermato dall'utente):** modello
+  `PianoFinanziarioTemplate` + migration 060 (su DB reale) + bonifica relitti +
+  seed 3 template reali; massimali con precedenza regola avviso validata (422
+  cita l'articolo); endpoint + wizard UI 3 passi + fix review UX. Demo su clone:
+  enforcement 422 "rif. Art. 12". Decisioni utente: NEW-032 ereditarietà avviso
+  esplicitata in UI; NEW-033/034 API espone voce_codice/macrovoce/anno.
+- **Fase E3 — Chiedi all'archivio (GATE dimostrato):** FTS dialect-aware +
+  migration 061; endpoint search/chiedi con onestà non negoziabile (retrieval
+  vuoto→non_presente senza LLM; citazioni validate server-side; LLM giù→
+  degradato); UI 3 stati. Verifica empirica su clone: 10/10 query pertinenti;
+  4/4 sinonimiche MISS → **pgvector raccomandato** (non implementato). NEW-037:
+  domande in linguaggio naturale a `/chiedi` recuperano 0 risultati (AND dei
+  lessemi) → oggi rendono `non_presente`; fix a basso costo, aperto.
+- **GATE UI v3 SUPERATO** (codice/suite/demo su clone): matrice pagina×ruolo
+  admin 20 / operatore 19 / consultazione 18; flussi 1–8 tutti OK (3 eccezioni v2
+  chiuse). Dichiarazione: "TUTTE LE PAGINE COLLEGATE E FUNZIONANTI: SÌ" con
+  eccezioni oneste. Review whole-branch: **ONDATA CHIUDIBILE** (nessun blocker
+  di codice).
 
-Obiettivo: chiudere le 3 eccezioni del GATE UI v2 e rieseguire GATE UI v3.
-Ordine: **E2 → E1 → E3 → GATE v3**. Ondata M resta congelata fino a v3 superato.
+**Aperti a fine ondata (backlog, non bloccanti il gate):** NEW-029 (legacy_template_id
+con dati), **NEW-030 (alta, fuori scope: azienda_ids/allievo_ids scartati su
+/projects, sync links morto)**, NEW-031 (vista piani navigabile assente), NEW-035
+(messaggio dedup), NEW-036 (corpus archivio vuoto in produzione), NEW-037 (query
+NL su /chiedi), residui v2 UI-12/13/14/18, NEW-020. Raccomandazione pgvector.
 
-**Piano completo (fonte unica dei task):**
-`docs/superpowers/plans/2026-07-19-ui-completamento.md`
-Metodo: subagent-driven (team QA e2e, frontend React, backend, data engineer,
-UX reviewer). Brief per task già estratti in `.superpowers/sdd/briefs/`;
-ledger avanzamento in `.superpowers/sdd/progress.md`.
-
-**Fatto:**
-- Ricognizione completa (sezione "Ricognizione" nel piano — NON ripeterla):
-  B4 inesistente; FTS inesistente; trigger reale contract_agent già presente
-  nella `valida` documenti; massimali solo `MassimaleFondo` (precedenza regola
-  avviso da costruire in E1.3); pdfminer disponibile per estrazione testo PDF.
-- Backup fresco verificato:
-  `/app/backups/gestionale_backup_ui_completamento_pre_20260719_143401.sql.zip.gpg` (INTEGRITY=True).
-- **Task E2.1 CHIUSO dall'implementer** (test E2E catena contratto fino al PDF):
-  commit `3274988` (test), `2039703` fix NEW-021 (accept umano rotto per
-  suggestion non-collaborator), `7f6b170` fix NEW-022 (download contratto
-  negato a consultazione). Suite completa: **581 passed, 3 skipped, 0 failed**.
-  Findings NEW-021/NEW-022 censiti e chiusi in `audit/FINDINGS_NUOVI.md`.
-  Report: `.superpowers/sdd/briefs/task-E2_1-report.md`.
-- **Review R0 di E2.1 (2026-07-20): APPROVE-CON-FIX**, findings tutti chiusi:
-  NEW-023 guardia di stato su accept diretto (`78d40a3`), matrice RBAC
-  frontend allineata su `/contract` (`20c35e5`).
-- **Task R1 sweep RBAC file/export (2026-07-20)**: censiti 12 endpoint.
-  NEW-024 PDF timesheet negato a consultazione (`b107046`); NEW-025 allegato
-  email inbox negato a consultazione (`beeb22c`); test parametrizzato
-  ruolo×endpoint `test_rbac_download_endpoints.py`, 73 test (`2bb0468`).
-  **NEW-026 APERTO — decisione utente**: export CSV timesheet massivo oggi
-  admin-only esplicito; matrice Ondata 1 direbbe operatore. Non ampliato.
-- **Task E2.2 test negativi (2026-07-20)**: doc mancante/non validato/scaduto
-  (`ad256cc`). NEW-027 doc scaduto completava la pratica → fix collector
-  (`fa75b30`); NEW-028 suite non isolata dal rate limiter → `tests/conftest.py`
-  (`137fecd`). Doppio accept già coperto dal test NEW-023.
-- **Task E2.3 GATE FASE E2 SUPERATO (2026-07-20)**: suite backend
-  **658 passed, 3 skipped, 0 failed**; frontend **97 passed, 3 snapshot**.
-  Nota design confermata: `genera_contratto` indipendente dallo stato
-  workflow (download = azione operatore, mai auto-apply).
-
-- **FASE E1 COMPLETA (2026-07-20)** — numerazione ridefinita dall'utente:
-  - E1.1+E1.2 modello `PianoFinanziarioTemplate` + migration 060 (provata su
-    clone, applicata al DB reale, head=060) + bonifica relitti: drop
-    `legacy_avviso_id`, rinomina `Avviso.contract_template_id`, 422 su chiavi
-    legacy (`937ef24`, `dc7ff31`). `legacy_template_id` NON droppata: contiene
-    dati → NEW-029.
-  - E1.3 seed 3 template reali da `VOICE_TEMPLATES` (29 voci, limiti
-    macrovoce) con test di parità, idempotente, eseguito su DB reale
-    (`3d5c822`).
-  - E1.4 `services/massimali.py`: precedenza regola avviso validata >
-    MassimaleFondo, 422 cita articolo; valori non interpretabili mai
-    inventati (`ccc6a92`). `avviso_regole` vuota in produzione: prima
-    ingestione reale = banco di prova dei sinonimi chiave.
-  - E1.5 endpoint listing/anteprima/from-template con RBAC verificato via
-    HTTP (`e1b6927`) + wizard UI 3 passi in ProjectManager (`9ecb5bf`) +
-    fix review UX: anteprima per anno, protezione chiusura, errori avvisi
-    visibili, a11y modale (`e207650`).
-  - **Demo GATE E1 su clone DIMOSTRATA**: enforcement 422 con "rif. Art. 12"
-    da regola avviso validata, fallback fondo, DB reale intatto, teardown
-    completo. Finding demo censiti: NEW-032…035 (`d4f143a`).
-  - Suite: backend **701 passed, 3 skipped**; frontend **110 passed**; build
-    verde. Aperti: NEW-029, NEW-030 (alta, fuori scope), NEW-031…035.
-  - **GATE E1 CONFERMATO dall'utente (2026-07-21).** Decisioni: NEW-032
-    ereditarietà avviso VOLUTA → esplicitata in UI (`20163b7`); NEW-033/034
-    fix subito → API piani espone voce_codice/macrovoce/anno (`e89c970`).
-
-- **FASE E3 COMPLETA (2026-07-21)** — "Chiedi all'archivio":
-  - E3.1 `services/archivio_search.py` FTS dialect-aware (PG to_tsvector
-    italian + websearch_to_tsquery + ts_rank; SQLite ILIKE = anche degrado
-    runtime) + migration 061 (3 indici GIN, su DB reale, head=061) (`24b1402`).
-  - E3.2 `routers/archivio.py` + `services/archivio_chiedi.py`: GET /search,
-    POST /chiedi. Onestà non negoziabile: retrieval vuoto → non_presente
-    (LLM mai chiamato); citazioni validate server-side (id namespaced, fuori
-    retrieval → scartate); LLM giù → degradato con soli risultati
-    (`9f94598` RBAC 3 ruoli + `3bd68f4`).
-  - E3.3 UI `ArchivioChiedi.js` (tab Chiedi/Cerca, disclaimer fisso, 3 stati
-    visibili, citazioni cliccabili → deep-link avviso) (`b6ece41`).
-  - **GATE E3 dimostrato** (`5620825`, `audit/E3_GATE_REPORT.md`): RBAC 3
-    ruoli su DB reale; onestà ok/degradato/non_presente empirica su clone
-    seedato; 10 query FTS 10/10 pertinenti; 4/4 query sinonimiche MISS →
-    **raccomandazione pgvector riaperta** (non implementata, prematura con
-    corpus vuoto). NEW-036: fonti archivio vuote in produzione → feature
-    pronta ma inerte fino all'ingestione reale.
-  - Suite: backend 725 passed 5 skipped; frontend 123 passed; build verde.
-
-**Resta da fare (in ordine, dal piano):**
-1. GATE UI v3: G3.1 riesecuzione matrice pagina×ruolo + flussi 1–8 + suite
-   complete; G3.2 report v3 (confronto v1→v2→v3, dichiarazione onesta) +
-   REMEDIATION_LOG; G3.3 se superato → sbloccare e avviare Ondata M
-   (manuale con capitoli 3 e 9), altrimenti fermarsi con elenco onesto.
-2. Review finale whole-branch prima di chiudere l'ondata.
+**Decisioni utente pendenti:** (1) avvio Ondata M (manuale, cap. 3 e 9); (2)
+attivazione runtime completa (rebuild frontend + redeploy + crawl live); (3)
+priorità NEW-037 e NEW-030.
 
 Regole invariate: commit atomici mai push, migration solo Alembic provate su
 copia, agenti solo proposte, nuovi problemi in FINDINGS_NUOVI, stop ai GATE.
@@ -156,62 +79,26 @@ Prompt operativo avviato il 2026-07-17. Sequenza richiesta:
 
 L'utente ha autorizzato preventivamente i gate tecnici e ha chiesto di non fermarsi per approvazioni. Eccezione: C1 richiede evidenza esterna che informative e LIA siano state predisposte; C2 non può essere attivata inventando tale fatto.
 
-## Ondata S — stato
+## Ondata S — CHIUSA (dettaglio in REMEDIATION_LOG + STATUS_ARCHIVE)
 
-- Memoria letta: `REMEDIATION_LOG.md`, precedente `STATUS.md`, `audit/FINDINGS_NUOVI.md`, `audit/ANALISI_ARCHITETTURA_2026-07-17.md`, ultimi 20 commit.
-- Backup fresco verificato: `/app/backups/gestionale_backup_ondata_s_pre_20260717_162634.sql.zip.gpg` (`INTEGRITY=True`).
-- Riorganizzazione stato: storico completo spostato in `STATUS_ARCHIVE_2026H1.md`; questo file resta sintetico e deve rimanere entro 200 righe.
-- S1 chiuso: token random firmati, scadenza 24h, confronto constant-time e input malformati fail-closed (`41b6048`, `80d4b01`).
-- S2 chiuso: snapshot `SecurityAuditLog` redatti e retention 24 mesi configurabile via proposta `data_retention`, apply solo umano (`c423669`). Kill switch invariato disattivo.
-- S3 chiuso sul branch corrente: `.env.development` convertito in sample con placeholder; runtime pulito; backup env riemerso archiviato in `/DATA/progetti/pythonpro-local-archive/2026-07-17_ondata_s/` (`26ff969`). Residuo worktree separata = NEW-012.
-- S4 chiuso: firma WhatsApp HMAC-SHA256 sul raw body, compare constant-time e input malformati fail-closed (`3683d48`).
-- S5 chiuso dopo conferma utente (`b5173e1`): generatore spostato in `services/rendicontazione.py`, endpoint `POST /api/v1/reporting/projects/{id}/rendicontazione`, RBAC admin/operatore, fondo da FK avviso con fallback legacy, isolamento buste paga per azienda e nomi ZIP anti-path-traversal. Gate mirato: **81 passed**.
-- S6 chiuso in tre commit: pulizia schema/parser/docs (`ccebe9e`), attivazione e
-  riallineamento degli 8 test legacy (`6f77534`), fonte unica dipendenze pin (`b335d1d`).
-- Gate Ondata S superato: test mirati S5/S6 verdi; Compose valido; immagini backend e
-  worker costruite; `pip check` e import runtime OK; suite completa **530 passed,
-  2 skipped, 0 failed**; Alembic `057 (head)` senza drift.
-- I 2 skip riguardano il monitor performance legacy non disponibile nel runtime;
-  residuo censito come NEW-013. Ondata S **CHIUSA**; prossimo punto V5.
+- S1…S6 chiusi (token firmati, SecurityAuditLog redatti, `.env` sample, HMAC
+  WhatsApp, rendicontazione in `services/`, pin dipendenze). Ultimo commit
+  applicativo `b335d1d`. Suite chiusura 530 passed. Residui: NEW-012 (worktree
+  separata), NEW-013 (monitor performance legacy). Storico completo spostato in
+  `STATUS_ARCHIVE_2026H1.md`; questo file resta sintetico (≤200 righe).
 
-## V5 — gate file sorgente
+## V5 — gate file sorgente (in attesa deposito)
 
-- Verifica eseguita il 2026-07-18: `imports/avvisi` contiene soltanto `README.md`.
-- Ingestione non avviata, come da gate: se manca anche un documento bisogna fermarsi.
-- File markdown UTF-8 richiesti nei seguenti percorsi convenzionali:
-  - `imports/avvisi/fapi_3-2026.md`
-  - `imports/avvisi/fondimpresa_3-2026.md`
-  - `imports/avvisi/fondimpresa_4-2026.md`
-  - `imports/avvisi/formazienda_9-2022_rev9.md`
-- Dopo il deposito: verificare contenuti, poi upload → pulizia → segmentazione →
-  estrazione LLM per categoria → `AgentSuggestion`, senza validazione automatica.
-- Primo tentativo UI Formazienda del 2026-07-18 ha esposto due bug, entrambi chiusi:
-  revisioni legacy con sorgente nulla causavano `500` mascherato come CORS e il
-  client inviava il `FormData` come JSON causando `422` (`70713f1`).
-- Aggiunta disattivazione sicura da Archivio Risorse (`03457e1`): pulsante con
-  conferma, soft-delete `is_active=false`, storico conservato, endpoint riservato
-  ad Admin/Manager e liste operative che mostrano solo avvisi attivi.
-- Gate mirati upload/disattivazione: backend V2 API **7 passed**; frontend
-  archivio/API **5 passed**. Backend e frontend ricostruiti e healthy.
-- L'utente ha poi disattivato Formazienda `2/2025` (ID 1) e chiesto cancellazione
-  permanente. Audit read-only: record non orfano, collegato al progetto ID 2 `pinco`,
-  piano finanziario ID 2 e revisione corrente ID 2. Il tentativo upload precedente
-  era fallito con 422 e non ha creato una nuova revisione.
-- Hard-delete protetto completato (`d7e710f`): visibile solo agli Admin, anteprima
-  obbligatoria di progetti, piani, revisioni/documenti collegati, prima conferma e
-  seconda conferma con frase esatta. Progetti e piani restano nel sistema ma vengono
-  scollegati; avviso, revisioni, regole, scadenze, documenti, conoscenza, esiti e file
-  sorgente vengono eliminati. Agent run/suggestion e audit restano conservati.
-- Gli Admin vedono anche gli avvisi disattivati, marcati `Disattivato`, così il
-  comando definitivo resta raggiungibile dopo il soft-delete (`c9ce6fd`). Manager e
-  altri ruoli continuano a vedere soltanto la lista operativa attiva.
-- Prova distruttiva superata esclusivamente sulla copia PostgreSQL temporanea
-  `gestionale_v5_harddelete_test`: avviso 1 rimosso, progetto 2 e piano 2 presenti e
-  scollegati, audit `avviso_hard_delete` presente. Copia temporanea eliminata subito.
-- Gate hard-delete: backend V2 API **8 passed**; frontend archivio/API **9 passed**.
-  Build/recreate completati; backend healthy, `/health` 200, frontend HTTP 200.
-- Nessuna cancellazione definitiva eseguita sul database reale: Formazienda 2/2025
-  ID 1 resta disattivato e attende la doppia conferma dell'amministratore dalla UI.
+- `imports/avvisi/` contiene solo `README.md`: ingestione dei 4 avvisi reali
+  (FAPI 3-2026, Fondimpresa 3/2026 e 4/2026, Formazienda 9/2022 rev.9) **non
+  avviata** finché mancano i file. Pipeline prevista: upload → pulizia →
+  segmentazione → estrazione LLM per categoria → `AgentSuggestion` (no
+  validazione automatica).
+- Infrastruttura V5 già pronta e testata (dettaglio in REMEDIATION_LOG):
+  disattivazione sicura da Archivio Risorse (`03457e1`) e hard-delete protetto
+  con doppia conferma (`d7e710f`, `c9ce6fd`), provato su copia temporanea.
+  Nessuna cancellazione definitiva sul DB reale: Formazienda 2/2025 (ID 1)
+  resta disattivato in attesa di conferma admin dalla UI.
 
 ## Sottosistema A — attività predittive CHIUSO
 
