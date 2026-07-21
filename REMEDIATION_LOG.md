@@ -854,3 +854,46 @@ con zero side effect esterni senza approvazione umana, kill switch globale e per
 - Nessun push.
 
 ---
+
+## 2026-07-21 — Ondata UI-COMPLETAMENTO (E2 → E1 → E3 → GATE UI v3)
+
+Ripresa dopo interruzione post-E2.1. Team subagent (QA e2e, frontend, backend,
+data engineer, UX reviewer). Piano: `docs/superpowers/plans/2026-07-19-ui-completamento.md`.
+Ledger: `.superpowers/sdd/progress.md`. Commit atomici locali, **nessun push**.
+
+**Fase E2 — catena contratto (GATE superato):**
+- E2.1 test E2E fino al PDF (`3274988`); review R0 APPROVE-CON-FIX.
+- Fix reali: NEW-021 accept non-collaborator (`2039703`), NEW-022 RBAC
+  contratto (`7f6b170`), NEW-023 guardia stato accept (`78d40a3`), matrice
+  RBAC frontend `/contract` (`20c35e5`), NEW-027 doc scaduto (`fa75b30`),
+  NEW-028 isolamento rate limiter (`137fecd`); E2.2 test negativi (`ad256cc`).
+- Sweep RBAC R1 su 12 endpoint file/export: NEW-024 PDF timesheet (`b107046`),
+  NEW-025 allegato email (`beeb22c`), test parametrizzato (`2bb0468`).
+  NEW-026 export CSV massivo: resta admin-only per decisione utente (`1021d31`).
+
+**Fase E1 — piano da template (GATE confermato dall'utente):**
+- Modello `PianoFinanziarioTemplate` + migration 060 + bonifica relitti
+  (`937ef24`, `dc7ff31`); seed 3 template reali (`3d5c822`); massimali con
+  precedenza regola avviso (`ccc6a92`); endpoint (`e1b6927`); wizard UI + fix
+  UX review (`9ecb5bf`, `e207650`). Fix decisi dall'utente: NEW-033/034 API
+  espone voce_codice/macrovoce/anno (`e89c970`), NEW-032 ereditarietà avviso
+  esplicitata in UI (`20163b7`). Demo GATE E1 su clone: enforcement 422 "Art.
+  12", DB reale intatto. Finding: NEW-029/031/032…035.
+
+**Fase E3 — Chiedi all'archivio (GATE dimostrato):**
+- FTS dialect-aware + migration 061 (`24b1402`); endpoint search/chiedi con
+  onestà non negoziabile + RBAC 3 ruoli (`9f94598`, `3bd68f4`); UI 3 stati
+  (`b6ece41`); report gate con verifica empirica (`5620825`,
+  `audit/E3_GATE_REPORT.md`). NEW-036: corpus produzione vuoto; pgvector
+  raccomandato (non implementato).
+
+**GATE UI v3 — SUPERATO** (codice/suite/demo su clone): matrice pagina×ruolo
+20/19/18, flussi 1–8 tutti OK (le 3 eccezioni v2 chiuse), report v3 in
+`audit/UI_VERIFICA_REPORT.md`. Gate tecnici: backend **725 passed, 5 skipped**;
+frontend **123 passed**; build verde; Alembic head **061**.
+
+- Ondata M **NON AVVIATA**: attende decisione utente al GATE v3 e attivazione
+  runtime (rebuild+redeploy+restart) per il crawl live di conferma.
+- Nessun push.
+
+---

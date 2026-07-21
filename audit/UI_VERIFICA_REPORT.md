@@ -389,3 +389,98 @@ Residui non bloccanti ma aperti: UI-12, UI-18, UI-13/UI-14 e NEW-020.
 Come richiesto, il lavoro si ferma al GATE: l'utente deve decidere se le tre
 eccezioni sono accettabili oppure se B4/L1 e il test contratto devono precedere
 il manuale.
+
+---
+
+# GATE UI v3 — Riesecuzione integrale (2026-07-21)
+
+Chiude l'ondata UI-COMPLETAMENTO. Verifica il codice **nuovo** (fasi E2/E1/E3),
+non il bundle live: i container servono processo/bundle pre-esistenti
+(attivazione runtime deferita in tutta l'ondata, come da regola "mai push").
+La verifica è condotta contro il codice sorgente e i dati reali/clone.
+
+## G3.1 — Matrice pagina × ruolo
+
+Generata dalla fonte di verità che la UI usa davvero
+(`frontend/src/auth/permissions.js`, `SECTION_ACCESS` + `canAccessSection`):
+
+| Ruolo | Sezioni accessibili | Δ vs v2 |
+|---|---|---|
+| admin | 20 | +1 |
+| operatore | 19 | +1 |
+| consultazione | 18 | +1 |
+
+L'unica nuova sezione di menu è **`archivio-chiedi`** (E3), visibile ai 3 ruoli
+(lettura). Il **wizard piano-da-template** (E1) è un'azione dentro la sezione
+`projects` (bottone in `ProjectManager`), non una voce di menu: non altera il
+conteggio. Invarianti di sicurezza confermati: `timesheet` negato a
+consultazione (fix UI-20/NEW-019 regge), `templates` solo admin. Nessuna
+sezione ha perso/guadagnato accesso impropriamente.
+
+Copertura RBAC endpoint delle pagine (backend, DB reale, RBAC_ENFORCE=true):
+`test_rbac_download_endpoints.py` (73), `test_piano_templates_api.py` (18),
+`test_archivio_chiedi.py` (13, RBAC 3 ruoli su search/chiedi). Sweep R1 su 12
+endpoint file/export chiuso (NEW-022/024/025).
+
+## G3.2 — Flussi trasversali 1–8
+
+| # | Flusso | v1 | v2 | **v3** | Evidenza v3 |
+|---:|---|---|---|---|---|
+| 1 | MD → estrazione → regole | PARZIALE | OK | **OK** | invariato, suite verde |
+| 2 | Piano da template → massimali → avviso | PARZIALE | PARZIALE | **OK** | E1: `PianoFinanziarioTemplate` + wizard 3 passi + massimali con precedenza regola avviso; GATE E1 su clone: 422 "rif. Art. 12", 75→201 |
+| 3 | Progetto → collaboratori → checklist → approvo | OK | OK | **OK** | invariato |
+| 4 | Collaboratore → agenti → contratto | PARZIALE | PARZIALE | **OK** | E2: `test_e2e_catena_contratto` fino al PDF (estrazione testo reale) + test negativi; NEW-021/022/023/027 chiusi |
+| 5 | Presenze → timesheet → esito | PARZIALE | OK | **OK** | invariato |
+| 6 | Dashboard agenti → review → effetto | OK | OK | **OK** | invariato |
+| 7 | Home → pagina filtrata | ROTTO | OK | **OK** | invariato |
+| 8 | Chiedi all'archivio → citazioni → avviso | NON ESISTE | NON ESISTE | **OK** | E3: search/chiedi FTS + UI 3 stati + citazioni cliccabili; GATE E3 su clone: 10/10 query pertinenti, onestà ok/degradato/non_presente |
+
+Le **tre eccezioni** del GATE v2 (flussi 2, 4, 8) sono chiuse. I flussi già OK
+in v2 (1,3,5,6,7) sono intatti: suite backend **725 passed, 5 skipped**;
+frontend **123 passed, 14 suite, 3 snapshot**; build production verde.
+
+## G3.2 — Suite e gate tecnici
+
+- Backend: 725 passed, 5 skipped, 0 failed. Frontend: 123 passed. Build: verde.
+- Alembic head: **061** (migration 060 template piani + 061 indici FTS,
+  entrambe provate su clone e applicate al DB reale).
+- Backup pre-ondata verificato:
+  `gestionale_backup_ui_completamento_pre_20260719_143401.sql.zip.gpg`.
+- Nessuna scrittura funzionale sul DB reale: tutte le prove di flusso con
+  scrittura su cloni (`gestionale_gate_e1`, `gestionale_e3gate`), poi droppati.
+
+## Riserve oneste residue
+
+- **NEW-036**: le fonti archivio (regole/conoscenze/esiti) sono vuote in
+  produzione → "Chiedi all'archivio" è pronto ma inerte finché non arriva
+  l'ingestione reale. Il capitolo 9 del manuale sarà scrivibile ma con corpus
+  di esempio finché non ci sono dati veri.
+- **NEW-031**: non esiste una vista di consultazione dei piani finanziari; il
+  wizard mostra il piano creato nella propria vista finale (onesto).
+- **NEW-029** (legacy_template_id con dati), **NEW-030** (azienda_ids/allievo_ids
+  scartati su /projects, alta severità, fuori scope ondata), **NEW-035**
+  (messaggio dedup piani): aperti, non bloccanti per il gate UI.
+- Residui v2 non bloccanti ancora aperti: UI-12, UI-18, UI-13/UI-14, NEW-020.
+- **Raccomandazione pgvector** riaperta per il recall semantico inter-fondo
+  della ricerca archivio (FTS lessicale: 4/4 query sinonimiche MISS su clone);
+  non implementata, da valutare a corpus popolato.
+- **Attivazione runtime NON eseguita**: il crawl Playwright live sul bundle
+  attivato (rebuild frontend + redeploy nginx + restart backend) resta l'unico
+  passo empirico non ripetuto in v3, coerente con la regola "mai push /
+  runtime activation deferita" mantenuta per tutta l'ondata. La verifica v3 è
+  su codice sorgente, suite complete e demo su clone.
+
+## Verdetto GATE UI v3
+
+**GATE UI v3: SUPERATO** (a livello di codice, suite e demo su clone).
+
+**TUTTE LE PAGINE COLLEGATE E FUNZIONANTI: SÌ**, con le eccezioni oneste
+elencate sopra — nessuna è un collegamento rotto o una pagina non funzionante:
+sono un dato mancante in produzione (NEW-036), una vista non ancora costruita
+ma non promessa (NEW-031) e finding non bloccanti censiti. Le tre eccezioni
+sostanziali del GATE v2 (piano da template, E2E contratto, chiedi all'archivio)
+sono chiuse e dimostrate.
+
+**Unica condizione prima di dichiararlo pienamente in produzione**: attivazione
+runtime (rebuild+redeploy+restart) e ri-crawl Playwright di conferma sul bundle
+attivato — azione di rilascio, distinta dal lavoro di questa ondata.
