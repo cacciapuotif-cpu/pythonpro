@@ -1649,6 +1649,10 @@ class VocePianoFinanziarioUpdate(BaseModel):
 
 class VocePianoFinanziario(VocePianoFinanziarioBase):
     id: int
+    # NEW-033: esposti in lettura (in DB sono NOT NULL, Optional per
+    # retrocompatibilità con eventuali costruzioni manuali dello schema).
+    voce_codice: Optional[str] = None
+    macrovoce: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -1738,6 +1742,8 @@ class PianoFinanziarioUpdate(BaseModel):
 class PianoFinanziario(PianoFinanziarioBase):
     id: int
     codice_piano: Optional[str] = None
+    # NEW-034: anno del piano (in DB NOT NULL, derivato da data_inizio in crud).
+    anno: Optional[int] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

@@ -547,7 +547,13 @@
   da template), ma nelle risposte API escono assenti/null. La UI non può
   mostrare i codici voce (A.1…D.4) né raggruppare per macrovoce dagli
   endpoint piani.
-- Stato: **aperto**.
+- Fix applicato: `schemas.VocePianoFinanziario` espone `voce_codice` e
+  `macrovoce` (Optional in lettura; in DB NOT NULL). Tutti gli endpoint con
+  response_model VocePianoFinanziario/PianoFinanziarioWithVoci li
+  restituiscono. Test estesi in `test_piano_templates_api.py` (201
+  from-template con/senza avviso, GET piano).
+- Stato: **chiuso** (2026-07-21, commit `fix(E1-NEW-033/034): API piani
+  espone voce_codice, macrovoce e anno`).
 
 ## 2026-07-20 | NEW-034 | PianoFinanziarioWithVoci non include anno
 
@@ -557,7 +563,12 @@
 - Descrizione: la risposta `PianoFinanziarioWithVoci` non include il campo
   `anno` (presente in DB). Il wizard lo conosce dal form, ma qualunque altra
   vista futura dei piani non potrà mostrarlo senza query aggiuntiva.
-- Stato: **aperto**.
+- Fix applicato: `anno` aggiunto allo schema di lettura
+  `schemas.PianoFinanziario` (quindi anche `PianoFinanziarioWithVoci`);
+  asserzioni su `anno` nelle risposte 201/GET in
+  `test_piano_templates_api.py`.
+- Stato: **chiuso** (2026-07-21, commit `fix(E1-NEW-033/034): API piani
+  espone voce_codice, macrovoce e anno`).
 
 ## 2026-07-20 | NEW-035 | Messaggio dedup piani cita l'avviso del piano esistente
 

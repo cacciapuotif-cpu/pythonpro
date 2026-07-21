@@ -285,7 +285,13 @@ def test_creazione_da_template_voci_e_avviso(client, db_session, templates, prog
     assert data["tipo_fondo"] == "fondimpresa"
     assert data["avviso_pf_id"] == avviso.id
     assert data["avviso_revisione_id"] == revisione.id
+    # NEW-034: la risposta espone l'anno del piano.
+    assert data["anno"] == ANNO
     assert len(data["voci"]) == len(VOICE_TEMPLATES)
+    # NEW-033: la risposta espone voce_codice e macrovoce per ogni voce.
+    assert {(v["voce_codice"], v["macrovoce"]) for v in data["voci"]} == {
+        (tpl["voce_codice"], tpl["macrovoce"]) for tpl in VOICE_TEMPLATES
+    }
 
     # Le voci del piano sono ESATTAMENTE quelle del template (incluse le
     # dinamiche B.2/B.3 con categoria derivata), non le sole default.
@@ -313,6 +319,9 @@ def test_creazione_da_template_senza_avviso(client, db_session, templates, proge
     assert data["tipo_fondo"] == "fapi"
     assert data["avviso_pf_id"] is None
     assert data["avviso_revisione_id"] is None
+    # NEW-033/034: campi esposti anche nel percorso senza avviso.
+    assert data["anno"] == ANNO
+    assert all(v["voce_codice"] and v["macrovoce"] for v in data["voci"])
 
 
 def test_creazione_da_template_inesistente(client, db_session, progetto):
@@ -432,3 +441,11 @@ def test_regressione_percorso_libero_invariato(client, db_session, progetto):
     )
     attese = {tpl["voce_codice"] for tpl in VOICE_TEMPLATES if not tpl["is_dynamic"]}
     assert {v.voce_codice for v in db_voci} == attese
+
+    # NEW-033/034: anche la GET del piano espone anno, voce_codice e macrovoce.
+    r = client.get(f"/api/v1/piani-finanziari/{piano_id}")
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["anno"] == ANNO
+    assert {v["voce_codice"] for v in data["voci"]} == attese
+    assert all(v["macrovoce"] in {"A", "B", "C", "D"} for v in data["voci"])
