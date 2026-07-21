@@ -74,18 +74,52 @@ def _txt(col):
     return func.coalesce(sa.cast(col, sa.Text), "")
 
 
-def _match_and_rank(dialect: str, text_expr, q: str, termini: list[str]):
-    """(condizione WHERE, espressione rank) per il dialect corrente."""
+# Modalita' di match (vedi ``_match_and_rank``):
+# - ``default``: comportamento storico invariato della ricerca keyword pura del
+#   tab "Cerca" (GET /search). PostgreSQL = ``websearch_to_tsquery`` (AND fra i
+#   lessemi); SQLite/altro = OR degli ``ILIKE`` per termine.
+# - ``and``: primo stadio del retrieval a due stadi (precisione). PostgreSQL =
+#   identico a ``default`` (websearch e' gia' AND); SQLite = AND degli ILIKE.
+# - ``or``: secondo stadio (fallback, recall). PostgreSQL = OR di
+#   ``plainto_tsquery`` per termine; SQLite = OR degli ILIKE.
+MODE_DEFAULT = "default"
+MODE_AND = "and"
+MODE_OR = "or"
+
+
+def _tsquery_or(termini: list[str]):
+    """tsquery OR (``a | b | c``) costruita dai soli termini della domanda.
+
+    Ogni termine passa da ``plainto_tsquery`` (stessa config, stesso stemming
+    di ``to_tsvector``); gli stopword producono una tsquery vuota che l'OR
+    assorbe. Nessun termine inventato: si allarga solo il match lessicale sui
+    termini realmente presenti nella domanda.
+    """
+    combinata = None
+    for t in termini:
+        tq = func.plainto_tsquery(_TS_CONFIG, t)
+        combinata = tq if combinata is None else combinata.op("||")(tq)
+    return combinata
+
+
+def _match_and_rank(dialect: str, text_expr, q: str, termini: list[str], mode: str):
+    """(condizione WHERE, espressione rank) per il dialect e la modalita'."""
     if dialect == "postgresql":
         tsv = func.to_tsvector(_TS_CONFIG, text_expr)
-        tsq = func.websearch_to_tsquery(_TS_CONFIG, q)
+        if mode == MODE_OR:
+            tsq = _tsquery_or(termini)
+        else:  # default / and: websearch mette gia' i lessemi in AND
+            tsq = func.websearch_to_tsquery(_TS_CONFIG, q)
         return tsv.op("@@")(tsq), func.ts_rank(tsv, tsq)
     condizioni = [text_expr.ilike(f"%{t}%") for t in termini]
     rank = sum(
         (sa.case((cond, 1), else_=0) for cond in condizioni),
         start=sa.literal(0),
     )
-    return sa.or_(*condizioni), rank
+    # ``default`` (ricerca keyword storica) e ``or`` (fallback) uniscono in OR;
+    # ``and`` (primo stadio del due-stadi) richiede tutti i termini.
+    combinatore = sa.and_ if mode == MODE_AND else sa.or_
+    return combinatore(*condizioni), rank
 
 
 def _estratto(testo: str, termini: list[str], width: int = _ESTRATTO_WIDTH) -> str:
@@ -111,12 +145,12 @@ def _estratto(testo: str, termini: list[str], width: int = _ESTRATTO_WIDTH) -> s
     return testo[:width] + ("…" if len(testo) > width else "")
 
 
-def _cerca_regole(db, dialect, q, termini, avviso_id, tipo_fondo, limit):
+def _cerca_regole(db, dialect, q, termini, avviso_id, tipo_fondo, limit, mode):
     R = models.AvvisoRegola
     text_expr = (
         _txt(R.chiave) + " " + _txt(R.valore) + " " + _txt(R.testo_originale)
     )
-    match, rank = _match_and_rank(dialect, text_expr, q, termini)
+    match, rank = _match_and_rank(dialect, text_expr, q, termini, mode)
     query = (
         db.query(R, models.Avviso.id, models.Avviso.titolo, rank.label("rank"))
         .join(models.AvvisoRevisione, R.avviso_revisione_id == models.AvvisoRevisione.id)
@@ -146,10 +180,10 @@ def _cerca_regole(db, dialect, q, termini, avviso_id, tipo_fondo, limit):
     return risultati
 
 
-def _cerca_conoscenze(db, dialect, q, termini, avviso_id, tipo_fondo, limit):
+def _cerca_conoscenze(db, dialect, q, termini, avviso_id, tipo_fondo, limit, mode):
     C = models.AvvisoConoscenza
     text_expr = _txt(C.contenuto) + " " + _txt(C.tags)
-    match, rank = _match_and_rank(dialect, text_expr, q, termini)
+    match, rank = _match_and_rank(dialect, text_expr, q, termini, mode)
     query = (
         db.query(C, models.Avviso.id, models.Avviso.titolo, rank.label("rank"))
         .join(models.Avviso, C.avviso_id == models.Avviso.id)
@@ -178,10 +212,10 @@ def _cerca_conoscenze(db, dialect, q, termini, avviso_id, tipo_fondo, limit):
     return risultati
 
 
-def _cerca_esiti(db, dialect, q, termini, avviso_id, tipo_fondo, limit):
+def _cerca_esiti(db, dialect, q, termini, avviso_id, tipo_fondo, limit, mode):
     E = models.AvvisoEsitoProgetto
     text_expr = _txt(E.esito) + " " + _txt(E.note)
-    match, rank = _match_and_rank(dialect, text_expr, q, termini)
+    match, rank = _match_and_rank(dialect, text_expr, q, termini, mode)
     query = (
         db.query(E, models.Avviso.id, models.Avviso.titolo, rank.label("rank"))
         .join(models.Avviso, E.avviso_id == models.Avviso.id)
@@ -209,6 +243,19 @@ def _cerca_esiti(db, dialect, q, termini, avviso_id, tipo_fondo, limit):
     return risultati
 
 
+def _stadio(db, dialect, q, termini, avviso_id, tipo_fondo, limit, mode):
+    """Esegue le 3 fonti in una data modalita' e restituisce i risultati
+    ordinati per rank decrescente (solo rank > 0)."""
+    risultati: list[RisultatoArchivio] = []
+    for cerca in (_cerca_regole, _cerca_conoscenze, _cerca_esiti):
+        risultati.extend(
+            cerca(db, dialect, q, termini, avviso_id, tipo_fondo, limit, mode)
+        )
+    risultati = [r for r in risultati if r.rank > 0]
+    risultati.sort(key=lambda r: r.rank, reverse=True)
+    return risultati[:limit]
+
+
 def search_archivio(
     db: Session,
     q: str,
@@ -216,10 +263,24 @@ def search_archivio(
     avviso_id: Optional[int] = None,
     tipo_fondo: Optional[str] = None,
     limit: int = 20,
+    or_fallback: bool = False,
 ) -> list[RisultatoArchivio]:
     """Ricerca full-text sulle 3 fonti archivio, ordinata per rank decrescente.
 
     Query vuota o piu' corta di 3 caratteri (o senza termini utili) -> [].
+
+    Con ``or_fallback=False`` (default, usato da GET /search) il comportamento
+    e' quello storico della ricerca keyword: PostgreSQL usa
+    ``websearch_to_tsquery`` (AND fra i lessemi), SQLite l'OR degli ``ILIKE``.
+
+    Con ``or_fallback=True`` (usato da "chiedi all'archivio", dove le domande
+    sono in linguaggio naturale e il recall conta piu' della precisione) il
+    retrieval e' a **due stadi**: prima l'AND (precisione); se non recupera
+    nulla, si ripiega sull'OR dei soli termini della domanda. Cosi' una domanda
+    verbosa come "Qual e' il massimale orario per la docenza?", che in AND
+    fallirebbe (nessun documento contiene "qual"), recupera comunque i passaggi
+    pertinenti — senza inventare risultati: l'OR allarga il match lessicale solo
+    su termini realmente presenti nella domanda.
     """
     q = (q or "").strip()
     if len(q) < _MIN_QUERY_LEN or limit <= 0:
@@ -230,10 +291,17 @@ def search_archivio(
 
     dialect = db.get_bind().dialect.name
 
-    risultati: list[RisultatoArchivio] = []
-    for cerca in (_cerca_regole, _cerca_conoscenze, _cerca_esiti):
-        risultati.extend(cerca(db, dialect, q, termini, avviso_id, tipo_fondo, limit))
+    if not or_fallback:
+        return _stadio(
+            db, dialect, q, termini, avviso_id, tipo_fondo, limit, MODE_DEFAULT
+        )
 
-    risultati = [r for r in risultati if r.rank > 0]
-    risultati.sort(key=lambda r: r.rank, reverse=True)
-    return risultati[:limit]
+    # Retrieval a due stadi: AND (precisione), poi OR (recall) se AND e' vuoto.
+    risultati = _stadio(
+        db, dialect, q, termini, avviso_id, tipo_fondo, limit, MODE_AND
+    )
+    if risultati:
+        return risultati
+    return _stadio(
+        db, dialect, q, termini, avviso_id, tipo_fondo, limit, MODE_OR
+    )

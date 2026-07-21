@@ -135,8 +135,18 @@ def chiedi_archivio(
     limit: int = 8,
 ) -> ChiediArchivioEsito:
     """Risponde a ``domanda`` restando ancorato all'archivio."""
+    # or_fallback=True: la domanda e' in linguaggio naturale (verbosa). Il
+    # retrieval a due stadi prova prima l'AND (precisione) e ripiega sull'OR dei
+    # soli termini della domanda se l'AND non recupera nulla, senza inventare
+    # risultati. Le 3 regole di onesta' restano intatte: se anche l'OR e' vuoto
+    # -> `non_presente` e l'LLM non viene interpellato.
     risultati = search_archivio(
-        db, domanda, avviso_id=avviso_id, tipo_fondo=tipo_fondo, limit=limit
+        db,
+        domanda,
+        avviso_id=avviso_id,
+        tipo_fondo=tipo_fondo,
+        limit=limit,
+        or_fallback=True,
     )
 
     # Regola 1: nessun passaggio -> nessuna chiamata all'LLM.

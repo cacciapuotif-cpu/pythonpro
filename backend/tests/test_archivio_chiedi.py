@@ -129,6 +129,40 @@ def test_chiedi_risposta_citata_ok(db_session, archivio, monkeypatch):
 
 
 # ------------------------------------------------------------------
+# Caso 1b (NEW-037) — domanda in linguaggio naturale verbosa: il retrieval a
+# due stadi (or_fallback) la recupera e l'LLM viene interpellato. Prima, la
+# domanda grezza in AND (websearch_to_tsquery) su PG dava 0 -> non_presente.
+# ------------------------------------------------------------------
+
+def test_chiedi_domanda_naturale_recupera_e_interpella_llm(db_session, archivio, monkeypatch):
+    regola_id = archivio["regola"].id
+    mock_llm = Mock(return_value={
+        "risposta": "Il massimale orario per la docenza e' 100,00 euro.",
+        "citazioni": [f"regola:{regola_id}"],
+    })
+    monkeypatch.setattr(archivio_chiedi, "call_ollama_json", mock_llm)
+
+    esito = chiedi_archivio(db_session, "Qual e' il massimale orario per la docenza?")
+
+    assert esito.stato == "ok"
+    assert mock_llm.call_count == 1, "la domanda NL deve recuperare passaggi e interpellare l'LLM"
+    assert [c.regola_id for c in esito.citazioni] == [regola_id]
+
+
+def test_chiedi_domanda_naturale_tema_assente_non_presente(db_session, archivio, monkeypatch):
+    """Onesta' intatta con or_fallback: tema del tutto assente -> non_presente,
+    LLM mai interpellato."""
+    mock_llm = Mock(return_value={"risposta": "x", "citazioni": []})
+    monkeypatch.setattr(archivio_chiedi, "call_ollama_json", mock_llm)
+
+    esito = chiedi_archivio(db_session, "Come funzionano criptovalute e blockchain?")
+
+    assert esito.stato == "non_presente"
+    assert esito.risultati == []
+    mock_llm.assert_not_called()
+
+
+# ------------------------------------------------------------------
 # Caso 2 — non_presente: retrieval vuoto, LLM MAI chiamato
 # ------------------------------------------------------------------
 

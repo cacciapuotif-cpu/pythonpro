@@ -256,6 +256,72 @@ def test_nessun_match(db_session, archivio):
 
 
 # ---------------------------------------------------------------------------
+# NEW-037 — retrieval a due stadi (or_fallback) per le domande in linguaggio
+# naturale di "chiedi all'archivio". Portabile su SQLite: il fallback OR ha lo
+# stesso contratto del percorso tsvector (il caso letterale del finding, che su
+# PostgreSQL da' 0 in AND, e' nel test PG-only in coda).
+# ---------------------------------------------------------------------------
+
+
+def test_or_fallback_domanda_naturale_recupera(db_session, archivio):
+    """La domanda verbosa del finding recupera la regola docenza con
+    or_fallback (prima, in AND puro, avrebbe dato 0 perche' nessun documento
+    contiene "qual")."""
+    domanda = "Qual e' il massimale orario per la docenza?"
+    risultati = search_archivio(db_session, domanda, or_fallback=True)
+    assert risultati, "la domanda in linguaggio naturale deve recuperare passaggi"
+    assert archivio["regola_validata"].id in _regole_ids(risultati)
+
+
+def test_or_fallback_ingaggiato_solo_se_and_vuoto(db_session, archivio):
+    """Nessun singolo documento contiene sia "docenza" sia "presenze": lo stadio
+    AND e' vuoto, quindi risultati non vuoti provano che il fallback OR e'
+    scattato (e attraversa piu' documenti, ciascuno con un solo termine)."""
+    risultati = search_archivio(db_session, "docenza presenze", or_fallback=True)
+    fonti = {r.fonte for r in risultati}
+    # "presenze" vive solo nella conoscenza; "docenza" solo in regola/esito:
+    # comparire entrambe dimostra l'OR (l'AND non avrebbe reso nulla).
+    assert "conoscenza" in fonti
+    assert archivio["regola_validata"].id in _regole_ids(risultati)
+
+
+def test_or_fallback_non_sballa_su_termini_assenti(db_session, archivio):
+    """Il fallback OR allarga solo sui termini realmente presenti: un termine
+    inesistente non fa recuperare documenti che non contengono alcun termine
+    utile della domanda."""
+    risultati = search_archivio(
+        db_session, "docenza inesistente introvabile", or_fallback=True
+    )
+    # Solo i documenti con "docenza" (regola_validata, esito); mai la conoscenza
+    # o la regola_avviso2 (che non contengono nessun termine della domanda).
+    assert risultati
+    assert all("docenza" in r.estratto.lower() or r.fonte == "esito" for r in risultati)
+    assert archivio["regola_avviso2"].id not in _regole_ids(risultati)
+    assert "conoscenza" not in {r.fonte for r in risultati}
+
+
+def test_or_fallback_tema_assente_resta_vuoto(db_session, archivio):
+    """Onesta' intatta: una domanda su un tema del tutto assente resta vuota
+    (entrambi gli stadi a zero) anche con or_fallback."""
+    assert (
+        search_archivio(
+            db_session,
+            "Come funzionano le criptovalute e la blockchain?",
+            or_fallback=True,
+        )
+        == []
+    )
+
+
+def test_search_keyword_puro_invariato(db_session, archivio):
+    """Non-regressione: la ricerca keyword pura del tab "Cerca" (or_fallback
+    di default = False) continua a funzionare."""
+    risultati = search_archivio(db_session, "massimale orario docenza")
+    assert risultati
+    assert archivio["regola_validata"].id in _regole_ids(risultati)
+
+
+# ---------------------------------------------------------------------------
 # Percorso PostgreSQL reale (tsvector + indici GIN della migration 061).
 # Pattern DOM-21: richiede un DATABASE_URL PostgreSQL dedicato, altrimenti skip.
 # Sola lettura sul DB indicato.
@@ -306,5 +372,68 @@ def test_pg_percorso_tsvector_esegue_e_ordina():
         # query corta -> [] anche su PG
         assert search_archivio(session, "ab") == []
     finally:
+        session.close()
+        engine.dispose()
+
+
+@pg_only
+def test_pg_new_037_domanda_naturale_and_zero_or_recupera():
+    """NEW-037 letterale su PostgreSQL: la domanda verbosa in AND
+    (websearch_to_tsquery) da' 0 risultati, mentre con or_fallback recupera i
+    passaggi pertinenti. Sola lettura: crea dati in transazione e ROLLBACK.
+    """
+    engine = create_engine(PG_URL)
+    SessionPG = sessionmaker(bind=engine)
+    session = SessionPG()
+    try:
+        validator = User(
+            username="validatore-new037",
+            email="validatore-new037@example.com",
+            hashed_password="x",
+            role="admin",
+        )
+        session.add(validator)
+        session.flush()
+        avviso = models.Avviso(
+            codice="AVV-NEW037",
+            ente_erogatore="Formazienda",
+            fondo="formazienda",
+            numero="9/2026",
+            anno=2026,
+            titolo="Avviso NEW-037",
+        )
+        session.add(avviso)
+        session.flush()
+        rev = models.AvvisoRevisione(
+            avviso_id=avviso.id, numero_revisione=1, titolo="Rev 1"
+        )
+        session.add(rev)
+        session.flush()
+        regola = models.AvvisoRegola(
+            avviso_revisione_id=rev.id,
+            categoria="massimali",
+            chiave="massimale_orario_docenza",
+            valore={"tipo": "denaro", "importo": 100, "valuta": "EUR"},
+            testo_originale=(
+                "Il massimale orario riconosciuto per la docenza e' pari a "
+                "100,00 euro."
+            ),
+            riferimento_articolo="Art. 7",
+            stato="validata",
+            validata_da_user_id=validator.id,
+            validata_il=datetime.now(timezone.utc),
+        )
+        session.add(regola)
+        session.flush()
+
+        domanda = "Qual e' il massimale orario per la docenza?"
+        # AND puro (websearch_to_tsquery): 0 risultati, il bug del finding.
+        assert search_archivio(session, domanda) == []
+        # Due stadi (or_fallback): recupera la regola pertinente.
+        recuperati = search_archivio(session, domanda, or_fallback=True)
+        assert recuperati
+        assert regola.id in {r.regola_id for r in recuperati if r.fonte == "regola"}
+    finally:
+        session.rollback()
         session.close()
         engine.dispose()
