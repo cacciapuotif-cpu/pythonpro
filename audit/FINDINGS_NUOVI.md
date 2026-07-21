@@ -589,3 +589,24 @@
 - Fix suggerito: esplicitare entrambi ("richiesto avviso X; esiste già un
   piano per avviso Y, anno Z").
 - Stato: **aperto**.
+
+## 2026-07-21 | NEW-036 | Le 3 fonti DB della ricerca archivio sono vuote sul DB reale
+
+- Area: dati / archivio avvisi (Task E3.1 — ricerca FTS)
+- Severità stimata: media (la feature "Chiedi all'archivio" non ha nulla da
+  restituire finché le fonti non vengono popolate; nessun difetto di codice)
+- Emerso durante: verifica empirica preliminare post-migration 061 sul DB
+  reale: `avviso_regole` = 0 righe (nessuna regola, né validata né proposta),
+  `avviso_conoscenze` = 0, `avviso_esiti_progetto` = 0, a fronte di 6 avvisi
+  e 6 revisioni presenti. Tutte le query realistiche provate ("massimale
+  docenza", "rendicontazione", "scadenza presentazione", "tutoraggio")
+  restituiscono 0 risultati.
+- Il percorso PostgreSQL (tsvector + indici GIN 061) è stato dimostrato
+  funzionante con un dato transiente in transazione (flush + search +
+  ROLLBACK, nessuna scrittura): 1 risultato con rank ts_rank e citazione.
+- Da fare (fuori scope E3.1): estrarre/validare regole dagli avvisi caricati
+  e/o inserire conoscenze operative, altrimenti al gate E3.4 la verifica
+  empirica delle 10 query darà "non_presente" ovunque per assenza dati.
+- Nota già nel piano E3: i markdown puliti delle revisioni stanno su file
+  (`cleaned_md_path`), fuori dal DB: non sono una fonte della ricerca v1.
+- Stato: **aperto** (dato, non codice).
