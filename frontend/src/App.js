@@ -30,6 +30,7 @@ import AgentsManager from './components/AgentsManager';
 import AgentsDashboard from './components/AgentsDashboard';
 import AgentSuggestionsReview from './components/AgentSuggestionsReview';
 import ResourceArchive from './components/ResourceArchive';
+import ArchivioChiedi from './components/ArchivioChiedi';
 import apiService, { healthCheck } from './services/apiService';
 import { http, ensureValidAccessToken } from './lib/http';
 import {
@@ -57,6 +58,7 @@ const SECTION_CONFIG = [
   { id: 'preventivi', label: 'Preventivi', icon: '📝', group: null, title: 'Preventivi commerciali', breadcrumb: '📝 Preventivi' },
   { id: 'ordini', label: 'Ordini', icon: '🛒', group: null, title: 'Gestione ordini', breadcrumb: '🛒 Ordini' },
   { id: 'resources', label: 'Archivio Risorse', icon: '📚', group: 'Conoscenza', title: 'Fonti normative e conoscenza operativa', breadcrumb: '📚 Archivio Risorse' },
+  { id: 'archivio-chiedi', label: 'Chiedi all’archivio', icon: '💬', group: null, title: 'Interroga l’archivio normativo con citazioni', breadcrumb: '💬 Chiedi all’archivio' },
   { id: 'entities', label: 'Enti Attuatori', icon: '🏢', group: 'Config', title: 'Enti attuatori', breadcrumb: '🏢 Enti Attuatori' },
   { id: 'agents-dashboard', label: 'Agents Dashboard', icon: '📡', group: null, title: 'Panoramica sistema agenti', breadcrumb: '📡 Agents Dashboard' },
   { id: 'agents', label: 'Agenti', icon: '🤖', group: null, title: 'Agenti operativi e revisioni AI', breadcrumb: '🤖 Agenti Operativi' },
@@ -76,6 +78,9 @@ const getSectionFromPath = (pathname) => {
   }
   if (pathname.startsWith('/documenti-mancanti')) {
     return 'documenti-mancanti';
+  }
+  if (pathname.startsWith('/archivio-chiedi')) {
+    return 'archivio-chiedi';
   }
   if (pathname.startsWith('/resources')) {
     return 'resources';
@@ -99,6 +104,9 @@ const getPathForSection = (sectionId) => {
   if (sectionId === 'documenti-mancanti') {
     return '/documenti-mancanti';
   }
+  if (sectionId === 'archivio-chiedi') {
+    return '/archivio-chiedi';
+  }
   if (sectionId === 'resources') {
     return '/resources';
   }
@@ -116,6 +124,7 @@ const FILTER_QUERY_KEYS = {
   collaboratorId: 'collaborator_id',
   projectId: 'project_id',
   focus: 'focus',
+  avvisoId: 'avviso_id',
 };
 
 const getFiltersFromLocation = () => {
@@ -338,6 +347,15 @@ function App() {
     window.history.replaceState({}, '', '/agents/review?agent_type=avviso_extractor&entity_type=avviso_revisione');
   };
 
+  // E3.3: deep-link citazione → vista avviso. LIMITE ONESTO (coerente NEW-031):
+  // ResourceArchive seleziona l'avviso ma non possiede una vista per la singola
+  // regola/articolo, quindi l'ancoraggio si ferma all'avviso. I riferimenti
+  // (regola/articolo) restano nella citazione d'origine.
+  const navigateToAvviso = (avvisoId) => {
+    if (!canAccessSection(currentUser?.role, 'resources')) return;
+    navigateToSection('resources', { avvisoId });
+  };
+
   // ==========================================
   // RENDER DELLA SEZIONE ATTIVA
   // ==========================================
@@ -369,7 +387,16 @@ function App() {
         return <AgentSuggestionsReview currentUser={currentUser} initialFilters={sectionFilters} />;
 
       case 'resources':
-        return <ResourceArchive currentUser={currentUser} onReviewSuggestions={navigateToAvvisoReview} />;
+        return (
+          <ResourceArchive
+            currentUser={currentUser}
+            onReviewSuggestions={navigateToAvvisoReview}
+            initialFilters={sectionFilters}
+          />
+        );
+
+      case 'archivio-chiedi':
+        return <ArchivioChiedi currentUser={currentUser} onOpenAvviso={navigateToAvviso} />;
 
       case 'timesheet':
         return <TimesheetView currentUser={currentUser} />;

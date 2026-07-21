@@ -164,17 +164,17 @@ test.each([
   [ADMIN, [
     'Home', 'Dashboard', 'Calendario', 'Timesheet', 'Documenti', 'Collaboratori',
     'Allievi', 'Progetti', 'Aziende', 'Catalogo', 'Listini', 'Preventivi', 'Ordini',
-    'Archivio Risorse', 'Enti Attuatori', 'Agents Dashboard', 'Agenti', 'Template',
+    'Archivio Risorse', 'Chiedi all’archivio', 'Enti Attuatori', 'Agents Dashboard', 'Agenti', 'Template',
   ]],
   [CANONICAL_OPERATOR, [
     'Home', 'Dashboard', 'Calendario', 'Timesheet', 'Documenti', 'Collaboratori',
     'Allievi', 'Progetti', 'Aziende', 'Catalogo', 'Listini', 'Preventivi', 'Ordini',
-    'Archivio Risorse', 'Enti Attuatori', 'Agents Dashboard', 'Agenti',
+    'Archivio Risorse', 'Chiedi all’archivio', 'Enti Attuatori', 'Agents Dashboard', 'Agenti',
   ]],
   [CONSULTATION_USER, [
     'Home', 'Dashboard', 'Calendario', 'Documenti', 'Collaboratori', 'Allievi',
     'Progetti', 'Aziende', 'Catalogo', 'Listini', 'Preventivi', 'Ordini',
-    'Archivio Risorse', 'Enti Attuatori', 'Agents Dashboard', 'Agenti',
+    'Archivio Risorse', 'Chiedi all’archivio', 'Enti Attuatori', 'Agents Dashboard', 'Agenti',
   ]],
 ])('la navigazione del ruolo canonico %s rispetta la matrice backend', async (user, expected) => {
   ensureValidAccessToken.mockResolvedValue(true);

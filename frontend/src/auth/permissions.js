@@ -176,6 +176,9 @@ export const SECTION_ACCESS = Object.freeze({
   preventivi: ['GET', '/api/v1/preventivi'],
   ordini: ['GET', '/api/v1/ordini'],
   resources: ['GET', '/api/v1/avvisi'],
+  // E3.3: "Chiedi all'archivio" = lettura semantica, aperta ai 3 ruoli
+  // (GET /api/v1/archivio/search rientra in OPERATIONAL_PREFIXES).
+  'archivio-chiedi': ['GET', '/api/v1/archivio/search'],
   entities: ['GET', '/api/v1/entities'],
   'agents-dashboard': ['GET', '/api/v1/agents'],
   agents: ['GET', '/api/v1/agents'],

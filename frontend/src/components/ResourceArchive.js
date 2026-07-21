@@ -110,9 +110,11 @@ function ExtractionProgress({ revision, canRetry, retrying, onRetry }) {
   );
 }
 
-export default function ResourceArchive({ currentUser = null, onReviewSuggestions = null }) {
+export default function ResourceArchive({ currentUser = null, onReviewSuggestions = null, initialFilters = {} }) {
+  // E3.3: deep-link da "Chiedi all'archivio" — preseleziona l'avviso citato.
+  const initialAvvisoId = initialFilters?.avvisoId ? String(initialFilters.avvisoId) : '';
   const [avvisi, setAvvisi] = useState([]);
-  const [selectedId, setSelectedId] = useState('');
+  const [selectedId, setSelectedId] = useState(initialAvvisoId);
   const [revisions, setRevisions] = useState([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);

@@ -704,6 +704,24 @@ export const ingestAvvisoRevision = (
   }).then(r => r.data);
 };
 
+// ── E3.3: Archivio "Chiedi all'archivio" ──────────────────────────────────
+// Due rotte di sola lettura semantica (RBAC: aperte ai 3 ruoli, vedi
+// auth/permissions.js). La ricerca è una GET; /chiedi è un POST solo perché la
+// domanda in linguaggio naturale viaggia nel body.
+export const searchArchivio = (q, { avvisoId, tipoFondo, limit } = {}) => {
+  const params = { q };
+  if (avvisoId) params.avviso_id = avvisoId;
+  if (tipoFondo) params.tipo_fondo = tipoFondo;
+  if (limit) params.limit = limit;
+  return http.get('/archivio/search', { params }).then(r => r.data);
+};
+export const chiediArchivio = ({ domanda, avvisoId, tipoFondo } = {}) => {
+  const body = { domanda };
+  if (avvisoId) body.avviso_id = avvisoId;
+  if (tipoFondo) body.tipo_fondo = tipoFondo;
+  return http.post('/archivio/chiedi', body).then(r => r.data);
+};
+
 // Agents
 export const getAgentsCatalog = () =>
   http.get('/agents/').then(r => r.data);
