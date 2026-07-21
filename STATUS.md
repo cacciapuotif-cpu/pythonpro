@@ -59,9 +59,10 @@ con dati), **NEW-030 (alta, fuori scope: azienda_ids/allievo_ids scartati su
 (messaggio dedup), NEW-036 (corpus archivio vuoto in produzione), NEW-037 (query
 NL su /chiedi), residui v2 UI-12/13/14/18, NEW-020. Raccomandazione pgvector.
 
-**Decisioni utente pendenti:** (1) avvio Ondata M (manuale, cap. 3 e 9); (2)
-attivazione runtime completa (rebuild frontend + redeploy + crawl live); (3)
-priorità NEW-037 e NEW-030.
+**Decisioni utente:** (1) Ondata M (manuale) → **NON avviata, tenuta separata
+per dopo** (decisione utente 2026-07-21). Pendenti: (2) attivazione runtime
+completa (rebuild frontend + redeploy + crawl live); (3) priorità NEW-037 e
+NEW-030.
 
 Regole invariate: commit atomici mai push, migration solo Alembic provate su
 copia, agenti solo proposte, nuovi problemi in FINDINGS_NUOVI, stop ai GATE.
