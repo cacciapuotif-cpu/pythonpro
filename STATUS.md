@@ -1,15 +1,15 @@
 # PythonPro — Stato corrente
 
-**Aggiornato:** 2026-07-20 (ONDATA UI-COMPLETAMENTO ripresa: R0+R1+E2.2 chiusi, GATE FASE E2 superato)
+**Aggiornato:** 2026-07-20 sera (fase E2 chiusa; fase E1 completa, GATE E1 dimostrato su clone — in attesa conferma utente)
 **Branch:** `claude/platform-audit-compliance-XnH86` (locale, nessun push)
 **Percorso:** `/DATA/progetti/pythonpro`
 
 ## Stato operativo
 
 - Runtime: backend, frontend, PostgreSQL, Redis e ARQ worker healthy.
-- Schema reale: Alembic `059` head.
-- Baseline backend: **578 passed, 3 skipped, 0 failed** su 581 test.
-- Baseline frontend: **96 passed, 3 snapshot, 0 failed**; build production verde.
+- Schema reale: Alembic `060` head (piano_finanziario_templates + bonifica).
+- Baseline backend: **701 passed, 3 skipped, 0 failed**.
+- Baseline frontend: **110 passed, 3 snapshot, 0 failed**; build production verde.
 - V1 archivio avvisi e V2 pipeline ingestione sono chiuse.
 - Wave dominio 1 e Wave 2.1 timesheet snapshot immutabile sono chiuse.
 - Flusso agenti canonico attivo: collector puro → AgentRun/AgentSuggestion → approvazione umana → apply auditato. Nessun auto-apply.
@@ -88,21 +88,41 @@ ledger avanzamento in `.superpowers/sdd/progress.md`.
   Nota design confermata: `genera_contratto` indipendente dallo stato
   workflow (download = azione operatore, mai auto-apply).
 
+- **FASE E1 COMPLETA (2026-07-20)** — numerazione ridefinita dall'utente:
+  - E1.1+E1.2 modello `PianoFinanziarioTemplate` + migration 060 (provata su
+    clone, applicata al DB reale, head=060) + bonifica relitti: drop
+    `legacy_avviso_id`, rinomina `Avviso.contract_template_id`, 422 su chiavi
+    legacy (`937ef24`, `dc7ff31`). `legacy_template_id` NON droppata: contiene
+    dati → NEW-029.
+  - E1.3 seed 3 template reali da `VOICE_TEMPLATES` (29 voci, limiti
+    macrovoce) con test di parità, idempotente, eseguito su DB reale
+    (`3d5c822`).
+  - E1.4 `services/massimali.py`: precedenza regola avviso validata >
+    MassimaleFondo, 422 cita articolo; valori non interpretabili mai
+    inventati (`ccc6a92`). `avviso_regole` vuota in produzione: prima
+    ingestione reale = banco di prova dei sinonimi chiave.
+  - E1.5 endpoint listing/anteprima/from-template con RBAC verificato via
+    HTTP (`e1b6927`) + wizard UI 3 passi in ProjectManager (`9ecb5bf`) +
+    fix review UX: anteprima per anno, protezione chiusura, errori avvisi
+    visibili, a11y modale (`e207650`).
+  - **Demo GATE E1 su clone DIMOSTRATA**: enforcement 422 con "rif. Art. 12"
+    da regola avviso validata, fallback fondo, DB reale intatto, teardown
+    completo. Finding demo censiti: NEW-032…035 (`d4f143a`).
+  - Suite: backend **701 passed, 3 skipped**; frontend **110 passed**; build
+    verde. Aperti: NEW-029, NEW-030 (alta, fuori scope), NEW-031…035.
+  - **In attesa di conferma utente al GATE E1.**
+
 **Resta da fare (in ordine, dal piano):**
-1. E1.1 modello `PianoFinanziarioTemplate` + migration 060 (prova su clone,
-   poi DB reale) + seed idempotente; E1.2 endpoint listing/anteprima/
-   from-template; E1.3 massimali con precedenza regola avviso validata e
-   citazione articolo; E1.4 wizard UI 3 passi; E1.5 gate fase E1.
-2. E3.1 servizio ricerca FTS + migration 061 (fallback ILIKE per SQLite);
+1. E3.1 servizio ricerca FTS + migration 061 (fallback ILIKE per SQLite);
    E3.2 endpoint search + chiedi (onestà: retrieval vuoto → "non presente"
    senza LLM; citazioni obbligatorie validate server-side; LLM giù → degrado
    pulito); E3.3 pagina "Chiedi all'archivio" (3 ruoli, disclaimer, citazioni
    cliccabili); E3.4 gate fase E3.
-3. GATE UI v3: G3.1 riesecuzione matrice pagina×ruolo + flussi 1–8 + suite
+2. GATE UI v3: G3.1 riesecuzione matrice pagina×ruolo + flussi 1–8 + suite
    complete; G3.2 report v3 (confronto v1→v2→v3, dichiarazione onesta) +
    REMEDIATION_LOG; G3.3 se superato → sbloccare e avviare Ondata M
    (manuale con capitoli 3 e 9), altrimenti fermarsi con elenco onesto.
-4. Review finale whole-branch prima di chiudere l'ondata.
+3. Review finale whole-branch prima di chiudere l'ondata.
 
 Regole invariate: commit atomici mai push, migration solo Alembic provate su
 copia, agenti solo proposte, nuovi problemi in FINDINGS_NUOVI, stop ai GATE.
