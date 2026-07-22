@@ -619,6 +619,85 @@ def test_create_piano_finanziario_commits_audit_before_non_blocking_event():
     assert audit_logs[0].action == "create"
 
 
+def test_create_piano_finanziario_dedup_message_cites_requested_and_existing_avviso():
+    """NEW-035: il messaggio di dedup deve esplicitare sia l'avviso richiesto
+    sia quello del piano già esistente quando differiscono."""
+    db = make_db(
+        models.Project.__table__,
+        models.AziendaCliente.__table__,
+        models.ModuloFormativo.__table__,
+        models.Avviso.__table__,
+        models.PianoFinanziario.__table__,
+        models.VocePianoFinanziario.__table__,
+        models.AuditLog.__table__,
+    )
+    project = models.Project(
+        name="PF Dedup Test",
+        status="active",
+        ente_erogatore="Formazienda",
+        avviso="AV-2025-RICHIESTO",
+    )
+    db.add(project)
+    db.commit()
+
+    avviso_esistente = models.Avviso(
+        codice="COD-2024",
+        ente_erogatore="Formazienda",
+        numero="AV-2024-ESISTENTE",
+        anno=2024,
+        titolo="Avviso storico",
+    )
+    db.add(avviso_esistente)
+    db.commit()
+
+    existing = models.PianoFinanziario(
+        progetto_id=project.id,
+        nome="Piano Esistente",
+        tipo_fondo="fondimpresa",
+        anno=2026,
+        ente_erogatore="Formazienda",
+        avviso_pf_id=avviso_esistente.id,
+        budget_totale=1000.0,
+        budget_approvato=1000.0,
+        budget_utilizzato=0.0,
+        budget_rimanente=1000.0,
+        data_inizio=datetime(2026, 4, 1, 0, 0, 0),
+        data_fine=datetime(2026, 4, 30, 0, 0, 0),
+        stato="bozza",
+    )
+    db.add(existing)
+    db.commit()
+
+    original_get_project = crud.get_project
+    crud.get_project = lambda db_arg, project_id: db_arg.query(models.Project).filter(models.Project.id == project_id).first()
+    try:
+        try:
+            crud.create_piano_finanziario(
+                db,
+                schemas.PianoFinanziarioCreate(
+                    progetto_id=project.id,
+                    nome="Piano Nuovo",
+                    tipo_fondo="fondimpresa",
+                    budget_totale=2000.0,
+                    data_inizio=datetime(2026, 4, 1, 0, 0, 0),
+                    data_fine=datetime(2026, 4, 30, 0, 0, 0),
+                ),
+            )
+            raise AssertionError("Attesa ValueError di deduplicazione")
+        except ValueError as exc:
+            message = str(exc)
+    finally:
+        crud.get_project = original_get_project
+
+    assert "2026" in message
+    # avviso del piano esistente
+    assert "AV-2024-ESISTENTE" in message
+    # avviso richiesto (derivato dal progetto)
+    assert "AV-2025-RICHIESTO" in message
+    # nessun piano duplicato creato
+    assert db.query(models.PianoFinanziario).count() == 1
+
+
 def test_update_piano_finanziario_commits_data_and_audit_once_before_event():
     db = make_db(
         models.Project.__table__,

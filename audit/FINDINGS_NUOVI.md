@@ -224,8 +224,14 @@
   attuale usa correttamente backend `:8001` e non è coinvolto.
 - Impatto: un futuro deploy same-origin su hostname pubblico può fermarsi alla
   schermata di connessione anche con backend sano.
-- Stato: aperto; rendere il health check indipendente dal `baseURL` API o
-  aggiungere un alias esplicito coperto da test di deploy same-origin.
+- Stato: CHIUSO 2026-07-22. `healthCheck` in
+  `frontend/src/services/apiService.js` ora fa
+  `http.get('/health', { baseURL: apiRootUrl })`: axios usa `apiRootUrl` al
+  posto del baseURL `/api/v1` dell'istanza. Same-origin (`apiRootUrl=''`) →
+  hit su origin `/health`; LAN (`apiRootUrl='http://IP:8001'`) →
+  `http://IP:8001/health`. Test in
+  `frontend/src/services/apiService.test.js` coprono entrambi gli scenari
+  (same-origin: url `/health` e non `/api/v1/health`; LAN: baseURL assoluto).
 
 ## 2026-07-19 | NEW-021 | Accept umano rotto per suggerimenti non-collaboratore (contract_ready)
 
@@ -618,7 +624,18 @@
   esistente, non quello richiesto: con avvisi diversi il messaggio confonde.
 - Fix suggerito: esplicitare entrambi ("richiesto avviso X; esiste già un
   piano per avviso Y, anno Z").
-- Stato: **aperto**.
+- Stato: **chiuso** (2026-07-22). `create_piano_finanziario` in
+  `backend/crud.py` ora emette: "Esiste già un piano finanziario per questo
+  progetto e anno {anno} ({esistente_desc}); richiesta rifiutata per {ente}
+  avviso {avviso_richiesto}.". `esistente_desc` risolve l'avviso del piano
+  esistente dalla relazione `avviso_rel` (numero/codice), con fallback
+  `piano {codice_piano}` o "senza avviso" (PianoFinanziario non ha un campo
+  `avviso` scalare). Il messaggio distingue esplicitamente richiesta vs piano
+  esistente e cita l'anno. Test:
+  `test_agent_audit_fixes.py::
+  test_create_piano_finanziario_dedup_message_cites_requested_and_existing_avviso`
+  asserisce che il detail cita sia l'avviso richiesto (AV-2025-RICHIESTO) sia
+  quello esistente (AV-2024-ESISTENTE) sia l'anno.
 
 ## 2026-07-21 | NEW-036 | Le 3 fonti DB della ricerca archivio sono vuote sul DB reale
 

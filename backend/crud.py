@@ -3966,9 +3966,32 @@ def create_piano_finanziario(db: Session, piano: schemas.PianoFinanziarioCreate)
         existing_query = existing_query.filter(models.PianoFinanziario.tipo_fondo == payload.get("tipo_fondo"))
     existing = existing_query.first()
     if existing:
-        suffix = f" / avviso {normalized_avviso}" if normalized_avviso else ""
+        # PianoFinanziario non ha un campo `avviso` scalare: l'avviso del piano
+        # esistente si ricava dalla relazione avviso_rel (numero/codice), con
+        # fallback al codice_piano se l'avviso non è collegato.
+        existing_avviso_obj = getattr(existing, "avviso_rel", None)
+        avviso_esistente = ""
+        if existing_avviso_obj is not None:
+            avviso_esistente = (
+                (getattr(existing_avviso_obj, "numero", None)
+                 or getattr(existing_avviso_obj, "codice", None)
+                 or "").strip()
+            )
+        if avviso_esistente:
+            esistente_desc = f"avviso {avviso_esistente}"
+        elif getattr(existing, "codice_piano", None):
+            esistente_desc = f"piano {existing.codice_piano}"
+        else:
+            esistente_desc = "senza avviso"
+
+        richiesto_desc = (
+            f"{normalized_ente} avviso {normalized_avviso}"
+            if normalized_avviso
+            else normalized_ente
+        )
         raise ValueError(
-            f"Esiste già un piano finanziario {normalized_ente}{suffix} per questo progetto e anno"
+            f"Esiste già un piano finanziario per questo progetto e anno {derived_anno} "
+            f"({esistente_desc}); richiesta rifiutata per {richiesto_desc}."
         )
 
     payload["anno"] = derived_anno
