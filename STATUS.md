@@ -8,13 +8,18 @@
 
 - Runtime: backend, frontend, PostgreSQL, Redis e ARQ worker healthy.
 - Schema reale: Alembic **`061` head** (template piani 060 + indici FTS archivio 061).
-- Baseline backend: **725 passed, 5 skipped, 0 failed**.
+- Baseline backend: **747 passed, 6 skipped, 0 failed** (include fix NEW-030/037).
 - Baseline frontend: **123 passed, 3 snapshot, 0 failed**; build production verde.
-- **Backend riavviato il 2026-07-21**: le rotte `/api/v1/archivio/*` sono live
-  (openapi le espone). **Frontend nginx NON ricostruito**: il bundle live è
-  ancora pre-E3, la pagina "Chiedi all'archivio" non è servita finché non si fa
-  rebuild+redeploy. Rilascio completo (rebuild frontend + ri-crawl Playwright)
-  resta condizione fuori ondata.
+- **RUNTIME ATTIVATO il 2026-07-21**: backend riavviato (carica NEW-030/037,
+  rotte `/api/v1/archivio/*` live in openapi); frontend **ricostruito e
+  ridispiegato** (`docker compose build frontend` + recreate, bundle
+  `main.2f02630a.js` con pagina "Chiedi all'archivio"). Verifica live HTTP sul
+  runtime: 3 ruoli → search/chiedi/projects 200; `/archivio-chiedi` servita 200;
+  openapi espone `azienda_ids`/`allievo_ids` (NEW-030). Backend LAN-portabile:
+  da `192.168.2.41:3001` il bundle punta a `192.168.2.41:8001` (http.js).
+  Crawl Playwright browser-level NON eseguito: chromium headless privo di
+  librerie di sistema (`libatk-1.0.so.0`) in questo ambiente — verifica ridotta
+  a HTTP live + suite + jest (nessun render/console-error capturato).
 - V1 archivio avvisi e V2 pipeline ingestione sono chiuse.
 - Wave dominio 1 e Wave 2.1 timesheet snapshot immutabile sono chiuse.
 - Flusso agenti canonico attivo: collector puro → AgentRun/AgentSuggestion → approvazione umana → apply auditato. Nessun auto-apply.
@@ -59,10 +64,12 @@ con dati), **NEW-030 (alta, fuori scope: azienda_ids/allievo_ids scartati su
 (messaggio dedup), NEW-036 (corpus archivio vuoto in produzione), NEW-037 (query
 NL su /chiedi), residui v2 UI-12/13/14/18, NEW-020. Raccomandazione pgvector.
 
-**Decisioni utente:** (1) Ondata M (manuale) → **NON avviata, tenuta separata
-per dopo** (decisione utente 2026-07-21). Pendenti: (2) attivazione runtime
-completa (rebuild frontend + redeploy + crawl live); (3) priorità NEW-037 e
-NEW-030.
+**Decisioni utente (2026-07-21):** (1) Ondata M (manuale) → **NON avviata,
+tenuta separata per dopo**. (2) attivazione runtime → **FATTA** (backend
+riavviato + frontend ricostruito/ridispiegato; crawl browser non eseguibile
+per libs mancanti, sostituito da verifica HTTP live). (3) NEW-037 e NEW-030 →
+**FIXATI E CHIUSI** (`a7fa2d1`, `6bdb024`). Backlog residuo: NEW-029/031/035/036,
+residui v2 (UI-12/13/14/18, NEW-020), raccomandazione pgvector.
 
 Regole invariate: commit atomici mai push, migration solo Alembic provate su
 copia, agenti solo proposte, nuovi problemi in FINDINGS_NUOVI, stop ai GATE.
