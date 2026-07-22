@@ -271,7 +271,13 @@ class ApiService {
   // System endpoints
   async healthCheck() {
     try {
-      const response = await http.get(`${apiRootUrl}/health`);
+      // La health del backend è esposta su `/health` (fuori dal prefisso
+      // /api/v1). L'istanza axios `http` ha baseURL = apiBaseUrl (…/api/v1),
+      // quindi un URL relativo verrebbe prefissato con /api/v1 → 404 in
+      // same-origin. Forziamo baseURL = apiRootUrl per questa richiesta:
+      // - same-origin: apiRootUrl='' → hit su origin '/health'
+      // - LAN: apiRootUrl='http://IP:8001' → hit su 'http://IP:8001/health'
+      const response = await http.get('/health', { baseURL: apiRootUrl });
       return response.data;
     } catch (err) {
       throw new Error(`Health check failed: ${err.response?.status || err.message}`);
