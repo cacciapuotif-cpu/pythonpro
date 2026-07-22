@@ -557,7 +557,15 @@
 - Da fare (fuori scope E1.4): valutare una sezione/vista piani finanziari
   (elenco, dettaglio voci, riepilogo, export) che dia una casa sia al
   percorso libero sia ai piani creati da template.
-- Stato: **aperto** (censito; wizard E1.4 consegnato con vista inline).
+- **Decisione utente (2026-07-22): è una feature UI vera, SCHEDULATA** come
+  lavoro dedicato (non fix rapido). Scope previsto: nuova sezione "Piani
+  finanziari" con elenco per progetto/anno, dettaglio voci per macrovoce,
+  riepilogo massimali con fonte, export Excel (endpoint `exportPianoFinanziarioExcel`
+  già esistente lato backend), deep-link dal wizard e dalle citazioni. RBAC:
+  lettura ai 3 ruoli, scrittura admin+operatore. Richiede piano dedicato
+  (backend endpoint listing già presente `GET /api/v1/piani-finanziari/`;
+  manca solo il frontend). Nel frattempo il wizard mostra il piano inline.
+- Stato: **SCHEDULATA** (backlog roadmap, non bloccante; wizard E1.4 con vista inline).
 
 ## 2026-07-20 | NEW-032 | from-template senza avviso_id eredita comunque l'avviso dal progetto
 
