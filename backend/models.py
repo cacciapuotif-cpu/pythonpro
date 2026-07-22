@@ -1089,8 +1089,8 @@ class PianoFinanziario(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     progetto_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
-    # Relitto censito (NEW-029): contiene ancora dati sul DB reale, non droppabile in E1.2.
-    legacy_template_id = Column(Integer, nullable=True)
+    # NEW-029 (mig 062): colonna relitto ``legacy_template_id`` rimossa. Il valore
+    # residuo (piano id=4 -> 14) e' stato preservato in ``audit_logs`` prima del drop.
     anno = Column(Integer, nullable=False, index=True)
     ente_erogatore = Column(String(100), nullable=False, default="Formazienda")
     avviso_pf_id = Column(Integer, ForeignKey("avvisi.id", ondelete="SET NULL"), nullable=True, index=True)

@@ -486,7 +486,30 @@
   verso la nuova entità `PianoFinanziarioTemplate` (una volta seedata) o
   azzerarlo con consenso utente; poi drop della colonna in una migration
   successiva.
-- Stato: **aperto** (censito; nessun drop applicato).
+- Risoluzione (2026-07-22 | decisione utente "droppa migrando"): applicata
+  migration **062** (`062_drop_piani_finanziari_legacy_template_id.py`).
+  Stadio "migrando" (preserva): per ogni piano con `legacy_template_id`
+  non-null si scrive una riga append-only in `audit_logs` (modello `AuditLog`,
+  audit di dominio) — `entity='PianoFinanziario'`,
+  `action='legacy_template_id_dropped'`,
+  `old_value='{"piano_id": 4, "legacy_template_id": 14}'`. Scelto `audit_logs`
+  come target perché è il contenitore di dominio pensato per entity/action/
+  old_value, senza inquinare i campi utente (`note`/`note_ente`);
+  l'immutabilità del modello è solo a livello ORM, quindi l'INSERT SQL da
+  migration è lecito. Stadio drop: `DROP COLUMN legacy_template_id`. Downgrade
+  ricrea la colonna VUOTA (il valore resta in `audit_logs`, non ripristinato).
+  Rimosso anche l'attributo dal modello `PianoFinanziario` (`models.py:~1092`).
+  Nota: sul DB reale al 2026-07-22 `contract_templates.id=14` esiste ancora
+  (la nota di contesto "id 14 non esiste più" era imprecisa); resta comunque un
+  riferimento senza valore semantico (non era una FK dichiarata).
+  Prova su clone (pg_dump gestionale → gestionale_new029_test): upgrade
+  061→062 (colonna droppata, pf=4 invariato, audit_logs 345→346 con la riga di
+  preservazione), downgrade→061 (colonna ricreata vuota), re-upgrade→062 OK;
+  clone droppato. Migration reale: `alembic upgrade head` → head=062,
+  colonna assente, piano 4 preservato in `audit_logs` (id 51821), /health 200.
+  Test: `tests/test_new029_legacy_template_id_dropped.py` (modello senza
+  `legacy_template_id` + regressione creazione piano).
+- Stato: **chiuso** (2026-07-22, migration 062, valore preservato in `audit_logs`).
 
 ## 2026-07-20 | NEW-030 | POST/PUT /projects: azienda_ids e allievo_ids inviati dal frontend ma scartati in silenzio dallo schema
 
