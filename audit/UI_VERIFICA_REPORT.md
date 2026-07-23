@@ -184,8 +184,9 @@ stata eseguita e resta subordinata al prerequisito legale esterno.
   da Archivio, che quel ruolo non vede, oppure digitando l'URL.
 - **UI-11 — Link “Documentazione API” hardcoded a `localhost:8001`.** Rotto da
   host client/remoto ed esposto a utenti non tecnici.
-- **UI-12 — Errori grezzi.** I 403 mostrano “Request failed with status code
-  403” invece di una spiegazione operativa.
+- **UI-12 — Errori grezzi. ✅ CHIUSO (2026-07-23).** I 403 mostravano “Request
+  failed with status code 403” invece di una spiegazione operativa. Vedi
+  "Finding chiusi durante l'ondata".
 - **UI-18 — Quasi tutte le sezioni condividono `/`.** Nessun bookmark/deep-link
   stabile per collaboratori, progetti, timesheet, ecc.
 
@@ -205,6 +206,25 @@ stata eseguita e resta subordinata al prerequisito legale esterno.
   vede la disattivazione sicura ma non il percorso definitivo.
 - **UI-19 — CORRETTO** con commit `c9b9059`: test frontend riallineati ai moduli,
   mock e profili correnti; nessun comportamento applicativo modificato.
+- **UI-12 — CORRETTO (2026-07-23):** mappatura centralizzata degli errori API in
+  messaggi operativi italiani. Nuovo helper condiviso `formatApiError(error)` in
+  `frontend/src/lib/errors.js`: preferisce un `detail` sensato del backend
+  (es. RBAC "Permessi insufficienti", login "Username o password non validi"),
+  sintetizza la lista di validazione Pydantic 422 in "Dati non validi: campo X",
+  altrimenti mappa per codice di stato (401 sessione scaduta, 403 permessi, 404
+  risorsa non trovata, 5xx errore del server) e infine il caso rete/timeout
+  ("Server non raggiungibile."). Applicato ai punti utente-facing principali:
+  `ErrorBanner.jsx` (usato da AssignmentModal, PianoTemplateWizard,
+  CalendarSimple, ProgettoMansioneEnteManager), `TimesheetReport.js` (che prima
+  renderizzava `error.message` grezzo) e l'errore di login in `App.js`. Coperto
+  da 23 test in `lib/errors.test.js` (401/403/404/422-lista/500/rete + preferenza
+  per il detail italiano vs. default inglesi tipo "Forbidden"). Suite: 148 test
+  su 15 suite verdi (baseline 125 + 23); build production verde.
+  Residui non toccati (con fallback italiano già presente, meno visibili, quindi
+  accettabili): `DocumentiCollaboratore.js`, `hooks/useDocumentUpload.js`,
+  `AssignmentModal.js` (gestione 422 locale già italiana), `ArchivioChiedi.js`,
+  bulk import (allievi/aziende/collaboratori). Possono migrare a `formatApiError`
+  in un giro di igiene successivo.
 
 ## Fix applicati e fix rinviati
 
@@ -382,7 +402,8 @@ la dichiarazione complessiva resta NO per tre eccezioni non accettate:
 2. generazione contratto non coperta da una singola prova E2E completa (flusso 4);
 3. “Chiedi all'archivio” con citazioni assente (flusso 8).
 
-Residui non bloccanti ma aperti: UI-12, UI-18, UI-13/UI-14 e NEW-020.
+Residui non bloccanti ma aperti: UI-18, UI-13/UI-14 e NEW-020 (UI-12 chiuso il
+2026-07-23).
 
 **MANUALE VERIFICATO SU PIATTAFORMA REALE: NO — Ondata M non avviata.**
 
@@ -460,7 +481,8 @@ frontend **123 passed, 14 suite, 3 snapshot**; build production verde.
 - **NEW-029** (legacy_template_id con dati), **NEW-030** (azienda_ids/allievo_ids
   scartati su /projects, alta severità, fuori scope ondata), **NEW-035**
   (messaggio dedup piani): aperti, non bloccanti per il gate UI.
-- Residui v2 non bloccanti ancora aperti: UI-12, UI-18, UI-13/UI-14, NEW-020.
+- Residui v2 non bloccanti ancora aperti: UI-18, UI-13/UI-14, NEW-020 (UI-12
+  chiuso il 2026-07-23).
 - **Raccomandazione pgvector** riaperta per il recall semantico inter-fondo
   della ricerca archivio (FTS lessicale: 4/4 query sinonimiche MISS su clone);
   non implementata, da valutare a corpus popolato.

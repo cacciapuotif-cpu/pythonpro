@@ -33,6 +33,7 @@ import ResourceArchive from './components/ResourceArchive';
 import ArchivioChiedi from './components/ArchivioChiedi';
 import apiService, { healthCheck } from './services/apiService';
 import { http, ensureValidAccessToken } from './lib/http';
+import { formatApiError } from './lib/errors';
 import {
   ACCESS_PROFILES,
   canAccessSection,
@@ -306,7 +307,7 @@ function App() {
     } catch (error) {
       localStorage.removeItem('access_token');
       localStorage.removeItem('refresh_token');
-      setAuthError(error.response?.data?.detail || error.message || 'Accesso non riuscito.');
+      setAuthError(formatApiError(error));
     } finally {
       setIsAuthenticating(false);
     }

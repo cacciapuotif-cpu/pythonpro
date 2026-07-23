@@ -12,6 +12,7 @@ import React, { useEffect, useState } from 'react';
 import { useCollaborators, useProjects } from '../hooks/useEntity';
 import apiService from '../services/apiService';
 import { canPerform } from '../auth/permissions';
+import { formatApiError } from '../lib/errors';
 import './TimesheetReport.css';
 
 const DEFAULT_PAGE_SIZE = 100;
@@ -196,7 +197,7 @@ const TimesheetReport = ({ currentUser }) => {
       {error && (
         <div className="alert alert-error">
           <span className="alert-icon">⚠️</span>
-          {error.message || 'Errore nel caricamento del report'}
+          {error ? formatApiError(error) : 'Errore nel caricamento del report'}
         </div>
       )}
 
