@@ -7,9 +7,12 @@
 ## Stato operativo
 
 - Runtime: backend, frontend, PostgreSQL, Redis e ARQ worker healthy.
-- Schema reale: Alembic **`061` head** (template piani 060 + indici FTS archivio 061).
-- Baseline backend: **747 passed, 6 skipped, 0 failed** (include fix NEW-030/037).
-- Baseline frontend: **123 passed, 3 snapshot, 0 failed**; build production verde.
+- Schema reale: Alembic **`062` head** (template piani 060 + FTS archivio 061 +
+  drop relitto legacy_template_id 062). Backend riavviato dopo 062 per
+  riallineare il modello allo schema (il drop colonna dava 500 sui piani finché
+  il processo caricava il vecchio modello).
+- Baseline backend: **750 passed, 6 skipped, 0 failed**.
+- Baseline frontend: **125 passed, 3 snapshot, 0 failed**; build production verde.
 - **RUNTIME ATTIVATO il 2026-07-21**: backend riavviato (carica NEW-030/037,
   rotte `/api/v1/archivio/*` live in openapi); frontend **ricostruito e
   ridispiegato** (`docker compose build frontend` + recreate, bundle
