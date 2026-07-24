@@ -122,7 +122,8 @@ def attendance(db_session):
 
 
 def _generate(client, attendance):
-    response = client.get("/api/v1/assignments/{}/timesheet".format(attendance.assignment_id))
+    """B5.1: la generazione avviene via POST (comando con side-effect)."""
+    response = client.post("/api/v1/assignments/{}/timesheet".format(attendance.assignment_id))
     assert response.status_code == 200
     return response
 
@@ -131,7 +132,7 @@ def test_route_generates_real_pdf_with_decimal_assignment_values(
     real_pdf_client, db_session, attendance
 ):
     """UI-04: la route reale deve accettare i Decimal restituiti dall'ORM."""
-    response = real_pdf_client.get(
+    response = real_pdf_client.post(
         "/api/v1/assignments/{}/timesheet".format(attendance.assignment_id)
     )
 
@@ -144,9 +145,12 @@ def test_route_generates_real_pdf_with_decimal_assignment_values(
 def test_missing_real_pdf_is_rebuilt_from_frozen_decimal_snapshot(
     real_pdf_client, db_session, attendance
 ):
-    """UI-04: anche la fotografia congelata deve essere sempre ristampabile."""
+    """UI-04: anche la fotografia congelata deve essere sempre ristampabile.
+
+    B5.1: la GET read-only ricostruisce il PDF in memoria dallo snapshot ma
+    NON lo riscrive su disco (nessun side-effect)."""
     url = "/api/v1/assignments/{}/timesheet".format(attendance.assignment_id)
-    first = real_pdf_client.get(url)
+    first = real_pdf_client.post(url)
     assert first.status_code == 200
 
     record = db_session.query(models.TimesheetGenerato).one()
@@ -157,7 +161,8 @@ def test_missing_real_pdf_is_rebuilt_from_frozen_decimal_snapshot(
     assert rebuilt.status_code == 200
     assert rebuilt.headers["content-type"] == "application/pdf"
     assert rebuilt.content.startswith(b"%PDF")
-    assert Path(record.pdf_path).read_bytes().startswith(b"%PDF")
+    # Read-only: il file mancante NON viene riscritto dalla GET.
+    assert not Path(record.pdf_path).exists()
 
 
 def test_generation_persists_rows_totals_and_actor(client, db_session, attendance):
@@ -177,7 +182,7 @@ def test_generation_persists_rows_totals_and_actor(client, db_session, attendanc
 
 def test_locked_timesheet_rejects_forced_regeneration(client, attendance):
     _generate(client, attendance)
-    response = client.get(
+    response = client.post(
         "/api/v1/assignments/{}/timesheet?rigenera=true".format(attendance.assignment_id)
     )
     assert response.status_code == 409
@@ -260,7 +265,8 @@ def test_missing_pdf_is_rebuilt_from_snapshot(client, db_session, attendance):
     response = client.get("/api/v1/assignments/{}/timesheet".format(attendance.assignment_id))
     assert response.status_code == 200
     assert response.content == b"PDF:snapshot-originale"
-    assert Path(record.pdf_path).read_bytes() == b"PDF:snapshot-originale"
+    # B5.1: la GET e' read-only, non riscrive il file mancante su disco.
+    assert not Path(record.pdf_path).exists()
 
 
 def test_new_attendance_can_be_added_while_old_snapshot_is_locked(
@@ -281,3 +287,69 @@ def test_new_attendance_can_be_added_while_old_snapshot_is_locked(
     db_session.commit()
     assert second.id is not None
     assert db_session.query(models.TimesheetRiga).count() == 1
+
+
+# ------------------------------------------------------------------
+# B5.1: POST genera (comando) / GET scarica (interrogazione read-only)
+# ------------------------------------------------------------------
+
+
+def test_get_without_generation_returns_404(client, db_session, attendance):
+    """B5.1: la GET non genera nulla; se il timesheet non esiste -> 404 chiaro."""
+    response = client.get(
+        "/api/v1/assignments/{}/timesheet".format(attendance.assignment_id)
+    )
+    assert response.status_code == 404
+    assert "POST" in response.json()["detail"]
+    # Nessun side-effect: nessun record creato dalla GET.
+    assert db_session.query(models.TimesheetGenerato).count() == 0
+
+
+def test_get_after_post_returns_existing_pdf(client, db_session, attendance):
+    """B5.1: flusso POST-then-GET. Il POST genera, la GET scarica lo stesso PDF."""
+    generated = _generate(client, attendance)
+    assert db_session.query(models.TimesheetGenerato).count() == 1
+
+    downloaded = client.get(
+        "/api/v1/assignments/{}/timesheet".format(attendance.assignment_id)
+    )
+    assert downloaded.status_code == 200
+    assert downloaded.content == generated.content
+
+
+def test_get_has_no_side_effect_on_db_or_disk(client, db_session, attendance):
+    """B5.1: molteplici GET non creano nuovi TimesheetGenerato/TimesheetRiga."""
+    _generate(client, attendance)
+    record = db_session.query(models.TimesheetGenerato).one()
+    righe_before = db_session.query(models.TimesheetRiga).count()
+
+    for _ in range(3):
+        resp = client.get(
+            "/api/v1/assignments/{}/timesheet".format(attendance.assignment_id)
+        )
+        assert resp.status_code == 200
+
+    # Un solo record e le stesse righe: la GET non ha mai scritto.
+    assert db_session.query(models.TimesheetGenerato).count() == 1
+    assert db_session.query(models.TimesheetRiga).count() == righe_before
+    still = db_session.query(models.TimesheetGenerato).one()
+    assert still.id == record.id
+
+
+def test_post_regenerates_new_version_after_unlock(client, db_session, attendance):
+    """B5.1: la rigenerazione (nuova versione) resta un comando POST."""
+    _generate(client, attendance)
+    client.post(
+        "/api/v1/assignments/{}/timesheet/unlock".format(attendance.assignment_id),
+        json={"motivo": "Rettifica"},
+    )
+    _generate(client, attendance)
+    assert db_session.query(models.TimesheetGenerato).count() == 2
+
+
+def test_get_does_not_exist_after_only_get_attempts(client, db_session, attendance):
+    """B5.1: anche ripetute GET su un assignment senza timesheet non generano."""
+    url = "/api/v1/assignments/{}/timesheet".format(attendance.assignment_id)
+    for _ in range(3):
+        assert client.get(url).status_code == 404
+    assert db_session.query(models.TimesheetGenerato).count() == 0

@@ -1,8 +1,14 @@
 """
 Router per generazione e gestione timesheet PDF.
-GET  /assignments/{id}/timesheet         → genera o scarica timesheet esistente
+POST /assignments/{id}/timesheet         → genera/rigenera il timesheet (scrive)
+GET  /assignments/{id}/timesheet         → scarica il timesheet esistente (read-only)
 POST /assignments/{id}/timesheet/unlock  → sblocca (solo responsabile/admin)
 GET  /projects/{id}/timesheets           → lista timesheet del progetto
+
+B5.1 (2026-07-23): separazione comando/interrogazione. La generazione (crea
+TimesheetGenerato+righe, scrive il PDF su disco, committa) e' un side-effect e
+avviene SOLO via POST. La GET e' idempotente e read-only: nessuna scrittura,
+nessun commit; 404 se il timesheet non e' ancora stato generato.
 """
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse, FileResponse
@@ -115,13 +121,21 @@ def _write_pdf(path: str, pdf_bytes: bytes) -> None:
         pdf_file.write(pdf_bytes)
 
 
-@router.get("/assignments/{assignment_id}/timesheet")
-def genera_o_scarica_timesheet(
+@router.post("/assignments/{assignment_id}/timesheet")
+def genera_timesheet(
     assignment_id: int,
     rigenera: bool = Query(False, description="Forza rigenerazione anche se esiste PDF bloccato"),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    """B5.1: comando di generazione. Crea/rigenera TimesheetGenerato+righe,
+    scrive il PDF su disco e committa. Ritorna il PDF generato.
+
+    Comportamento lock invariato: se esiste un timesheet bloccato e si chiede
+    ``rigenera`` -> 409 (va sbloccato con motivazione). Se bloccato e non si
+    rigenera, ritorna lo snapshot esistente (ricostruendo il file se mancante).
+    RBAC: write operational su /api/v1/assignments -> admin + operatore.
+    """
     assignment = _get_assignment_full(db, assignment_id)
     if not assignment:
         raise HTTPException(status_code=404, detail="Assignment non trovato")
@@ -209,6 +223,52 @@ def genera_o_scarica_timesheet(
     )
 
 
+@router.get("/assignments/{assignment_id}/timesheet")
+def scarica_timesheet(
+    assignment_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """B5.1: interrogazione read-only. NON genera, NON scrive su disco, NON
+    committa. Ritorna il PDF del timesheet gia' generato: dal file su disco se
+    presente, altrimenti ricostruito in memoria dallo snapshot congelato (senza
+    riscriverlo). 404 se il timesheet non e' ancora stato generato: la
+    generazione va richiesta con POST sullo stesso path.
+
+    RBAC invariato: il PDF contiene PII (nome collaboratore, ore, righe
+    presenze) -> suffisso sensibile /timesheet -> admin + operatore.
+    """
+    assignment = _get_assignment_full(db, assignment_id)
+    if not assignment:
+        raise HTTPException(status_code=404, detail="Assignment non trovato")
+
+    existing = db.query(TimesheetGenerato).filter(
+        TimesheetGenerato.assignment_id == assignment_id
+    ).order_by(desc(TimesheetGenerato.generato_il)).first()
+
+    if not existing:
+        raise HTTPException(
+            status_code=404,
+            detail="Timesheet non ancora generato: usa POST per generarlo.",
+        )
+
+    if os.path.exists(existing.pdf_path):
+        return FileResponse(
+            path=existing.pdf_path,
+            media_type="application/pdf",
+            filename=existing.pdf_filename,
+        )
+
+    # File mancante su disco: ricostruito in memoria dallo snapshot immutabile,
+    # SENZA riscriverlo (read-only: nessun side-effect su disco o DB).
+    pdf_bytes = _snapshot_pdf(db, assignment, existing)
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": "attachment; filename={}".format(existing.pdf_filename)},
+    )
+
+
 @router.post("/assignments/{assignment_id}/timesheet/unlock")
 def sblocca_timesheet(
     assignment_id: int,
@@ -291,6 +351,8 @@ def lista_timesheets_progetto(
             "timesheet_generato": ultimo_timesheet is not None,
             "timesheet_bloccato": ultimo_timesheet.bloccato if ultimo_timesheet else False,
             "timesheet_generato_il": ultimo_timesheet.generato_il.isoformat() if ultimo_timesheet else None,
+            # B5.1: POST genera/rigenera (side-effect), GET scarica (read-only).
+            "url_genera": "/assignments/{}/timesheet".format(a.id),
             "url_download": "/assignments/{}/timesheet".format(a.id),
             "url_sblocca": "/assignments/{}/timesheet/unlock".format(a.id),
         })

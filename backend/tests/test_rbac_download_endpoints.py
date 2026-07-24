@@ -47,6 +47,10 @@ FILE_ENDPOINT_CASES = [
      {"admin": 200, "operatore": 200, "consultazione": 403}),  # NEW-022
     ("assignment-timesheet-pdf", "GET", "/api/v1/assignments/999999/timesheet",
      {"admin": 200, "operatore": 200, "consultazione": 403}),  # NEW-024
+    # B5.1: la generazione e' un comando POST (write operational su
+    # /api/v1/assignments) -> admin + operatore, consultazione negata.
+    ("assignment-timesheet-generate", "POST", "/api/v1/assignments/999999/timesheet",
+     {"admin": 200, "operatore": 200, "consultazione": 403}),
     ("email-inbox-attachment", "GET", "/api/v1/email-inbox/items/999999/attachment",
      {"admin": 200, "operatore": 200, "consultazione": 403}),  # NEW-025
     ("piano-finanziario-export-excel", "GET", "/api/v1/piani-finanziari/999999/export-excel",
