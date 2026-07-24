@@ -56,6 +56,11 @@ def read_avvisi(
 def create_avviso(avviso: schemas.AvvisoCreate, db: Session = Depends(get_db)):
     try:
         return crud.create_avviso(db, avviso)
+    except ValueError as exc:
+        # Errore di validazione di dominio (es. codice non in formato numero/anno):
+        # 422 con messaggio chiaro, non 500 (che sfuggirebbe pure al CORS).
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc))
     except IntegrityError:
         db.rollback()
         raise HTTPException(status_code=409, detail="Avviso duplicato per codice/ente erogatore")
@@ -73,6 +78,9 @@ def read_avviso(avviso_id: int, db: Session = Depends(get_db)):
 def update_avviso(avviso_id: int, avviso: schemas.AvvisoUpdate, db: Session = Depends(get_db)):
     try:
         db_avviso = crud.update_avviso(db, avviso_id, avviso)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc))
     except IntegrityError:
         db.rollback()
         raise HTTPException(status_code=409, detail="Avviso duplicato per codice/ente erogatore")

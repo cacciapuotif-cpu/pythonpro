@@ -304,3 +304,31 @@ def test_permanent_delete_requires_admin_double_confirmation_and_reports_links(c
         models.SecurityAuditLog.risorsa_id == str(avviso.id),
     ).one()
     assert "Progetto collegato" in audit.dati_prima
+
+
+def test_create_avviso_codice_malformato_ritorna_422_non_500(client_factory):
+    """Regressione: codice non in formato numero/anno → 422 con messaggio chiaro,
+    NON 500 (il ValueError di dominio non deve fuoriuscire come errore server)."""
+    client, _session, _ = client_factory("admin")
+    resp = client.post("/api/v1/avvisi/", json={
+        "codice": "3-2026 generalista",  # trattino + testo: non è numero/anno
+        "ente_erogatore": "Fondimpresa",
+        "fondo": "fondimpresa",
+        "titolo": "Test",
+    })
+    assert resp.status_code == 422, resp.text
+    assert "numero/anno" in resp.text
+
+
+def test_create_avviso_codice_valido_ritorna_201(client_factory):
+    client, _session, _ = client_factory("admin")
+    resp = client.post("/api/v1/avvisi/", json={
+        "codice": "3/2026",
+        "ente_erogatore": "Fondimpresa",
+        "fondo": "fondimpresa",
+        "titolo": "Avviso 3/2026",
+    })
+    assert resp.status_code in (200, 201), resp.text
+    body = resp.json()
+    assert body["codice"] == "3/2026"
+    assert body.get("numero") == "3" and body.get("anno") == 2026
