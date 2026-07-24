@@ -32,6 +32,17 @@ def agent_enabled(agent_name: str) -> bool:
     return agents_enabled() and _env_bool(agent_env_name(agent_name), True)
 
 
+def timesheet_enforcement_enabled() -> bool:
+    """Flag di enforcement del timesheet_agent (default FALSE).
+
+    Interruttore SEPARATO dal kill-switch (`AGENT_TIMESHEET_ENABLED`).
+    Predisposto ma NON collegato ad alcun blocco in B5.2: con il default
+    false l'agente resta proposal-only (solo warning). E' esposto e testato
+    come punto di aggancio per un futuro enforcement, fuori dallo scope qui.
+    """
+    return _env_bool("AGENT_TIMESHEET_ENFORCEMENT_ENABLED", False)
+
+
 def disabled_reason(agent_name: str) -> str:
     if not agents_enabled():
         return "Piattaforma agenti disabilitata da AGENTS_ENABLED=false"

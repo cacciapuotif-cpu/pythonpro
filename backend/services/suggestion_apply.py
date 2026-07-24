@@ -13,6 +13,10 @@ AVVISO_ESTRAZIONE_KIND = "avviso_estrazione"
 SECURITY_AUDIT_RETENTION_KIND = "security_audit_log_retention_cleanup"
 ATTIVITA_PIANO_KIND = "attivita_piano"
 PLAYBOOK_VOCE_KIND = "playbook_voce"
+# Guardia timesheet: le suggestion sono informative (warning) e non mutano il
+# DB. L'apply e' un no-op documentato: marca la presa in carico senza scrivere
+# nulla. Predisposto per un futuro "verificato" ma qui non muta stato.
+TIMESHEET_VERIFICA_KIND = "timesheet_verifica"
 
 
 def apply_data_retention_suggestion(db, suggestion, *, user_id: Optional[int] = None) -> dict:
@@ -94,6 +98,10 @@ def apply_suggestion(db, suggestion, *, user_id: Optional[int] = None) -> dict:
     if kind == PLAYBOOK_VOCE_KIND:
         from services.playbook import apply_voce_suggestion
         return apply_voce_suggestion(db, suggestion, user_id=user_id)
+    if kind == TIMESHEET_VERIFICA_KIND:
+        # No-op documentato: la guardia timesheet e' proposal-only e non muta
+        # il DB in B5.2. L'apply conferma la presa in carico senza scrivere.
+        return {"applied": [], "skipped": [{"reason": "informativa_nessuna_mutazione"}]}
     from services.agent_apply_service import PAYLOAD_KIND, apply_field_update_suggestion
     if kind == PAYLOAD_KIND:
         return apply_field_update_suggestion(db, suggestion, user_id=user_id)

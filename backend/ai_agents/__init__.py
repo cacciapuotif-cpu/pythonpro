@@ -23,6 +23,7 @@ from .mail_recovery import run_mail_recovery_agent
 from services.security_audit_retention import collect_security_audit_retention_suggestions
 from .activity_planner import collect_activity_planner_suggestions
 from .procedure_extractor import collect_procedure_extractor_suggestions
+from .timesheet_agent import collect_timesheet_suggestions
 
 
 def _run_data_quality(
@@ -124,6 +125,10 @@ def _run_activity_planner(db, *, entity_type=None, entity_id=None, input_payload
 def _run_procedure_extractor(db, *, entity_type=None, entity_id=None, input_payload=None):
     return collect_procedure_extractor_suggestions(db, documento_id=entity_id, input_payload=input_payload)
 
+def _run_timesheet(db, *, entity_type=None, entity_id=None, input_payload=None):
+    project_id = entity_id if entity_type == "project" else None
+    return collect_timesheet_suggestions(db, project_id=project_id)
+
 _AGENT_DEFINITIONS: dict[str, dict[str, Any]] = {
     "data_quality": {
         "name": "data_quality",
@@ -195,6 +200,16 @@ _AGENT_DEFINITIONS: dict[str, dict[str, Any]] = {
         "supported_entity_types": ["avviso_documento"], "triggers": ["manual"],
         "kill_switch_env": agent_env_name("procedure_extractor"), "allowed_roles": ["admin", "manager"], "version": "1.0", "runner": _run_procedure_extractor,
     },
+    "timesheet": {
+        "name": "timesheet",
+        "description": "Guardia di coerenza timesheet/presenze (proposal-only, solo warning)",
+        "supported_entity_types": ["project"],
+        "triggers": ["manual"],
+        "kill_switch_env": agent_env_name("timesheet"),
+        "allowed_roles": ["admin", "manager"],
+        "version": "1.0",
+        "runner": _run_timesheet,
+    },
 }
 
 
@@ -239,6 +254,7 @@ __all__ = [
     "collect_avviso_extraction_suggestions",
     "collect_activity_planner_suggestions",
     "collect_procedure_extractor_suggestions",
+    "collect_timesheet_suggestions",
     "get_agent_definition",
     "list_agent_definitions",
     "run_registered_agent",

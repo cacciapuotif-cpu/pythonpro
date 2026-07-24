@@ -100,6 +100,7 @@ def test_registry_definitions_complete():
         "avviso_extractor",
         "activity_planner",
         "procedure_extractor",
+        "timesheet",
     }
     for name, definition in definitions.items():
         missing = REQUIRED_DEFINITION_KEYS - set(definition)
