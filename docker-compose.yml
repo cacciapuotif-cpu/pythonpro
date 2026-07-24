@@ -106,7 +106,10 @@ services:
       # Server
       PORT: 8000
       WORKERS: ${WORKERS:-2}
-      TIMEOUT: ${TIMEOUT:-60}
+      # 240s: l'estrazione avvisi via LLM cloud è sincrona nella richiesta e
+      # può durare ~75-95s (5 sezioni sequenziali). Fix definitivo: estrazione
+      # asincrona nel worker ARQ (vedi backlog).
+      TIMEOUT: ${TIMEOUT:-240}
       GRACEFUL_TIMEOUT: ${GRACEFUL_TIMEOUT:-20}
 
       # Security
