@@ -11,8 +11,8 @@
   drop relitto legacy_template_id 062). Backend riavviato dopo 062 per
   riallineare il modello allo schema (il drop colonna dava 500 sui piani finché
   il processo caricava il vecchio modello).
-- Baseline backend: **750 passed, 6 skipped, 0 failed**.
-- Baseline frontend: **148 passed, 3 snapshot, 0 failed**; build production verde.
+- Baseline backend: **776 passed, 6 skipped, 0 failed**.
+- Baseline frontend: **151 passed, 3 snapshot, 0 failed**; build production verde.
 - Frontend ridispiegato il 2026-07-23 (bundle `main.018feb71.js`) con NEW-020 +
   UI-12: live allineato al codice committato.
 - **RUNTIME ATTIVATO il 2026-07-21**: backend riavviato (carica NEW-030/037,
