@@ -37,6 +37,8 @@ schedule==1.2.2
 
 # Client HTTP
 httpx==0.28.1
+# LLM cloud (provider anthropic per estrazione avvisi — documenti pubblici)
+anthropic==0.119.0
 
 # Test (la stessa immagine esegue i gate backend)
 pytest==9.1.1

@@ -4,7 +4,7 @@ import json
 import logging
 import os
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Callable, Optional, TypeVar
 
 import httpx
@@ -268,19 +268,52 @@ def call_ollama_json(
     *,
     system_prompt: str,
     user_prompt: str,
+    provider: Optional[str] = None,
+    model: Optional[str] = None,
+    api_key: Optional[str] = None,
 ) -> dict:
     """
-    Chiama Ollama e ritorna un dizionario JSON generico.
+    Chiama l'LLM e ritorna un dizionario JSON generico.
     Non impone vincoli su subject/body — usabile per DocumentProcessor
     e qualsiasi agente che non genera email.
+
+    `provider`/`model`/`api_key` permettono un override per-agente della config
+    globale (es. estrazione avvisi su LLM cloud, dati PII sul locale). Quando
+    l'override è dato, ha precedenza sul provider globale e bypassa il kill
+    switch globale `AI_AGENT_LLM_PROVIDER` (l'override è intenzione esplicita).
     """
     config = get_agent_llm_config()
-    if not config.enabled:
+    prov = (provider or config.provider or "").strip().lower()
+    mdl = model or config.model
+
+    # Il kill switch globale vale solo quando NON c'è override esplicito.
+    if not provider and not config.enabled:
         raise RuntimeError("Provider LLM non abilitato")
 
-    if config.provider == "ollama":
-        if not config.model:
+    if prov == "anthropic":
+        try:
+            import anthropic
+        except ImportError as exc:  # pragma: no cover
+            raise RuntimeError("Pacchetto 'anthropic' non installato per provider anthropic") from exc
+        key = api_key or os.getenv("ANTHROPIC_API_KEY")
+        if not key:
+            raise RuntimeError("ANTHROPIC_API_KEY obbligatoria per provider anthropic")
+        client = anthropic.Anthropic(api_key=key)
+        # Gli avvisi sono documenti pubblici: nessuna pseudonimizzazione PII.
+        response = client.messages.create(
+            model=mdl or "claude-opus-4-8",
+            max_tokens=8000,
+            system=system_prompt + "\n\nRispondi ESCLUSIVAMENTE con un oggetto JSON valido, senza testo prima o dopo.",
+            messages=[{"role": "user", "content": user_prompt}],
+        )
+        raw_text = "".join(
+            block.text for block in response.content if getattr(block, "type", None) == "text"
+        ).strip()
+
+    elif prov == "ollama":
+        if not mdl:
             raise ValueError("AI_AGENT_LLM_MODEL obbligatorio per provider ollama")
+        config = replace(config, model=mdl)
 
         payload = {
             "model": config.model,
@@ -302,7 +335,8 @@ def call_ollama_json(
 
         raw_text = ((data.get("message") or {}).get("content") or "").strip()
 
-    elif config.provider == "openclaw":
+    elif prov == "openclaw":
+        config = replace(config, model=mdl)
         if not config.openclaw_base_url:
             raise ValueError("OPENCLAW_BASE_URL obbligatorio per provider openclaw")
         if not config.model:
@@ -337,7 +371,7 @@ def call_ollama_json(
             raw_text = (((choices[0] or {}).get("message") or {}).get("content") or "").strip()
         raw_text = private_prompt.restore(raw_text)
     else:
-        raise RuntimeError(f"Provider LLM non supportato: {config.provider}")
+        raise RuntimeError(f"Provider LLM non supportato: {prov}")
 
     if not raw_text:
         raise ValueError("Risposta LLM vuota")

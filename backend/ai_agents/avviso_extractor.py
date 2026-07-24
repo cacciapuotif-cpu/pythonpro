@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
@@ -110,7 +111,16 @@ def collect_avviso_extraction_suggestions(
         categorie = GRUPPI_CATEGORIE[gruppo]
         prompt = build_extraction_prompt(gruppo, categorie, testo)
         try:
-            raw = call_ollama_json(system_prompt=SYSTEM_PROMPT_ESTRAZIONE, user_prompt=prompt)
+            # Override per-agente: gli avvisi sono documenti PUBBLICI, quindi
+            # l'estrazione può usare un LLM cloud (AVVISO_EXTRACTOR_LLM_PROVIDER,
+            # es. "anthropic") più capace del locale su testo normativo. Se non
+            # impostato, cade sul provider globale (Ollama locale).
+            raw = call_ollama_json(
+                system_prompt=SYSTEM_PROMPT_ESTRAZIONE,
+                user_prompt=prompt,
+                provider=os.getenv("AVVISO_EXTRACTOR_LLM_PROVIDER") or None,
+                model=os.getenv("AVVISO_EXTRACTOR_LLM_MODEL") or None,
+            )
             raw_dict = raw if isinstance(raw, dict) else {}
             parsed = AvvisoEstrazioneLLM.model_validate(raw_dict)
         except Exception as exc:
