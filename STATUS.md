@@ -31,6 +31,23 @@
 - `AGENT_DATA_RETENTION_ENABLED=false` resta invariato.
 - History Git contiene vecchi `.env`: **MAI push** finché non viene ripulita con procedura dedicata.
 
+## V5 — ingestione avvisi SBLOCCATA via LLM cloud (2026-07-24)
+
+- Il locale (Ollama 7b su CPU, no GPU) estraeva 0 regole in 23 min → vicolo cieco.
+- Provider LLM **anthropic** aggiunto a `ai_agents/llm.py` con override per-agente
+  (`757e83c`): estrazione avvisi (documenti PUBBLICI) su cloud, agenti con PII
+  restano su Ollama locale. `AVVISO_EXTRACTOR_LLM_PROVIDER=anthropic`,
+  `AVVISO_EXTRACTOR_LLM_MODEL=claude-opus-4-8` in `.env` (key non committata);
+  compose passa le env a backend/arq_worker (`1070a7f`). `anthropic==0.119.0`
+  in requirements (immagine ricostruita).
+- Estrazione reale FAPI (rev 7, 11k char): **Opus 4.8 ~90s → 44-48 regole**,
+  Sonnet 5 ~74s → 21, locale 7b 23min → 0. Modello scelto: **Opus** (thoroughness;
+  costo ~$0,38/avviso, trascurabile al volume reale). Proposte in AgentSuggestion
+  → validazione umana → avviso_regole → archivio (sblocca NEW-036).
+- Worker gunicorn `TIMEOUT=240` (`c17ae79`): l'estrazione sincrona cloud (~90s)
+  superava i 60s → UI in timeout. **Backlog: estrazione asincrona ARQ** (fix
+  definitivo; con async il modello lento non blocca la UI).
+
 ## Ondata UI-COMPLETAMENTO — CHIUSA, GATE UI v3 SUPERATO (2026-07-21)
 
 Chiuse le 3 eccezioni del GATE UI v2 (piano da template, E2E contratto, Chiedi
