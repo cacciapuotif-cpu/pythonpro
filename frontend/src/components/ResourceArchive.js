@@ -430,7 +430,7 @@ export default function ResourceArchive({ currentUser = null, onReviewSuggestion
 
           {showCreate ? (
             <form className="resources-create-form" onSubmit={handleCreate}>
-              <label>Codice avviso<input aria-label="Codice avviso" required pattern="[^/]+/20[0-9]{2}" title="Usa il formato numero/anno, per esempio 1/2026" placeholder="es. 1/2026" value={createForm.codice} onChange={(event) => setCreateForm((form) => ({ ...form, codice: event.target.value }))} /></label>
+              <label>Codice avviso<input aria-label="Codice avviso" required pattern="[^\\/]+/[0-9]{4}" title="Usa il formato numero/anno, per esempio 3/2026" placeholder="es. 3/2026" value={createForm.codice} onChange={(event) => setCreateForm((form) => ({ ...form, codice: event.target.value }))} /></label>
               <label>Ente erogatore<input aria-label="Ente erogatore" required placeholder="es. FAPI" value={createForm.ente_erogatore} onChange={(event) => setCreateForm((form) => ({ ...form, ente_erogatore: event.target.value }))} /></label>
               <label>Fondo<select value={createForm.fondo} onChange={(event) => setCreateForm((form) => ({ ...form, fondo: event.target.value }))}>{FONDI.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
               <label>Titolo avviso<input aria-label="Titolo avviso" required value={createForm.titolo} onChange={(event) => setCreateForm((form) => ({ ...form, titolo: event.target.value }))} /></label>
