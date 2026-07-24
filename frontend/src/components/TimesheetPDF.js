@@ -26,20 +26,32 @@ const TimesheetPDF = ({ projectId }) => {
     if (projectId) load();
   }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleDownload = async (assignmentId, collaboratore) => {
+  const handleDownload = async (a) => {
+    const assignmentId = a.assignment_id;
+    const collaboratore = a.collaboratore;
     setDownloading(prev => ({ ...prev, [assignmentId]: true }));
     try {
-      const res = await http.get(`/assignments/${assignmentId}/timesheet`, {
-        responseType: 'blob',
-      });
+      // B5.1: separazione comando/interrogazione.
+      // - timesheet gia' generato e bloccato -> scarico lo snapshot esistente
+      //   con la GET read-only (nessuna rigenerazione).
+      // - non ancora generato, o sbloccato (rettifica) -> genero/rigenero con
+      //   la POST, che restituisce direttamente il PDF.
+      const isLockedExisting = a.timesheet_generato && a.timesheet_bloccato;
+      const res = isLockedExisting
+        ? await http.get(`/assignments/${assignmentId}/timesheet`, {
+            responseType: 'blob',
+          })
+        : await http.post(`/assignments/${assignmentId}/timesheet`, null, {
+            responseType: 'blob',
+          });
       const blob = new Blob([res.data], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `timesheet_${(collaboratore || 'collaboratore').replace(/\s+/g, '_')}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `timesheet_${(collaboratore || 'collaboratore').replace(/\s+/g, '_')}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
       setTimeout(() => URL.revokeObjectURL(url), 60000);
       setTimeout(() => load(), 1000);
     } catch (e) {
@@ -159,10 +171,12 @@ const TimesheetPDF = ({ projectId }) => {
               <td style={{ ...tdStyle, textAlign: 'center' }}>
                 <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
                   <button
-                    onClick={() => handleDownload(a.assignment_id, a.collaboratore)}
+                    onClick={() => handleDownload(a)}
                     disabled={downloading[a.assignment_id]}
                     style={btnStyle}
-                    title="Scarica/genera PDF timesheet"
+                    title={a.timesheet_generato && a.timesheet_bloccato
+                      ? 'Scarica PDF timesheet'
+                      : 'Genera e scarica PDF timesheet'}
                   >
                     {downloading[a.assignment_id] ? '...' : 'PDF'}
                   </button>
