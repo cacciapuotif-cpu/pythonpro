@@ -729,3 +729,25 @@
   copertura portabile SQLite in `test_archivio_search.py` e `test_archivio_chiedi.py`
   (domanda NL recuperata, tema assente resta `non_presente`, OR non "sballa").
 - Stato: **chiuso** (2026-07-21, commit `fix(E3-NEW-037)`).
+
+## 2026-07-24 | NEW-038 | create_avviso: ValueError di validazione codice fuoriesce come 500
+
+- Area: backend / routers avvisi / robustezza API
+- Severità stimata: media (blocca la creazione avvisi; UX ingannevole)
+- Emerso durante: uso reale utente (creazione avviso da Archivio Risorse)
+- Descrizione: `crud.create_avviso` (crud.py:918) solleva `ValueError("Il codice
+  avviso deve avere formato numero/anno")` quando il codice non è `numero/anno`.
+  Il router `create_avviso` (routers/avvisi.py) catturava solo `IntegrityError`
+  → il `ValueError` propagava come **500 Internal Server Error**. Il 500 (errore
+  non gestito) NON riceve gli header CORS → dal browser appariva come "errore di
+  connessione / CORS" (No Access-Control-Allow-Origin), mascherando la vera causa.
+- Fix: `create_avviso`/`update_avviso` traducono `ValueError` → `HTTPException 422`
+  con `detail=str(exc)` + `db.rollback()`. Il campo codice frontend aveva anche un
+  `pattern` regex invalido (`[^/]+/20[0-9]{2}`, la `/` in `[...]` va escapata sotto
+  flag `v`) → corretto in `[^\/]+/[0-9]{4}`.
+- Commit: `fix(avvisi): codice malformato ritorna 422, non 500` + `fix(UI): pattern
+  codice avviso valido`. Test: test_avvisi_v2_api.py (422 su codice errato, 201 su valido).
+- Nota architetturale: pattern ricorrente — molti `crud.*` sollevano `ValueError`
+  di dominio; i router dovrebbero tradurli sistematicamente in 4xx (non 500). Da
+  valutare un exception handler globale ValueError→422 in un giro di igiene.
+- Stato: **chiuso il 2026-07-24** (router avvisi); pattern globale ValueError→4xx aperto per igiene.
