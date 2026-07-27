@@ -26,14 +26,35 @@ const createLocalStorageMock = () => {
 global.localStorage = createLocalStorageMock();
 global.sessionStorage = createLocalStorageMock();
 global.window = { location: { href: '/app', hostname: 'localhost', port: '3001' } };
+global.FormData = class FormDataMock {
+  constructor() {
+    this.values = {};
+  }
 
+  append(key, value) {
+    this.values[key] = value;
+  }
+};
+
+const axios = require('axios');
 const { http, clearStoredAuthTokens } = require('./http');
 
 const requestInterceptor = http.interceptors.request.handlers[0];
 const responseInterceptor = http.interceptors.response.handlers[0];
 
 const make401Error = (url) => ({
-  config: { url, headers: {} },
+  config: {
+    url,
+    method: 'get',
+    headers: {},
+    adapter: async (config) => ({
+      data: { ok: true },
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      config,
+    }),
+  },
   response: { status: 401 },
 });
 
@@ -71,6 +92,27 @@ describe('http client', () => {
     await expect(responseInterceptor.rejected(error)).rejects.toBeDefined();
 
     expect(window.location.href).toBe('/app');
+  });
+
+  test('401 concorrenti condividono una sola richiesta di refresh', async () => {
+    localStorage.setItem('access_token', 'scaduto');
+    localStorage.setItem('refresh_token', 'refresh-valido');
+    const refreshSpy = jest.spyOn(axios, 'post').mockResolvedValue({
+      data: { access_token: 'access-rinnovato' },
+    });
+
+    const responses = await Promise.all([
+      responseInterceptor.rejected(make401Error('/aziende-clienti/')),
+      responseInterceptor.rejected(make401Error('/allievi/')),
+      responseInterceptor.rejected(make401Error('/projects/5/moduli-formativi')),
+    ]);
+
+    expect(refreshSpy).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem('access_token')).toBe('access-rinnovato');
+    expect(responses).toHaveLength(3);
+    expect(responses.every((response) => response.status === 200)).toBe(true);
+
+    refreshSpy.mockRestore();
   });
 
   test('clearStoredAuthTokens rimuove access e refresh token', () => {

@@ -85,21 +85,35 @@ export const clearStoredAuthTokens = () => {
   localStorage.removeItem('refresh_token');
 };
 
+let refreshRequest = null;
+
 export const refreshAccessToken = async () => {
-  const storedRefreshToken = localStorage.getItem('refresh_token');
-  if (!storedRefreshToken) {
-    throw new Error('Refresh token non disponibile');
+  if (refreshRequest) {
+    return refreshRequest;
   }
 
-  const formData = new FormData();
-  formData.append('refresh_token', storedRefreshToken);
+  refreshRequest = (async () => {
+    const storedRefreshToken = localStorage.getItem('refresh_token');
+    if (!storedRefreshToken) {
+      throw new Error('Refresh token non disponibile');
+    }
 
-  const response = await axios.post(`${apiBaseUrl}/auth/refresh`, formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  });
+    const formData = new FormData();
+    formData.append('refresh_token', storedRefreshToken);
 
-  localStorage.setItem('access_token', response.data.access_token);
-  return response.data.access_token;
+    const response = await axios.post(`${apiBaseUrl}/auth/refresh`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+
+    localStorage.setItem('access_token', response.data.access_token);
+    return response.data.access_token;
+  })();
+
+  try {
+    return await refreshRequest;
+  } finally {
+    refreshRequest = null;
+  }
 };
 
 export const ensureValidAccessToken = async () => {
