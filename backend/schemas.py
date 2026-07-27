@@ -1152,6 +1152,52 @@ class ConsulenteWithAgenzia(Consulente):
 
 # ── AziendaCliente ───────────────────────────
 
+class AziendaClienteSedeOperativaWrite(BaseModel):
+    id: Optional[int] = None
+    nome: str = Field(..., min_length=1, max_length=150)
+    indirizzo: Optional[str] = Field(None, max_length=255)
+    citta: Optional[str] = Field(None, max_length=100)
+    cap: Optional[str] = Field(None, pattern=r"^\d{5}$")
+    provincia: Optional[str] = Field(None, min_length=2, max_length=2)
+    note: Optional[str] = None
+
+    @field_validator("provincia", mode="before")
+    @classmethod
+    def check_provincia(cls, value):
+        if value:
+            normalized = str(value).strip().upper()
+            if len(normalized) != 2 or not normalized.isalpha():
+                raise ValueError("Provincia deve essere sigla 2 lettere")
+            return normalized
+        return None
+
+
+class AziendaClienteSedeOperativa(AziendaClienteSedeOperativaWrite):
+    id: int
+    azienda_cliente_id: int
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AziendaClienteFundMembershipWrite(BaseModel):
+    id: Optional[int] = None
+    fondo: str = Field(..., min_length=1, max_length=100)
+    data_inizio: datetime
+    data_fine: Optional[datetime] = None
+    note: Optional[str] = None
+
+
+class AziendaClienteFundMembership(AziendaClienteFundMembershipWrite):
+    id: int
+    azienda_cliente_id: int
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class AziendaClienteBase(BaseModel):
     ragione_sociale: str = Field(..., min_length=2, max_length=200)
     partita_iva: Optional[str] = None
@@ -1212,7 +1258,9 @@ class AziendaClienteBase(BaseModel):
 
 
 class AziendaClienteCreate(AziendaClienteBase):
-    pass
+    project_ids: List[int] = Field(default_factory=list)
+    sedi_operative: List[AziendaClienteSedeOperativaWrite] = Field(default_factory=list)
+    fund_memberships: List[AziendaClienteFundMembershipWrite] = Field(default_factory=list)
 
 
 class AziendaClienteUpdate(BaseModel):
@@ -1258,6 +1306,9 @@ class AziendaClienteUpdate(BaseModel):
     consulente_id: Optional[int] = None
     note: Optional[str] = None
     attivo: Optional[bool] = None
+    project_ids: Optional[List[int]] = None
+    sedi_operative: Optional[List[AziendaClienteSedeOperativaWrite]] = None
+    fund_memberships: Optional[List[AziendaClienteFundMembershipWrite]] = None
 
     @field_validator("partita_iva", mode="before")
     @classmethod
@@ -1278,6 +1329,10 @@ class AziendaCliente(AziendaClienteBase):
     id: int
     created_at: datetime
     updated_at: Optional[datetime] = None
+    project_ids: List[int] = Field(default_factory=list)
+    allievo_ids: List[int] = Field(default_factory=list)
+    sedi_operative: List[AziendaClienteSedeOperativa] = Field(default_factory=list)
+    fund_memberships: List[AziendaClienteFundMembership] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
