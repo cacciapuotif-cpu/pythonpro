@@ -751,3 +751,28 @@
   di dominio; i router dovrebbero tradurli sistematicamente in 4xx (non 500). Da
   valutare un exception handler globale ValueError→422 in un giro di igiene.
 - Stato: **chiuso il 2026-07-24** (router avvisi); pattern globale ValueError→4xx aperto per igiene.
+
+## 2026-07-27 | NEW-039 | Suite backend rossa a HEAD: i doppi di test dell'estrattore avvisi non accettano i kwargs provider/model
+
+- Area: backend / test / ai_agents estrazione avvisi
+- Severità stimata: alta (baseline rossa: nessun lavoro successivo verificabile)
+- Emerso durante: verifica prerequisiti Ondata UX OPERATIVA (run suite a HEAD `bf4f153`)
+- Descrizione: il commit `757e83c` (provider LLM anthropic per estrazione avvisi)
+  ha aggiunto i kwargs `provider=` e `model=` alla chiamata
+  `call_ollama_json(...)` in `ai_agents/avviso_extractor.py:118`, ma NON ha
+  aggiornato i sei doppi di test in `tests/test_avvisi_v2_extractor.py`, la cui
+  firma era `(*, system_prompt, user_prompt)`. Ogni invocazione sollevava
+  `TypeError: unexpected keyword argument 'provider'` **prima** di entrare nel
+  corpo del doppio → il contatore `calls` restava vuoto e
+  `assert len(calls) == 5` falliva. 6 test rossi, presenti già a HEAD e NON
+  causati dal lavoro non committato in working tree (verificato con stash).
+- Fix: firme dei doppi estese a `(*, system_prompt, user_prompt, **_kwargs)`.
+  Il codice di produzione era corretto: la regressione era solo nei test.
+- Nota architetturale (aperta): il `try/except Exception` che avvolge la chiamata
+  LLM (`avviso_extractor.py:126`) ha mascherato un errore di programmazione
+  (`TypeError`) come "sezione fallita", declassando un bug a degrado funzionale.
+  Lo stesso meccanismo in produzione trasformerebbe un errore di firma/SDK in
+  estrazioni silenziosamente vuote. Da valutare: distinguere le eccezioni di
+  trasporto/LLM (degrado legittimo) da `TypeError`/`AttributeError` (rilancio).
+- Commit: `fix(UX-0): doppi di test estrattore avvisi accettano provider/model`
+- Stato: **chiuso il 2026-07-27** (suite verde); nota architetturale APERTA.

@@ -138,7 +138,7 @@ def revision_with_cleaned_md(db_session, user, tmp_path, monkeypatch):
 
 
 def _fake_llm_factory(calls):
-    def fake_call_ollama_json(*, system_prompt, user_prompt):
+    def fake_call_ollama_json(*, system_prompt, user_prompt, **_kwargs):
         calls.append(user_prompt)
         if "scadenze" in user_prompt.split("TESTO AVVISO:")[0]:
             return {
@@ -200,7 +200,7 @@ def test_collector_builds_suggestions_from_llm(db_session, revision_with_cleaned
 
 
 def test_collector_marks_invalid_rule_value_for_careful_review(db_session, revision_with_cleaned_md, monkeypatch):
-    def bad_llm(*, system_prompt, user_prompt):
+    def bad_llm(*, system_prompt, user_prompt, **_kwargs):
         if "massimali" in user_prompt:
             return {"regole": [{
                 "chiave": "contributo_massimo",
@@ -220,7 +220,7 @@ def test_collector_marks_invalid_rule_value_for_careful_review(db_session, revis
 
 
 def test_collector_tolerates_llm_failure_per_group(db_session, revision_with_cleaned_md, monkeypatch):
-    def flaky(*, system_prompt, user_prompt):
+    def flaky(*, system_prompt, user_prompt, **_kwargs):
         raise RuntimeError("LLM down")
     monkeypatch.setattr(extractor_module, "call_ollama_json", flaky)
     result = extractor_module.collect_avviso_extraction_suggestions(
@@ -290,7 +290,7 @@ def test_run_extraction_pipeline_marks_partial_and_records_missing_section(
 ):
     healthy = _fake_llm_factory([])
 
-    def one_section_down(*, system_prompt, user_prompt):
+    def one_section_down(*, system_prompt, user_prompt, **_kwargs):
         instruction = user_prompt.split("TESTO AVVISO:")[0]
         if "destinatari" in instruction:
             raise RuntimeError("timeout soggetti")
@@ -318,7 +318,7 @@ def test_invalid_deadline_marks_section_partial_instead_of_complete(
 ):
     healthy = _fake_llm_factory([])
 
-    def invalid_deadline(*, system_prompt, user_prompt):
+    def invalid_deadline(*, system_prompt, user_prompt, **_kwargs):
         if "scadenze" in user_prompt.split("TESTO AVVISO:")[0]:
             return {"scadenze": [{
                 "tipo": "presentazione",
@@ -348,7 +348,7 @@ def test_retry_only_missing_section_merges_progress_to_complete(
 ):
     healthy = _fake_llm_factory([])
 
-    def first_attempt(*, system_prompt, user_prompt):
+    def first_attempt(*, system_prompt, user_prompt, **_kwargs):
         if "destinatari" in user_prompt.split("TESTO AVVISO:")[0]:
             raise RuntimeError("timeout soggetti")
         return healthy(system_prompt=system_prompt, user_prompt=user_prompt)
