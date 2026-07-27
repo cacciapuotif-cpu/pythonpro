@@ -22,6 +22,16 @@ logger = logging.getLogger(__name__)
 OPEN_SUGGESTION_STATUSES = {"pending", "waiting", "approved", "sent", "followup_due"}
 FOLLOWUP_ELIGIBLE_STATUSES = {"sent"}
 
+# Tipi di suggerimento in cui una stessa entita' ha PIU' proposte aperte in
+# parallelo (una per regola / per scadenza). Per questi la deduplica non deve
+# collassare tutto su una riga (entity+type): va discriminata anche dal title,
+# che codifica la chiave della proposta. Senza questo, un'estrazione con N
+# regole persiste una sola AgentSuggestion (l'ultima sovrascrive le altre).
+MULTI_INSTANCE_SUGGESTION_TYPES = {
+    "avviso_regola_proposta",
+    "avviso_scadenza_proposta",
+}
+
 
 class AgentWorkflowExecutionError(RuntimeError):
     pass
@@ -456,12 +466,20 @@ def run_agent_workflow(
             # that request should remain hidden until it becomes follow-up_due.
             existing = None
             if item.get("entity_id") and item.get("entity_type") and item.get("suggestion_type"):
-                existing = db.query(models.AgentSuggestion).filter(
+                dedup_query = db.query(models.AgentSuggestion).filter(
                     models.AgentSuggestion.entity_type == item["entity_type"],
                     models.AgentSuggestion.entity_id == item["entity_id"],
                     models.AgentSuggestion.suggestion_type == item["suggestion_type"],
                     models.AgentSuggestion.status.in_(tuple(OPEN_SUGGESTION_STATUSES)),
-                ).order_by(models.AgentSuggestion.id.desc()).first()
+                )
+                # Per i tipi multi-istanza (una proposta per regola/scadenza) la
+                # deduplica va ristretta alla singola proposta, altrimenti tutte
+                # le proposte dello stesso tipo collassano su una sola riga.
+                if item["suggestion_type"] in MULTI_INSTANCE_SUGGESTION_TYPES:
+                    dedup_query = dedup_query.filter(
+                        models.AgentSuggestion.title == item["title"]
+                    )
+                existing = dedup_query.order_by(models.AgentSuggestion.id.desc()).first()
 
             if existing:
                 existing.run_id = run.id
