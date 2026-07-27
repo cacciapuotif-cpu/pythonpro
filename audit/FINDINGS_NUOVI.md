@@ -776,3 +776,65 @@
   trasporto/LLM (degrado legittimo) da `TypeError`/`AttributeError` (rilancio).
 - Commit: `fix(UX-0): doppi di test estrattore avvisi accettano provider/model`
 - Stato: **chiuso il 2026-07-27** (suite verde); nota architetturale APERTA.
+
+## 2026-07-27 | UX-6 | Atto/convenzione caricato dentro un progetto crea un progetto gemello
+
+- Area: backend routers upload + frontend FapiUpload / dominio progetti
+- Severità stimata: **alta** (corruzione dati in uso reale, in corso)
+- Emerso durante: uso reale della piattaforma (Ondata UX OPERATIVA, punto 6)
+- Sintomo riferito: caricando l'atto di concessione dentro un progetto, il
+  sistema crea un nuovo "piano" invece di associare il documento a quello
+  esistente.
+
+### Diagnosi (percorso completo)
+
+1. `ProjectManager.js:1438` monta `<FapiUploadSection project={project}/>` nella
+   scheda del progetto.
+2. `FapiUpload.js` mostra lì il pulsante primario "Carica Convenzione" (FAPI) /
+   "Carica Lettera Ammissione" (Fondimpresa) e apre `ConvenzioneModal` /
+   `AmmissioneFondimpresaModal` **senza passare il progetto**.
+3. Quei modali chiamano gli endpoint *project-less*
+   `POST /api/v1/projects/upload-convenzione` + `confirm-convenzione` (e
+   l'omologo `fondimpresa/confirm-ammissione`).
+4. `confirm_convenzione` esegue **incondizionatamente**
+   `db.add(models.Project(...))`: non riceve alcun `project_id`, quindi
+   l'associazione al progetto corrente era **strutturalmente impossibile**.
+
+Non era quindi "il parser che crea sempre un piano nuovo" né "un lookup
+mancante": mancava del tutto il percorso project-scoped.
+
+**Seconda causa, indipendente.** L'unico argine era la guardia 409 su
+`codice_fapi`, condizionata a `if codice_fapi:`. L'atto di concessione caricato
+dall'utente non è una convenzione FAPI: rieseguendo il parser sul file reale
+(`157055a1-…pdf`) restituisce `codice_fapi=None`, `titolo=None`, warning
+"Codice piano non trovato". Guardia saltata → progetto creato col nome di
+fallback `"Piano FAPI"`.
+
+### Danno reale osservato
+
+Progetto **13 "Piano FAPI"** creato il 2026-07-27 11:15:11, con il solo PDF
+allegato e 5 link azienda copiati, cinque minuti dopo il progetto **12**
+(creazione manuale dell'utente, doppione di 11 ma con il CUP che 11 non ha).
+Censimento completo e query correttive proposte: GATE UX-6, non eseguite.
+
+### Fix
+
+- Nuovi endpoint project-scoped `POST /api/v1/projects/{id}/upload-convenzione`
+  e `confirm-convenzione` (+ omologhi Fondimpresa): associano il documento al
+  progetto corrente e **non creano mai** un secondo progetto.
+- `services/documento_progetto.py`: diff campo per campo. I campi vuoti sono
+  arricchiti; quelli già valorizzati e discordanti restano invariati salvo
+  scelta esplicita dell'operatore (`campi_da_applicare`). Nessuna
+  sovrascrittura silenziosa di dati già validati.
+- Guardia sul percorso di creazione: senza codice piano né titolo il documento
+  non è riconosciuto → 422, nessun progetto fantasma.
+- Frontend: dentro un progetto il modale passa in modalità "allega", mostra il
+  diff con spunta per ogni conflitto e dichiara nell'esito cosa è rimasto
+  invariato. Il percorso di creazione resta solo dalla toolbar (nessun progetto
+  in contesto).
+- Sottoprodotto: la schermata di esito dei modali era codice morto (`onSuccess`
+  chiudeva il modale prima di mostrarla). Ora la chiusura è un gesto
+  dell'operatore.
+- 14 test backend (RED→GREEN, incluso RBAC 3 ruoli) + 6 frontend.
+- Commit: `fix(UX-6): ...`
+- Stato: **codice chiuso il 2026-07-27**; bonifica dati **APERTA al GATE UX-6**.

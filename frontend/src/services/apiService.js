@@ -996,6 +996,20 @@ export const uploadConvenzione = (file) => {
 export const confirmConvenzione = (previewToken) =>
   http.post('/projects/confirm-convenzione', { preview_token: previewToken }).then(r => r.data);
 
+// UX-6: dentro un progetto il documento si ASSOCIA, non crea un gemello.
+export const uploadConvenzioneProgetto = (projectId, file) => {
+  const fd = new FormData();
+  fd.append('file', file);
+  return http.post(`/projects/${projectId}/upload-convenzione`, fd, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }).then(r => r.data);
+};
+export const confirmConvenzioneProgetto = (projectId, previewToken, campiDaApplicare = []) =>
+  http.post(`/projects/${projectId}/confirm-convenzione`, {
+    preview_token: previewToken,
+    campi_da_applicare: campiDaApplicare,
+  }).then(r => r.data);
+
 export const uploadFormulario = (projectId, file) => {
   const fd = new FormData();
   fd.append('file', file);
@@ -1026,6 +1040,20 @@ export const uploadAmmissioneFondimpresa = (file) => {
 };
 export const confirmAmmissioneFondimpresa = (previewToken) =>
   http.post('/projects/fondimpresa/confirm-ammissione', { preview_token: previewToken }).then(r => r.data);
+
+// UX-6: dalla scheda di un progetto la lettera si ALLEGA al progetto aperto.
+export const uploadAmmissioneFondimpresaProgetto = (projectId, file) => {
+  const fd = new FormData();
+  fd.append('file', file);
+  return http.post(`/projects/${projectId}/fondimpresa/upload-ammissione`, fd, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }).then(r => r.data);
+};
+export const confirmAmmissioneFondimpresaProgetto = (projectId, previewToken, campiDaApplicare = []) =>
+  http.post(`/projects/${projectId}/fondimpresa/confirm-ammissione`, {
+    preview_token: previewToken,
+    campi_da_applicare: campiDaApplicare,
+  }).then(r => r.data);
 
 export const uploadRiepilogoFondimpresa = (projectId, file) => {
   const fd = new FormData();

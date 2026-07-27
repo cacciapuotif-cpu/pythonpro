@@ -15,6 +15,7 @@ import fapi_preview_store as _preview_store
 import models
 from auth import User, get_current_user
 from database import get_db
+from services import documento_progetto
 from services.parsers.fondimpresa.ammissione_parser import AmmissioneParser
 from services.parsers.fondimpresa.riepilogo_parser import RiepilogoParser
 
@@ -30,6 +31,13 @@ os.makedirs(RIEPILOGHI_DIR, exist_ok=True)
 
 class ConfirmPreviewRequest(BaseModel):
     preview_token: str
+
+
+class AssociaAmmissioneRequest(BaseModel):
+    """UX-6: conferma dell'associazione della lettera a un progetto esistente."""
+
+    preview_token: str
+    campi_da_applicare: list[str] = []
 
 
 def _parse_date(value) -> date | None:
@@ -202,6 +210,25 @@ def confirm_ammissione_fondimpresa(
         raise HTTPException(status_code=404, detail="Preview token non trovato o scaduto")
 
     codice = preview.get("codice_piano")
+
+    # UX-6: senza codice ne' titolo la lettera non identifica alcun piano.
+    # Creare comunque un progetto genera solo un doppione col nome di fallback.
+    if not documento_progetto.documento_riconosciuto(
+        {"codice_fapi": codice, "titolo": preview.get("titolo_piano")}
+    ):
+        try:
+            os.remove(preview.get("file_path") or "")
+        except OSError:
+            pass
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Documento non riconosciuto come lettera di ammissione Fondimpresa: "
+                "non e' stato estratto ne' il codice del piano ne' il titolo. Se vuoi "
+                "allegarlo a un progetto esistente, caricalo dalla scheda di quel progetto."
+            ),
+        )
+
     if codice:
         existing = db.query(models.Project).filter(models.Project.codice_fapi == codice).first()
         if existing:
@@ -421,3 +448,119 @@ def confirm_riepilogo_fondimpresa(
         "piano_id": piano.id if piano else None,
     }
 
+
+
+# ── UX-6: lettera di ammissione allegata a un progetto esistente ─────────────
+# Stessa regola della convenzione FAPI: dalla scheda di un progetto il
+# documento si associa, non genera un gemello.
+
+
+def _estratti_progetto_fondimpresa(db: Session, preview: dict, file_path: str) -> dict:
+    """Dati della lettera nei nomi dei campi di ``Project``."""
+    ente = _find_ente(db, preview.get("soggetto_attuatore"))
+    return {
+        "codice_fapi": preview.get("codice_piano"),
+        "name": preview.get("titolo_piano"),
+        "cup": preview.get("cup"),
+        "id_piano_esterno": preview.get("id_piano_esterno"),
+        "avviso": preview.get("avviso_numero"),
+        "data_approvazione": _parse_date(
+            preview.get("data_approvazione") or preview.get("determina_data")
+        ),
+        "delibera_data": _parse_date(preview.get("determina_data")),
+        "costo_totale": preview.get("importo_totale"),
+        "contributo_ente": preview.get("contributo_ente"),
+        "cofinanziamento": preview.get("cofinanziamento"),
+        "budget": preview.get("importo_totale"),
+        "ente_attuatore_id": ente.id if ente else None,
+        "convenzione_file_path": file_path,
+    }
+
+
+@router.post("/{project_id}/fondimpresa/upload-ammissione")
+async def upload_ammissione_progetto(
+    project_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Progetto non trovato")
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="File deve essere un PDF")
+
+    token = str(uuid.uuid4())
+    temp_path = os.path.join(AMMISSIONI_DIR, f"{token}.pdf")
+    try:
+        with open(temp_path, "wb") as fh:
+            shutil.copyfileobj(file.file, fh)
+        result = AmmissioneParser().parse(temp_path)
+    except Exception as exc:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        raise HTTPException(status_code=500, detail=f"Errore parsing ammissione: {exc}")
+
+    diff = documento_progetto.calcola_diff(
+        project, _estratti_progetto_fondimpresa(db, result, temp_path)
+    )
+
+    _preview_store.store(token, {
+        "project_id": project_id,
+        "file_path": temp_path,
+        "original_filename": file.filename,
+        **result,
+    })
+    return {"preview_token": token, "project_id": project_id, "diff": diff, **result}
+
+
+@router.post("/{project_id}/fondimpresa/confirm-ammissione")
+def confirm_ammissione_progetto(
+    project_id: int,
+    body: AssociaAmmissioneRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Progetto non trovato")
+
+    preview = _preview_store.pop(body.preview_token)
+    if not preview:
+        raise HTTPException(status_code=404, detail="Preview token non trovato o scaduto")
+    if preview.get("project_id") != project_id:
+        raise HTTPException(status_code=400, detail="Token non appartiene a questo progetto")
+
+    codice = preview.get("codice_piano")
+    if codice:
+        altro = db.query(models.Project).filter(
+            models.Project.codice_fapi == codice,
+            models.Project.id != project_id,
+        ).first()
+        if altro:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Il codice piano {codice} appartiene gia' al progetto "
+                    f"'{altro.name}' (id={altro.id}): documento non associato."
+                ),
+            )
+
+    file_path = preview.get("file_path")
+    if codice and file_path:
+        final_path = os.path.join(AMMISSIONI_DIR, f"{_safe_code(codice, body.preview_token)}.pdf")
+        try:
+            shutil.move(file_path, final_path)
+            file_path = final_path
+        except Exception:
+            pass
+
+    project.ente_erogatore = project.ente_erogatore or "Fondimpresa"
+    esito = documento_progetto.applica_estratti(
+        project,
+        _estratti_progetto_fondimpresa(db, preview, file_path),
+        body.campi_da_applicare,
+    )
+    db.commit()
+
+    return {"project_id": project.id, "codice_piano": project.codice_fapi, **esito}

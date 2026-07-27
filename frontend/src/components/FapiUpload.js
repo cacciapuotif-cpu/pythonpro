@@ -1,11 +1,14 @@
 import React, { useState, useRef } from 'react';
 import {
   uploadConvenzione, confirmConvenzione,
+  uploadConvenzioneProgetto, confirmConvenzioneProgetto,
   uploadFormulario, confirmFormulario,
   uploadPianoFinanziario, confirmPianoFinanziario,
   uploadAmmissioneFondimpresa, confirmAmmissioneFondimpresa,
+  uploadAmmissioneFondimpresaProgetto, confirmAmmissioneFondimpresaProgetto,
   uploadRiepilogoFondimpresa, confirmRiepilogoFondimpresa,
 } from '../services/apiService';
+import { formatApiError } from '../lib/errors';
 import './FapiUpload.css';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -13,6 +16,139 @@ import './FapiUpload.css';
 function formatEuro(n) {
   if (n == null) return '—';
   return new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(n);
+}
+
+// ── UX-6: allega a un progetto esistente ─────────────────────────────────────
+// Convenzione FAPI e lettera Fondimpresa condividono la stessa regola: dentro
+// un progetto il documento si allega, i campi vuoti si arricchiscono e quelli
+// gia' valorizzati non si toccano senza una spunta esplicita.
+
+function useDocumentoProgetto({ projectId, upload, uploadProgetto, conferma, confermaProgetto }) {
+  const associa = Boolean(projectId);
+  const [step, setStep] = useState('pick');  // pick | uploading | preview | confirming | done
+  const [preview, setPreview] = useState(null);
+  const [error, setError] = useState('');
+  const [campiScelti, setCampiScelti] = useState([]);
+
+  async function handleFile(file) {
+    setStep('uploading');
+    setError('');
+    try {
+      const data = associa ? await uploadProgetto(projectId, file) : await upload(file);
+      setPreview(data);
+      setCampiScelti([]);
+      setStep('preview');
+    } catch (err) {
+      setError(formatApiError(err));
+      setStep('pick');
+    }
+  }
+
+  async function handleConfirm(onSuccess) {
+    setStep('confirming');
+    try {
+      const result = associa
+        ? await confermaProgetto(projectId, preview.preview_token, campiScelti)
+        : await conferma(preview.preview_token);
+      setPreview(prev => ({ ...prev, _result: result }));
+      setStep('done');
+      onSuccess && onSuccess(result);
+    } catch (err) {
+      setError(formatApiError(err));
+      setStep('preview');
+    }
+  }
+
+  function toggleCampo(campo) {
+    setCampiScelti(prev =>
+      prev.includes(campo) ? prev.filter(c => c !== campo) : [...prev, campo]
+    );
+  }
+
+  return { associa, step, preview, error, campiScelti, handleFile, handleConfirm, toggleCampo };
+}
+
+function DiffProgetto({ diff, campiScelti, onToggle }) {
+  const conflitti = (diff || []).filter(d => d.conflitto);
+  const arricchimenti = (diff || []).filter(d => !d.conflitto);
+
+  return (
+    <div className="fapi-preview-section">
+      <strong>Cosa cambia sul progetto</strong>
+      {(diff || []).length === 0 && (
+        <div style={{ fontSize: 12, color: '#666' }}>
+          Il documento non porta dati nuovi: verrà solo allegato.
+        </div>
+      )}
+      {arricchimenti.length > 0 && (
+        <table>
+          <thead>
+            <tr><th>Campo vuoto</th><th>Valore dal documento</th></tr>
+          </thead>
+          <tbody>
+            {arricchimenti.map(d => (
+              <tr key={d.campo}>
+                <td>{d.etichetta}</td>
+                <td>{String(d.valore_estratto)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {conflitti.length > 0 && (
+        <>
+          <div className="fapi-warning">
+            ⚠️ {conflitti.length} campo/i hanno già un valore diverso.
+            Restano invariati salvo tua spunta esplicita.
+          </div>
+          <table>
+            <thead>
+              <tr><th>Sovrascrivi</th><th>Campo</th><th>Valore attuale</th><th>Dal documento</th></tr>
+            </thead>
+            <tbody>
+              {conflitti.map(d => (
+                <tr key={d.campo}>
+                  <td>
+                    <input
+                      type="checkbox"
+                      aria-label={`Sovrascrivi ${d.etichetta}`}
+                      checked={campiScelti.includes(d.campo)}
+                      onChange={() => onToggle(d.campo)}
+                    />
+                  </td>
+                  <td>{d.etichetta}</td>
+                  <td>{String(d.valore_attuale)}</td>
+                  <td>{String(d.valore_estratto)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+    </div>
+  );
+}
+
+function EsitoAssociazione({ result }) {
+  return (
+    <>
+      ✅ Documento allegato al progetto <strong>#{result.project_id}</strong><br />
+      Campi aggiornati: {result.campi_applicati?.length || 0}
+      {result.campi_in_conflitto_non_applicati?.length > 0 && (
+        <> · lasciati invariati: {result.campi_in_conflitto_non_applicati.join(', ')}</>
+      )}<br />
+    </>
+  );
+}
+
+function NotaAssociazione() {
+  return (
+    <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', margin: '0 0 8px' }}>
+      Il documento viene allegato a <strong>questo progetto</strong>. I dati
+      estratti riempiono solo i campi ancora vuoti: quelli già valorizzati
+      restano come sono, salvo tua scelta esplicita.
+    </p>
+  );
 }
 
 // ── DropZone ─────────────────────────────────────────────────────────────────
@@ -102,41 +238,29 @@ function PlaceholderDocumentModal({ title, label, confirmLabel, doneMessage, onC
 
 // ── Modal Convenzione ─────────────────────────────────────────────────────────
 
-function ConvenzioneModal({ onClose, onSuccess }) {
-  const [step, setStep] = useState('pick');    // pick | uploading | preview | confirming | done
-  const [preview, setPreview] = useState(null);
-  const [error, setError] = useState('');
-
-  async function handleFile(file) {
-    setStep('uploading');
-    setError('');
-    try {
-      const data = await uploadConvenzione(file);
-      setPreview(data);
-      setStep('preview');
-    } catch (err) {
-      setError(err?.response?.data?.detail || 'Errore durante upload');
-      setStep('pick');
-    }
-  }
-
-  async function handleConfirm() {
-    setStep('confirming');
-    try {
-      const result = await confirmConvenzione(preview.preview_token);
-      setPreview(prev => ({ ...prev, _result: result }));
-      setStep('done');
-      onSuccess && onSuccess(result);
-    } catch (err) {
-      setError(err?.response?.data?.detail || 'Errore durante conferma');
-      setStep('preview');
-    }
-  }
+function ConvenzioneModal({ projectId, onClose, onSuccess }) {
+  // UX-6: con projectId il documento si ALLEGA al progetto aperto; senza,
+  // siamo nel flusso "nuovo piano" e il progetto viene creato.
+  const {
+    associa, step, preview, error, campiScelti, handleFile, handleConfirm, toggleCampo,
+  } = useDocumentoProgetto({
+    projectId,
+    upload: uploadConvenzione,
+    uploadProgetto: uploadConvenzioneProgetto,
+    conferma: confirmConvenzione,
+    confermaProgetto: confirmConvenzioneProgetto,
+  });
 
   return (
     <div className="fapi-modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="fapi-modal">
-        <h3>📄 Carica Convenzione FAPI</h3>
+        <h3>
+          {associa
+            ? '📄 Allega atto / convenzione al progetto'
+            : '📄 Carica Convenzione FAPI'}
+        </h3>
+
+        {associa && <NotaAssociazione />}
 
         {error && <div className="fapi-error">⚠️ {error}</div>}
 
@@ -155,6 +279,14 @@ function ConvenzioneModal({ onClose, onSuccess }) {
             {preview.warnings?.map((w, i) => (
               <div key={i} className="fapi-warning">⚠️ {w}</div>
             ))}
+
+            {associa && (
+              <DiffProgetto
+                diff={preview.diff}
+                campiScelti={campiScelti}
+                onToggle={toggleCampo}
+              />
+            )}
 
             <div className="fapi-preview-section">
               <strong>Piano FAPI</strong>
@@ -224,7 +356,13 @@ function ConvenzioneModal({ onClose, onSuccess }) {
 
         {step === 'done' && preview?._result && (
           <div className="fapi-success">
-            ✅ Progetto creato — ID: <strong>{preview._result.project_id}</strong><br />
+            {associa ? (
+              <EsitoAssociazione result={preview._result} />
+            ) : (
+              <>
+                ✅ Progetto creato — ID: <strong>{preview._result.project_id}</strong><br />
+              </>
+            )}
             Aziende create: {preview._result.aziende_create} · Associate: {preview._result.aziende_associate}<br />
             Suggestions create: {preview._result.suggestions_create}
           </div>
@@ -235,12 +373,14 @@ function ConvenzioneModal({ onClose, onSuccess }) {
             {step === 'done' ? 'Chiudi' : 'Annulla'}
           </button>
           {step === 'preview' && (
-            <button className="fapi-btn primary" onClick={handleConfirm}>
-              ✅ Conferma e Crea Progetto
+            <button className="fapi-btn primary" onClick={() => handleConfirm(onSuccess)}>
+              {associa ? '✅ Allega al progetto' : '✅ Conferma e Crea Progetto'}
             </button>
           )}
           {step === 'confirming' && (
-            <button className="fapi-btn primary" disabled>⏳ Creazione…</button>
+            <button className="fapi-btn primary" disabled>
+              {associa ? '⏳ Associazione…' : '⏳ Creazione…'}
+            </button>
           )}
         </div>
       </div>
@@ -464,41 +604,27 @@ function PianoFinanziarioModal({ projectId, onClose, onSuccess }) {
 
 // ── Modal Ammissione Fondimpresa ──────────────────────────────────────────────
 
-function AmmissioneFondimpresaModal({ onClose, onSuccess }) {
-  const [step, setStep] = useState('pick');
-  const [preview, setPreview] = useState(null);
-  const [error, setError] = useState('');
-
-  async function handleFile(file) {
-    setStep('uploading');
-    setError('');
-    try {
-      const data = await uploadAmmissioneFondimpresa(file);
-      setPreview(data);
-      setStep('preview');
-    } catch (err) {
-      setError(err?.response?.data?.detail || 'Errore durante upload');
-      setStep('pick');
-    }
-  }
-
-  async function handleConfirm() {
-    setStep('confirming');
-    try {
-      const result = await confirmAmmissioneFondimpresa(preview.preview_token);
-      setPreview(prev => ({ ...prev, _result: result }));
-      setStep('done');
-      onSuccess && onSuccess(result);
-    } catch (err) {
-      setError(err?.response?.data?.detail || 'Errore durante conferma');
-      setStep('preview');
-    }
-  }
+function AmmissioneFondimpresaModal({ projectId, onClose, onSuccess }) {
+  // UX-6: stessa regola della convenzione FAPI (vedi useDocumentoProgetto).
+  const {
+    associa, step, preview, error, campiScelti, handleFile, handleConfirm, toggleCampo,
+  } = useDocumentoProgetto({
+    projectId,
+    upload: uploadAmmissioneFondimpresa,
+    uploadProgetto: uploadAmmissioneFondimpresaProgetto,
+    conferma: confirmAmmissioneFondimpresa,
+    confermaProgetto: confirmAmmissioneFondimpresaProgetto,
+  });
 
   return (
     <div className="fapi-modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="fapi-modal">
-        <h3>📄 Carica Lettera Ammissione Fondimpresa</h3>
+        <h3>
+          {associa
+            ? '📄 Allega lettera di ammissione al progetto'
+            : '📄 Carica Lettera Ammissione Fondimpresa'}
+        </h3>
+        {associa && <NotaAssociazione />}
         {error && <div className="fapi-error">⚠️ {error}</div>}
         {step === 'pick' && (
           <DropZone accept=".pdf" onFile={handleFile} label="Trascina o clicca per selezionare la lettera PDF" />
@@ -509,6 +635,13 @@ function AmmissioneFondimpresaModal({ onClose, onSuccess }) {
         {(step === 'preview' || step === 'confirming') && preview && (
           <div className="fapi-preview">
             {preview.warnings?.map((w, i) => <div key={i} className="fapi-warning">⚠️ {w}</div>)}
+            {associa && (
+              <DiffProgetto
+                diff={preview.diff}
+                campiScelti={campiScelti}
+                onToggle={toggleCampo}
+              />
+            )}
             <div className="fapi-preview-section">
               <strong>Piano Fondimpresa</strong>
               <table>
@@ -527,15 +660,25 @@ function AmmissioneFondimpresaModal({ onClose, onSuccess }) {
         )}
         {step === 'done' && preview?._result && (
           <div className="fapi-success">
-            ✅ Progetto Fondimpresa creato — ID: <strong>{preview._result.project_id}</strong>
+            {associa ? (
+              <EsitoAssociazione result={preview._result} />
+            ) : (
+              <>✅ Progetto Fondimpresa creato — ID: <strong>{preview._result.project_id}</strong></>
+            )}
           </div>
         )}
         <div className="fapi-modal-footer">
           <button className="fapi-btn" onClick={onClose}>{step === 'done' ? 'Chiudi' : 'Annulla'}</button>
           {step === 'preview' && (
-            <button className="fapi-btn primary" onClick={handleConfirm}>✅ Conferma e Crea Progetto</button>
+            <button className="fapi-btn primary" onClick={() => handleConfirm(onSuccess)}>
+              {associa ? '✅ Allega al progetto' : '✅ Conferma e Crea Progetto'}
+            </button>
           )}
-          {step === 'confirming' && <button className="fapi-btn primary" disabled>⏳ Creazione…</button>}
+          {step === 'confirming' && (
+            <button className="fapi-btn primary" disabled>
+              {associa ? '⏳ Associazione…' : '⏳ Creazione…'}
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -767,14 +910,19 @@ export function FapiUploadSection({ project, onRefresh, autoOpenConvenzione, aut
       )}
       {modal === 'convenzione' && (
         <ConvenzioneModal
+          projectId={project?.id}
           onClose={() => { setModal(null); onAutoClose && onAutoClose(); }}
-          onSuccess={() => { setModal(null); onRefresh && onRefresh(); onAutoClose && onAutoClose(); }}
+          // Il modale ha una schermata di esito che dichiara i campi applicati e
+          // quelli lasciati invariati: chiuderlo qui la rendeva irraggiungibile.
+          // La chiusura resta un gesto dell'operatore, dopo aver letto l'esito.
+          onSuccess={() => { onRefresh && onRefresh(); }}
         />
       )}
       {modal === 'ammissione-fondimpresa' && (
         <AmmissioneFondimpresaModal
+          projectId={project?.id}
           onClose={() => { setModal(null); onAutoClose && onAutoClose(); }}
-          onSuccess={() => { setModal(null); onRefresh && onRefresh(); onAutoClose && onAutoClose(); }}
+          onSuccess={() => { onRefresh && onRefresh(); }}
         />
       )}
       {modal === 'riepilogo-fondimpresa' && project && (
