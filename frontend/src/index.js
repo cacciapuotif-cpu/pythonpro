@@ -11,9 +11,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import './index.css';  // Stili globali dell'applicazione
-import App from './App';  // Il componente principale
-import { AppProvider } from './context/AppContext';  // Context provider stabile
-import ErrorBoundary from './components/ErrorBoundary';
+import AppRoot from './AppRoot';  // Albero applicativo (provider + componenti sempre montati)
 
 // CONFIGURAZIONE DEL RENDERING
 // Creiamo il root dell'applicazione React collegandolo all'elemento HTML con id="root"
@@ -22,13 +20,9 @@ const root = ReactDOM.createRoot(document.getElementById('root'));
 // RENDERIZZIAMO L'APPLICAZIONE
 // StrictMode è un componente di React che aiuta a identificare potenziali problemi
 // durante lo sviluppo (non influisce sulla produzione)
-// AppProvider fornisce il context globale con import dinamici per stabilità
+// AppRoot compone ErrorBoundary, AppProvider, App e il sistema di notifiche
 root.render(
   <React.StrictMode>
-    <ErrorBoundary>
-      <AppProvider>
-        <App />
-      </AppProvider>
-    </ErrorBoundary>
+    <AppRoot />
   </React.StrictMode>
 );
