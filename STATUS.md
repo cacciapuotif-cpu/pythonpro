@@ -1,6 +1,6 @@
 # PythonPro — Stato corrente
 
-**Aggiornato:** 2026-07-21 (fasi E2/E1/E3 chiuse, GATE E1 confermato; prossimo: GATE UI v3)
+**Aggiornato:** 2026-07-27 (fix sessione 401 concorrenti live; prossimo: V5 avvisi reali)
 **Branch:** `claude/platform-audit-compliance-XnH86` (locale, nessun push)
 **Percorso:** `/DATA/progetti/pythonpro`
 
@@ -13,8 +13,8 @@
   il processo caricava il vecchio modello).
 - Baseline backend: **776 passed, 6 skipped, 0 failed**.
 - Baseline frontend: **151 passed, 3 snapshot, 0 failed**; build production verde.
-- Frontend ridispiegato il 2026-07-23 (bundle `main.018feb71.js`) con NEW-020 +
-  UI-12: live allineato al codice committato.
+- Frontend ridispiegato il 2026-07-27 (bundle `main.37446b75.js`): live
+  allineato al fix auth per richieste concorrenti.
 - **RUNTIME ATTIVATO il 2026-07-21**: backend riavviato (carica NEW-030/037,
   rotte `/api/v1/archivio/*` live in openapi); frontend **ricostruito e
   ridispiegato** (`docker compose build frontend` + recreate, bundle
@@ -30,6 +30,21 @@
 - Flusso agenti canonico attivo: collector puro → AgentRun/AgentSuggestion → approvazione umana → apply auditato. Nessun auto-apply.
 - `AGENT_DATA_RETENTION_ENABLED=false` resta invariato.
 - History Git contiene vecchi `.env`: **MAI push** finché non viene ripulita con procedura dedicata.
+
+## Fix sessione 401 concorrenti — LIVE (2026-07-27)
+
+- Problema osservato da Aziende/Progetti/Allievi: più richieste parallele con
+  access token scaduto avviavano ciascuna un refresh. Un singolo refresh
+  fallito/rate-limited poteva cancellare i token e lasciare la UI aperta con
+  tutti gli endpoint a `401`, bloccando anche il salvataggio delle sedi.
+- `frontend/src/lib/http.js`: refresh reso single-flight; tutte le richieste
+  concorrenti attendono e riusano la stessa operazione.
+- Test regressione sui tre endpoint segnalati: un solo refresh, tre retry `200`.
+  Gate mirato `6 passed`; suite frontend `154 passed`, 3 snapshot; build verde.
+- Commit locale `0d879a8`; nessun push. Frontend ricostruito e ridistribuito,
+  container healthy, bundle `main.37446b75.js`; backend health `200`.
+- La sessione browser già invalidata richiede un solo nuovo login; dopo il
+  caricamento del bundle aggiornato il problema concorrente non deve ripetersi.
 
 ## V5 — ingestione avvisi SBLOCCATA via LLM cloud (2026-07-24)
 
