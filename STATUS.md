@@ -1,6 +1,6 @@
 # PythonPro — Stato corrente
 
-**Aggiornato:** 2026-07-27 (fix sessione 401 concorrenti live; prossimo: V5 avvisi reali)
+**Aggiornato:** 2026-07-27 (fix sedi operative live; prossimo: V5 avvisi reali)
 **Branch:** `claude/platform-audit-compliance-XnH86` (locale, nessun push)
 **Percorso:** `/DATA/progetti/pythonpro`
 
@@ -12,7 +12,7 @@
   riallineare il modello allo schema (il drop colonna dava 500 sui piani finché
   il processo caricava il vecchio modello).
 - Baseline backend: **776 passed, 6 skipped, 0 failed**.
-- Baseline frontend: **151 passed, 3 snapshot, 0 failed**; build production verde.
+- Baseline frontend: **154 passed, 3 snapshot, 0 failed**; build production verde.
 - Frontend ridispiegato il 2026-07-27 (bundle `main.37446b75.js`): live
   allineato al fix auth per richieste concorrenti.
 - **RUNTIME ATTIVATO il 2026-07-21**: backend riavviato (carica NEW-030/037,
@@ -45,6 +45,24 @@
   container healthy, bundle `main.37446b75.js`; backend health `200`.
 - La sessione browser già invalidata richiede un solo nuovo login; dopo il
   caricamento del bundle aggiornato il problema concorrente non deve ripetersi.
+
+## Fix sedi operative aziende/import XLSX — LIVE (2026-07-27)
+
+- Caso reale: la UI dichiarava salvata la sede `Napoli` di Power Impianti, ma
+  `AziendaClienteCreate/Update` non dichiaravano `sedi_operative`,
+  `fund_memberships` e `project_ids`. Pydantic ignorava i campi extra, quindi
+  il CRUD di sincronizzazione era irraggiungibile e la sede non entrava nel DB.
+- Aggiunto contratto write/read completo per sedi e fondi; le risposte lista,
+  dettaglio, create e update riespongono relazioni e ID usati dall'import
+  allievi. Commit locale `81a9b96`, nessun push.
+- Test API create/update/persistenza/listing aggiunti. Gate collegato:
+  `45 passed`; sintassi e diff-check OK. Suite totale avviata senza failure nel
+  blocco iniziale, poi interrotta perché ridondante e molto lenta sulle fixture.
+- Backend riavviato e healthy; OpenAPI live conferma `sedi_operative` sia su
+  update sia sulla risposta. Nessuna migration necessaria: tabella già a schema.
+- Ripristinata con guardia anti-duplicato la riga persa:
+  `Power Impianti srl` (ID 10) → `Napoli` (sede ID 1). L'import XLSX può usare
+  esattamente `Power Impianti srl` / `Napoli`.
 
 ## V5 — ingestione avvisi SBLOCCATA via LLM cloud (2026-07-24)
 
