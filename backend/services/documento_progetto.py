@@ -24,7 +24,7 @@ class CampoDocumento:
 
     nome: str
     etichetta: str
-    tipo: str  # "testo" | "data" | "numero"
+    tipo: str  # "testo" | "data" | "numero" | "intero"
 
 
 # Campi che un atto/convenzione puo' alimentare sul progetto. L'ordine e'
@@ -42,7 +42,7 @@ CAMPI_DOCUMENTO: tuple[CampoDocumento, ...] = (
     CampoDocumento("contributo_ente", "Contributo del fondo", "numero"),
     CampoDocumento("cofinanziamento", "Cofinanziamento", "numero"),
     CampoDocumento("budget", "Budget", "numero"),
-    CampoDocumento("ente_attuatore_id", "Ente attuatore", "numero"),
+    CampoDocumento("ente_attuatore_id", "Ente attuatore", "intero"),
     CampoDocumento("convenzione_file_path", "Documento allegato", "testo"),
 )
 
@@ -68,6 +68,13 @@ def _coerce(campo: CampoDocumento, valore: Any) -> Any:
         return None
     if campo.tipo == "data":
         return parse_data(valore)
+    if campo.tipo == "intero":
+        # FK e contatori: la colonna e' Integer, un float ci finirebbe dentro
+        # arrotondato in silenzio (e su SQLite ci resterebbe come 1.0).
+        try:
+            return int(valore)
+        except (TypeError, ValueError):
+            return None
     if campo.tipo == "numero":
         try:
             return float(valore)
@@ -82,6 +89,11 @@ def _vuoto(valore: Any) -> bool:
 
 
 def _uguali(campo: CampoDocumento, attuale: Any, estratto: Any) -> bool:
+    if campo.tipo == "intero":
+        try:
+            return int(attuale) == int(estratto)
+        except (TypeError, ValueError):
+            return False
     if campo.tipo == "numero":
         try:
             return abs(float(attuale) - float(estratto)) < 0.005

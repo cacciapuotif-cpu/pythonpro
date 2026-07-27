@@ -441,3 +441,26 @@ def test_ammissione_riconosciuta_continua_a_creare_il_progetto(
     )
     assert conferma.status_code == 200, conferma.text
     assert db_session.query(models.Project).count() == 1
+
+
+def test_ente_attuatore_arricchito_come_intero(client, db_session, progetto, monkeypatch):
+    """La FK e' Integer: un float ci finirebbe dentro senza rumore."""
+    ente = models.ImplementingEntity(ragione_sociale="Ente Attuatore Srl", partita_iva="12345678901")
+    db_session.add(ente)
+    db_session.commit()
+
+    estrazione = _estrazione(codice_fapi="ENTE-1")
+    estrazione["ente_attuatore"] = {"ragione_sociale": "Ente Attuatore Srl", "partita_iva": "12345678901"}
+    upload = _carica(client, progetto.id, monkeypatch, estrazione)
+    assert upload.status_code == 200, upload.text
+
+    voce = next(d for d in upload.json()["diff"] if d["campo"] == "ente_attuatore_id")
+    assert voce["valore_estratto"] == ente.id
+    assert isinstance(voce["valore_estratto"], int)
+
+    client.post(
+        f"/api/v1/projects/{progetto.id}/confirm-convenzione",
+        json={"preview_token": upload.json()["preview_token"]},
+    )
+    db_session.expire_all()
+    assert db_session.get(models.Project, progetto.id).ente_attuatore_id == ente.id
