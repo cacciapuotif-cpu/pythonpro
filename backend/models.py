@@ -1083,6 +1083,12 @@ class ProgettoMansioneEnte(Base):
     )
 
 
+# DOM-08 (Wave 2.2): stati in cui il piano è congelato per la rendicontazione.
+# Voci e presenze collegate diventano read-only; scrivibili solo via override
+# ADMIN motivato (tracciato in audit).
+STATI_PIANO_CONGELATI = frozenset({"inviato", "rendicontato", "chiuso"})
+
+
 class PianoFinanziario(Base):
     """Piano finanziario collegato a un progetto."""
     __tablename__ = "piani_finanziari"
@@ -1179,6 +1185,11 @@ class PianoFinanziario(Base):
         if valore not in stati_validi:
             raise ValueError(f"stato_rendicontazione deve essere uno di: {stati_validi}")
         return valore
+
+    @property
+    def is_congelato(self) -> bool:
+        """DOM-08: piano in stato congelato → voci e presenze read-only."""
+        return self.stato in STATI_PIANO_CONGELATI
 
     def aggiorna_budget_utilizzato(self, db):
         # La sessione lavora con autoflush=False: le voci modificate in memoria
@@ -1289,6 +1300,10 @@ class VocePianoFinanziario(Base):
     importo_approvato = Column(Numeric(12, 2), nullable=False, default=0.0)
     importo_validato = Column(Numeric(12, 2), nullable=False, default=0.0)
     importo_presentato = Column(Numeric(12, 2), nullable=False, default=0.0)
+    # DOM-18: snapshot storico dell'importo presentato al fondo, congelato al
+    # passaggio del piano allo stato 'inviato'. NULL = non ancora congelato.
+    # I ricalcoli NON lo sovrascrivono mai.
+    importo_presentato_congelato = Column(Numeric(12, 2), nullable=True, default=None)
     stato = Column(String(20), nullable=False, default="previsto", index=True)
     note = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

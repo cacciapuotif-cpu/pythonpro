@@ -22,6 +22,7 @@ from piano_finanziario_config import (
     is_dynamic_voice,
 )
 from async_events import enqueue_webhook_notification, track_entity_event
+from services.audit_log import write_audit_log
 from fastapi import HTTPException
 
 logger = logging.getLogger(__name__)
@@ -1110,6 +1111,86 @@ class AssignedHoursBelowCompletedError(ValueError):
     """Ridurre le ore assegnate sotto ore già erogate è un errore 422."""
 
 
+class PianoCongelatoError(ValueError):
+    """DOM-08: scrittura rifiutata perché il piano finanziario è congelato.
+
+    Gli stati congelati sono ``models.STATI_PIANO_CONGELATI``
+    ({inviato, rendicontato, chiuso}): voci e presenze collegate diventano
+    read-only. L'unica deroga è l'override esplicito di un ADMIN con motivo
+    obbligatorio, tracciato in audit trail. I router mappano questo errore su
+    HTTP 409.
+    """
+
+
+def _normalize_role(user) -> Optional[str]:
+    role = getattr(user, "role", None)
+    if role is None:
+        return None
+    return getattr(role, "value", role)
+
+
+def _ensure_piano_scrivibile(
+    db: Session,
+    piano,
+    *,
+    azione: str,
+    risorsa_tipo: str,
+    risorsa_id: Optional[Union[int, str]] = None,
+    override: bool = False,
+    motivo: Optional[str] = None,
+    user=None,
+) -> None:
+    """DOM-08: blocca le scritture su un piano congelato.
+
+    Se ``override`` è richiesto, è ammesso solo per utenti ADMIN e con un
+    ``motivo`` non vuoto; in quel caso la deroga viene scritta nel
+    ``SecurityAuditLog`` prima di lasciare proseguire l'operazione.
+    """
+    if piano is None or not piano.is_congelato:
+        return
+
+    stato = piano.stato
+    if not override:
+        raise PianoCongelatoError(
+            f"Il piano finanziario '{piano.nome or piano.id}' è in stato '{stato}' "
+            f"e non è modificabile. Richiesto override ADMIN con motivo."
+        )
+
+    if _normalize_role(user) != "admin":
+        raise PianoCongelatoError(
+            f"Override su piano congelato (stato '{stato}') consentito solo agli ADMIN."
+        )
+
+    motivo_pulito = (motivo or "").strip()
+    if not motivo_pulito:
+        raise PianoCongelatoError(
+            "Override su piano congelato richiede un motivo esplicito."
+        )
+
+    write_audit_log(
+        db,
+        user_id=getattr(user, "id", None),
+        azione="override_piano_congelato",
+        risorsa_tipo=risorsa_tipo,
+        risorsa_id=risorsa_id if risorsa_id is not None else piano.id,
+        dati_prima={"piano_id": piano.id, "stato_piano": stato},
+        dati_dopo={"azione": azione, "motivo": motivo_pulito},
+    )
+
+
+def _piano_di_presenza(db: Session, *, project_id: int, assignment_id: Optional[int]):
+    """Piano finanziario a cui la presenza è imputata (via voce, se collegata)."""
+    if assignment_id:
+        voce = db.query(models.VocePianoFinanziario).filter(
+            models.VocePianoFinanziario.assignment_id == assignment_id
+        ).first()
+        if voce is not None:
+            return db.query(models.PianoFinanziario).filter(
+                models.PianoFinanziario.id == voce.piano_id
+            ).first()
+    return get_piano_by_progetto(db, project_id)
+
+
 def _validate_attendance_project(db: Session, *, project_id: int, attendance_day: date) -> models.Project:
     project = db.query(models.Project).filter(models.Project.id == project_id).first()
     if not project:
@@ -1291,7 +1372,14 @@ def _ensure_attendance_not_in_locked_timesheet(db: Session, attendance_id: int) 
         )
 
 
-def create_attendance(db: Session, attendance: schemas.AttendanceCreate):
+def create_attendance(
+    db: Session,
+    attendance: schemas.AttendanceCreate,
+    *,
+    override: bool = False,
+    motivo: Optional[str] = None,
+    user=None,
+):
     attendance_day = _as_day(attendance.date)
     _validate_attendance_project(
         db, project_id=attendance.project_id, attendance_day=attendance_day
@@ -1299,6 +1387,23 @@ def create_attendance(db: Session, attendance: schemas.AttendanceCreate):
     try:
         if attendance.assignment_id:
             validate_attendance_in_assignment_range(db, attendance.date, attendance.assignment_id)
+
+        # DOM-08 (Wave 2.2): presenze read-only se il piano imputato è congelato.
+        # Sta dopo la validazione del range assegnazione per non alterare la
+        # precedenza degli errori già contrattualizzata dai test di dominio.
+        _ensure_piano_scrivibile(
+            db,
+            _piano_di_presenza(
+                db,
+                project_id=attendance.project_id,
+                assignment_id=attendance.assignment_id,
+            ),
+            azione="create_attendance",
+            risorsa_tipo="attendance",
+            override=override,
+            motivo=motivo,
+            user=user,
+        )
 
         # VALIDAZIONE SOVRAPPOSIZIONI ORARIE
         # Verifica che il collaboratore non sia già presente nello stesso orario
@@ -1520,10 +1625,33 @@ def update_assignment_progress(db: Session, assignment_id: int):
     """Backward-compatible alias for legacy callers."""
     return update_assignment_hours(db, assignment_id)
 
-def update_attendance(db: Session, attendance_id: int, attendance: schemas.AttendanceUpdate):
+def update_attendance(
+    db: Session,
+    attendance_id: int,
+    attendance: schemas.AttendanceUpdate,
+    *,
+    override: bool = False,
+    motivo: Optional[str] = None,
+    user=None,
+):
     db_attendance = db.query(models.Attendance).filter(models.Attendance.id == attendance_id).first()
     if db_attendance:
         _ensure_attendance_not_in_locked_timesheet(db, attendance_id)
+        # DOM-08 (Wave 2.2): presenza read-only se il piano imputato è congelato
+        _ensure_piano_scrivibile(
+            db,
+            _piano_di_presenza(
+                db,
+                project_id=db_attendance.project_id,
+                assignment_id=db_attendance.assignment_id,
+            ),
+            azione="update_attendance",
+            risorsa_tipo="attendance",
+            risorsa_id=attendance_id,
+            override=override,
+            motivo=motivo,
+            user=user,
+        )
     if db_attendance:
         old_assignment_id = db_attendance.assignment_id
         old_project_id = db_attendance.project_id
@@ -1684,10 +1812,32 @@ def update_attendance(db: Session, attendance_id: int, attendance: schemas.Atten
 
     return db_attendance
 
-def delete_attendance(db: Session, attendance_id: int):
+def delete_attendance(
+    db: Session,
+    attendance_id: int,
+    *,
+    override: bool = False,
+    motivo: Optional[str] = None,
+    user=None,
+):
     db_attendance = db.query(models.Attendance).filter(models.Attendance.id == attendance_id).first()
     if db_attendance:
         _ensure_attendance_not_in_locked_timesheet(db, attendance_id)
+        # DOM-08 (Wave 2.2): presenza non cancellabile se il piano è congelato
+        _ensure_piano_scrivibile(
+            db,
+            _piano_di_presenza(
+                db,
+                project_id=db_attendance.project_id,
+                assignment_id=db_attendance.assignment_id,
+            ),
+            azione="delete_attendance",
+            risorsa_tipo="attendance",
+            risorsa_id=attendance_id,
+            override=override,
+            motivo=motivo,
+            user=user,
+        )
     if db_attendance:
         # DOM-14: cancellazione presenza e ricalcoli nella STESSA transazione.
         try:
@@ -4040,6 +4190,26 @@ def create_piano_finanziario(db: Session, piano: schemas.PianoFinanziarioCreate)
         or (args[1] if len(args) > 1 else None)
     ),
 )
+def _congela_importi_presentati(db: Session, piano_id: int) -> int:
+    """DOM-18: fotografa ``importo_presentato`` nella colonna storica.
+
+    Lo snapshot è one-shot: le voci che hanno già un valore congelato non
+    vengono toccate, e nessun ricalcolo successivo lo sovrascrive.
+    Ritorna il numero di voci congelate.
+    """
+    voci = db.query(models.VocePianoFinanziario).filter(
+        models.VocePianoFinanziario.piano_id == piano_id,
+        models.VocePianoFinanziario.importo_presentato_congelato.is_(None),
+    ).all()
+    for voce in voci:
+        voce.importo_presentato_congelato = quantize_euro(
+            to_decimal(voce.importo_presentato or 0.0)
+        )
+    if voci:
+        db.flush()
+    return len(voci)
+
+
 def update_piano_finanziario(
     db: Session,
     piano_id: int,
@@ -4050,6 +4220,7 @@ def update_piano_finanziario(
         return None
 
     update_data = piano.model_dump(exclude_unset=True)
+    stato_precedente = db_obj.stato
     old_value = {
         "nome": db_obj.nome,
         "tipo_fondo": db_obj.tipo_fondo,
@@ -4076,6 +4247,10 @@ def update_piano_finanziario(
         db_obj.aggiorna_budget_utilizzato(db)
     else:
         db_obj.budget_rimanente = float(db_obj.budget_totale or 0.0) - float(db_obj.budget_utilizzato or 0.0)
+
+    # DOM-18: alla transizione verso 'inviato' si congela l'importo presentato
+    if stato_precedente != "inviato" and db_obj.stato == "inviato":
+        _congela_importi_presentati(db, db_obj.id)
 
     _create_audit_log(
         db,
@@ -4401,10 +4576,28 @@ def aggiorna_voce_da_presenze(
     return db_voce
 
 
-def create_voce_piano(db: Session, voce: schemas.VocePianoFinanziarioCreate):
+def create_voce_piano(
+    db: Session,
+    voce: schemas.VocePianoFinanziarioCreate,
+    *,
+    override: bool = False,
+    motivo: Optional[str] = None,
+    user=None,
+):
     piano = get_piano_finanziario(db, voce.piano_id)
     if not piano:
         raise ValueError("Piano finanziario non trovato")
+
+    # DOM-08 (Wave 2.2): piano congelato → nessuna nuova voce senza override ADMIN
+    _ensure_piano_scrivibile(
+        db,
+        piano,
+        azione="create_voce_piano",
+        risorsa_tipo="voce_piano_finanziario",
+        override=override,
+        motivo=motivo,
+        user=user,
+    )
 
     payload = voce.model_dump()
     payload.setdefault("macrovoce", "D")
@@ -4436,10 +4629,26 @@ def update_voce_piano(
     db: Session,
     voce_id: int,
     voce: schemas.VocePianoFinanziarioUpdate,
+    *,
+    override: bool = False,
+    motivo: Optional[str] = None,
+    user=None,
 ):
     db_obj = get_voce_piano(db, voce_id)
     if not db_obj:
         return None
+
+    # DOM-08 (Wave 2.2): voce read-only se il piano è congelato
+    _ensure_piano_scrivibile(
+        db,
+        get_piano_finanziario(db, db_obj.piano_id),
+        azione="update_voce_piano",
+        risorsa_tipo="voce_piano_finanziario",
+        risorsa_id=voce_id,
+        override=override,
+        motivo=motivo,
+        user=user,
+    )
 
     update_data = voce.model_dump(exclude_unset=True)
 
@@ -4467,10 +4676,29 @@ def update_voce_piano(
     return get_voce_piano(db, voce_id)
 
 
-def delete_voce_piano(db: Session, voce_id: int):
+def delete_voce_piano(
+    db: Session,
+    voce_id: int,
+    *,
+    override: bool = False,
+    motivo: Optional[str] = None,
+    user=None,
+):
     db_obj = get_voce_piano(db, voce_id)
     if not db_obj:
         return None
+
+    # DOM-08 (Wave 2.2): voce non cancellabile se il piano è congelato
+    _ensure_piano_scrivibile(
+        db,
+        get_piano_finanziario(db, db_obj.piano_id),
+        azione="delete_voce_piano",
+        risorsa_tipo="voce_piano_finanziario",
+        risorsa_id=voce_id,
+        override=override,
+        motivo=motivo,
+        user=user,
+    )
 
     piano_id = db_obj.piano_id
     result = db_obj
@@ -4548,10 +4776,29 @@ def _normalize_voci_piano_payload(voci: List[schemas.VocePianoFinanziarioUpsert]
         or (args[1] if len(args) > 1 else None)
     ),
 )
-def bulk_upsert_voci_piano(db: Session, piano_id: int, payload: schemas.PianoFinanziarioBulkUpdate):
+def bulk_upsert_voci_piano(
+    db: Session,
+    piano_id: int,
+    payload: schemas.PianoFinanziarioBulkUpdate,
+    *,
+    override: bool = False,
+    motivo: Optional[str] = None,
+    user=None,
+):
     piano = get_piano_finanziario(db, piano_id)
     if not piano:
         return None
+
+    # DOM-08 (Wave 2.2): il bulk è una scrittura sulle voci come le altre
+    _ensure_piano_scrivibile(
+        db,
+        piano,
+        azione="bulk_upsert_voci_piano",
+        risorsa_tipo="voce_piano_finanziario",
+        override=override,
+        motivo=motivo,
+        user=user,
+    )
 
     normalized = _normalize_voci_piano_payload(payload.voci)
     existing_by_id = {voce.id: voce for voce in piano.voci}

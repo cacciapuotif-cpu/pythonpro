@@ -393,6 +393,9 @@ def create_voce_piano(
     piano_id: int,
     voce: schemas.VocePianoFinanziarioCreate,
     db: Session = Depends(get_db),
+    override: bool = Query(False, description="DOM-08: forza la scrittura su piano congelato (solo ADMIN)"),
+    motivo_override: Optional[str] = Query(None, description="Motivo obbligatorio quando override=true"),
+    current_user=Depends(get_current_user),
 ):
     try:
         if voce.piano_id != piano_id:
@@ -405,9 +408,13 @@ def create_voce_piano(
         if not piano:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Piano finanziario non trovato")
         _validate_massimale_voce(db, piano, voce)
-        db_voce = crud.create_voce_piano(db, voce)
+        db_voce = crud.create_voce_piano(
+            db, voce, override=override, motivo=motivo_override, user=current_user
+        )
         logger.info("Created voce piano finanziario: ID %s", db_voce.id)
         return db_voce
+    except crud.PianoCongelatoError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -429,6 +436,9 @@ def update_voce_piano(
     voce_id: int,
     voce: schemas.VocePianoFinanziarioUpdate,
     db: Session = Depends(get_db),
+    override: bool = Query(False, description="DOM-08: forza la scrittura su piano congelato (solo ADMIN)"),
+    motivo_override: Optional[str] = Query(None, description="Motivo obbligatorio quando override=true"),
+    current_user=Depends(get_current_user),
 ):
     try:
         piano = crud.get_piano_finanziario(db, piano_id)
@@ -450,8 +460,12 @@ def update_voce_piano(
             value = getattr(voce, attr, None)
             setattr(merged_payload, attr, value if value is not None else getattr(existing_voce, attr, None))
         _validate_massimale_voce(db, piano, merged_payload)
-        updated = crud.update_voce_piano(db, voce_id, voce)
+        updated = crud.update_voce_piano(
+            db, voce_id, voce, override=override, motivo=motivo_override, user=current_user
+        )
         return updated
+    except crud.PianoCongelatoError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -472,6 +486,9 @@ def delete_voce_piano(
     piano_id: int,
     voce_id: int,
     db: Session = Depends(get_db),
+    override: bool = Query(False, description="DOM-08: forza la scrittura su piano congelato (solo ADMIN)"),
+    motivo_override: Optional[str] = Query(None, description="Motivo obbligatorio quando override=true"),
+    current_user=Depends(get_current_user),
 ):
     try:
         piano = crud.get_piano_finanziario(db, piano_id)
@@ -488,12 +505,16 @@ def delete_voce_piano(
                 detail="Voce piano non trovata",
             )
 
-        crud.delete_voce_piano(db, voce_id)
+        crud.delete_voce_piano(
+            db, voce_id, override=override, motivo=motivo_override, user=current_user
+        )
         return {
             "message": "Voce piano eliminata con successo",
             "piano_id": piano_id,
             "voce_id": voce_id,
         }
+    except crud.PianoCongelatoError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -514,15 +535,22 @@ def bulk_update_voci_piano(
     piano_id: int,
     payload: schemas.PianoFinanziarioBulkUpdate,
     db: Session = Depends(get_db),
+    override: bool = Query(False, description="DOM-08: forza la scrittura su piano congelato (solo ADMIN)"),
+    motivo_override: Optional[str] = Query(None, description="Motivo obbligatorio quando override=true"),
+    current_user=Depends(get_current_user),
 ):
     try:
-        piano = crud.bulk_upsert_voci_piano(db, piano_id, payload)
+        piano = crud.bulk_upsert_voci_piano(
+            db, piano_id, payload, override=override, motivo=motivo_override, user=current_user
+        )
         if not piano:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Piano finanziario non trovato",
             )
         return piano
+    except crud.PianoCongelatoError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

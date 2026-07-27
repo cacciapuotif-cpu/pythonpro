@@ -95,6 +95,9 @@ def create_attendance(
 
     except BusinessLogicError:
         raise
+    except crud.PianoCongelatoError as e:
+        # DOM-08: piano congelato → 409, non 400 (conflitto di stato, non input invalido)
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
     except ValueError as e:
         logger.warning(f"Validazione presenza fallita: {e}")
         raise BusinessLogicError(str(e))
@@ -184,6 +187,8 @@ def update_attendance(
         return db_attendance
     except HTTPException:
         raise
+    except crud.PianoCongelatoError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
     except ValueError as e:
         logger.warning(f"Validazione aggiornamento presenza fallita: {e}")
         raise BusinessLogicError(str(e))
@@ -195,7 +200,10 @@ def delete_attendance(
     db: Session = Depends(get_db)
 ):
     """ELIMINA UNA PRESENZA"""
-    db_attendance = crud.delete_attendance(db, attendance_id)
+    try:
+        db_attendance = crud.delete_attendance(db, attendance_id)
+    except crud.PianoCongelatoError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
     if db_attendance is None:
         raise HTTPException(status_code=404, detail="Presenza non trovata")
     return {"message": "Presenza eliminata con successo"}
