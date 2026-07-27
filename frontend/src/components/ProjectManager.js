@@ -82,6 +82,18 @@ const formatModalita = (value) => {
 
 const formatOre = (value) => `${Number(value || 0).toLocaleString('it-IT', { maximumFractionDigits: 1 })}h`;
 
+// UX-7: la scheda progetto dichiara QUANTI sono gli associati e ne nomina i
+// primi. Con centinaia di allievi l'elenco esteso e' illeggibile: l'albero per
+// azienda arriva con UX-9, il conteggio serve gia' adesso.
+export const NOMI_ASSOCIATI_MOSTRATI = 5;
+
+export function riepilogoAssociati(elenco, etichetta, messaggioVuoto) {
+  if (!Array.isArray(elenco) || elenco.length === 0) return messaggioVuoto;
+  const nomi = elenco.slice(0, NOMI_ASSOCIATI_MOSTRATI).map(etichetta).join(', ');
+  const restanti = elenco.length - NOMI_ASSOCIATI_MOSTRATI;
+  return `${elenco.length} — ${nomi}${restanti > 0 ? ` e altri ${restanti}` : ''}`;
+}
+
 const ModuliFormativiSection = ({ project }) => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -1412,18 +1424,22 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
                   <div className="info-row info-row-multi">
                     <span className="label">🏢 Aziende coinvolte:</span>
                     <span>
-                      {Array.isArray(project.aziende_coinvolte) && project.aziende_coinvolte.length > 0
-                        ? project.aziende_coinvolte.map((azienda) => azienda.ragione_sociale).join(', ')
-                        : 'Nessuna azienda associata'}
+                      {riepilogoAssociati(
+                        project.aziende_coinvolte,
+                        (azienda) => azienda.ragione_sociale,
+                        'Nessuna azienda associata',
+                      )}
                     </span>
                   </div>
 
                   <div className="info-row info-row-multi">
                     <span className="label">🎓 Allievi:</span>
                     <span>
-                      {Array.isArray(project.allievi_coinvolti) && project.allievi_coinvolti.length > 0
-                        ? project.allievi_coinvolti.map((allievo) => `${allievo.nome} ${allievo.cognome}`).join(', ')
-                        : 'Nessun allievo associato'}
+                      {riepilogoAssociati(
+                        project.allievi_coinvolti,
+                        (allievo) => `${allievo.nome} ${allievo.cognome}`,
+                        'Nessun allievo associato',
+                      )}
                     </span>
                   </div>
 

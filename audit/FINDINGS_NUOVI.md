@@ -838,3 +838,69 @@ Censimento completo e query correttive proposte: GATE UX-6, non eseguite.
 - 14 test backend (RED→GREEN, incluso RBAC 3 ruoli) + 6 frontend.
 - Commit: `fix(UX-6): ...`
 - Stato: **codice chiuso il 2026-07-27**; bonifica dati **APERTA al GATE UX-6**.
+
+## 2026-07-27 | UX-7 | Associazioni aziende/allievi salvate ma mai restituite dall'API
+
+- Area: backend schemas / lettura progetto + frontend scheda progetto
+- Severità stimata: **alta** (l'operatore crede di aver perso i dati)
+- Emerso durante: uso reale della piattaforma (Ondata UX OPERATIVA, punto 7)
+- Sintomo riferito: dopo aver associato aziende e allievi a un progetto e
+  salvato, la scheda continua a mostrare "Nessuna azienda associata" e
+  "Nessun allievo associato".
+
+### Diagnosi — scrittura o lettura?
+
+**Lettura.** I dati ci sono e sono sulla relazione giusta.
+
+Query sul DB reale (sola lettura): `azienda_cliente_projects` ha 5 righe per il
+progetto 11, 5 per il 12, 5 per il 13, 2 per il 5; `allievo_project` ha 4 righe
+per il progetto 12. Scrittura (`_sync_project_azienda_links` /
+`_sync_project_allievi`) e lettura (`Project.aziende_coinvolte` /
+`allievi_coinvolti`) usano **le stesse due tabelle**, e `crud.get_project(s)`
+fa già il `selectinload` di entrambe. Nessun contatore denormalizzato, nessuna
+cache, nessuna relazione alternativa in uso.
+
+Il difetto è nella **serializzazione**: `schemas.Project` dichiarava solo
+`azienda_ids` / `allievo_ids` (interi). La scheda progetto
+(`ProjectManager.js:1415-1426`) legge invece `project.aziende_coinvolte` e
+`project.allievi_coinvolti`, campi che l'API non ha mai restituito: Pydantic li
+scartava perché non dichiarati. `Array.isArray(undefined)` è `false`, quindi il
+ramo "nessun associato" scattava **a prescindere dai dati**.
+
+### Relazioni ridondanti
+
+Censite, nessuna migrazione necessaria:
+
+- `azienda_cliente_projects` — canonica, in uso in scrittura e lettura.
+- `allievo_project` — canonica, in uso in scrittura e lettura.
+- `progetto_beneficiario` — **relitto**: 0 righe sul DB reale, nessun
+  riferimento nel codice applicativo (solo la classe in `models.py`, senza
+  relazioni). Da droppare in un giro di igiene, non in questa ondata.
+
+### Fix
+
+- `schemas.Project` espone `aziende_coinvolte` e `allievi_coinvolti` in forma
+  compatta (`AziendaCoinvolta`, `AllievoCoinvolto`). `AllievoCoinvolto` porta
+  `azienda_cliente_id`, così l'albero azienda→allievi di UX-9 non richiede una
+  seconda chiamata.
+- **N+1 corretto per strada**: `Project.azienda_ids` leggeva `azienda_links`
+  (`lazy="select"`, non eager-caricata) invece di `aziende_coinvolte` — stessa
+  tabella, ma solo la seconda è in `selectinload`. Il listing progetti faceva
+  una query per riga. Introdotto con NEW-030, coperto ora da un test che conta
+  le query eseguite.
+- Frontend: la scheda dichiara il conteggio e nomina i primi 5
+  (`riepilogoAssociati`). L'elenco esteso con centinaia di allievi è
+  illeggibile: l'albero per azienda arriva con UX-9.
+- 10 test backend + 6 frontend.
+- Commit: `fix(UX-7): ...`
+- Stato: **codice chiuso il 2026-07-27**. Nessun recupero dati necessario: le
+  associazioni erano già sulla relazione canonica. Resta però l'interazione con
+  il GATE UX-6 — vedi sotto.
+
+### ⚠️ Interazione con il GATE UX-6
+
+Il progetto 12 (doppione da eliminare secondo UX-6) è **l'unico dell'intero
+sistema ad avere allievi associati**: 4 su 4. `allievo_project.project_id` ha
+`ON DELETE CASCADE`, quindi eliminarlo porterebbe via quelle righe in silenzio.
+La proposta di bonifica (`audit/UX6_BONIFICA_PROPOSTA.md`) è stata aggiornata:
+il travaso degli allievi al progetto 11 è ora parte obbligatoria del blocco A.

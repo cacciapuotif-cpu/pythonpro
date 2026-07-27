@@ -318,9 +318,11 @@ class Project(Base):
 
     @property
     def azienda_ids(self):
-        if self.azienda_links:
-            return [link.azienda_cliente_id for link in self.azienda_links]
-        return []
+        # UX-7: legge da aziende_coinvolte, non da azienda_links. Sono la stessa
+        # tabella (azienda_cliente_projects), ma solo la prima e' in selectinload
+        # in crud.get_project(s): passando dai link il listing faceva una query
+        # per progetto.
+        return [azienda.id for azienda in self.aziende_coinvolte]
 
     @property
     def allievo_ids(self):

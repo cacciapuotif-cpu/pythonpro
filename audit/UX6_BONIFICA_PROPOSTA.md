@@ -26,9 +26,26 @@ il CUP `G64D26000610003`. Non è un rifiuto da buttare.
 Il **13** è il fantasma prodotto dal bug: nome di fallback, nessun dato proprio,
 solo il PDF dell'atto e 5 link azienda copiati dal 11.
 
-Entrambi hanno come unica dipendenza `azienda_cliente_projects` (5 righe
-ciascuno, identiche a quelle del 11). Nessuna presenza, assegnazione, modulo,
-piano finanziario, ordine o contratto vi è agganciato.
+Nessuna presenza, assegnazione, modulo, piano finanziario, ordine o contratto è
+agganciato a 12 o 13.
+
+### ⚠️ Interazione con UX-7 — il 12 NON è vuoto
+
+Emersa durante la diagnosi UX-7: il progetto **12 è l'unico che abbia allievi
+associati in tutto il sistema**. Sono 4 su 4, tutti di Power Impianti srl.
+
+| tabella | progetto 11 | progetto 12 | progetto 13 |
+|---------|-------------|-------------|-------------|
+| `azienda_cliente_projects` | 5 | 5 | 5 |
+| `allievo_project` | **0** | **4** | 0 |
+
+È coerente col racconto: l'operatore ha creato il 12, vi ha associato le
+aziende e gli allievi, e la scheda ha continuato a dire "nessun allievo
+associato" — perché l'API non restituiva quel campo (UX-7), non perché il
+salvataggio fosse fallito. Poi ha caricato l'atto, generando il 13.
+
+**Eliminare il 12 senza travasare prima gli allievi cancella l'unico dato di
+associazione allievi presente in produzione.** Il blocco A lo previene.
 
 ## Verifica preliminare — rieseguire prima di qualsiasi scrittura
 
@@ -46,21 +63,45 @@ FROM projects p WHERE p.id IN (11, 12, 13) ORDER BY p.id;
 Procedere **solo** se per 12 e 13 assegnazioni, presenze, piani, moduli e ordini
 sono tutti a zero.
 
-## Blocco A — travaso del CUP dal 12 al progetto buono
+## Blocco A — travaso dei dati originali dal 12 al progetto buono
 
-Unico dato originale del 12. `NULLIF/TRIM` fa sì che il 11 non venga toccato se
-ha già un CUP.
+Il CUP e le associazioni allievi sono i dati che vivono **solo** sul 12.
+`NULLIF/TRIM` fa sì che il CUP del 11 non venga toccato se già valorizzato;
+il `NOT EXISTS` rende il travaso degli allievi ripetibile senza duplicare.
 
 ```sql
 BEGIN;
 
+-- 1. il CUP
 UPDATE projects
 SET cup = (SELECT cup FROM projects WHERE id = 12)
 WHERE id = 11 AND NULLIF(TRIM(COALESCE(cup, '')), '') IS NULL;
 
-SELECT id, cup FROM projects WHERE id = 11;
+-- 2. i 4 allievi associati (unici in tutto il sistema), con il loro stato
+INSERT INTO allievo_project
+       (allievo_id, project_id, ore_frequentate, stato, attestato_emesso, note)
+SELECT ap.allievo_id, 11, ap.ore_frequentate, ap.stato, ap.attestato_emesso, ap.note
+FROM allievo_project ap
+WHERE ap.project_id = 12
+  AND NOT EXISTS (
+      SELECT 1 FROM allievo_project x
+      WHERE x.allievo_id = ap.allievo_id AND x.project_id = 11
+  );
+
+SELECT (SELECT cup FROM projects WHERE id = 11) AS cup_11,
+       (SELECT count(*) FROM allievo_project WHERE project_id = 11) AS allievi_11;
+-- atteso: cup_11 = G64D26000610003, allievi_11 = 4
 ROLLBACK;  -- -> COMMIT per applicare
 ```
+
+Colonne di `allievo_project` verificate: `ore_frequentate`, `stato`,
+`attestato_emesso` e `note` viaggiano insieme alla coppia di FK, così lo stato
+di iscrizione non si azzera nel travaso. La PK è `(allievo_id, project_id)`.
+
+> **Perché il blocco A non è opzionale.** `allievo_project.project_id` ha
+> `ON DELETE CASCADE`: un `DELETE FROM projects WHERE id = 12` porta via le 4
+> righe **senza errore e senza avviso**. Eseguire il blocco C da solo
+> cancellerebbe in silenzio l'unico dato di associazione allievi in produzione.
 
 **Non travasate le date.** Quelle del 12 (2026-04-21 → 2027-02-16) confliggono
 con quelle del 11 (2026-04-23 → 2026-06-09). Quale sia la buona è una domanda di

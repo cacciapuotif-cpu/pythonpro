@@ -195,6 +195,36 @@ class ProjectUpdate(BaseModel):
     def _no_legacy_keys(cls, data):
         return _reject_project_legacy_keys(data)
 
+class AziendaCoinvolta(BaseModel):
+    """Azienda associata al progetto, nella forma minima per mostrarla.
+
+    UX-7: la scheda progetto deve poter dire CHI e' associato, non solo
+    quanti id. Deliberatamente ridotta: compare anche nel listing.
+    """
+
+    id: int
+    ragione_sociale: str
+    partita_iva: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AllievoCoinvolto(BaseModel):
+    """Allievo associato al progetto, nella forma minima per mostrarlo.
+
+    ``azienda_cliente_id`` permette di raggruppare gli allievi per azienda
+    senza una seconda chiamata (albero di selezione a cascata).
+    """
+
+    id: int
+    nome: str
+    cognome: str
+    codice_fiscale: Optional[str] = None
+    azienda_cliente_id: Optional[int] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class Project(ProjectBase):
     id: int
     ente_attuatore_id: Optional[int] = None
@@ -206,6 +236,12 @@ class Project(ProjectBase):
     # successivo con form vuoto cancellerebbe i link esistenti).
     azienda_ids: List[int] = []
     allievo_ids: List[int] = []
+    # UX-7: gli id da soli non bastano a rendere la scheda. La scheda progetto
+    # leggeva gia' questi due campi, ma lo schema non li dichiarava: erano
+    # sempre undefined e il ramo "nessun associato" scattava a prescindere dai
+    # dati. Le relazioni sono gia' in selectinload in crud.get_project(s).
+    aziende_coinvolte: List[AziendaCoinvolta] = []
+    allievi_coinvolti: List[AllievoCoinvolto] = []
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True, use_enum_values=True)
 
