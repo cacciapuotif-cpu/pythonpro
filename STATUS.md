@@ -1,6 +1,6 @@
 # PythonPro — Stato corrente
 
-**Aggiornato:** 2026-07-27 (fix sedi operative live; prossimo: V5 avvisi reali)
+**Aggiornato:** 2026-07-27 (fix import allievi XLSX 422 live; prossimo: V5 avvisi reali)
 **Branch:** `claude/platform-audit-compliance-XnH86` (locale, nessun push)
 **Percorso:** `/DATA/progetti/pythonpro`
 
@@ -12,9 +12,9 @@
   riallineare il modello allo schema (il drop colonna dava 500 sui piani finché
   il processo caricava il vecchio modello).
 - Baseline backend: **776 passed, 6 skipped, 0 failed**.
-- Baseline frontend: **154 passed, 3 snapshot, 0 failed**; build production verde.
-- Frontend ridispiegato il 2026-07-27 (bundle `main.37446b75.js`): live
-  allineato al fix auth per richieste concorrenti.
+- Baseline frontend: **161 passed, 3 snapshot, 0 failed**; build production verde.
+- Frontend ridispiegato il 2026-07-27 (bundle `main.51462523.js`): live
+  allineato ai fix auth, sedi operative e import XLSX allievi.
 - **RUNTIME ATTIVATO il 2026-07-21**: backend riavviato (carica NEW-030/037,
   rotte `/api/v1/archivio/*` live in openapi); frontend **ricostruito e
   ridispiegato** (`docker compose build frontend` + recreate, bundle
@@ -63,6 +63,23 @@
 - Ripristinata con guardia anti-duplicato la riga persa:
   `Power Impianti srl` (ID 10) → `Napoli` (sede ID 1). L'import XLSX può usare
   esattamente `Power Impianti srl` / `Napoli`.
+
+## Fix 422 import allievi XLSX — LIVE (2026-07-27)
+
+- Dopo il ripristino della sede, il POST `/api/v1/allievi/bulk-import` arrivava
+  al backend ma falliva con `422`: le celle data lette da ExcelJS come oggetti
+  JavaScript `Date` venivano convertite in una stringa non valida e poi
+  concatenate a `T00:00:00Z`.
+- L'importatore ora normalizza oggetti `Date`, seriali Excel, date ISO e formati
+  italiani `GG/MM/AAAA`, `GG.MM.AAAA`, `GG-MM-AAAA`; date impossibili vengono
+  fermate prima dell'invio indicando la riga del foglio.
+- Il frontend interpreta anche il formato `details` del gestore errori FastAPI:
+  un eventuale 422 residuo mostra riga e campo (l'indice API zero-based viene
+  tradotto nella riga Excel, intestazione inclusa) invece del messaggio generico.
+- Commit locale `a25ef87`, nessun push. Verifica sul commit pulito: **18 suite,
+  161 test, 3 snapshot**, build production verde. Deploy isolato dalle altre
+  modifiche locali in corso; container frontend healthy, bundle
+  `main.51462523.js`, backend health `200`.
 
 ## V5 — ingestione avvisi SBLOCCATA via LLM cloud (2026-07-24)
 
