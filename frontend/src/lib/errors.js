@@ -65,6 +65,11 @@ function isSensibleDetail(detail) {
 function summarizeValidationList(detail) {
   const fields = detail
     .map((item) => {
+      if (typeof item?.field === 'string' && item.field.trim()) {
+        return item.field
+          .replace(/^body\./, '')
+          .replace(/^(\d+)\./, (_, index) => `riga ${Number(index) + 2} · `);
+      }
       const loc = Array.isArray(item?.loc)
         ? item.loc.filter((part) => part !== 'body' && part !== 'query' && part !== 'path')
         : [];
@@ -109,6 +114,13 @@ export function formatApiError(error) {
   const status = response.status;
   const data = response.data;
   const detail = data?.detail ?? data?.message ?? data?.error;
+  const validationDetails = Array.isArray(data?.details) ? data.details : null;
+
+  // Il gestore FastAPI centralizzato usa `details`, mentre FastAPI standard
+  // usa `detail`: supportiamo entrambi senza perdere i campi che hanno fallito.
+  if (validationDetails) {
+    return summarizeValidationList(validationDetails);
+  }
 
   // Pydantic validation list (typically 422).
   if (Array.isArray(detail)) {

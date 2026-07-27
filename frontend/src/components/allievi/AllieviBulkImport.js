@@ -27,12 +27,45 @@ const COLUMN_MAPPING = {
 
 const REQUIRED_FIELDS = ['nome', 'cognome'];
 
-const normalizeDateValue = (value) => {
+const toIsoDate = (year, month, day) => {
+  const numericYear = Number(year);
+  const numericMonth = Number(month);
+  const numericDay = Number(day);
+  const candidate = new Date(Date.UTC(numericYear, numericMonth - 1, numericDay));
+  if (
+    candidate.getUTCFullYear() !== numericYear
+    || candidate.getUTCMonth() + 1 !== numericMonth
+    || candidate.getUTCDate() !== numericDay
+  ) {
+    return null;
+  }
+  return `${numericYear}-${String(numericMonth).padStart(2, '0')}-${String(numericDay).padStart(2, '0')}`;
+};
+
+export const normalizeDateValue = (value) => {
   if (!value) return '';
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return '';
+    return toIsoDate(value.getUTCFullYear(), value.getUTCMonth() + 1, value.getUTCDate()) || '';
+  }
   if (typeof value === 'number') {
     return excelSerialToDateString(value);
   }
-  return value.toString().trim();
+  const normalized = value.toString().trim();
+  const isoMatch = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T\s].*)?$/);
+  if (isoMatch) {
+    return toIsoDate(isoMatch[1], isoMatch[2], isoMatch[3]) || normalized;
+  }
+  const italianMatch = normalized.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/);
+  if (italianMatch) {
+    return toIsoDate(italianMatch[3], italianMatch[2], italianMatch[1]) || normalized;
+  }
+  return normalized;
+};
+
+export const isValidNormalizedDate = (value) => {
+  const match = `${value || ''}`.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return Boolean(match && toIsoDate(match[1], match[2], match[3]) === value);
 };
 
 const normalizeBoolean = (value) => {
@@ -77,6 +110,12 @@ export default function AllieviBulkImport({ onImport, onClose, isLoading, aziend
     }
     if (row.provincia && !/^[A-Za-z]{2}$/.test(`${row.provincia}`.trim())) {
       rowErrors.push(`Riga ${rowIndex}: Provincia non valida`);
+    }
+    if (row.data_nascita && !isValidNormalizedDate(row.data_nascita)) {
+      rowErrors.push(`Riga ${rowIndex}: Data di Nascita non valida: ${row.data_nascita}. Usa GG/MM/AAAA o AAAA-MM-GG`);
+    }
+    if (row.data_assunzione && !isValidNormalizedDate(row.data_assunzione)) {
+      rowErrors.push(`Riga ${rowIndex}: Data Assunzione non valida: ${row.data_assunzione}. Usa GG/MM/AAAA o AAAA-MM-GG`);
     }
     if (row.occupato && !row.azienda_cliente) {
       rowErrors.push(`Riga ${rowIndex}: se l'allievo è occupato devi indicare l'azienda cliente`);

@@ -11,6 +11,7 @@ import {
 } from '../services/apiService';
 import AllieviBulkImport from './allievi/AllieviBulkImport';
 import { canPerform } from '../auth/permissions';
+import { formatApiError } from '../lib/errors';
 import './AllieviManager.css';
 
 const blankToNull = (value) => {
@@ -341,7 +342,7 @@ export default function AllieviManager({ currentUser }) {
         setShowBulkImport(false);
       }
     } catch (e) {
-      showToast(e?.response?.data?.detail || 'Errore durante l’importazione massiva', 'error');
+      showToast(formatApiError(e), 'error');
     } finally {
       setBulkImporting(false);
     }

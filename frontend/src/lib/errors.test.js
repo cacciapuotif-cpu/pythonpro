@@ -82,6 +82,24 @@ describe('formatApiError - preferenza per il detail del backend', () => {
     ).toBe('Sessione scaduta, effettua di nuovo l’accesso.');
   });
 
+  test('422 del gestore centralizzato usa details e indica i campi', () => {
+    expect(
+      formatApiError(axiosError({
+        status: 422,
+        data: {
+          error: 'Errori di validazione',
+          details: [
+            {
+              field: 'body.0.data_nascita',
+              message: 'Input should be a valid datetime',
+              type: 'datetime_from_date_parsing',
+            },
+          ],
+        },
+      }))
+    ).toBe('Dati non validi: riga 2 · data_nascita.');
+  });
+
   test('campo message del backend usato come detail alternativo', () => {
     expect(
       formatApiError(axiosError({ status: 400, data: { message: 'Il codice fiscale è duplicato.' } }))
