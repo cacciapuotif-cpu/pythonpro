@@ -1,8 +1,77 @@
 # PythonPro — Stato corrente
 
-**Aggiornato:** 2026-07-27 (fix import allievi XLSX 422 live; prossimo: V5 avvisi reali)
+**Aggiornato:** 2026-07-27 (fix import allievi XLSX 422 live; ONDATA UX OPERATIVA in corso, UX-6 e UX-7 chiusi)
 **Branch:** `claude/platform-audit-compliance-XnH86` (locale, nessun push)
 **Percorso:** `/DATA/progetti/pythonpro`
+
+> ⚠️ **Due sessioni hanno lavorato su questo branch il 27/07 in parallelo.**
+> Questo file è scritto a quattro mani: la sezione "RIPARTENZA" qui sotto
+> riguarda l'ondata UX; il resto del file traccia l'altro filone.
+
+## ⏸️ RIPARTENZA — ONDATA UX OPERATIVA (fermata su richiesta il 2026-07-27 ~17:00)
+
+**Baseline al momento dello stop:** backend **821 passed, 6 skipped, 0 failed**;
+frontend **173 passed, 20 suite**; build di produzione verde; alembic head `063`;
+working tree pulito; ultimo commit dell'ondata `b1c5ae3`.
+
+### Fatto in questa sessione
+
+| | |
+|---|---|
+| NEW-039 | Suite era **rossa a HEAD** (6 failed): `757e83c` aveva aggiunto i kwargs `provider=`/`model=` alla chiamata LLM senza aggiornare i doppi di test; il `TypeError` finiva nell'`except Exception` dell'estrattore e passava per "sezione fallita". Chiuso (`8b313d9`). **Nota aperta:** quell'`except` troppo largo, in produzione, maschererebbe un errore di firma come estrazione vuota. |
+| Lavoro pendente | Working tree sporco di sessione precedente, committato in 3 commit atomici: `bd41bf5` dedup multi-istanza AgentSuggestion, `166e558` DOM-08/DOM-18 piano congelato (migration 063, già applicata al DB reale), `b65dd0d` NotificationSystem montato via AppRoot. |
+| UX-6 | **Chiuso** (`0fcb8a5`, `fcadc1a`). L'atto caricato dentro un progetto creava un gemello: il modale chiamava gli endpoint project-less, il cui confirm fa `db.add(models.Project(...))` senza ricevere `project_id`. Aggiunto il percorso project-scoped (FAPI + Fondimpresa) con diff campo-per-campo e guardia 422 sul documento non riconosciuto. |
+| UX-7 | **Chiuso** (`b1c5ae3`). Le associazioni si salvavano ma `schemas.Project` non dichiarava `aziende_coinvolte`/`allievi_coinvolti`, che la scheda legge: sempre `undefined` → "nessun associato" a prescindere dai dati. Corretto anche un N+1 reale su `azienda_ids`. |
+| Bonifica UX-6 blocco A | **ESEGUITA sul DB reale** (decisione utente): CUP `G64D26000610003` e i 4 allievi travasati dal progetto 12 al progetto 11, con `stato` e `ore_frequentate` preservati. Nulla distrutto: il 12 è ancora intatto. |
+
+### ▶️ DA FARE ALLA RIPARTENZA, in quest'ordine
+
+1. **Completare l'attivazione runtime** (autorizzata dall'utente, interrotta a metà).
+   L'immagine `pythonpro-frontend` è **già ricostruita** col nuovo bundle, ma il
+   container **non** è stato ricreato e il backend **non** è stato riavviato: il
+   runtime gira ancora tutto sul codice vecchio, quindi è coerente con sé stesso
+   (nessuno stato ibrido). Da eseguire insieme, in quest'ordine:
+   ```bash
+   export DOCKER_CONFIG=/tmp/dockercfg && mkdir -p "$DOCKER_CONFIG"   # /DATA/.docker non è scrivibile
+   docker compose up -d --force-recreate --no-deps frontend
+   docker restart pythonpro_backend
+   ```
+   Poi verifica live: `/health` 200, frontend `/` 200, `POST /api/v1/projects/{id}/upload-convenzione`
+   presente in openapi, e la scheda di un progetto che finalmente mostra gli associati.
+   **Finché non è fatto, i bug UX-6 e UX-7 restano vivi sull'app in esecuzione.**
+2. **UX-8** — dissociazione allievi/aziende dal progetto: endpoint + UI, guardie
+   (presenze → blocco, timesheet/attestato → blocco assoluto), audit, RBAC.
+   Non ancora iniziato.
+3. **UX-9** — albero di selezione allievi a cascata per azienda. Non iniziato.
+   `AllievoCoinvolto` porta già `azienda_cliente_id` apposta: il raggruppamento
+   non costa una seconda chiamata.
+4. Poi **UX-5** (gate dominio date) → UX-0 → UX-1 → UX-2 → UX-3 → UX-4 → gate finale.
+
+### GATE ancora aperti
+
+- **UX-6, blocchi B e C.** Decisione utente: *"blocco A ora, C dopo verifica"*.
+  A è fatto; **B e C attendono conferma**. Query pronte in
+  `audit/UX6_BONIFICA_PROPOSTA.md`. ⚠️ Il blocco C elimina i progetti 12 e 13, e
+  `allievo_project.project_id` ha `ON DELETE CASCADE`: eseguirlo solo dopo aver
+  verificato che il travaso del blocco A regga.
+- **UX-5** — gate dominio sul modello date, da presentare prima di scrivere codice.
+- **UX-7** — nessun recupero dati necessario (le associazioni erano già sulla
+  relazione canonica): il gate si chiude con la sola presa d'atto.
+
+### Attenzioni
+
+- **Le sedi operative aziende (`81a9b96`, altra sessione) toccano il territorio di
+  UX-2c** (sedi multiple). Decisione utente: proseguire, ma **verificare cosa
+  esiste già prima di attaccare UX-2**.
+- **Ondata B è ancora aperta**: B6a e B5 fatti; **B1** (scadenze avviso), **B3**
+  (checklist documentale) e **B6b** non fatti.
+- Lo **scheduler dei backup si è fermato al 2026-07-25** (nessun daily il 26 e il 27).
+  Backup manuale verificato di questa sessione:
+  `/DATA/progetti/pythonpro_backup_pre_ux_20260727.sql`.
+- `progetto_beneficiario` è un **relitto**: 0 righe, nessun riferimento nel codice
+  applicativo. Da droppare in un giro di igiene.
+- La suite backend completa impiega **15–24 minuti**: prevederlo, non scambiarlo
+  per un blocco.
 
 ## Stato operativo
 
