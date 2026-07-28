@@ -151,7 +151,10 @@ pagine, si ferma a 2000 e dichiara `troncato`, che l'albero mostra.
 Backend non toccato: nessun rilancio della suite backend necessario.
 
 ### ▶️ DA FARE, in quest'ordine
-1. **UX-5** (gate dominio date, **da presentare prima di scrivere codice**)
+1. **Conferma GATE UX-5** in `audit/UX5_GATE_DOMINIO_DATE.md`: modello a
+   7 date, nessun backfill automatico, migration additiva in due fasi e
+   presenze senza date attività = warning strutturato, non blocco.
+2. Dopo conferma, implementare **UX-5**
    → UX-0 → UX-1 → UX-2 → UX-3 → UX-4 → gate finale.
 
 Verificato contro il codice il 2026-07-28: UX-5, UX-0, UX-1, UX-2, UX-3 e UX-4
@@ -191,6 +194,28 @@ progetto).
   Progetto 11 riattivato; 12 e 13 `cancelled`/disattivati con motivazione.
   Listing live: 11 visibile, 12/13 nascosti. Nessun record o file eliminato.
 - **GATE UX-6 CHIUSO.**
+
+### GATE dominio UX-5 — presentato il 2026-07-28
+
+- Stato verificato: `Project.start_date/end_date` sono ambigui e W1.5 li usa
+  oggi come blocco per le presenze; Cockpit usa `end_date` sia come fine
+  progetto sia come richiamo alla rendicontazione.
+- DB reale: 0 `avviso_regole` e 0 `avviso_scadenze`; non esiste oggi una fonte
+  validata per attribuire termini specifici a FAPI/Fondimpresa/Formazienda.
+  L'unico avviso completato (FAPI 3/2026) ha markdown pulito incompleto e solo
+  due proposte pendenti non pertinenti alle date operative.
+- Dati legacy: i 7 progetti non permettono di interpretare onestamente
+  `start_date/end_date`; presenze e assegnazioni riguardano collaboratori, non
+  provano l'inizio effettivo dell'aula. `data_approvazione` è nulla ovunque.
+- Proposto modello `DATE`: approvazione, avvio piano, termine piano, avvio/fine
+  attività formative, termine rendicontazione, chiusura effettiva.
+- Proposto nessun backfill automatico; migration additiva e reversibile, campi
+  nullable per legacy ma obbligatori via API/UI sui nuovi progetti; successiva
+  qualificazione manuale prima del drop dei campi legacy.
+- W1.5: usare solo date attività; se mancanti, warning strutturato e salvataggio
+  consentito; range assegnazione e blocco progetto non-active restano.
+- Nessun codice/migration UX-5 scritto. Attesa conferma sulle quattro decisioni
+  del GATE in `audit/UX5_GATE_DOMINIO_DATE.md`.
 
 ### Fatto nelle sessioni precedenti
 
