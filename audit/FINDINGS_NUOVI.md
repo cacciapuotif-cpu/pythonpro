@@ -904,3 +904,71 @@ sistema ad avere allievi associati**: 4 su 4. `allievo_project.project_id` ha
 `ON DELETE CASCADE`, quindi eliminarlo porterebbe via quelle righe in silenzio.
 La proposta di bonifica (`audit/UX6_BONIFICA_PROPOSTA.md`) è stata aggiornata:
 il travaso degli allievi al progetto 11 è ora parte obbligatoria del blocco A.
+
+---
+
+## 2026-07-28 | UX-8 | Chiuso: la dissociazione dal progetto passa dalle guardie
+
+Il PUT progetto dissociava in silenzio (replace secco della lista di id in
+`crud._sync_project_allievi` / `_sync_project_azienda_links`): bastava omettere
+un id per staccare un allievo con l'attestato già emesso, senza controlli e
+senza traccia. Chiuso con `99213df` (backend) e `dd834a0` (UI).
+
+Guardie, decise con l'utente: `attestato_emesso` blocca in modo **assoluto**;
+`ore_frequentate > 0` e righe in `dati_retributivi` bloccano ma sono
+**forzabili** dal solo admin con motivo ≥ 10 caratteri; un'azienda che porta
+ancora suoi allievi sul progetto **non si stacca** (nessuna cascata implicita).
+
+**Confutazione live eseguita il 2026-07-28** su due progetti di prova creati e
+poi cancellati (id 14 e 15; DB riportato a 7 progetti / 8 righe
+`allievo_project`, stato identico a prima). Non bastava una prova sul dato
+reale: tutti gli 8 link hanno `ore_frequentate = 0`, `attestato_emesso = false`
+e `dati_retributivi` è vuota, quindi **nessuna guardia sarebbe scattata** e il
+"passa" non avrebbe dimostrato nulla.
+
+| Prova live | Esito |
+|---|---|
+| DELETE allievo con attestato | 409, `forzabile: false` |
+| DELETE allievo con attestato **con `forza`** da admin | 409 lo stesso |
+| DELETE allievo con 12 ore, senza forza | 409, `forzabile: true` |
+| Forzatura tentata da **operatore** | 403 |
+| DELETE da **consultazione** | 403 (GET progetto: 200) |
+| Forzatura con motivo di 5 caratteri | 422 |
+| Forzatura con motivo valido, da admin | 200, riga rimossa |
+| DELETE azienda con 2 suoi allievi sul progetto | 409, elenca i due nomi |
+| PUT che omette l'allievo con attestato (porta laterale) | 409 |
+| **Stesso allievo su un altro progetto senza attestato** | **200** |
+
+L'ultima riga è quella che conta: prova che la guardia legge il link
+`(progetto, allievo)` e non l'allievo in assoluto. Audit verificato in
+`audit_log`: 5 righe `esito='blocked'` e 1 `esito='success'` con il motivo.
+
+### Nuovo — il 403 sulla forzatura non lascia traccia
+
+`_valida_forzatura` in `backend/routers/projects.py` risponde 403 **prima**
+delle guardie, quindi un operatore che prova a forzare una dissociazione non
+compare in `audit_log`. Gli esiti bloccati dalle guardie sono invece registrati.
+Un tentativo di superare un limite di ruolo è esattamente ciò che un audit di
+sicurezza vuole vedere: va aggiunta la riga `esito="denied"`. Non urgente
+(l'azione è respinta), non corretto qui per non allargare il commit.
+
+### Nuovo — `DELETE /projects/{id}` è un soft-delete che si annuncia come eliminazione
+
+`crud.delete_project` imposta `is_active = False` e il router risponde
+*"Progetto eliminato con successo"*. Il progetto sparisce dagli elenchi (che
+filtrano `is_active`) ma **conserva tutte le associazioni**: allievi e aziende
+restano attaccati a un progetto che l'operatore crede eliminato, e le guardie
+UX-8 non vengono mai interrogate. Osservato in questa sessione: i due progetti
+di prova "eliminati" via API erano ancora lì con i loro link, ed è servito un
+DELETE mirato in SQL per rimuoverli davvero.
+
+Due cose da decidere (non fatte): il messaggio deve dire *disattivato*, e va
+stabilito se disattivare un progetto debba passare dalle stesse guardie o
+dichiarare esplicitamente cosa resta attaccato.
+
+### Da segnalare all'utente, non causato da UX-8
+
+Il progetto **11** (quello "buono" secondo la bonifica UX-6 blocco A, che ha
+ricevuto CUP e allievi) ha `is_active = false`, mentre il doppione **12** è
+attivo. Nel gestionale l'elenco di default mostra quindi il doppione e nasconde
+il progetto bonificato. Verificato in questa sessione, nessuna modifica fatta.
