@@ -79,6 +79,10 @@ def test_assignment_features_flow(client):
         "status": "active",
         "cup": "CUPTEST00000001",
         "ente_erogatore": "Test Entity",
+        "data_approvazione": now.date().isoformat(),
+        "data_avvio_piano": now.date().isoformat(),
+        "data_avvio_attivita_formative": now.date().isoformat(),
+        "data_fine_attivita_formative": (now + timedelta(days=90)).date().isoformat(),
     }
     response = client.post("/api/v1/projects/", json=project_payload)
     assert response.status_code == 200, response.text
@@ -157,6 +161,8 @@ def test_cross_resource_links_enforce_role_for_canonical_consultation(client, mo
     })
     project_response = client.post("/api/v1/projects/", json={
         "name": "RBAC links", "status": "active",
+        "data_approvazione": "2026-03-24",
+        "data_avvio_piano": "2026-04-01",
     })
     assert collaborator_response.status_code == 200, collaborator_response.text
     assert project_response.status_code == 200, project_response.text

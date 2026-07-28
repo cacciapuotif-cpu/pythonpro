@@ -61,6 +61,20 @@ def _warn_if_budget_superato(db: Session, response: Response, project_id: int) -
         logger.warning(msg)
 
 
+def _warn_if_activity_dates_missing(response: Response, project: models.Project) -> None:
+    """UX-5: warning machine-readable senza bloccare la registrazione del fatto."""
+    if (
+        project.data_avvio_attivita_formative is not None
+        and project.data_fine_attivita_formative is not None
+    ):
+        return
+    message = "Registri presenze su progetto senza avvio attività dichiarato"
+    header_message = "Registri presenze su progetto senza avvio attivita dichiarato"
+    response.headers["X-Project-Date-Warning"] = "project_activity_dates_missing"
+    response.headers["Warning"] = f'299 pythonpro "{header_message}"'
+    logger.warning("%s (project_id=%s)", message, project.id)
+
+
 @router.post("/", response_model=schemas.Attendance, response_model_by_alias=False)
 @retry_on_db_error(max_retries=3)
 def create_attendance(
@@ -90,6 +104,7 @@ def create_attendance(
             transaction.commit()
 
             _warn_if_budget_superato(db, response, result.project_id)
+            _warn_if_activity_dates_missing(response, project)
             logger.info(f"Presenza registrata con successo: ID {result.id}")
             return result
 
@@ -184,6 +199,9 @@ def update_attendance(
         if db_attendance is None:
             raise HTTPException(status_code=404, detail="Presenza non trovata")
         _warn_if_budget_superato(db, response, db_attendance.project_id)
+        project = crud.get_project(db, db_attendance.project_id)
+        if project is not None:
+            _warn_if_activity_dates_missing(response, project)
         return db_attendance
     except HTTPException:
         raise

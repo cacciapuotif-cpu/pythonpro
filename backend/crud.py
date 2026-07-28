@@ -1248,14 +1248,20 @@ def _validate_attendance_project(db: Session, *, project_id: int, attendance_day
         raise ValueError("Progetto non trovato")
     if project.status != "active":
         raise ValueError(f"Il progetto '{project.name}' non è attivo (stato: {project.status})")
-    if project.start_date is None or project.end_date is None:
-        raise ValueError("Il progetto deve avere date di inizio e fine prima di registrare presenze")
-    project_start = _as_day(project.start_date)
-    project_end = _as_day(project.end_date)
-    if attendance_day < project_start or attendance_day > project_end:
+    if (
+        project.data_avvio_attivita_formative is None
+        or project.data_fine_attivita_formative is None
+    ):
+        # UX-5: finché l'intervallo didattico non è dichiarato la presenza è
+        # un fatto operativo registrabile. Il router espone un warning; i campi
+        # legacy start/end non hanno più alcun valore vincolante.
+        return project
+    activity_start = _as_day(project.data_avvio_attivita_formative)
+    activity_end = _as_day(project.data_fine_attivita_formative)
+    if attendance_day < activity_start or attendance_day > activity_end:
         raise ValueError(
-            f"La data presenza ({attendance_day.strftime('%d/%m/%Y')}) è fuori dal periodo del progetto "
-            f"({project_start.strftime('%d/%m/%Y')} - {project_end.strftime('%d/%m/%Y')})"
+            f"La data presenza ({attendance_day.strftime('%d/%m/%Y')}) è fuori dal periodo delle attività formative "
+            f"({activity_start.strftime('%d/%m/%Y')} - {activity_end.strftime('%d/%m/%Y')})"
         )
     return project
 

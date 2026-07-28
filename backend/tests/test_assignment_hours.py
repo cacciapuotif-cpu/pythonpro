@@ -80,6 +80,10 @@ def test_assignment_completed_hours_flow(client):
         "start_date": assignment_start.isoformat(),
         "end_date": assignment_end.isoformat(),
         "status": "active",
+        "data_approvazione": assignment_start.date().isoformat(),
+        "data_avvio_piano": assignment_start.date().isoformat(),
+        "data_avvio_attivita_formative": assignment_start.date().isoformat(),
+        "data_fine_attivita_formative": assignment_end.date().isoformat(),
     }
     response = client.post("/api/v1/projects/", json=project_data)
     assert response.status_code == 200, response.text

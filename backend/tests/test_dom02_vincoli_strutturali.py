@@ -1,6 +1,6 @@
 """DOM-02 / DOM-19 — vincoli strutturali della catena operativa."""
 
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 import sys
 
@@ -69,6 +69,8 @@ def base(db_session):
         status="active",
         start_date=datetime(2026, 7, 1),
         end_date=datetime(2026, 7, 31),
+        data_avvio_attivita_formative=date(2026, 7, 1),
+        data_fine_attivita_formative=date(2026, 7, 31),
     )
     db_session.add_all([collaborator, project])
     db_session.commit()
@@ -87,14 +89,14 @@ def base(db_session):
     return collaborator, project, assignment
 
 
-def attendance_payload(collaborator, project, assignment, day=10):
+def attendance_payload(collaborator, project, assignment, day=10, month=7):
     return schemas.AttendanceCreate(
         collaborator_id=collaborator.id,
         project_id=project.id,
         assignment_id=assignment.id if assignment else None,
-        date=datetime(2026, 7, day),
-        start_time=datetime(2026, 7, day, 9),
-        end_time=datetime(2026, 7, day, 13),
+        date=datetime(2026, month, day),
+        start_time=datetime(2026, month, day, 9),
+        end_time=datetime(2026, month, day, 13),
         hours=4,
     )
 
@@ -109,7 +111,7 @@ class TestVincoliPresenzaProgetto:
         assignment.end_date = datetime(2026, 8, 2)  # isola il limite progetto
         db_session.commit()
 
-        with pytest.raises(ValueError, match="periodo del progetto"):
+        with pytest.raises(ValueError, match="periodo delle attività formative"):
             crud.create_attendance(db_session, payload)
         assert db_session.query(models.Attendance).count() == 0
 
@@ -121,7 +123,7 @@ class TestVincoliPresenzaProgetto:
         assignment.end_date = datetime(2026, 8, 2)
         db_session.commit()
 
-        with pytest.raises(ValueError, match="periodo del progetto"):
+        with pytest.raises(ValueError, match="periodo delle attività formative"):
             crud.update_attendance(
                 db_session,
                 attendance.id,
@@ -132,12 +134,73 @@ class TestVincoliPresenzaProgetto:
                 ),
             )
 
-    @pytest.mark.parametrize("missing", ["start_date", "end_date"])
-    def test_date_progetto_obbligatorie(self, db_session, base, missing):
+    @pytest.mark.parametrize(
+        "missing",
+        ["data_avvio_attivita_formative", "data_fine_attivita_formative"],
+    )
+    def test_date_attivita_mancanti_generano_warning_non_bloccante(
+        self, client, db_session, base, missing
+    ):
         collaborator, project, assignment = base
         setattr(project, missing, None)
         db_session.commit()
-        with pytest.raises(ValueError, match="date di inizio e fine"):
+        response = client.post(
+            "/api/v1/attendances/",
+            json=attendance_payload(
+                collaborator, project, assignment
+            ).model_dump(mode="json"),
+        )
+        assert response.status_code == 200, response.text
+        assert (
+            response.headers["X-Project-Date-Warning"]
+            == "project_activity_dates_missing"
+        )
+        assert "senza avvio attivita dichiarato" in response.headers["Warning"]
+
+    def test_date_legacy_non_limitano_le_presenze(self, db_session, base):
+        collaborator, project, assignment = base
+        project.start_date = datetime(2026, 7, 1)
+        project.end_date = datetime(2026, 7, 31)
+        project.data_avvio_attivita_formative = date(2026, 8, 1)
+        project.data_fine_attivita_formative = date(2026, 8, 31)
+        assignment.start_date = datetime(2026, 8, 1)
+        assignment.end_date = datetime(2026, 8, 31)
+        db_session.commit()
+
+        presenza = crud.create_attendance(
+            db_session,
+            attendance_payload(collaborator, project, assignment, day=10, month=8),
+        )
+        assert presenza.id is not None
+
+    def test_warning_compare_anche_su_update(self, client, db_session, base):
+        collaborator, project, assignment = base
+        project.data_avvio_attivita_formative = None
+        project.data_fine_attivita_formative = None
+        presenza = crud.create_attendance(
+            db_session, attendance_payload(collaborator, project, assignment)
+        )
+
+        response = client.put(
+            f"/api/v1/attendances/{presenza.id}",
+            json={"hours": 3},
+        )
+        assert response.status_code == 200, response.text
+        assert (
+            response.headers["X-Project-Date-Warning"]
+            == "project_activity_dates_missing"
+        )
+
+    def test_date_attivita_mancanti_non_aggirano_lo_stato(
+        self, db_session, base
+    ):
+        collaborator, project, assignment = base
+        project.data_avvio_attivita_formative = None
+        project.data_fine_attivita_formative = None
+        project.status = "cancelled"
+        db_session.commit()
+
+        with pytest.raises(ValueError, match="non è attivo"):
             crud.create_attendance(
                 db_session, attendance_payload(collaborator, project, assignment)
             )
