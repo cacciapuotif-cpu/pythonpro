@@ -972,3 +972,53 @@ Il progetto **11** (quello "buono" secondo la bonifica UX-6 blocco A, che ha
 ricevuto CUP e allievi) ha `is_active = false`, mentre il doppione **12** è
 attivo. Nel gestionale l'elenco di default mostra quindi il doppione e nasconde
 il progetto bonificato. Verificato in questa sessione, nessuna modifica fatta.
+
+---
+
+## 2026-07-28 | UX-9 | Chiuso: allievi raggruppati per azienda, in selezione e in lettura
+
+Chiuso con `9ecf868`. Il form progetto sceglieva gli allievi con due select
+"scegli → aggiungi → ripeti" e la scheda li riassumeva per nome: con quattro
+allievi regge, con qualche centinaio no. `AlberoAllievi` raggruppa per
+`Allievo.azienda_cliente_id` — che l'API espone già dentro `allievi_coinvolti`
+(UX-7) — e serve sia la selezione sia la lettura dentro il pannello UX-8.
+
+**Regola di dominio applicata**: spuntare un allievo associa anche la sua
+azienda (un iscritto senza la sua azienda sul progetto non esiste); togliere
+l'ultimo allievo **non** stacca l'azienda, che può restare coinvolta senza
+iscritti. È lo stesso vincolo che UX-8 applica in uscita, dove l'azienda con
+suoi allievi associati non si dissocia.
+
+### Nuovo, corretto qui — il form mostrava solo i primi 100 allievi
+
+`ProjectManager` chiamava `getAllievi({ limit: 100, page: 1 })` e **ignorava
+`total`, `pages` e `has_next`** della risposta paginata. Oltre il centesimo
+allievo, il form ne nascondeva l'esistenza senza dirlo: un operatore che non
+trovava un nominativo non aveva modo di capire perché. Con 4 allievi in archivio
+il difetto era invisibile.
+
+`caricaTuttiGliAllievi` segue le pagine fino a `has_next`, si ferma a un tetto
+di 20 pagine (2000 allievi) e restituisce `troncato`, che l'albero dichiara a
+schermo invece di far finta di niente.
+
+**Verifica live del contratto di paginazione** (2026-07-28, dati reali): con
+`limit=100` l'API risponde `total=4, pages=1, has_next=false`; forzando
+`limit=2`, pagina 1 → `has_next=true, ids [4,6]`, pagina 2 → `has_next=false,
+ids [3,5]`. Il campo su cui si appoggia il caricamento è reale e disgiunto, non
+dedotto dal conteggio.
+
+### Confutazione
+
+- **Mutation check**: rimossa l'auto-associazione dell'azienda in
+  `toggleAllievo` ⇒ 1 test rosso. Ripristinato.
+- **La build ha trovato ciò che i test non vedevano**: rimossi i due select, i
+  setter `setAziendaToAdd`/`setAllievoToAdd` restavano chiamati in `resetForm` e
+  `startEdit`; 206 test passavano lo stesso, `react-scripts build` è fallito con
+  `no-undef`. Corretto prima del commit — la suite verde non basta come prova.
+- **Bundle servito** (`main.1f332f0e.js`): contiene `albero-allievi`, il gruppo
+  "Allievi senza azienda", l'avviso "Elenco parziale", il contatore
+  `"".concat(t.scelti," di ").concat(t.totali," allievi")` e la chiamata
+  paginata a `/allievi/`.
+- **Limite dichiarato**: nessuna verifica con browser reale; il comportamento a
+  centinaia di allievi è provato dai test unitari e dal contratto API, non
+  dall'uso.
