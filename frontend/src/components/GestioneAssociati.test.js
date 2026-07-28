@@ -9,7 +9,7 @@
  */
 
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
 
 import GestioneAssociati from './GestioneAssociati';
@@ -87,6 +87,16 @@ describe('elenco e permessi', () => {
     renderPannello();
     expect(screen.getByText('Alfa Srl')).toBeInTheDocument();
     expect(screen.getByText('Ada Rossi')).toBeInTheDocument();
+  });
+
+  test('UX-9: ogni allievo sta sotto la sua azienda, non in una lista piatta', () => {
+    renderPannello();
+    const alfa = screen.getByRole('group', { name: /Alfa Srl/ });
+
+    expect(within(alfa).getByText('Ada Rossi')).toBeInTheDocument();
+    expect(within(alfa).queryByText('Bruno Verdi')).not.toBeInTheDocument();
+    expect(within(screen.getByRole('group', { name: /Beta Spa/ })).getByText('Bruno Verdi'))
+      .toBeInTheDocument();
   });
 
   test('la consultazione vede l elenco ma nessun pulsante Stacca', () => {

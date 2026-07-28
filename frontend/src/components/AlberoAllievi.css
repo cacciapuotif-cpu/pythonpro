@@ -1,0 +1,85 @@
+/* UX-9 — albero aziende → allievi, in selezione e in lettura */
+
+.albero-allievi {
+  border: 0.5px solid var(--color-border-tertiary);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+
+.albero-ricerca {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  margin-bottom: 10px;
+}
+
+.albero-ricerca input {
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 0.5px solid var(--color-border-secondary);
+  font-size: 13px;
+}
+
+.albero-gruppo + .albero-gruppo {
+  border-top: 0.5px solid var(--color-border-tertiary);
+  margin-top: 8px;
+  padding-top: 8px;
+}
+
+.albero-azienda {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+}
+
+.albero-azienda label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.albero-conteggio {
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--color-text-secondary);
+}
+
+.albero-allievi-elenco {
+  list-style: none;
+  margin: 4px 0 0 0;
+  padding: 0 0 0 22px;
+}
+
+.albero-allievi-elenco li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 0;
+}
+
+.albero-allievi-elenco label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.albero-troncato {
+  margin: 0 0 8px 0;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: #fff8e1;
+  border: 0.5px solid #ffe0a3;
+  font-size: 12px;
+}
+
+.albero-vuoto {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}

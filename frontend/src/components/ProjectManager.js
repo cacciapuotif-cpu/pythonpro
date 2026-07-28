@@ -11,11 +11,12 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { useProjects, useImplementingEntities, useCollaborators, useNotifications } from '../hooks/useEntity';
-import { getAziendeClienti, getAllievi, getProjectBeneficiari, getProjectModuliFormativi, updateProjectBeneficiarioRegime } from '../services/apiService';
+import { getAziendeClienti, caricaTuttiGliAllievi, getProjectBeneficiari, getProjectModuliFormativi, updateProjectBeneficiarioRegime } from '../services/apiService';
 import { FapiUploadSection } from './FapiUpload';
 import { PianoTemplateWizardButton } from './PianoTemplateWizard';
 import AssignmentModal from './AssignmentModal';
 import GestioneAssociati from './GestioneAssociati';
+import AlberoAllievi from './AlberoAllievi';
 import { canPerform, normalizeRole } from '../auth/permissions';
 import './ProjectManager.css';
 
@@ -236,9 +237,9 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
     ente_attuatore_id: null // NUOVO: FK verso ente attuatore
   });
   const [aziendaOptions, setAziendaOptions] = useState([]);
-  const [aziendaToAdd, setAziendaToAdd] = useState('');
   const [allievoOptions, setAllievoOptions] = useState([]);
-  const [allievoToAdd, setAllievoToAdd] = useState('');
+  // UX-9: l'albero ha bisogno di tutti gli allievi, e deve dire se non li ha.
+  const [allieviTroncati, setAllieviTroncati] = useState(false);
 
   // Stati locali dell'interfaccia
   const [editingId, setEditingId] = useState(null); // ID del progetto in modifica
@@ -319,16 +320,18 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
       try {
         const [aziendeData, allieviData] = await Promise.all([
           getAziendeClienti({ limit: 100, page: 1 }),
-          getAllievi({ limit: 100, page: 1 }),
+          caricaTuttiGliAllievi(),
         ]);
         if (!cancelled) {
           setAziendaOptions(Array.isArray(aziendeData?.items) ? aziendeData.items : (Array.isArray(aziendeData) ? aziendeData : []));
-          setAllievoOptions(Array.isArray(allieviData?.items) ? allieviData.items : (Array.isArray(allieviData) ? allieviData : []));
+          setAllievoOptions(allieviData.items);
+          setAllieviTroncati(allieviData.troncato);
         }
       } catch (error) {
         if (!cancelled) {
           setAziendaOptions([]);
           setAllievoOptions([]);
+          setAllieviTroncati(false);
         }
       }
     };
@@ -355,54 +358,10 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
     }));
   };
 
-  const handleAddAzienda = () => {
-    const selectedId = Number(aziendaToAdd);
-    if (!selectedId) {
-      return;
-    }
-
-    setFormData((prev) => {
-      if (prev.azienda_ids.includes(selectedId)) {
-        return prev;
-      }
-      return {
-        ...prev,
-        azienda_ids: [...prev.azienda_ids, selectedId],
-      };
-    });
-    setAziendaToAdd('');
-  };
-
-  const handleRemoveAzienda = (aziendaIdToRemove) => {
-    setFormData((prev) => ({
-      ...prev,
-      azienda_ids: prev.azienda_ids.filter((aziendaId) => aziendaId !== aziendaIdToRemove),
-    }));
-  };
-
-  const handleAddAllievo = () => {
-    const selectedId = Number(allievoToAdd);
-    if (!selectedId) {
-      return;
-    }
-
-    setFormData((prev) => {
-      if (prev.allievo_ids.includes(selectedId)) {
-        return prev;
-      }
-      return {
-        ...prev,
-        allievo_ids: [...prev.allievo_ids, selectedId],
-      };
-    });
-    setAllievoToAdd('');
-  };
-
-  const handleRemoveAllievo = (allievoIdToRemove) => {
-    setFormData((prev) => ({
-      ...prev,
-      allievo_ids: prev.allievo_ids.filter((allievoId) => allievoId !== allievoIdToRemove),
-    }));
+  // UX-9: l'albero emette la coppia coerente (aziende, allievi) in un colpo
+  // solo: la regola "un allievo tira dentro la sua azienda" vive li', non qui.
+  const handleAlberoChange = ({ azienda_ids, allievo_ids }) => {
+    setFormData((prev) => ({ ...prev, azienda_ids, allievo_ids }));
   };
 
   /**
@@ -520,8 +479,6 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
       allievo_ids: [],
       ente_attuatore_id: null
     });
-    setAziendaToAdd('');
-    setAllievoToAdd('');
     setEditingId(null);
     setShowForm(false);
     setActiveStepIndex(0);
@@ -553,8 +510,6 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
       allievo_ids: Array.isArray(project.allievo_ids) ? project.allievo_ids.map((id) => Number(id)) : [],
       ente_attuatore_id: project.ente_attuatore_id || null
     });
-    setAziendaToAdd('');
-    setAllievoToAdd('');
     setEditingId(project.id);
     setShowForm(true);
     setActiveStepIndex(0);
@@ -694,15 +649,9 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
   const selectedAziende = formData.azienda_ids
     .map((aziendaId) => aziendaOptions.find((azienda) => Number(azienda.id) === Number(aziendaId)))
     .filter(Boolean);
-  const availableAziende = aziendaOptions.filter(
-    (azienda) => !formData.azienda_ids.includes(Number(azienda.id))
-  );
   const selectedAllievi = formData.allievo_ids
     .map((allievoId) => allievoOptions.find((allievo) => Number(allievo.id) === Number(allievoId)))
     .filter(Boolean);
-  const availableAllievi = allievoOptions.filter(
-    (allievo) => !formData.allievo_ids.includes(Number(allievo.id))
-  );
   const showCreateAction = canWriteProjects;
 
   const goToStep = (index) => {
@@ -1046,111 +995,22 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
                       </div>
 
                       <div className="form-group full-width">
-                        <label htmlFor="azienda_coinvolta">Aziende coinvolte</label>
-                        <div className="project-company-picker">
-                          <select
-                            id="azienda_coinvolta"
-                            value={aziendaToAdd}
-                            onChange={(e) => setAziendaToAdd(e.target.value)}
-                          >
-                            <option value="">Seleziona azienda cliente</option>
-                            {availableAziende.map((azienda) => (
-                              <option key={azienda.id} value={azienda.id}>
-                                {azienda.ragione_sociale}
-                                {azienda.partita_iva ? ` · ${azienda.partita_iva}` : ''}
-                              </option>
-                            ))}
-                          </select>
-                          <button
-                            type="button"
-                            className="secondary-button"
-                            onClick={handleAddAzienda}
-                            disabled={!aziendaToAdd}
-                          >
-                            Aggiungi azienda
-                          </button>
-                        </div>
+                        <label>Aziende e allievi coinvolti</label>
                         <small className="field-hint">
-                          Le aziende aggiunte qui compariranno anche nella loro scheda, sotto i progetti associati.
+                          Gli allievi stanno sotto la loro azienda. Spuntare l'azienda
+                          prende tutti i suoi; spuntare un allievo associa anche la sua
+                          azienda, perche' un iscritto senza la sua azienda sul progetto
+                          non esiste. Un'azienda puo' invece restare coinvolta senza
+                          iscritti.
                         </small>
-                        <div className="project-company-list">
-                          {selectedAziende.length > 0 ? (
-                            selectedAziende.map((azienda) => (
-                              <div key={azienda.id} className="project-company-item">
-                                <div>
-                                  <strong>{azienda.ragione_sociale}</strong>
-                                  {azienda.partita_iva ? <small>{azienda.partita_iva}</small> : null}
-                                </div>
-                                <button
-                                  type="button"
-                                  className="delete-button"
-                                  onClick={() => handleRemoveAzienda(Number(azienda.id))}
-                                  title="Rimuovi azienda"
-                                >
-                                  Rimuovi
-                                </button>
-                              </div>
-                            ))
-                          ) : (
-                            <div className="project-company-empty">
-                              Nessuna azienda collegata a questo progetto.
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="form-group full-width">
-                        <label htmlFor="allievo_coinvolto">Allievi coinvolti</label>
-                        <div className="project-company-picker">
-                          <select
-                            id="allievo_coinvolto"
-                            value={allievoToAdd}
-                            onChange={(e) => setAllievoToAdd(e.target.value)}
-                          >
-                            <option value="">Seleziona allievo</option>
-                            {availableAllievi.map((allievo) => (
-                              <option key={allievo.id} value={allievo.id}>
-                                {allievo.nome} {allievo.cognome}
-                                {allievo.email ? ` · ${allievo.email}` : ''}
-                              </option>
-                            ))}
-                          </select>
-                          <button
-                            type="button"
-                            className="secondary-button"
-                            onClick={handleAddAllievo}
-                            disabled={!allievoToAdd}
-                          >
-                            Aggiungi allievo
-                          </button>
-                        </div>
-                        <small className="field-hint">
-                          Gli allievi associati qui compariranno anche nella loro scheda, tra i progetti collegati.
-                        </small>
-                        <div className="project-company-list">
-                          {selectedAllievi.length > 0 ? (
-                            selectedAllievi.map((allievo) => (
-                              <div key={allievo.id} className="project-company-item">
-                                <div>
-                                  <strong>{allievo.nome} {allievo.cognome}</strong>
-                                  {allievo.email ? <small>{allievo.email}</small> : null}
-                                </div>
-                                <button
-                                  type="button"
-                                  className="delete-button"
-                                  onClick={() => handleRemoveAllievo(Number(allievo.id))}
-                                  title="Rimuovi allievo"
-                                >
-                                  Rimuovi
-                                </button>
-                              </div>
-                            ))
-                          ) : (
-                            <div className="project-company-empty">
-                              Nessun allievo collegato a questo progetto.
-                            </div>
-                          )}
-                        </div>
+                        <AlberoAllievi
+                          aziende={aziendaOptions}
+                          allievi={allievoOptions}
+                          aziendeSelezionate={formData.azienda_ids}
+                          allieviSelezionati={formData.allievo_ids}
+                          onChange={handleAlberoChange}
+                          troncato={allieviTroncati}
+                        />
                       </div>
 
                     </div>

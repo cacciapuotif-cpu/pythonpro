@@ -855,6 +855,28 @@ export const getAllievi = (params = {}) =>
   }).then(r => r.data);
 export const getAllievo = (id) =>
   http.get(`/allievi/${id}`).then(r => r.data);
+
+// UX-9: l'albero per azienda ha bisogno di TUTTI gli allievi, non della prima
+// pagina. `/allievi/` e' paginato e tetto a 100 per pagina, quindi si seguono
+// le pagine; il tetto di sicurezza evita il ciclo infinito su una API che
+// dichiarasse `has_next` per sbaglio, e chi chiama sa se l'elenco e' parziale.
+export const caricaTuttiGliAllievi = async ({ maxPagine = 20, ...params } = {}) => {
+  const items = [];
+  let page = 1;
+
+  for (; page <= maxPagine; page += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    const data = await http.get('/allievi/', { params: { ...params, page, limit: 100 } })
+      .then(r => r.data);
+
+    if (Array.isArray(data)) return { items: [...items, ...data], troncato: false };
+
+    items.push(...(data.items || []));
+    if (!data.has_next) return { items, troncato: false };
+  }
+
+  return { items, troncato: true };
+};
 export const createAllievo = (data) =>
   http.post('/allievi/', data).then(r => r.data);
 export const updateAllievo = (id, data) =>

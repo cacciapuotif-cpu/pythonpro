@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 
+import AlberoAllievi from './AlberoAllievi';
 import { canPerform, isAdminRole } from '../auth/permissions';
 import { formatApiError } from '../lib/errors';
 import {
@@ -77,42 +78,32 @@ const GestioneAssociati = ({ project, currentUser, onChange }) => {
 
   const forzaOfferta = Boolean(conflitto?.forzabile) && puoForzare;
 
-  const renderRiga = (tipo, entita, nome) => (
-    <li className="associato-riga" key={`${tipo}-${entita.id}`}>
-      <span className="associato-nome">{nome}</span>
-      {puoStaccare && (
-        <button
-          type="button"
-          className="associato-stacca"
-          onClick={() => apri(tipo, entita, nome)}
-        >
-          {`Stacca ${nome}`}
-        </button>
-      )}
-    </li>
-  );
+  const bottoneStacca = (tipo, entita, nome) => (puoStaccare ? (
+    <button
+      type="button"
+      className="associato-stacca"
+      onClick={() => apri(tipo, entita, nome)}
+    >
+      {`Stacca ${nome}`}
+    </button>
+  ) : null);
 
   return (
     <section className="gestione-associati">
       <h4>Associazioni del progetto</h4>
 
-      <div className="associati-gruppo">
-        <h5>🏢 Aziende</h5>
-        {aziende.length === 0 ? (
-          <p className="associati-vuoto">Nessuna azienda associata</p>
-        ) : (
-          <ul>{aziende.map((a) => renderRiga('azienda', a, a.ragione_sociale))}</ul>
-        )}
-      </div>
-
-      <div className="associati-gruppo">
-        <h5>🎓 Allievi</h5>
-        {allievi.length === 0 ? (
-          <p className="associati-vuoto">Nessun allievo associato</p>
-        ) : (
-          <ul>{allievi.map((a) => renderRiga('allievo', a, nomeAllievo(a)))}</ul>
-        )}
-      </div>
+      {aziende.length === 0 && allievi.length === 0 ? (
+        <p className="associati-vuoto">Nessuna azienda o allievo associato</p>
+      ) : (
+        <AlberoAllievi
+          aziende={aziende}
+          allievi={allievi}
+          aziendeSelezionate={aziende.map((a) => a.id)}
+          allieviSelezionati={allievi.map((a) => a.id)}
+          renderAzioneAzienda={(azienda) => bottoneStacca('azienda', azienda, azienda.ragione_sociale)}
+          renderAzioneAllievo={(allievo) => bottoneStacca('allievo', allievo, nomeAllievo(allievo))}
+        />
+      )}
 
       {bersaglio && (
         <div className="modal-overlay" onClick={chiudi}>

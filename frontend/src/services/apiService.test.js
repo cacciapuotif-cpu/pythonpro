@@ -1,5 +1,5 @@
 import { http } from '../lib/http';
-import { ingestAvvisoRevision, permanentlyDeleteAvviso, healthCheck } from './apiService';
+import { ingestAvvisoRevision, permanentlyDeleteAvviso, healthCheck, caricaTuttiGliAllievi } from './apiService';
 
 jest.mock('../lib/http', () => ({
   apiRootUrl: '',
@@ -99,5 +99,44 @@ describe('healthCheck (NEW-020: scenario LAN)', () => {
 
     jest.dontMock('../lib/http');
     jest.resetModules();
+  });
+});
+
+describe('caricaTuttiGliAllievi (UX-9)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  test('segue le pagine finche has_next e restituisce l elenco intero', async () => {
+    http.get
+      .mockResolvedValueOnce({ data: { items: [{ id: 1 }, { id: 2 }], has_next: true, total: 3 } })
+      .mockResolvedValueOnce({ data: { items: [{ id: 3 }], has_next: false, total: 3 } });
+
+    const esito = await caricaTuttiGliAllievi();
+
+    expect(esito.items.map((a) => a.id)).toEqual([1, 2, 3]);
+    expect(esito.troncato).toBe(false);
+    expect(http.get).toHaveBeenCalledTimes(2);
+    expect(http.get.mock.calls[1][1].params.page).toBe(2);
+  });
+
+  test('si ferma al tetto di pagine e lo dichiara invece di mentire', async () => {
+    http.get.mockResolvedValue({ data: { items: [{ id: 1 }], has_next: true, total: 9999 } });
+
+    const esito = await caricaTuttiGliAllievi({ maxPagine: 3 });
+
+    expect(http.get).toHaveBeenCalledTimes(3);
+    expect(esito.troncato).toBe(true);
+    expect(esito.items).toHaveLength(3);
+  });
+
+  test('una risposta senza paginazione non manda in loop', async () => {
+    http.get.mockResolvedValue({ data: [{ id: 7 }] });
+
+    const esito = await caricaTuttiGliAllievi();
+
+    expect(http.get).toHaveBeenCalledTimes(1);
+    expect(esito.items.map((a) => a.id)).toEqual([7]);
+    expect(esito.troncato).toBe(false);
   });
 });
