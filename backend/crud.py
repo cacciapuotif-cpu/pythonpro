@@ -24,6 +24,7 @@ from piano_finanziario_config import (
 from async_events import enqueue_webhook_notification, track_entity_event
 from services.audit_log import write_audit_log
 from services import dissociazione_progetto
+from services import date_progetto
 from fastapi import HTTPException
 
 logger = logging.getLogger(__name__)
@@ -885,6 +886,9 @@ def create_project(db: Session, project: schemas.ProjectCreateExtended):
     azienda_ids = payload.pop("azienda_ids", [])
     allievo_ids = payload.pop("allievo_ids", [])
     payload = _resolve_project_financial_refs(db, payload)
+    date_progetto.valida_date_progetto(
+        payload, richiedi_date_nuovo_attivo=True
+    )
     db_project = models.Project(**payload)
     db.add(db_project)
     db.flush()
@@ -903,6 +907,9 @@ def update_project(db: Session, project_id: int, project: schemas.ProjectUpdateE
         azienda_ids = update_data.pop("azienda_ids", None)
         allievo_ids = update_data.pop("allievo_ids", None)
         update_data = _resolve_project_financial_refs(db, update_data, current_project=db_project)
+        date_progetto.valida_date_progetto(
+            date_progetto.snapshot_date_progetto(db_project, update_data)
+        )
         for key, value in update_data.items():
             setattr(db_project, key, value)
         # UX-8: prima gli allievi, poi le aziende, con un flush in mezzo.

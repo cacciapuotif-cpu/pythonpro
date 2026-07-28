@@ -138,6 +138,8 @@ class TestProjectsEndpoints:
             "start_date": "2025-01-01",
             "end_date": "2025-12-31",
             "status": "active",
+            "data_approvazione": "2024-12-20",
+            "data_avvio_piano": "2025-01-01",
         }
         response = client.post("/api/v1/projects/", json=project_data)
         assert response.status_code == 200
@@ -277,6 +279,8 @@ class TestIntegrationFlow:
             "start_date": "2025-03-01",
             "end_date": "2025-09-30",
             "status": "active",
+            "data_approvazione": "2025-02-20",
+            "data_avvio_piano": "2025-03-01",
         }
         project_response = client.post("/api/v1/projects/", json=project_data)
         assert project_response.status_code == 200

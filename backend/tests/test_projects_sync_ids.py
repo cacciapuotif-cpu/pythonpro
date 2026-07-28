@@ -28,6 +28,12 @@ from auth import UserRole, get_current_user, rbac_decision_for
 import models  # noqa: F401  # assicura registrazione metadata
 
 
+DATE_PROGETTO_VALIDE = {
+    "data_approvazione": "2026-03-24",
+    "data_avvio_piano": "2026-04-01",
+}
+
+
 @pytest.fixture(scope="function")
 def db_session(tmp_path):
     db_path = tmp_path / "test_projects_sync.db"
@@ -113,6 +119,7 @@ class TestCreateSync:
             "/api/v1/projects/",
             json={
                 "name": "Progetto con beneficiari",
+                **DATE_PROGETTO_VALIDE,
                 "azienda_ids": [a1.id, a2.id],
                 "allievo_ids": [al1.id, al2.id],
             },
@@ -127,7 +134,10 @@ class TestCreateSync:
         assert sorted(body["allievo_ids"]) == sorted([al1.id, al2.id])
 
     def test_create_senza_ids_nessun_link(self, client, db_session):
-        resp = client.post("/api/v1/projects/", json={"name": "Progetto nudo"})
+        resp = client.post(
+            "/api/v1/projects/",
+            json={"name": "Progetto nudo", **DATE_PROGETTO_VALIDE},
+        )
         assert resp.status_code == 200, resp.text
         pid = resp.json()["id"]
         assert _azienda_link_ids(db_session, pid) == []
@@ -138,7 +148,7 @@ class TestCreateSync:
 
 class TestUpdateSync:
     def _crea_progetto(self, client, azienda_ids=None, allievo_ids=None):
-        payload = {"name": "Progetto base"}
+        payload = {"name": "Progetto base", **DATE_PROGETTO_VALIDE}
         if azienda_ids is not None:
             payload["azienda_ids"] = azienda_ids
         if allievo_ids is not None:
@@ -209,7 +219,10 @@ class TestLegacyKeysNonRegressione:
         assert resp.status_code == 422
 
     def test_update_legacy_key_422(self, client):
-        resp = client.post("/api/v1/projects/", json={"name": "X"})
+        resp = client.post(
+            "/api/v1/projects/",
+            json={"name": "X", **DATE_PROGETTO_VALIDE},
+        )
         pid = resp.json()["id"]
         resp = client.put(
             f"/api/v1/projects/{pid}",

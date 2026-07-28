@@ -151,6 +151,13 @@ class ProjectBase(BaseModel):
     description: Optional[str] = Field(None)
     start_date: Optional[datetime] = Field(None)
     end_date: Optional[datetime] = Field(None)
+    data_approvazione: Optional[date] = None
+    data_avvio_piano: Optional[date] = None
+    data_termine_piano: Optional[date] = None
+    data_avvio_attivita_formative: Optional[date] = None
+    data_fine_attivita_formative: Optional[date] = None
+    data_termine_rendicontazione: Optional[date] = None
+    data_chiusura_effettiva: Optional[date] = None
     status: str = Field("active")
     ente_erogatore: Optional[str] = None
     codice_fapi: Optional[str] = None
@@ -177,6 +184,13 @@ class ProjectUpdate(BaseModel):
     description: Optional[str] = None
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
+    data_approvazione: Optional[date] = None
+    data_avvio_piano: Optional[date] = None
+    data_termine_piano: Optional[date] = None
+    data_avvio_attivita_formative: Optional[date] = None
+    data_fine_attivita_formative: Optional[date] = None
+    data_termine_rendicontazione: Optional[date] = None
+    data_chiusura_effettiva: Optional[date] = None
     status: Optional[str] = None
     ente_erogatore: Optional[str] = None
     codice_fapi: Optional[str] = None

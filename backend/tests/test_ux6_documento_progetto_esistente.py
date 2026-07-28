@@ -283,7 +283,11 @@ def test_documento_non_riconosciuto_non_crea_progetti_fantasma(
 
     conferma = client.post(
         "/api/v1/projects/confirm-convenzione",
-        json={"preview_token": upload.json()["preview_token"]},
+        json={
+            "preview_token": upload.json()["preview_token"],
+            "data_approvazione": "2026-03-24",
+            "data_avvio_piano": "2026-04-01",
+        },
     )
     assert conferma.status_code == 422, conferma.text
     assert "non riconosciuto" in conferma.json()["detail"].lower()
@@ -304,11 +308,37 @@ def test_creazione_resta_possibile_con_documento_riconosciuto(
     )
     conferma = client.post(
         "/api/v1/projects/confirm-convenzione",
-        json={"preview_token": upload.json()["preview_token"]},
+        json={
+            "preview_token": upload.json()["preview_token"],
+            "data_approvazione": "2026-03-24",
+            "data_avvio_piano": "2026-04-01",
+        },
     )
     assert conferma.status_code == 200, conferma.text
     assert db_session.query(models.Project).count() == 1
     assert conferma.json()["codice_fapi"] == "20250611CMIA001"
+
+
+def test_creazione_da_convenzione_richiede_le_date_amministrative(
+    client, db_session, monkeypatch
+):
+    monkeypatch.setattr(
+        "services.parsers.fapi.convenzione_parser.parse_convenzione",
+        lambda _path: _estrazione(codice_fapi="FAPI-SENZA-DATE"),
+    )
+    upload = client.post(
+        "/api/v1/projects/upload-convenzione",
+        files={"file": ("convenzione.pdf", PDF_FINTO, "application/pdf")},
+    )
+    conferma = client.post(
+        "/api/v1/projects/confirm-convenzione",
+        json={"preview_token": upload.json()["preview_token"]},
+    )
+
+    assert conferma.status_code == 400, conferma.text
+    assert "data approvazione" in conferma.json()["detail"].lower()
+    assert "data avvio piano" in conferma.json()["detail"].lower()
+    assert db_session.query(models.Project).count() == 0
 
 
 # ------------------------------------------------------------------
@@ -419,7 +449,11 @@ def test_ammissione_non_riconosciuta_non_crea_progetti_fantasma(
 
     conferma = client_fondimpresa.post(
         "/api/v1/projects/fondimpresa/confirm-ammissione",
-        json={"preview_token": upload.json()["preview_token"]},
+        json={
+            "preview_token": upload.json()["preview_token"],
+            "data_approvazione": "2026-03-24",
+            "data_avvio_piano": "2026-04-01",
+        },
     )
     assert conferma.status_code == 422, conferma.text
     assert db_session.query(models.Project).count() == 0
@@ -437,10 +471,35 @@ def test_ammissione_riconosciuta_continua_a_creare_il_progetto(
     )
     conferma = client_fondimpresa.post(
         "/api/v1/projects/fondimpresa/confirm-ammissione",
-        json={"preview_token": upload.json()["preview_token"]},
+        json={
+            "preview_token": upload.json()["preview_token"],
+            "data_approvazione": "2026-03-24",
+            "data_avvio_piano": "2026-04-01",
+        },
     )
     assert conferma.status_code == 200, conferma.text
     assert db_session.query(models.Project).count() == 1
+
+
+def test_creazione_da_ammissione_richiede_le_date_amministrative(
+    client_fondimpresa, db_session, monkeypatch
+):
+    _patch_ammissione(
+        monkeypatch, {"codice_piano": "FI-SENZA-DATE", "titolo_piano": "Piano"}
+    )
+    upload = client_fondimpresa.post(
+        "/api/v1/projects/fondimpresa/upload-ammissione",
+        files={"file": ("lettera.pdf", PDF_FINTO, "application/pdf")},
+    )
+    conferma = client_fondimpresa.post(
+        "/api/v1/projects/fondimpresa/confirm-ammissione",
+        json={"preview_token": upload.json()["preview_token"]},
+    )
+
+    assert conferma.status_code == 400, conferma.text
+    assert "data approvazione" in conferma.json()["detail"].lower()
+    assert "data avvio piano" in conferma.json()["detail"].lower()
+    assert db_session.query(models.Project).count() == 0
 
 
 def test_ente_attuatore_arricchito_come_intero(client, db_session, progetto, monkeypatch):

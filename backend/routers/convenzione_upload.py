@@ -14,7 +14,7 @@ import models
 from database import get_db
 from auth import get_current_user, User
 import fapi_preview_store as _preview_store
-from services import documento_progetto
+from services import date_progetto, documento_progetto
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +26,13 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 class ConfirmConvenzioneRequest(BaseModel):
     preview_token: str
+    data_approvazione: date | None = None
+    data_avvio_piano: date | None = None
+    data_termine_piano: date | None = None
+    data_avvio_attivita_formative: date | None = None
+    data_fine_attivita_formative: date | None = None
+    data_termine_rendicontazione: date | None = None
+    data_chiusura_effettiva: date | None = None
 
 
 class AssociaConvenzioneRequest(BaseModel):
@@ -316,6 +323,14 @@ def confirm_convenzione(
                 detail=f"Progetto con codice FAPI {codice_fapi} già esistente (id={existing.id})",
             )
 
+    try:
+        date_progetto.valida_date_progetto(
+            {**body.model_dump(), "status": "active"},
+            richiedi_date_nuovo_attivo=True,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
     # rinomina file con codice piano
     file_path = preview["file_path"]
     if codice_fapi:
@@ -347,6 +362,13 @@ def confirm_convenzione(
         convenzione_file_path=file_path,
         status="active",
         budget=piano.get("costo_totale"),
+        data_approvazione=body.data_approvazione,
+        data_avvio_piano=body.data_avvio_piano,
+        data_termine_piano=body.data_termine_piano,
+        data_avvio_attivita_formative=body.data_avvio_attivita_formative,
+        data_fine_attivita_formative=body.data_fine_attivita_formative,
+        data_termine_rendicontazione=body.data_termine_rendicontazione,
+        data_chiusura_effettiva=body.data_chiusura_effettiva,
     )
     db.add(project)
     db.flush()

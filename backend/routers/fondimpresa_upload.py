@@ -15,7 +15,7 @@ import fapi_preview_store as _preview_store
 import models
 from auth import User, get_current_user
 from database import get_db
-from services import documento_progetto
+from services import date_progetto, documento_progetto
 from services.parsers.fondimpresa.ammissione_parser import AmmissioneParser
 from services.parsers.fondimpresa.riepilogo_parser import RiepilogoParser
 
@@ -31,6 +31,13 @@ os.makedirs(RIEPILOGHI_DIR, exist_ok=True)
 
 class ConfirmPreviewRequest(BaseModel):
     preview_token: str
+    data_approvazione: date | None = None
+    data_avvio_piano: date | None = None
+    data_termine_piano: date | None = None
+    data_avvio_attivita_formative: date | None = None
+    data_fine_attivita_formative: date | None = None
+    data_termine_rendicontazione: date | None = None
+    data_chiusura_effettiva: date | None = None
 
 
 class AssociaAmmissioneRequest(BaseModel):
@@ -234,6 +241,20 @@ def confirm_ammissione_fondimpresa(
         if existing:
             raise HTTPException(status_code=409, detail=f"Progetto Fondimpresa gia' esistente (id={existing.id})")
 
+    date_values = {
+        **body.model_dump(),
+        "status": "active",
+        "data_approvazione": body.data_approvazione
+        or _parse_date(preview.get("data_approvazione") or preview.get("determina_data")),
+    }
+    try:
+        date_progetto.valida_date_progetto(
+            date_values,
+            richiedi_date_nuovo_attivo=True,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
     file_path = preview.get("file_path")
     if file_path:
         final_path = os.path.join(AMMISSIONI_DIR, f"{_safe_code(codice, body.preview_token)}.pdf")
@@ -252,7 +273,13 @@ def confirm_ammissione_fondimpresa(
         cup=preview.get("cup"),
         id_piano_esterno=preview.get("id_piano_esterno"),
         avviso=preview.get("avviso_numero"),
-        data_approvazione=_parse_date(preview.get("data_approvazione") or preview.get("determina_data")),
+        data_approvazione=date_values["data_approvazione"],
+        data_avvio_piano=body.data_avvio_piano,
+        data_termine_piano=body.data_termine_piano,
+        data_avvio_attivita_formative=body.data_avvio_attivita_formative,
+        data_fine_attivita_formative=body.data_fine_attivita_formative,
+        data_termine_rendicontazione=body.data_termine_rendicontazione,
+        data_chiusura_effettiva=body.data_chiusura_effettiva,
         delibera_data=_parse_date(preview.get("determina_data")),
         costo_totale=preview.get("importo_totale"),
         contributo_ente=preview.get("contributo_ente"),

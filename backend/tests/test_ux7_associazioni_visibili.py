@@ -222,6 +222,8 @@ def test_dopo_il_salvataggio_la_risposta_mostra_gia_gli_associati(client, db_ses
     creato = client.post("/api/v1/projects/", json={
         "name": "Progetto appena salvato",
         "status": "active",
+        "data_approvazione": "2026-03-24",
+        "data_avvio_piano": "2026-04-01",
         "azienda_ids": [azienda.id],
         "allievo_ids": [allievo.id],
     })

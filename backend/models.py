@@ -235,6 +235,8 @@ class Project(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False, index=True)
     description = Column(Text)
+    # Legacy UX-5: semantica ambigua, conservati nella prima migration senza
+    # alcun backfill automatico verso i campi espliciti sottostanti.
     start_date = Column(DateTime, index=True)
     end_date = Column(DateTime, index=True)
     status = Column(String(20), default="active", index=True)
@@ -266,6 +268,12 @@ class Project(Base):
     delibera_numero = Column(String(20), nullable=True)
     delibera_data = Column(Date, nullable=True)
     data_approvazione = Column(Date, nullable=True)
+    data_avvio_piano = Column(Date, nullable=True, index=True)
+    data_termine_piano = Column(Date, nullable=True, index=True)
+    data_avvio_attivita_formative = Column(Date, nullable=True)
+    data_fine_attivita_formative = Column(Date, nullable=True)
+    data_termine_rendicontazione = Column(Date, nullable=True, index=True)
+    data_chiusura_effettiva = Column(Date, nullable=True)
     costo_totale = Column(Numeric(12, 2), nullable=True)
     contributo_ente = Column(Numeric(12, 2), nullable=True)
     cofinanziamento = Column(Numeric(12, 2), nullable=True)
@@ -307,6 +315,44 @@ class Project(Base):
         if status not in valid_statuses:
             raise ValueError(f"Status deve essere uno di: {valid_statuses}")
         return status
+
+    __table_args__ = (
+        CheckConstraint(
+            "data_approvazione IS NULL OR data_avvio_piano IS NULL "
+            "OR data_approvazione <= data_avvio_piano",
+            name="ck_project_approvazione_avvio_piano",
+        ),
+        CheckConstraint(
+            "data_avvio_piano IS NULL OR data_termine_piano IS NULL "
+            "OR data_avvio_piano <= data_termine_piano",
+            name="ck_project_avvio_termine_piano",
+        ),
+        CheckConstraint(
+            "data_avvio_attivita_formative IS NULL OR data_fine_attivita_formative IS NULL "
+            "OR data_avvio_attivita_formative <= data_fine_attivita_formative",
+            name="ck_project_attivita_formative_range",
+        ),
+        CheckConstraint(
+            "data_avvio_piano IS NULL OR data_avvio_attivita_formative IS NULL "
+            "OR data_avvio_piano <= data_avvio_attivita_formative",
+            name="ck_project_attivita_dopo_avvio_piano",
+        ),
+        CheckConstraint(
+            "data_termine_piano IS NULL OR data_fine_attivita_formative IS NULL "
+            "OR data_fine_attivita_formative <= data_termine_piano",
+            name="ck_project_attivita_entro_termine_piano",
+        ),
+        CheckConstraint(
+            "data_fine_attivita_formative IS NULL OR data_termine_rendicontazione IS NULL "
+            "OR data_fine_attivita_formative <= data_termine_rendicontazione",
+            name="ck_project_rendicontazione_dopo_attivita",
+        ),
+        CheckConstraint(
+            "data_fine_attivita_formative IS NULL OR data_chiusura_effettiva IS NULL "
+            "OR data_fine_attivita_formative <= data_chiusura_effettiva",
+            name="ck_project_chiusura_dopo_attivita",
+        ),
+    )
 
     @property
     def resolved_ente_erogatore(self):

@@ -33,6 +33,10 @@ def create_project(
         db.refresh(result)
         logger.info(f"Progetto creato: ID {result.id}")
         return result
+    except ValueError as exc:
+        db.rollback()
+        logger.info("Progetto rifiutato per dati non validi: %s", exc)
+        raise HTTPException(status_code=400, detail=str(exc))
     except Exception as e:
         db.rollback()
         logger.error(f"Errore creazione progetto: {e}")

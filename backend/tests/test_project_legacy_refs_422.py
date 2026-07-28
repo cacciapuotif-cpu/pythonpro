@@ -27,6 +27,8 @@ PROJECT_PAYLOAD = {
     "description": "desc",
     "status": "active",
     "atto_approvazione": "ATTO-1",
+    "data_approvazione": "2026-03-24",
+    "data_avvio_piano": "2026-04-01",
 }
 
 
