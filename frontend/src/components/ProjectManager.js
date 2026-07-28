@@ -15,6 +15,7 @@ import { getAziendeClienti, getAllievi, getProjectBeneficiari, getProjectModuliF
 import { FapiUploadSection } from './FapiUpload';
 import { PianoTemplateWizardButton } from './PianoTemplateWizard';
 import AssignmentModal from './AssignmentModal';
+import GestioneAssociati from './GestioneAssociati';
 import { canPerform, normalizeRole } from '../auth/permissions';
 import './ProjectManager.css';
 
@@ -250,6 +251,9 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
   const [regimeSaving, setRegimeSaving] = useState({});
   const [showFapiModal, setShowFapiModal] = useState(false);
   const [regimeOpenProject, setRegimeOpenProject] = useState(null);
+  // UX-8: il pannello di dissociazione sta chiuso finche' non serve, come il
+  // riquadro dei regimi: la scheda resta leggibile.
+  const [associatiOpenProject, setAssociatiOpenProject] = useState(null);
   const [plafondByBeneficiario, setPlafondByBeneficiario] = useState({});
   const [regimeByBeneficiario, setRegimeByBeneficiario] = useState({});
   const [assignmentProject, setAssignmentProject] = useState(null);
@@ -1497,7 +1501,24 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
                       </button>
                     </div>
                   )}
+                  <div className="stat">
+                    <button
+                      onClick={() => setAssociatiOpenProject(
+                        associatiOpenProject === project.id ? null : project.id,
+                      )}
+                      className="associati-toggle"
+                    >
+                      Associazioni
+                    </button>
+                  </div>
                 </div>
+                {associatiOpenProject === project.id && (
+                  <GestioneAssociati
+                    project={project}
+                    currentUser={currentUser}
+                    onChange={refresh}
+                  />
+                )}
                 {regimeOpenProject === project.id && (
                   <div style={{ borderTop: '0.5px solid var(--color-border-tertiary)', marginTop: '0.5rem', padding: '0.75rem 1rem' }}>
                     <div style={{ fontSize: '13px', fontWeight: 500, marginBottom: '0.5rem', color: 'var(--color-text-primary)' }}>

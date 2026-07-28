@@ -945,6 +945,13 @@ export const getProjectBeneficiari = (projectId) =>
 export const updateProjectBeneficiarioRegime = (projectId, aziendaId, data) =>
   http.patch(`/projects/${projectId}/beneficiari/${aziendaId}/regime`, data).then(r => r.data);
 
+// ── UX-8: dissociazione allievi/aziende dal progetto ──────────────────────
+// Il corpo e' opzionale: senza `{forza, motivo}` valgono le guardie piene.
+export const dissociaAllievoDaProgetto = (projectId, allievoId, payload) =>
+  http.delete(`/projects/${projectId}/allievi/${allievoId}`, { data: payload }).then(r => r.data);
+export const dissociaAziendaDaProgetto = (projectId, aziendaId, payload) =>
+  http.delete(`/projects/${projectId}/aziende/${aziendaId}`, { data: payload }).then(r => r.data);
+
 // ── Blocco 4: Preventivi ─────────────────────
 export const getPreventivi = (params = {}) =>
   http.get('/preventivi/', { params }).then(r => r.data);

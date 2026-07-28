@@ -1200,3 +1200,114 @@
   background: var(--color-accent);
   color: white;
 }
+
+/* ==========================================
+   UX-8 — PANNELLO ASSOCIAZIONI / DISSOCIAZIONE
+   ========================================== */
+
+.associati-toggle {
+  padding: 6px 14px;
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: 6px;
+  border: 0.5px solid var(--color-border-secondary);
+  background: var(--color-background-primary);
+  color: var(--color-text-primary);
+}
+
+.gestione-associati {
+  border-top: 0.5px solid var(--color-border-tertiary);
+  margin-top: 0.5rem;
+  padding: 0.75rem 1rem;
+}
+
+.gestione-associati h4 {
+  margin: 0 0 0.5rem 0;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.gestione-associati h5 {
+  margin: 0.5rem 0 0.25rem 0;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  font-weight: 500;
+}
+
+.gestione-associati ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.associato-riga {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0;
+  font-size: 12px;
+}
+
+.associato-stacca {
+  padding: 3px 10px;
+  font-size: 11px;
+  cursor: pointer;
+  border-radius: 6px;
+  border: 0.5px solid var(--color-border-secondary);
+  background: var(--color-background-primary);
+  color: var(--color-danger);
+}
+
+.associati-vuoto {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.dissociazione-modal {
+  text-align: left;
+  max-width: 520px;
+}
+
+.dissociazione-blocchi {
+  background: #fff5f5;
+  border: 0.5px solid #f5c2c7;
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-top: 12px;
+  font-size: 13px;
+}
+
+.dissociazione-blocchi-titolo {
+  margin: 0 0 6px 0;
+  font-weight: 600;
+}
+
+.dissociazione-nota {
+  margin: 8px 0 0 0;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.dissociazione-errore {
+  color: var(--color-danger);
+  font-size: 13px;
+}
+
+.dissociazione-forzatura {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.dissociazione-forzatura textarea {
+  width: 100%;
+  font-family: inherit;
+  font-size: 13px;
+  padding: 8px;
+  border-radius: 6px;
+  border: 0.5px solid var(--color-border-secondary);
+}
