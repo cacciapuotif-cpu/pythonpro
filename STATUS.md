@@ -1,20 +1,142 @@
 # PythonPro — Stato corrente
 
-**Aggiornato:** 2026-07-27 (fix import allievi XLSX 422 live; ONDATA UX OPERATIVA in corso, UX-6 e UX-7 chiusi)
-**Branch:** `claude/platform-audit-compliance-XnH86` (locale, nessun push)
+**Aggiornato:** 2026-07-28 (UX-8 CHIUSO: backend, UI, confutazione live, commit)
+**Branch:** `claude/platform-audit-compliance-XnH86` (locale, **nessun push**)
 **Percorso:** `/DATA/progetti/pythonpro`
 
 > ⚠️ **Due sessioni hanno lavorato su questo branch il 27/07 in parallelo.**
 > Questo file è scritto a quattro mani: la sezione "RIPARTENZA" qui sotto
 > riguarda l'ondata UX; il resto del file traccia l'altro filone.
 
-## ⏸️ RIPARTENZA — ONDATA UX OPERATIVA (fermata su richiesta il 2026-07-27 ~17:00)
+## ▶️ ONDATA UX OPERATIVA — stato al 2026-07-28
 
-**Baseline al momento dello stop:** backend **821 passed, 6 skipped, 0 failed**;
-frontend **173 passed, 20 suite**; build di produzione verde; alembic head `063`;
-working tree pulito; ultimo commit dell'ondata `b1c5ae3`.
+### Modo di lavoro concordato con l'utente
 
-### Fatto in questa sessione
+> *"parti dal punto 1: quando è verificato e il confutatore dà ok, passa al
+> secondo punto e così via."*
+
+Ogni punto si chiude solo dopo una **verifica che prova attivamente a
+smentirlo**, non dopo un test che si limita a confermarlo. Esempio reale di
+questa sessione: le associazioni del progetto 11 sembravano corrette, ma il
+progetto 12 rispondeva identico; solo il confronto riga-per-riga col DB su
+quattro progetti diversi (5, 11, 13, 1) ha escluso che l'endpoint ignorasse
+`project_id`. Senza quel passo il punto sarebbe stato chiuso a torto.
+
+### ✅ Punto 1 — Attivazione runtime: FATTA E VERIFICATA
+
+Il runtime non gira più su codice vecchio. Comandi eseguiti:
+
+```bash
+export DOCKER_CONFIG=/tmp/dockercfg && mkdir -p "$DOCKER_CONFIG"   # /DATA/.docker non è scrivibile
+docker compose up -d --force-recreate --no-deps frontend
+docker restart pythonpro_backend
+```
+
+Confutazione superata su 7 fronti:
+
+| Verifica | Esito |
+|---|---|
+| Container frontend sulla nuova immagine | `d7902ae0bd8c` → `69f6ca8899f8` |
+| Bundle servito | `main.51462523.js` → `main.9c62b80d.js` |
+| `/health` e frontend `/` | 200 e 200, entrambi healthy |
+| openapi rotte project-scoped | `/projects/{id}/upload-convenzione`, `/confirm-convenzione`, `/fondimpresa/upload-ammissione`, `/upload-riepilogo` presenti |
+| `schemas.Project` | espone `aziende_coinvolte` e `allievi_coinvolti` |
+| **Dati live vs DB** | prog 5 → 2 az/0 all, 11 → 5/4, 13 → 5/0, 1 → 0/0: **combacia riga per riga**, l'endpoint discrimina davvero per progetto |
+| UX-6 non crea gemelli | nessun `db.add(models.Project(...))` nel percorso project-scoped; c'è una guardia 409 se il `codice_fapi` appartiene a un altro progetto |
+| Bundle chiama il percorso giusto | `"/projects/".concat(e,"/upload-convenzione")` presente nel bundle servito |
+
+**UX-6 e UX-7 sono ora vivi anche sull'app in esecuzione**, non solo nel codice.
+
+Da sapere per le sessioni future: per interrogare le API live servono
+credenziali che **non esistono in chiaro** (le password `ui_test_*` sono random
+e non conservate, e `ADMIN_DEFAULT_PASSWORD` in `.env` non corrisponde più
+all'utente `admin` reale). Il JWT si genera con la stessa funzione dell'app,
+senza toccare il DB:
+
+```bash
+docker exec pythonpro_backend python -c "
+from datetime import timedelta
+from auth import SecurityUtils
+print(SecurityUtils.generate_token(data={'sub':'ui_test_admin','role':'admin'}, expires_delta=timedelta(minutes=30)))"
+```
+
+### ✅ Punto 2 — UX-8 dissociazione: CHIUSO il 2026-07-28
+
+Commit: `99213df` (backend), `dd834a0` (UI), `be8c00f` (findings).
+
+**Scoperta che ha cambiato la specifica.** Lo STATUS precedente dava per buone
+guardie su "presenze" e "timesheet". Nel dominio reale **non esistono**:
+`attendances` traccia i *collaboratori* e i timesheet pendono da `assignment`,
+non da `allievo`. Le uniche tracce di un allievo su un progetto sono la riga
+`allievo_project` (`ore_frequentate`, `stato`, `attestato_emesso`) e
+`dati_retributivi`. Le guardie sono state ridefinite su questi fatti.
+
+**Decisioni dell'utente** (da non rimettere in discussione):
+
+| Domanda | Risposta |
+|---|---|
+| Cosa blocca la dissociazione di un allievo | `attestato_emesso` → **blocco assoluto, non forzabile nemmeno da admin**; `ore_frequentate > 0` → blocco **forzabile**; righe in `dati_retributivi` → blocco **forzabile**. `stato` da solo **non** è una guardia. |
+| Azienda con suoi allievi ancora sul progetto | **Blocco, nessuna cascata implicita**: 409 con l'elenco degli allievi da staccare prima |
+| Il PUT progetto che dissociava in silenzio | **Stesse guardie applicate anche al PUT**, in un servizio condiviso |
+
+**Codice.** `backend/services/dissociazione_progetto.py` tiene le guardie in un
+posto solo e non conosce HTTP; `DELETE /projects/{id}/allievi/{allievo_id}` e
+`.../aziende/{azienda_id}` sono la via esplicita (forzatura riservata all'admin,
+motivo ≥ 10 caratteri, audit su esito bloccato **e** riuscito); il PUT passa
+dalle stesse guardie ma **non può forzare**. Sul frontend il pannello
+"Associazioni" (`components/GestioneAssociati.js`) elenca aziende e allievi con
+l'azione di distacco, mostra i messaggi del 409 e propone la forzatura solo se
+il backend la dichiara superabile **e** l'utente è admin.
+
+**Verifiche.**
+
+| Cosa | Esito |
+|---|---|
+| Suite backend completa (`pytest tests/`, 20 min) | **861 passed, 6 skipped, 0 failed** |
+| Delta vs baseline 821 | +39 (`test_ux8_dissociazione.py`) +1 (nuovo in `test_ux7`) — quadra esattamente |
+| Suite frontend | **183 passed, 21 suite**; build di produzione verde |
+| Mutation check sulla suite | `attestato → forzabile=True` ⇒ **2 test rossi**; file ripristinato |
+| Confutazione live | 10 prove su progetti di prova, vedi `audit/FINDINGS_NUOVI.md` |
+| Runtime | backend riavviato (rotte UX-8 in openapi), frontend ricostruito, bundle **`main.9c025a26.js`** con `Forza dissociazione` e le DELETE giuste |
+
+La confutazione live è servita costruendo uno stato bloccante ad arte: sul dato
+reale tutti gli 8 link hanno `ore_frequentate = 0`, `attestato_emesso = false` e
+`dati_retributivi` è vuota, quindi nessuna guardia sarebbe scattata. Due
+progetti di prova (14 e 15) creati, usati e **cancellati**: il DB è tornato a 7
+progetti e 8 righe `allievo_project`, identico a prima.
+
+La prova che conta: lo **stesso allievo** si stacca senza problemi da un
+progetto dove non ha attestato (200) e resta bloccato su quello dove ce l'ha
+(409) — la guardia legge il link `(progetto, allievo)`, non l'allievo.
+
+**Limite dichiarato:** nessuna verifica con browser reale (chromium headless
+qui è privo di `libatk-1.0.so.0`). La UI è verificata da 10 test jest, dalla
+presenza nel bundle servito e dal montaggio in `ProjectManager.js:1516`.
+
+**Due difetti nuovi, registrati e non corretti** (`audit/FINDINGS_NUOVI.md`):
+il 403 sulla forzatura non lascia traccia in audit; `DELETE /projects/{id}` è un
+soft-delete che si annuncia come eliminazione e conserva le associazioni.
+
+**Da segnalare:** il progetto **11** (quello bonificato, con CUP e allievi) ha
+`is_active = false` mentre il doppione **12** è attivo — l'elenco di default
+mostra il doppione e nasconde il buono. Non causato da UX-8, nessuna modifica
+fatta.
+
+### ▶️ DA FARE, in quest'ordine
+
+1. **UX-9** — albero di selezione allievi a cascata per azienda. Non iniziato.
+   `Allievo.azienda_cliente_id` porta già il raggruppamento: non serve una
+   seconda chiamata. (`AllievoCoinvolto` lo riespone nello schema.)
+2. Poi **UX-5** (gate dominio date, **da presentare prima di scrivere codice**)
+   → UX-0 → UX-1 → UX-2 → UX-3 → UX-4 → gate finale.
+
+Verificato contro il codice il 2026-07-28: UX-5, UX-0, UX-1, UX-2, UX-3 e UX-4
+non sono iniziati (nessun `data_avvio_piano` in `models.py`, nessun componente
+di vista dettaglio condiviso, nessun router di profilo utente, nessuna entità
+Sede/ContoCorrente, calendario senza filtri, collaboratori senza filtro
+progetto).
+
+### Fatto nelle sessioni precedenti
 
 | | |
 |---|---|
@@ -24,28 +146,11 @@ working tree pulito; ultimo commit dell'ondata `b1c5ae3`.
 | UX-7 | **Chiuso** (`b1c5ae3`). Le associazioni si salvavano ma `schemas.Project` non dichiarava `aziende_coinvolte`/`allievi_coinvolti`, che la scheda legge: sempre `undefined` → "nessun associato" a prescindere dai dati. Corretto anche un N+1 reale su `azienda_ids`. |
 | Bonifica UX-6 blocco A | **ESEGUITA sul DB reale** (decisione utente): CUP `G64D26000610003` e i 4 allievi travasati dal progetto 12 al progetto 11, con `stato` e `ore_frequentate` preservati. Nulla distrutto: il 12 è ancora intatto. |
 
-### ▶️ DA FARE ALLA RIPARTENZA, in quest'ordine
+### Baseline al momento dello stop precedente (2026-07-27 ~17:00)
 
-1. **Completare l'attivazione runtime** (autorizzata dall'utente, interrotta a metà).
-   L'immagine `pythonpro-frontend` è **già ricostruita** col nuovo bundle, ma il
-   container **non** è stato ricreato e il backend **non** è stato riavviato: il
-   runtime gira ancora tutto sul codice vecchio, quindi è coerente con sé stesso
-   (nessuno stato ibrido). Da eseguire insieme, in quest'ordine:
-   ```bash
-   export DOCKER_CONFIG=/tmp/dockercfg && mkdir -p "$DOCKER_CONFIG"   # /DATA/.docker non è scrivibile
-   docker compose up -d --force-recreate --no-deps frontend
-   docker restart pythonpro_backend
-   ```
-   Poi verifica live: `/health` 200, frontend `/` 200, `POST /api/v1/projects/{id}/upload-convenzione`
-   presente in openapi, e la scheda di un progetto che finalmente mostra gli associati.
-   **Finché non è fatto, i bug UX-6 e UX-7 restano vivi sull'app in esecuzione.**
-2. **UX-8** — dissociazione allievi/aziende dal progetto: endpoint + UI, guardie
-   (presenze → blocco, timesheet/attestato → blocco assoluto), audit, RBAC.
-   Non ancora iniziato.
-3. **UX-9** — albero di selezione allievi a cascata per azienda. Non iniziato.
-   `AllievoCoinvolto` porta già `azienda_cliente_id` apposta: il raggruppamento
-   non costa una seconda chiamata.
-4. Poi **UX-5** (gate dominio date) → UX-0 → UX-1 → UX-2 → UX-3 → UX-4 → gate finale.
+backend **821 passed, 6 skipped, 0 failed**; frontend **173 passed, 20 suite**;
+build di produzione verde; alembic head `063`; working tree pulito; ultimo
+commit dell'ondata `b1c5ae3`.
 
 ### GATE ancora aperti
 
@@ -76,14 +181,19 @@ working tree pulito; ultimo commit dell'ondata `b1c5ae3`.
 ## Stato operativo
 
 - Runtime: backend, frontend, PostgreSQL, Redis e ARQ worker healthy.
-- Schema reale: Alembic **`062` head** (template piani 060 + FTS archivio 061 +
-  drop relitto legacy_template_id 062). Backend riavviato dopo 062 per
-  riallineare il modello allo schema (il drop colonna dava 500 sui piani finché
-  il processo caricava il vecchio modello).
-- Baseline backend: **776 passed, 6 skipped, 0 failed**.
-- Baseline frontend: **161 passed, 3 snapshot, 0 failed**; build production verde.
-- Frontend ridispiegato il 2026-07-27 (bundle `main.51462523.js`): live
-  allineato ai fix auth, sedi operative e import XLSX allievi.
+- Schema reale: Alembic **`063` head**, verificato con `alembic current` sul
+  container il 2026-07-27 sera (template piani 060 + FTS archivio 061 + drop
+  relitto legacy_template_id 062 + piano congelato DOM-08/DOM-18 063). Backend
+  riavviato dopo 062 per riallineare il modello allo schema (il drop colonna
+  dava 500 sui piani finché il processo caricava il vecchio modello).
+- Baseline backend: **861 passed, 6 skipped, 0 failed** (al commit `99213df`,
+  2026-07-28, 20 minuti di esecuzione).
+- Baseline frontend: **183 passed, 21 suite**; build production verde.
+- Frontend ridispiegato il 2026-07-28, bundle **`main.9c025a26.js`** (UX-8 UI).
+  Backend riavviato lo stesso giorno per caricare le rotte di dissociazione.
+- Ridispiegato in precedenza il 2026-07-27 sera, bundle **`main.9c62b80d.js`**:
+  live allineato a UX-6 e UX-7 oltre che ai fix auth, sedi operative e import
+  XLSX allievi. Il precedente `main.51462523.js` era costruito ma non servito.
 - **RUNTIME ATTIVATO il 2026-07-21**: backend riavviato (carica NEW-030/037,
   rotte `/api/v1/archivio/*` live in openapi); frontend **ricostruito e
   ridispiegato** (`docker compose build frontend` + recreate, bundle
