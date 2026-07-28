@@ -1022,3 +1022,23 @@ dedotto dal conteggio.
 - **Limite dichiarato**: nessuna verifica con browser reale; il comportamento a
   centinaia di allievi è provato dai test unitari e dal contratto API, non
   dall'uso.
+
+---
+
+## 2026-07-28 | NEW-040 | Test frontend UX-6 verdi ma con aggiornamenti asincroni fuori da `act`
+
+- Area: frontend / qualità test React
+- Severità stimata: bassa (nessun difetto runtime dimostrato)
+- Emerso durante: ripetizione confutativa del GATE UX-6.
+- Descrizione: `FapiUpload.test.js` passa (`6 passed`), ma React segnala più
+  aggiornamenti di stato di `ConvenzioneModal` e
+  `AmmissioneFondimpresaModal` non racchiusi/attesi tramite `act(...)`.
+  Compare anche il warning di deprecazione di `ReactDOMTestUtils.act`.
+- Impatto: la copertura funzionale corrente resta verde e le asserzioni
+  principali attendono il risultato, ma l'output rumoroso può nascondere
+  warning nuovi e rende meno forte il test come prova di assenza di race UI.
+- Proposta: aggiornare gli helper del test a interazioni asincrone
+  `userEvent`/`waitFor` coerenti con React Testing Library e azzerare i warning,
+  senza cambiare il codice di produzione.
+- Stato: **aperto**, non bloccante per il fix UX-6; da chiudere in un commit QA
+  dedicato.

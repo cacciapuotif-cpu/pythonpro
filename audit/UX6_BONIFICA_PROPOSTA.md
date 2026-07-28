@@ -4,8 +4,164 @@ Redatta il 2026-07-27 sul DB reale `gestionale`, con analisi in **sola lettura**
 Backup di riferimento: `/DATA/progetti/pythonpro_backup_pre_ux_20260727.sql`
 (1.2 MB, 58 blocchi `COPY`, marker di fine presente, `alembic_version = 063`).
 
-> **Nulla qui è stato eseguito.** Ogni blocco termina con `ROLLBACK`: per
-> applicarlo davvero va sostituito con `COMMIT`, e solo dopo conferma esplicita.
+> Nella redazione iniziale del 27 luglio non fu eseguito nulla. Il successivo
+> blocco A è stato applicato in una sessione già chiusa; le query ancora
+> proposte terminano con `ROLLBACK` e richiedono conferma esplicita.
+
+## Aggiornamento GATE — 2026-07-28
+
+Questa sezione fotografa lo stato corrente e prevale sui conteggi storici
+sottostanti. Il blocco A proposto il 27 luglio è stato nel frattempo eseguito:
+CUP e quattro associazioni allievo sono già stati travasati dal progetto 12 al
+progetto 11. I blocchi B e C **non** sono stati eseguiti.
+
+Backup fresco prima del nuovo censimento:
+`/app/backups/gestionale_backup_ux6_gate_precheck_20260728_140945.sql.zip.gpg`
+(cifrato; metadata/checksum presenti; decifratura e integrità ZIP:
+`integrity=True`; 110367 byte).
+
+### Censimento piani finanziari
+
+| Controllo | Esito live |
+|---|---:|
+| Piani finanziari totali | 4 |
+| Progetti con più di un piano | **0** |
+| Piani senza progetto | **0** |
+| Piani senza avviso | **0** |
+| Piani senza voci | **0** |
+| Duplicati per `(progetto, anno, avviso)` | **0** |
+| Codici piano finanziario ripetuti | **0** |
+
+Il sintomo chiamato operativamente “piano duplicato” non ha quindi creato un
+`PianoFinanziario`: ha creato un record `Project` gemello. Nel modello corrente
+l'atto/convenzione è collegato a `Project.convenzione_file_path`, non alla
+tabella `piani_finanziari`.
+
+I quattro piani sono sui progetti 1, 2, 5 e 11 e hanno rispettivamente 29, 27,
+27 e 25 voci. Il solo duplicato di nome tra progetti resta:
+`MAXI COMMUNICATION` → ID 11 e 12.
+
+### Stato corrente dei tre progetti
+
+| ID | Visibile di default | Dati propri/collegamenti correnti |
+|---:|:---:|---|
+| 11 | no (`is_active=false`) | progetto canonico; CUP; codice FAPI; PDF; 5 aziende; 4 allievi; 5 assegnazioni; 1 piano; 25 moduli |
+| 12 | **sì** | doppione manuale; CUP e 4 allievi ora duplicati esatti del 11; 5 aziende; date discordanti; nessun'altra FK |
+| 13 | no (`is_active=false`) | fantasma del bug; solo secondo PDF e 5 aziende; nessun'altra FK |
+
+Le quattro righe `allievo_project` di 11 e 12 sono identiche campo per campo:
+stessi allievi, `ore_frequentate=0`, `stato=iscritto`,
+`attestato_emesso=false`, note vuote. Il travaso A è quindi verificato.
+
+Sono state censite tutte le 14 FK verso `projects`. Su 12 e 13 esistono solo:
+
+- progetto 12: 5 `azienda_cliente_projects` + 4 `allievo_project`;
+- progetto 13: 5 `azienda_cliente_projects`;
+- zero righe su ordini, piani finanziari, moduli, assegnazioni, presenze,
+  dati retributivi, attività operative, esiti avviso, template, mansioni e
+  collegamenti collaboratore.
+
+### Verifica del fix
+
+- backend mirato: `15 passed`;
+- frontend mirato: `6 passed`;
+- OpenAPI live: presenti i quattro endpoint project-scoped FAPI/Fondimpresa;
+- bundle live `main.1f332f0e.js`: contiene le chiamate project-scoped;
+- il percorso project-scoped non istanzia né `Project` né `PianoFinanziario`;
+- valori vuoti vengono arricchiti, conflitti lasciati invariati salvo selezione
+  esplicita campo per campo;
+- il percorso senza progetto resta una creazione esplicita e rifiuta con 422
+  documenti privi sia di codice sia di titolo.
+
+### Decisione richiesta al GATE
+
+Prima di qualunque bonifica restano due decisioni di prodotto/dominio:
+
+1. il PDF del progetto 13 va conservato come documento del progetto 11?
+   Il campo allegato è singolo e sul progetto 11 esiste già
+   `/app/uploads/convenzioni/20250611CMIA001.pdf`. Il confronto read-only
+   indica che il file del 13 è il candidato più completo:
+   11 pagine/335642 byte contro 7 pagine/40344 byte; i testi normalizzati
+   differiscono ma il documento lungo contiene integralmente quello corto
+   (`similarity=0.9682`) e aggiunge l'Allegato C con CUP/COR. Il parser non lo
+   riconosce perché le prime tre pagine non hanno testo estraibile, non perché
+   sia estraneo. Raccomandazione: riallegare il documento lungo dalla UI,
+   scegliendo esplicitamente il conflitto “Documento allegato”;
+2. i progetti 12 e 13 vanno **archiviati/disattivati** (scelta reversibile,
+   consigliata finché UX-5 non chiarisce le date) oppure eliminati
+   definitivamente dopo il riallegamento?
+
+In entrambi i casi va riattivato il progetto canonico 11: oggi l'elenco mostra
+il doppione 12 e nasconde quello con codice FAPI, piano, moduli e assegnazioni.
+
+### Query proposta — opzione reversibile (consigliata)
+
+Da eseguire solo dopo la decisione sul PDF:
+
+```sql
+BEGIN;
+
+UPDATE projects
+SET is_active = TRUE,
+    status = 'active'
+WHERE id = 11;
+
+UPDATE projects
+SET is_active = FALSE,
+    status = 'cancelled',
+    description = CONCAT_WS(
+        ' — ',
+        NULLIF(description, ''),
+        'Doppione del progetto 11; archiviato dopo verifica UX-6'
+    )
+WHERE id IN (12, 13);
+
+SELECT id, name, is_active, status, description
+FROM projects
+WHERE id IN (11, 12, 13)
+ORDER BY id;
+
+ROLLBACK;  -- -> COMMIT solo dopo conferma
+```
+
+Questa opzione conserva le date discordanti del 12 e la traccia del 13. Non
+rimuove i link duplicati, che restano storicamente associati ai record
+archiviati.
+
+### Query proposta — eliminazione definitiva
+
+Da eseguire solo dopo il riallegamento/confronto del PDF e dopo avere
+riconfermato che le sole FK su 12/13 siano quelle elencate sopra:
+
+```sql
+BEGIN;
+
+UPDATE projects
+SET is_active = TRUE,
+    status = 'active'
+WHERE id = 11;
+
+-- Esplicite per rendere visibile cosa viene rimosso; le FK sono CASCADE.
+DELETE FROM allievo_project
+WHERE project_id = 12;
+
+DELETE FROM azienda_cliente_projects
+WHERE project_id IN (12, 13);
+
+DELETE FROM projects
+WHERE id IN (12, 13);
+
+SELECT id, name, is_active, status
+FROM projects
+WHERE id IN (11, 12, 13)
+ORDER BY id;
+
+ROLLBACK;  -- -> COMMIT solo dopo conferma
+```
+
+L'eliminazione SQL non cancella automaticamente il file fisico del progetto
+13: l'eventuale rimozione del PDF orfano è un'azione separata da autorizzare
+solo dopo averne verificato la conservazione sul progetto 11.
 
 ## Esito del censimento
 

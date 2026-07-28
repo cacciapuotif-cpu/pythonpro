@@ -1,6 +1,6 @@
 # PythonPro — Stato corrente
 
-**Aggiornato:** 2026-07-28 (UX-8 e UX-9 CHIUSI)
+**Aggiornato:** 2026-07-28 (GATE UX-6 ripresentato; UX-8 e UX-9 CHIUSI)
 **Branch:** `claude/platform-audit-compliance-XnH86` (locale, **nessun push**)
 **Percorso:** `/DATA/progetti/pythonpro`
 
@@ -151,7 +151,11 @@ pagine, si ferma a 2000 e dichiara `troncato`, che l'albero mostra.
 Backend non toccato: nessun rilancio della suite backend necessario.
 
 ### ▶️ DA FARE, in quest'ordine
-1. **UX-5** (gate dominio date, **da presentare prima di scrivere codice**)
+1. **Decisione GATE UX-6**: secondo PDF del progetto 13 da confrontare/
+   riallegare al progetto 11; scegliere archiviazione reversibile (consigliata)
+   o eliminazione definitiva di 12/13; riattivare il canonico 11. Query solo
+   proposte in `audit/UX6_BONIFICA_PROPOSTA.md`, nessuna bonifica eseguita.
+2. **UX-5** (gate dominio date, **da presentare prima di scrivere codice**)
    → UX-0 → UX-1 → UX-2 → UX-3 → UX-4 → gate finale.
 
 Verificato contro il codice il 2026-07-28: UX-5, UX-0, UX-1, UX-2, UX-3 e UX-4
@@ -159,6 +163,34 @@ non sono iniziati (nessun `data_avvio_piano` in `models.py`, nessun componente
 di vista dettaglio condiviso, nessun router di profilo utente, nessuna entità
 Sede/ContoCorrente, calendario senza filtri, collaboratori senza filtro
 progetto).
+
+### Ripetizione GATE UX-6 — 2026-07-28
+
+- Prerequisiti riletti: GATE UI v3 già superato; Ondata M non iniziata;
+  worktree iniziale pulito; nessun push.
+- Backup fresco cifrato:
+  `/app/backups/gestionale_backup_ux6_gate_precheck_20260728_140945.sql.zip.gpg`;
+  checksum/metadata presenti, decifratura + ZIP `integrity=True`, 110367 byte.
+- Censimento DB reale in transazione read-only: 4 piani finanziari, **0**
+  progetti con più piani, **0** piani orfani/senza avviso/senza voci, **0**
+  duplicati `(progetto, anno, avviso)` o `codice_piano`.
+- Il bug storico duplicava `Project`, non `PianoFinanziario`. Il solo nome
+  duplicato è `MAXI COMMUNICATION` (11/12); il fantasma è 13.
+- Blocco A già applicato e verificato: CUP e 4 allievi sono presenti su 11; le
+  righe allievo di 11/12 sono identiche. Blocco B/C ancora aperti.
+- Confronto PDF read-only: il file del 13 è un superset del file già sul 11
+  (11 vs 7 pagine; testo del corto interamente contenuto nel lungo; Allegato C
+  CUP/COR aggiuntivo). Raccomandato riallegare il lungo al progetto 11 tramite
+  il flusso UX-6, accettando esplicitamente il conflitto sul documento.
+- Stato anomalo corrente: 11 canonico `is_active=false`; 12 doppione manuale
+  `is_active=true`; 13 fantasma `is_active=false`.
+- Tutte le 14 FK verso progetto censite: su 12/13 restano solo 5 link azienda +
+  4 allievi per 12 e 5 link azienda per 13; nessun'altra FK.
+- Confutazione: backend UX-6 **15 passed**; frontend **6 passed**; 4 rotte
+  project-scoped presenti nell'OpenAPI live; bundle `main.1f332f0e.js`
+  allineato. Finding QA non bloccante NEW-040: warning React `act(...)`.
+- Nessuna bonifica o modifica al DB eseguita in questa sessione. Attesa
+  decisione utente al GATE.
 
 ### Fatto nelle sessioni precedenti
 
