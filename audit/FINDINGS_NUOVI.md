@@ -1093,3 +1093,24 @@ dedotto dal conteggio.
   24/03/2026, ente NEXT GROUP, 5 codici, 5 beneficiarie, tutti gli importi e
   partecipanti, zero warning.
 - Stato: **chiuso**, coperto da due test dedicati.
+
+---
+
+## 2026-07-28 | NEW-043 | Cockpit emetteva un 401 transitorio prima del refresh
+
+- Area: autenticazione frontend
+- Severità stimata: media
+- Evidenza: 401 su `/api/v1/cockpit/decisioni` con sessione apparentemente
+  attiva.
+- Diagnosi confutata:
+  - `HomeCockpit` usa `http.get`, non una `fetch` diretta;
+  - il grep di `frontend/src` trova una sola `fetch`, nel portale pubblico con
+    magic token, non nel gestionale autenticato;
+  - la matrice backend ammette GET cockpit ad admin, operatore e consultazione,
+    quindi non è un 401 usato impropriamente al posto di 403;
+  - il client rinnovava il token soltanto *dopo* la prima risposta 401.
+- Fix: l'interceptor request controlla la scadenza JWT e condivide il refresh
+  prima di inviare la richiesta applicativa; il retry 401 resta come rete di
+  sicurezza.
+- Stato: **chiuso**, test RED→GREEN specifico sul cockpit più prova delle
+  richieste concorrenti.

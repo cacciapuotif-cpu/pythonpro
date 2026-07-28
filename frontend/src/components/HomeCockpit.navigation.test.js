@@ -80,3 +80,10 @@ test.each([
   await waitFor(() => expect(onNavigate).toHaveBeenCalledWith(destination));
   expect(openSpy).not.toHaveBeenCalled();
 });
+
+test('carica le decisioni tramite il client HTTP autenticato condiviso', async () => {
+  render(<HomeCockpit currentUser={{ role: 'consultazione' }} />);
+
+  await screen.findByText('Proposta agente');
+  expect(http.get).toHaveBeenCalledWith('/cockpit/decisioni');
+});

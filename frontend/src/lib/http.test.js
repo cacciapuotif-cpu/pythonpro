@@ -25,7 +25,10 @@ const createLocalStorageMock = () => {
 
 global.localStorage = createLocalStorageMock();
 global.sessionStorage = createLocalStorageMock();
-global.window = { location: { href: '/app', hostname: 'localhost', port: '3001' } };
+global.window = {
+  location: { href: '/app', hostname: 'localhost', port: '3001' },
+  atob: (value) => Buffer.from(value, 'base64').toString('binary'),
+};
 global.FormData = class FormDataMock {
   constructor() {
     this.values = {};
@@ -58,21 +61,51 @@ const make401Error = (url) => ({
   response: { status: 401 },
 });
 
+const makeJwt = (exp) => {
+  const payload = Buffer.from(JSON.stringify({ exp })).toString('base64url');
+  return `header.${payload}.signature`;
+};
+
 describe('http client', () => {
   beforeEach(() => {
     localStorage.clear();
     window.location.href = '/app';
   });
 
-  test('aggiunge il Bearer token alle richieste', () => {
-    localStorage.setItem('access_token', 'token-di-test');
-    const config = requestInterceptor.fulfilled({ headers: {} });
-    expect(config.headers.Authorization).toBe('Bearer token-di-test');
+  test('aggiunge il Bearer token alle richieste', async () => {
+    localStorage.setItem(
+      'access_token',
+      makeJwt(Math.floor(Date.now() / 1000) + 900)
+    );
+    const config = await requestInterceptor.fulfilled({ headers: {} });
+    expect(config.headers.Authorization).toBe(
+      `Bearer ${localStorage.getItem('access_token')}`
+    );
   });
 
-  test('senza token non aggiunge Authorization', () => {
-    const config = requestInterceptor.fulfilled({ headers: {} });
+  test('senza token non aggiunge Authorization', async () => {
+    const config = await requestInterceptor.fulfilled({ headers: {} });
     expect(config.headers.Authorization).toBeUndefined();
+  });
+
+  test('rinnova un access token scaduto prima della chiamata cockpit', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    localStorage.setItem('access_token', makeJwt(now - 60));
+    localStorage.setItem('refresh_token', makeJwt(now + 3600));
+    const refreshSpy = jest.spyOn(axios, 'post').mockResolvedValue({
+      data: { access_token: makeJwt(now + 900) },
+    });
+
+    const config = await requestInterceptor.fulfilled({
+      url: '/cockpit/decisioni',
+      headers: {},
+    });
+
+    expect(refreshSpy).toHaveBeenCalledTimes(1);
+    expect(config.headers.Authorization).toBe(
+      `Bearer ${localStorage.getItem('access_token')}`
+    );
+    refreshSpy.mockRestore();
   });
 
   test('401 senza refresh token: pulisce i token e reindirizza al login', async () => {
@@ -97,8 +130,9 @@ describe('http client', () => {
   test('401 concorrenti condividono una sola richiesta di refresh', async () => {
     localStorage.setItem('access_token', 'scaduto');
     localStorage.setItem('refresh_token', 'refresh-valido');
+    const accessRinnovato = makeJwt(Math.floor(Date.now() / 1000) + 900);
     const refreshSpy = jest.spyOn(axios, 'post').mockResolvedValue({
-      data: { access_token: 'access-rinnovato' },
+      data: { access_token: accessRinnovato },
     });
 
     const responses = await Promise.all([
@@ -108,7 +142,7 @@ describe('http client', () => {
     ]);
 
     expect(refreshSpy).toHaveBeenCalledTimes(1);
-    expect(localStorage.getItem('access_token')).toBe('access-rinnovato');
+    expect(localStorage.getItem('access_token')).toBe(accessRinnovato);
     expect(responses).toHaveLength(3);
     expect(responses.every((response) => response.status === 200)).toBe(true);
 

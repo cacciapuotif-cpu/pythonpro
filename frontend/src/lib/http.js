@@ -149,10 +149,20 @@ export const http = axios.create({
   },
 });
 
+// Auth endpoints: a 401 here is a failed login/refresh, not an expired
+// session — never redirect, let the caller show the error.
+const isAuthRequest = (url = '') => /\/auth\/(login|refresh|register)/.test(url);
+
 // Request interceptor for auth
 http.interceptors.request.use(
-  (config) => {
-    const token = localStorage.getItem('access_token');
+  async (config) => {
+    let token = localStorage.getItem('access_token');
+    // Evita il 401 transitorio visibile in console: se il JWT è già scaduto,
+    // rinnova prima di inviare la richiesta applicativa. La funzione condivide
+    // la stessa promise fra richieste concorrenti.
+    if (token && !isAuthRequest(config.url)) {
+      token = await ensureValidAccessToken();
+    }
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -164,10 +174,6 @@ http.interceptors.request.use(
   },
   (error) => Promise.reject(error)
 );
-
-// Auth endpoints: a 401 here is a failed login/refresh, not an expired
-// session — never redirect, let the caller show the error.
-const isAuthRequest = (url = '') => /\/auth\/(login|refresh|register)/.test(url);
 
 // Response interceptor for error handling
 http.interceptors.response.use(
