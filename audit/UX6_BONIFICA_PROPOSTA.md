@@ -10,10 +10,10 @@ Backup di riferimento: `/DATA/progetti/pythonpro_backup_pre_ux_20260727.sql`
 
 ## Aggiornamento GATE — 2026-07-28
 
-Questa sezione fotografa lo stato corrente e prevale sui conteggi storici
-sottostanti. Il blocco A proposto il 27 luglio è stato nel frattempo eseguito:
-CUP e quattro associazioni allievo sono già stati travasati dal progetto 12 al
-progetto 11. I blocchi B e C **non** sono stati eseguiti.
+Questa sezione fotografa il censimento precedente alla decisione e prevale sui
+conteggi storici sottostanti. Il blocco A proposto il 27 luglio era già stato
+eseguito: CUP e quattro associazioni allievo erano stati travasati dal progetto
+12 al progetto 11.
 
 Backup fresco prima del nuovo censimento:
 `/app/backups/gestionale_backup_ux6_gate_precheck_20260728_140945.sql.zip.gpg`
@@ -162,6 +162,54 @@ ROLLBACK;  -- -> COMMIT solo dopo conferma
 L'eliminazione SQL non cancella automaticamente il file fisico del progetto
 13: l'eventuale rimozione del PDF orfano è un'azione separata da autorizzare
 solo dopo averne verificato la conservazione sul progetto 11.
+
+## Esecuzione approvata — 2026-07-28
+
+Decisione dell'utente: confermata la soluzione architetturalmente consigliata,
+cioè documento completo sul progetto canonico e archiviazione reversibile dei
+doppioni. Nessuna eliminazione è stata eseguita.
+
+### Documento
+
+Il PDF lungo del progetto 13 è stato riallegato al progetto 11 tramite gli
+endpoint live project-scoped di UX-6:
+
+1. `POST /api/v1/projects/11/upload-convenzione` → 200;
+2. il diff ha restituito un solo conflitto:
+   `convenzione_file_path`;
+3. `POST /api/v1/projects/11/confirm-convenzione` con selezione esplicita del
+   solo conflitto → 200;
+4. esito: `campi_applicati=["convenzione_file_path"]`, nessun conflitto
+   lasciato indietro.
+
+Nuovo file collegato:
+`/app/uploads/convenzioni/ffe359d5-c3aa-4ecb-b16f-cd91c2c4221c.pdf`.
+SHA-256 verificato identico al documento lungo:
+`ea98c6e453b48c6e1634656cb115b4dadf773f1023891502ea995552732d74e9`.
+
+### Archiviazione
+
+Applicata in transazione `SERIALIZABLE`:
+
+- progetto 11 → `is_active=true`, `status=active`;
+- progetto 12 → `is_active=false`, `status=cancelled`, motivazione aggiunta;
+- progetto 13 → `is_active=false`, `status=cancelled`, motivazione aggiunta.
+
+Le associazioni dei record archiviati sono state conservate. Il file corto
+precedentemente collegato al progetto 11 e la copia originaria del PDF lungo
+non sono stati cancellati: restano recuperabili e potranno essere oggetto di
+un giro separato di gestione/versionamento allegati.
+
+### Verifica post
+
+- listing API live: progetto 11 visibile; 12 e 13 non visibili;
+- dettaglio progetto 11: HTTP 200;
+- progetto 11 conserva 1 piano, 25 moduli, 5 assegnazioni, 4 allievi e
+  5 aziende;
+- 12 e 13 conservano i loro collegamenti storici ma nessuna entità operativa;
+- nessun record progetto o file è stato eliminato.
+
+**GATE UX-6: CHIUSO.**
 
 ## Esito del censimento
 

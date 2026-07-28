@@ -1,6 +1,6 @@
 # PythonPro — Stato corrente
 
-**Aggiornato:** 2026-07-28 (GATE UX-6 ripresentato; UX-8 e UX-9 CHIUSI)
+**Aggiornato:** 2026-07-28 (UX-6, UX-8 e UX-9 CHIUSI; GATE UX-5 aperto)
 **Branch:** `claude/platform-audit-compliance-XnH86` (locale, **nessun push**)
 **Percorso:** `/DATA/progetti/pythonpro`
 
@@ -151,11 +151,7 @@ pagine, si ferma a 2000 e dichiara `troncato`, che l'albero mostra.
 Backend non toccato: nessun rilancio della suite backend necessario.
 
 ### ▶️ DA FARE, in quest'ordine
-1. **Decisione GATE UX-6**: secondo PDF del progetto 13 da confrontare/
-   riallegare al progetto 11; scegliere archiviazione reversibile (consigliata)
-   o eliminazione definitiva di 12/13; riattivare il canonico 11. Query solo
-   proposte in `audit/UX6_BONIFICA_PROPOSTA.md`, nessuna bonifica eseguita.
-2. **UX-5** (gate dominio date, **da presentare prima di scrivere codice**)
+1. **UX-5** (gate dominio date, **da presentare prima di scrivere codice**)
    → UX-0 → UX-1 → UX-2 → UX-3 → UX-4 → gate finale.
 
 Verificato contro il codice il 2026-07-28: UX-5, UX-0, UX-1, UX-2, UX-3 e UX-4
@@ -189,8 +185,12 @@ progetto).
 - Confutazione: backend UX-6 **15 passed**; frontend **6 passed**; 4 rotte
   project-scoped presenti nell'OpenAPI live; bundle `main.1f332f0e.js`
   allineato. Finding QA non bloccante NEW-040: warning React `act(...)`.
-- Nessuna bonifica o modifica al DB eseguita in questa sessione. Attesa
-  decisione utente al GATE.
+- Decisione utente ricevuta: soluzione reversibile approvata ed eseguita.
+  PDF lungo riallegato al progetto 11 tramite API UX-6 (unico conflitto
+  `convenzione_file_path`, accettato esplicitamente; hash verificato).
+  Progetto 11 riattivato; 12 e 13 `cancelled`/disattivati con motivazione.
+  Listing live: 11 visibile, 12/13 nascosti. Nessun record o file eliminato.
+- **GATE UX-6 CHIUSO.**
 
 ### Fatto nelle sessioni precedenti
 
