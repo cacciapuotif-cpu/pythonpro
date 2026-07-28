@@ -1040,5 +1040,56 @@ dedotto dal conteggio.
 - Proposta: aggiornare gli helper del test a interazioni asincrone
   `userEvent`/`waitFor` coerenti con React Testing Library e azzerare i warning,
   senza cambiare il codice di produzione.
-- Stato: **aperto**, non bloccante per il fix UX-6; da chiudere in un commit QA
-  dedicato.
+- Stato: **chiuso in UX-6b**. Upload e conferme sono ora attesi tramite
+  `React.act`; eliminati tutti i warning "update ... not wrapped in act".
+  Resta un solo warning di deprecazione emesso internamente dalla versione
+  installata di React Testing Library (`ReactDOMTestUtils.act`), non dal test
+  applicativo.
+
+---
+
+## 2026-07-28 | NEW-041 | I codici progetto FAPI per beneficiaria non hanno un modello persistente
+
+- Area: dominio formazione finanziata / dati progetto-beneficiaria
+- Severità stimata: alta (perdita strutturata di dati estratti)
+- Emerso durante: UX-6b, verifica della convenzione reale del progetto 11.
+- Evidenza:
+  - la convenzione contiene 5 codici progetto distinti, uno per riga
+    beneficiaria, con partecipanti e totale;
+  - `azienda_cliente_projects` rappresenta il coinvolgimento della beneficiaria
+    e la compliance aiuti, ma non codice, partecipanti o totale;
+  - `ModuloFormativo.codice_progetto_fapi` ripete il codice sui moduli, ma nel
+    progetto 11 tutti i moduli hanno `azienda_beneficiaria_id = NULL`;
+  - quindi non è possibile ricostruire in modo affidabile la relazione
+    codice→beneficiaria→moduli.
+- Rischio: salvare i valori direttamente sul link azienda-progetto imporrebbe
+  artificialmente un solo codice per azienda. Il caso reale è 1:1, ma il
+  modello non deve impedire più interventi/codici per la stessa beneficiaria.
+- Proposta: nuova entità figlia `InterventoBeneficiario`, collegata al piano
+  (`Project`) e al link beneficiaria, con codice esterno del fondo,
+  partecipanti approvati, costo totale, metadati di fonte; i moduli puntano
+  all'intervento. Specifica completa in
+  `audit/UX6B_GATE_CODICI_PROGETTO.md`.
+- Stato: **GATE DOMINIO aperto**. Nessuna migration o persistenza di questi
+  valori implementata prima della decisione utente. La UI li mostra
+  esplicitamente come estratti ma non salvati.
+
+---
+
+## 2026-07-28 | NEW-042 | Parser convenzione dipendeva dalla posizione fisica degli allegati
+
+- Area: import documenti / FAPI
+- Severità stimata: alta
+- Emerso durante: confutazione UX-6b sul PDF reale già archiviato.
+- Causa: il parser leggeva dati piano solo da pagina 1, Allegato A dalla
+  penultima e Allegato B dall'ultima. Il file firmato reale ha due pagine firma
+  vuote iniziali e Allegato C finale.
+- Effetto osservato prima del fix: codice piano/delibera/ente assenti, 0 aziende
+  e nomi azienda potenzialmente scambiati per codici.
+- Fix: ricerca dei dati su tutto il testo e riconoscimento Allegati A/B tramite
+  intestazioni semantiche; Allegato C escluso perché non ha
+  `Codice Progetto`/partecipanti.
+- Confutazione reale dopo il fix: piano `20250611CMIA001`, delibera 7 del
+  24/03/2026, ente NEXT GROUP, 5 codici, 5 beneficiarie, tutti gli importi e
+  partecipanti, zero warning.
+- Stato: **chiuso**, coperto da due test dedicati.

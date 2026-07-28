@@ -1022,8 +1022,11 @@ export const uploadConvenzione = (file) => {
     headers: { 'Content-Type': 'multipart/form-data' },
   }).then(r => r.data);
 };
-export const confirmConvenzione = (previewToken) =>
-  http.post('/projects/confirm-convenzione', { preview_token: previewToken }).then(r => r.data);
+export const confirmConvenzione = (previewToken, options = {}) =>
+  http.post('/projects/confirm-convenzione', {
+    preview_token: previewToken,
+    ...options,
+  }).then(r => r.data);
 
 // UX-6: dentro un progetto il documento si ASSOCIA, non crea un gemello.
 export const uploadConvenzioneProgetto = (projectId, file) => {
@@ -1033,10 +1036,25 @@ export const uploadConvenzioneProgetto = (projectId, file) => {
     headers: { 'Content-Type': 'multipart/form-data' },
   }).then(r => r.data);
 };
-export const confirmConvenzioneProgetto = (projectId, previewToken, campiDaApplicare = []) =>
+export const confirmConvenzioneProgetto = (
+  projectId,
+  previewToken,
+  campiDaApplicare = [],
+  modalita,
+  tipoDocumento,
+) =>
   http.post(`/projects/${projectId}/confirm-convenzione`, {
     preview_token: previewToken,
     campi_da_applicare: campiDaApplicare,
+    ...(modalita ? { modalita } : {}),
+    ...(tipoDocumento ? { tipo_documento: tipoDocumento } : {}),
+  }).then(r => r.data);
+
+export const getDocumentiProgetto = (projectId) =>
+  http.get(`/projects/${projectId}/documenti`).then(r => r.data);
+export const downloadDocumentoProgetto = (projectId, documentoId) =>
+  http.get(`/projects/${projectId}/documenti/${documentoId}/download`, {
+    responseType: 'blob',
   }).then(r => r.data);
 
 export const uploadFormulario = (projectId, file) => {

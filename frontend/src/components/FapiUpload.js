@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   uploadConvenzione, confirmConvenzione,
   uploadConvenzioneProgetto, confirmConvenzioneProgetto,
@@ -7,6 +7,7 @@ import {
   uploadAmmissioneFondimpresa, confirmAmmissioneFondimpresa,
   uploadAmmissioneFondimpresaProgetto, confirmAmmissioneFondimpresaProgetto,
   uploadRiepilogoFondimpresa, confirmRiepilogoFondimpresa,
+  getDocumentiProgetto, downloadDocumentoProgetto,
 } from '../services/apiService';
 import { formatApiError } from '../lib/errors';
 import './FapiUpload.css';
@@ -44,13 +45,35 @@ function useDocumentoProgetto({ projectId, upload, uploadProgetto, conferma, con
     }
   }
 
-  async function handleConfirm(onSuccess) {
+  async function handleConfirm(onSuccess, options = {}) {
     setStep('confirming');
     try {
-      const result = associa
-        ? await confermaProgetto(projectId, preview.preview_token, campiScelti)
-        : await conferma(preview.preview_token);
-      setPreview(prev => ({ ...prev, _result: result }));
+      const targetProjectId = options.projectId || projectId;
+      let result;
+      if (targetProjectId) {
+        result = options.modalita
+          ? await confermaProgetto(
+            targetProjectId,
+            preview.preview_token,
+            campiScelti,
+            options.modalita,
+            options.tipoDocumento,
+          )
+          : await confermaProgetto(
+            targetProjectId,
+            preview.preview_token,
+            campiScelti,
+          );
+      } else {
+        result = options.createPayload
+          ? await conferma(preview.preview_token, options.createPayload)
+          : await conferma(preview.preview_token);
+      }
+      setPreview(prev => ({
+        ...prev,
+        _result: result,
+        _operation: targetProjectId ? (options.modalita || 'arricchisci') : 'crea',
+      }));
       setStep('done');
       onSuccess && onSuccess(result);
     } catch (err) {
@@ -65,7 +88,17 @@ function useDocumentoProgetto({ projectId, upload, uploadProgetto, conferma, con
     );
   }
 
-  return { associa, step, preview, error, campiScelti, handleFile, handleConfirm, toggleCampo };
+  return {
+    associa,
+    step,
+    preview,
+    error,
+    setError,
+    campiScelti,
+    handleFile,
+    handleConfirm,
+    toggleCampo,
+  };
 }
 
 function DiffProgetto({ diff, campiScelti, onToggle }) {
@@ -125,6 +158,147 @@ function DiffProgetto({ diff, campiScelti, onToggle }) {
           </table>
         </>
       )}
+    </div>
+  );
+}
+
+function ConfrontoCompleto({ confronto, campiScelti, onToggle }) {
+  return (
+    <div className="fapi-preview-section">
+      <strong>Confronto con il progetto esistente</strong>
+      <table>
+        <thead>
+          <tr>
+            <th>Aggiorna</th>
+            <th>Campo</th>
+            <th>Valore attuale</th>
+            <th>Dal documento</th>
+            <th>Stato</th>
+          </tr>
+        </thead>
+        <tbody>
+          {(confronto || []).map(riga => (
+            <tr key={riga.campo}>
+              <td>
+                {riga.stato !== 'identico' && (
+                  <input
+                    type="checkbox"
+                    aria-label={`Aggiorna ${riga.etichetta}`}
+                    checked={campiScelti.includes(riga.campo)}
+                    onChange={() => onToggle(riga.campo)}
+                  />
+                )}
+              </td>
+              <td>{riga.etichetta}</td>
+              <td>{riga.valore_attuale == null ? '—' : String(riga.valore_attuale)}</td>
+              <td>{riga.valore_estratto == null ? '—' : String(riga.valore_estratto)}</td>
+              <td>
+                <span className={`fapi-diff-status ${riga.stato}`}>
+                  {riga.stato.replaceAll('_', ' ')}
+                </span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ConfrontoAziende({ aziende }) {
+  if (!aziende?.length) return null;
+  return (
+    <div className="fapi-preview-section">
+      <strong>Confronto aziende beneficiarie</strong>
+      <table>
+        <thead>
+          <tr>
+            <th>Azienda</th>
+            <th>Nel progetto</th>
+            <th>Codice progetto</th>
+            <th>Partecipanti</th>
+            <th>Totale</th>
+          </tr>
+        </thead>
+        <tbody>
+          {aziende.map((azienda, index) => (
+            <tr key={azienda.codice_progetto || azienda.azienda_id || index}>
+              <td>{azienda.ragione_sociale}</td>
+              <td>
+                {azienda.gia_associata
+                  ? <span className="badge-exists">Associata</span>
+                  : <span className="badge-new">Da associare</span>}
+              </td>
+              <td>{azienda.codice_progetto || '—'}</td>
+              <td>{azienda.num_partecipanti ?? '—'}</td>
+              <td>{formatEuro(azienda.importo)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="fapi-domain-note">
+        Codice, partecipanti e totale sono mostrati senza salvarli finché non
+        viene confermato il modello degli interventi per azienda.
+      </div>
+    </div>
+  );
+}
+
+function DocumentiProgetto({ projectId, refreshKey }) {
+  const [documenti, setDocumenti] = useState([]);
+  const [errore, setErrore] = useState('');
+
+  useEffect(() => {
+    let mounted = true;
+    if (!projectId) return undefined;
+    getDocumentiProgetto(projectId)
+      .then(rows => {
+        if (mounted) setDocumenti(rows || []);
+      })
+      .catch(err => {
+        if (mounted) setErrore(formatApiError(err));
+      });
+    return () => { mounted = false; };
+  }, [projectId, refreshKey]);
+
+  async function scarica(documento) {
+    try {
+      const blob = await downloadDocumentoProgetto(projectId, documento.id);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = documento.file_name || `documento-${documento.id}`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setErrore(formatApiError(err));
+    }
+  }
+
+  if (!documenti.length && !errore) return null;
+  return (
+    <div className="fapi-project-documents">
+      <strong>Documenti archiviati</strong>
+      {errore && <div className="fapi-error">⚠️ {errore}</div>}
+      {documenti.map(documento => (
+        <div className="fapi-project-document" key={documento.id}>
+          <span>
+            {documento.tipo_documento.replaceAll('_', ' ')} · v{documento.versione}
+            {' · '}
+            {documento.file_name}
+            {documento.caricato_da_user_id
+              ? ` · utente #${documento.caricato_da_user_id}`
+              : ' · importato dallo storico'}
+          </span>
+          <button
+            className="fapi-btn"
+            type="button"
+            onClick={() => scarica(documento)}
+          >
+            Scarica
+          </button>
+        </div>
+      ))}
     </div>
   );
 }
@@ -242,7 +416,8 @@ function ConvenzioneModal({ projectId, onClose, onSuccess }) {
   // UX-6: con projectId il documento si ALLEGA al progetto aperto; senza,
   // siamo nel flusso "nuovo piano" e il progetto viene creato.
   const {
-    associa, step, preview, error, campiScelti, handleFile, handleConfirm, toggleCampo,
+    associa, step, preview, error, setError, campiScelti,
+    handleFile, handleConfirm, toggleCampo,
   } = useDocumentoProgetto({
     projectId,
     upload: uploadConvenzione,
@@ -250,6 +425,62 @@ function ConvenzioneModal({ projectId, onClose, onSuccess }) {
     conferma: confirmConvenzione,
     confermaProgetto: confirmConvenzioneProgetto,
   });
+  const [selectedProjectId, setSelectedProjectId] = useState('');
+  const [tipoDocumento, setTipoDocumento] = useState('convenzione');
+  const [dataApprovazione, setDataApprovazione] = useState('');
+  const [dataAvvioPiano, setDataAvvioPiano] = useState('');
+
+  const candidati = preview?.match?.candidati || [];
+  const hasGlobalMatch = !associa && candidati.length > 0;
+  const targetProjectId = Number(selectedProjectId || preview?.existing_project_id || 0);
+  const confrontoSelezionato = targetProjectId
+    ? preview?.confronti_per_progetto?.[String(targetProjectId)] || preview?.confronto
+    : [];
+  const confrontoAziendeSelezionato = targetProjectId
+    ? preview?.confronti_aziende_per_progetto?.[String(targetProjectId)]
+      || preview?.confronto_aziende
+    : [];
+
+  useEffect(() => {
+    if (preview?.existing_project_id) {
+      setSelectedProjectId(String(preview.existing_project_id));
+    }
+    if (preview?.piano?.delibera_data) {
+      setDataApprovazione(current => current || preview.piano.delibera_data);
+    }
+  }, [preview?.existing_project_id, preview?.piano?.delibera_data]);
+
+  async function associaEsistente(modalita) {
+    if (!targetProjectId) {
+      setError('Scegli il progetto a cui associare il documento.');
+      return;
+    }
+    await handleConfirm(onSuccess, {
+      projectId: targetProjectId,
+      modalita,
+      tipoDocumento,
+    });
+  }
+
+  async function creaProgetto({ duplicato = false } = {}) {
+    if (!dataApprovazione || !dataAvvioPiano) {
+      setError('Data approvazione e data avvio piano sono obbligatorie.');
+      return;
+    }
+    if (duplicato && !window.confirm(
+      'Confermi? Creerai un secondo progetto con lo stesso codice FAPI.',
+    )) {
+      return;
+    }
+    await handleConfirm(onSuccess, {
+      createPayload: {
+        data_approvazione: dataApprovazione,
+        data_avvio_piano: dataAvvioPiano,
+        tipo_documento: tipoDocumento,
+        conferma_creazione_duplicato: duplicato,
+      },
+    });
+  }
 
   return (
     <div className="fapi-modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
@@ -286,6 +517,80 @@ function ConvenzioneModal({ projectId, onClose, onSuccess }) {
                 campiScelti={campiScelti}
                 onToggle={toggleCampo}
               />
+            )}
+
+            {hasGlobalMatch && (
+              <>
+                <div className="fapi-match-panel">
+                  <strong>
+                    {preview.match.stato === 'esatto'
+                      ? 'Progetto esistente riconosciuto'
+                      : 'Possibili progetti corrispondenti'}
+                  </strong>
+                  <label>
+                    Progetto destinatario
+                    <select
+                      aria-label="Progetto destinatario"
+                      value={selectedProjectId}
+                      onChange={event => setSelectedProjectId(event.target.value)}
+                    >
+                      {preview.match.stato !== 'esatto' && (
+                        <option value="">Scegli il progetto…</option>
+                      )}
+                      {candidati.map(candidate => (
+                        <option key={candidate.project_id} value={candidate.project_id}>
+                          #{candidate.project_id} · {candidate.nome}
+                          {candidate.codice_fapi ? ` · ${candidate.codice_fapi}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                {confrontoSelezionato?.length > 0 && (
+                  <ConfrontoCompleto
+                    confronto={confrontoSelezionato}
+                    campiScelti={campiScelti}
+                    onToggle={toggleCampo}
+                  />
+                )}
+                <ConfrontoAziende aziende={confrontoAziendeSelezionato} />
+              </>
+            )}
+
+            {!associa && (
+              <div className="fapi-preview-section fapi-confirm-metadata">
+                <strong>Classificazione e date amministrative</strong>
+                <label>
+                  Tipo documento
+                  <select
+                    aria-label="Tipo documento"
+                    value={tipoDocumento}
+                    onChange={event => setTipoDocumento(event.target.value)}
+                  >
+                    <option value="convenzione">Convenzione</option>
+                    <option value="atto_concessione">Atto di concessione</option>
+                    <option value="delibera">Delibera</option>
+                  </select>
+                </label>
+                <label>
+                  Data approvazione
+                  <input
+                    aria-label="Data approvazione"
+                    type="date"
+                    value={dataApprovazione}
+                    onChange={event => setDataApprovazione(event.target.value)}
+                  />
+                </label>
+                <label>
+                  Data avvio piano
+                  <input
+                    aria-label="Data avvio piano"
+                    type="date"
+                    value={dataAvvioPiano}
+                    onChange={event => setDataAvvioPiano(event.target.value)}
+                  />
+                </label>
+              </div>
             )}
 
             <div className="fapi-preview-section">
@@ -356,7 +661,7 @@ function ConvenzioneModal({ projectId, onClose, onSuccess }) {
 
         {step === 'done' && preview?._result && (
           <div className="fapi-success">
-            {associa ? (
+            {preview._operation !== 'crea' ? (
               <EsitoAssociazione result={preview._result} />
             ) : (
               <>
@@ -373,13 +678,46 @@ function ConvenzioneModal({ projectId, onClose, onSuccess }) {
             {step === 'done' ? 'Chiudi' : 'Annulla'}
           </button>
           {step === 'preview' && (
-            <button className="fapi-btn primary" onClick={() => handleConfirm(onSuccess)}>
-              {associa ? '✅ Allega al progetto' : '✅ Conferma e Crea Progetto'}
-            </button>
+            <>
+              {associa && (
+                <button className="fapi-btn primary" onClick={() => handleConfirm(onSuccess)}>
+                  ✅ Allega al progetto
+                </button>
+              )}
+              {!associa && !hasGlobalMatch && (
+                <button className="fapi-btn primary" onClick={() => creaProgetto()}>
+                  ✅ Conferma e Crea Progetto
+                </button>
+              )}
+              {hasGlobalMatch && (
+                <>
+                  <button
+                    className="fapi-btn primary"
+                    disabled={!targetProjectId}
+                    onClick={() => associaEsistente('associa')}
+                  >
+                    Associa al progetto esistente
+                  </button>
+                  <button
+                    className="fapi-btn"
+                    disabled={!targetProjectId}
+                    onClick={() => associaEsistente('aggiorna')}
+                  >
+                    Aggiorna dati del progetto esistente
+                  </button>
+                  <button
+                    className="fapi-btn subtle-danger"
+                    onClick={() => creaProgetto({ duplicato: true })}
+                  >
+                    Crea comunque un nuovo progetto
+                  </button>
+                </>
+              )}
+            </>
           )}
           {step === 'confirming' && (
             <button className="fapi-btn primary" disabled>
-              {associa ? '⏳ Associazione…' : '⏳ Creazione…'}
+              ⏳ Operazione in corso…
             </button>
           )}
         </div>
@@ -833,6 +1171,7 @@ function NuovoPianoModal({ onChoose, onClose }) {
 
 export function FapiUploadSection({ project, onRefresh, autoOpenConvenzione, autoOpenMode, onAutoClose }) {
   const [modal, setModal] = useState(autoOpenConvenzione ? (autoOpenMode || 'new-piano') : null);
+  const [documentRefreshKey, setDocumentRefreshKey] = useState(0);
 
   const isFapi = project?.ente_erogatore === 'FAPI' || project?.codice_fapi;
   const isFondimpresa = project?.ente_erogatore === 'Fondimpresa';
@@ -901,6 +1240,12 @@ export function FapiUploadSection({ project, onRefresh, autoOpenConvenzione, aut
           {project.delibera_numero && ` · Delibera n. ${project.delibera_numero} del ${project.delibera_data || '—'}`}
         </div>
       )}
+      {project && (
+        <DocumentiProgetto
+          projectId={project.id}
+          refreshKey={documentRefreshKey}
+        />
+      )}
 
       {modal === 'new-piano' && (
         <NuovoPianoModal
@@ -915,7 +1260,10 @@ export function FapiUploadSection({ project, onRefresh, autoOpenConvenzione, aut
           // Il modale ha una schermata di esito che dichiara i campi applicati e
           // quelli lasciati invariati: chiuderlo qui la rendeva irraggiungibile.
           // La chiusura resta un gesto dell'operatore, dopo aver letto l'esito.
-          onSuccess={() => { onRefresh && onRefresh(); }}
+          onSuccess={() => {
+            setDocumentRefreshKey(value => value + 1);
+            onRefresh && onRefresh();
+          }}
         />
       )}
       {modal === 'ammissione-fondimpresa' && (

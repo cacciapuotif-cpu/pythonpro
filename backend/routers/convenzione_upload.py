@@ -3,18 +3,22 @@ import os
 import uuid
 import shutil
 import logging
+import hashlib
 from datetime import datetime, date
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 import models
 from database import get_db
 from auth import get_current_user, User
 import fapi_preview_store as _preview_store
-from services import date_progetto, documento_progetto
+from services import date_progetto, documento_progetto, match_documento_progetto
+from services.audit_log import write_audit_log
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +37,10 @@ class ConfirmConvenzioneRequest(BaseModel):
     data_fine_attivita_formative: date | None = None
     data_termine_rendicontazione: date | None = None
     data_chiusura_effettiva: date | None = None
+    tipo_documento: Literal[
+        "convenzione", "atto_concessione", "delibera"
+    ] = "convenzione"
+    conferma_creazione_duplicato: bool = False
 
 
 class AssociaConvenzioneRequest(BaseModel):
@@ -44,6 +52,10 @@ class AssociaConvenzioneRequest(BaseModel):
 
     preview_token: str
     campi_da_applicare: list[str] = []
+    modalita: Literal["associa", "aggiorna", "arricchisci"] = "arricchisci"
+    tipo_documento: Literal[
+        "convenzione", "atto_concessione", "delibera"
+    ] = "convenzione"
 
 
 def _find_ente_in_db(db: Session, piva: str | None, ragione_sociale: str | None):
@@ -196,6 +208,88 @@ def _associa_aziende(
     }
 
 
+def _confronto_aziende(db: Session, project_id: int, aziende: list[dict]) -> list[dict]:
+    """Confronto associazioni senza inventare campi non presenti sul link."""
+    result = []
+    for extracted in aziende:
+        azienda = _find_azienda_in_db(
+            db,
+            extracted.get("partita_iva"),
+            extracted.get("ragione_sociale"),
+        )
+        link = None
+        if azienda is not None:
+            link = db.query(models.AziendaClienteProjectLink).filter(
+                models.AziendaClienteProjectLink.project_id == project_id,
+                models.AziendaClienteProjectLink.azienda_cliente_id == azienda.id,
+            ).first()
+        result.append({
+            **extracted,
+            "azienda_id": azienda.id if azienda else None,
+            "gia_associata": link is not None,
+            "stato": "identica" if link is not None else "da_associare",
+            # UX-6b(e): il link attuale non rappresenta questi tre valori.
+            "dati_progetto_azienda_rappresentabili": False,
+        })
+    return result
+
+
+def _archivia_documento(
+    db: Session,
+    *,
+    project: models.Project,
+    preview: dict,
+    file_path: str,
+    tipo_documento: str,
+    current_user: User,
+) -> models.ProjectDocumento:
+    versione = (
+        db.query(func.max(models.ProjectDocumento.versione))
+        .filter(
+            models.ProjectDocumento.project_id == project.id,
+            models.ProjectDocumento.tipo_documento == tipo_documento,
+        )
+        .scalar()
+        or 0
+    ) + 1
+    digest = None
+    try:
+        with open(file_path, "rb") as stream:
+            digest = hashlib.sha256(stream.read()).hexdigest()
+    except OSError:
+        logger.warning("Impossibile calcolare SHA-256 del documento %s", file_path)
+
+    documento = models.ProjectDocumento(
+        project_id=project.id,
+        tipo_documento=tipo_documento,
+        versione=versione,
+        file_path=file_path,
+        file_name=preview.get("original_filename"),
+        mime_type="application/pdf",
+        sha256=digest,
+        caricato_da_user_id=current_user.id,
+    )
+    db.add(documento)
+    db.flush()
+    # Compatibilità con i generatori e le schermate legacy: punta all'ultima
+    # versione, mentre lo storico resta in project_documents.
+    project.convenzione_file_path = file_path
+    write_audit_log(
+        db,
+        user_id=current_user.id,
+        azione="documento_progetto_caricato",
+        risorsa_tipo="project_document",
+        risorsa_id=documento.id,
+        dati_dopo={
+            "project_id": project.id,
+            "tipo_documento": tipo_documento,
+            "versione": versione,
+            "sha256": digest,
+        },
+    )
+    return documento
+
+
 def _suggerisci_documenti(
     db: Session,
     azienda: models.AziendaCliente,
@@ -242,18 +336,6 @@ async def upload_convenzione(
     dest = _salva_pdf(file, token)
     result = _parse_pdf(dest)
 
-    # check duplicato codice_fapi
-    codice_fapi = result["piano"].get("codice_fapi")
-    if codice_fapi:
-        existing = db.query(models.Project).filter(
-            models.Project.codice_fapi == codice_fapi
-        ).first()
-        if existing:
-            result["warnings"].append(
-                f"Attenzione: esiste già un progetto con codice FAPI {codice_fapi} (id={existing.id})"
-            )
-            result["existing_project_id"] = existing.id
-
     # arricchisci con info DB per ente attuatore
     ente_info = result["ente_attuatore"]
     db_ente = _find_ente_in_db(db, ente_info.get("partita_iva"), ente_info.get("ragione_sociale"))
@@ -269,15 +351,58 @@ async def upload_convenzione(
         az["exists_in_db"] = db_az is not None
         az["id"] = db_az.id if db_az else None
 
+    match = match_documento_progetto.trova_candidati(db, result)
+    candidate_ids = [candidate["project_id"] for candidate in match["candidati"]]
+    candidate_projects = (
+        db.query(models.Project)
+        .filter(models.Project.id.in_(candidate_ids))
+        .all()
+        if candidate_ids
+        else []
+    )
+    estratti = _estratti_progetto(db, result, dest)
+    confronti_per_progetto = {
+        str(project.id): documento_progetto.confronta_dati(project, estratti)
+        for project in candidate_projects
+    }
+    confronti_aziende_per_progetto = {
+        str(project.id): _confronto_aziende(
+            db,
+            project.id,
+            result["aziende_beneficiarie"],
+        )
+        for project in candidate_projects
+    }
+    confronto = confronti_per_progetto.get(str(match["project_id"]), [])
+    confronto_aziende = confronti_aziende_per_progetto.get(
+        str(match["project_id"]), []
+    )
+    if match["project_id"] is not None:
+        result["warnings"].append(
+            "Attenzione: esiste già un progetto con codice FAPI "
+            f"{result['piano'].get('codice_fapi')} (id={match['project_id']})"
+        )
+
     # salva preview in store condiviso (Redis o memory)
     _preview_store.store(token, {
         "file_path": dest,
         "original_filename": file.filename,
+        "candidate_project_ids": candidate_ids,
+        "matched_project_id": match["project_id"],
         **result,
     })
 
     return {
         "preview_token": token,
+        "existing_project_id": match["project_id"],
+        "azione_predefinita": (
+            "associa" if match["project_id"] is not None else "crea"
+        ),
+        "match": match,
+        "confronto": confronto,
+        "confronto_aziende": confronto_aziende,
+        "confronti_per_progetto": confronti_per_progetto,
+        "confronti_aziende_per_progetto": confronti_aziende_per_progetto,
         **result,
     }
 
@@ -312,15 +437,20 @@ def confirm_convenzione(
             ),
         )
 
-    # check duplicato
+    # UX-6b: creare un gemello è possibile soltanto dopo una seconda conferma
+    # esplicita, verificata anche dal backend.
     if codice_fapi:
         existing = db.query(models.Project).filter(
             models.Project.codice_fapi == codice_fapi
         ).first()
-        if existing:
+        if existing and not body.conferma_creazione_duplicato:
             raise HTTPException(
                 status_code=409,
-                detail=f"Progetto con codice FAPI {codice_fapi} già esistente (id={existing.id})",
+                detail=(
+                    f"Progetto con codice FAPI {codice_fapi} già esistente "
+                    f"(id={existing.id}). Per creare un secondo progetto serve "
+                    "la conferma esplicita della duplicazione."
+                ),
             )
 
     try:
@@ -331,15 +461,9 @@ def confirm_convenzione(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    # rinomina file con codice piano
+    # Il path UUID è intenzionale: rinominare tutte le versioni con il solo
+    # codice piano sovrascriverebbe lo storico.
     file_path = preview["file_path"]
-    if codice_fapi:
-        final_path = os.path.join(UPLOAD_DIR, f"{codice_fapi}.pdf")
-        try:
-            shutil.move(file_path, final_path)
-            file_path = final_path
-        except Exception:
-            pass
 
     # risolvi ente attuatore
     ente_info = preview["ente_attuatore"]
@@ -376,12 +500,22 @@ def confirm_convenzione(
     esito = _associa_aziende(
         db, project, preview["aziende_beneficiarie"], current_user, codice_fapi
     )
+    documento = _archivia_documento(
+        db,
+        project=project,
+        preview=preview,
+        file_path=file_path,
+        tipo_documento=body.tipo_documento,
+        current_user=current_user,
+    )
 
     db.commit()
 
     return {
         "project_id": project.id,
         "codice_fapi": codice_fapi,
+        "documento_id": documento.id,
+        "documento_versione": documento.versione,
         **esito,
     }
 
@@ -442,14 +576,23 @@ def confirm_convenzione_progetto(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+    project = (
+        db.query(models.Project)
+        .filter(models.Project.id == project_id)
+        .with_for_update()
+        .first()
+    )
     if not project:
         raise HTTPException(status_code=404, detail="Progetto non trovato")
 
     preview = _preview_store.pop(body.preview_token)
     if not preview:
         raise HTTPException(status_code=404, detail="Preview token non trovato o scaduto")
-    if preview.get("project_id") != project_id:
+    candidate_ids = set(preview.get("candidate_project_ids") or [])
+    if (
+        preview.get("project_id") != project_id
+        and project_id not in candidate_ids
+    ):
         raise HTTPException(status_code=400, detail="Token non appartiene a questo progetto")
 
     piano = preview["piano"]
@@ -457,7 +600,7 @@ def confirm_convenzione_progetto(
 
     # Il codice del piano identifica il progetto: se e' gia' di un ALTRO
     # progetto, associarlo qui creerebbe due progetti con lo stesso codice.
-    if codice_fapi:
+    if codice_fapi and project.codice_fapi != codice_fapi:
         altro = db.query(models.Project).filter(
             models.Project.codice_fapi == codice_fapi,
             models.Project.id != project_id,
@@ -472,26 +615,127 @@ def confirm_convenzione_progetto(
             )
 
     file_path = preview["file_path"]
-    if codice_fapi:
-        final_path = os.path.join(UPLOAD_DIR, f"{codice_fapi}.pdf")
-        try:
-            shutil.move(file_path, final_path)
-            file_path = final_path
-        except Exception:
-            pass
 
     estratti = _estratti_progetto(db, preview, file_path)
-    esito_campi = documento_progetto.applica_estratti(
-        project, estratti, body.campi_da_applicare
+    if body.modalita == "associa":
+        confronto = documento_progetto.calcola_diff(project, estratti)
+        esito_campi = {
+            "campi_applicati": [],
+            "campi_in_conflitto_non_applicati": [
+                voce["campo"] for voce in confronto
+            ],
+        }
+    elif body.modalita == "aggiorna":
+        try:
+            esito_campi = documento_progetto.applica_solo_campi_scelti(
+                project,
+                estratti,
+                body.campi_da_applicare,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+    else:
+        # Compatibilità col flusso project-scoped UX-6 già rilasciato.
+        esito_campi = documento_progetto.applica_estratti(
+            project, estratti, body.campi_da_applicare
+        )
+    # "Associa" è document-only: non crea aziende né collegamenti impliciti.
+    # Il percorso legacy ``arricchisci`` e l'azione esplicita ``aggiorna``
+    # mantengono la sincronizzazione deduplicata delle beneficiarie.
+    esito_aziende = (
+        {
+            "aziende_create": 0,
+            "aziende_associate": 0,
+            "suggestions_create": 0,
+        }
+        if body.modalita == "associa"
+        else _associa_aziende(
+            db,
+            project,
+            preview.get("aziende_beneficiarie", []),
+            current_user,
+            codice_fapi,
+        )
     )
-    esito_aziende = _associa_aziende(
-        db, project, preview.get("aziende_beneficiarie", []), current_user, codice_fapi
+    documento = _archivia_documento(
+        db,
+        project=project,
+        preview=preview,
+        file_path=file_path,
+        tipo_documento=body.tipo_documento,
+        current_user=current_user,
     )
     db.commit()
 
     return {
         "project_id": project.id,
         "codice_fapi": project.codice_fapi,
+        "documento_id": documento.id,
+        "documento_versione": documento.versione,
         **esito_campi,
         **esito_aziende,
     }
+
+
+@router.get("/{project_id}/documenti")
+def list_documenti_progetto(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if not db.query(models.Project.id).filter(models.Project.id == project_id).first():
+        raise HTTPException(status_code=404, detail="Progetto non trovato")
+    rows = (
+        db.query(models.ProjectDocumento)
+        .filter(models.ProjectDocumento.project_id == project_id)
+        .order_by(
+            models.ProjectDocumento.tipo_documento,
+            models.ProjectDocumento.versione.desc(),
+        )
+        .all()
+    )
+    return [
+        {
+            "id": row.id,
+            "project_id": row.project_id,
+            "tipo_documento": row.tipo_documento,
+            "versione": row.versione,
+            "file_name": row.file_name,
+            "mime_type": row.mime_type,
+            "sha256": row.sha256,
+            "caricato_da_user_id": row.caricato_da_user_id,
+            "caricato_il": row.caricato_il,
+        }
+        for row in rows
+    ]
+
+
+@router.get("/{project_id}/documenti/{documento_id}/download")
+def download_documento_progetto(
+    project_id: int,
+    documento_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    documento = db.query(models.ProjectDocumento).filter(
+        models.ProjectDocumento.id == documento_id,
+        models.ProjectDocumento.project_id == project_id,
+    ).first()
+    if documento is None:
+        raise HTTPException(status_code=404, detail="Documento non trovato")
+    if not os.path.isfile(documento.file_path):
+        raise HTTPException(status_code=404, detail="File documento non disponibile")
+    write_audit_log(
+        db,
+        user_id=current_user.id,
+        azione="documento_progetto_scaricato",
+        risorsa_tipo="project_document",
+        risorsa_id=documento.id,
+        dati_dopo={"project_id": project_id},
+    )
+    db.commit()
+    return FileResponse(
+        documento.file_path,
+        media_type=documento.mime_type or "application/octet-stream",
+        filename=documento.file_name or os.path.basename(documento.file_path),
+    )

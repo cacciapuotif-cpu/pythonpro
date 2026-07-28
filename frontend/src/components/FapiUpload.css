@@ -49,6 +49,67 @@
   background: #34495e;
 }
 
+.fapi-btn.subtle-danger {
+  color: #8b2f2f;
+  border-color: #d9aaaa;
+  background: transparent;
+}
+
+.fapi-match-panel {
+  margin-bottom: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid #9dc4a6;
+  border-radius: 6px;
+  background: #f0f8f2;
+  font-size: 12px;
+}
+
+.fapi-match-panel strong,
+.fapi-match-panel label,
+.fapi-confirm-metadata label {
+  display: block;
+  margin-bottom: 0.4rem;
+}
+
+.fapi-match-panel select,
+.fapi-confirm-metadata select,
+.fapi-confirm-metadata input {
+  display: block;
+  width: 100%;
+  margin-top: 0.2rem;
+  padding: 5px 7px;
+  border: 1px solid var(--color-border-secondary, #ccc);
+  border-radius: 4px;
+  background: var(--color-background-primary, #fff);
+}
+
+.fapi-confirm-metadata {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.fapi-confirm-metadata strong {
+  grid-column: 1 / -1;
+}
+
+.fapi-diff-status {
+  display: inline-block;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: #eef1f4;
+}
+
+.fapi-diff-status.diverso {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.fapi-diff-status.assente_nel_sistema {
+  background: #dbeeff;
+  color: #244f75;
+}
+
 /* Modal overlay */
 .fapi-modal-overlay {
   position: fixed;
@@ -203,4 +264,27 @@
 
 .fapi-beneficiarie-row:last-child {
   border-bottom: none;
+}
+
+.fapi-project-documents {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid var(--color-border, #ddd);
+  border-radius: 8px;
+}
+
+.fapi-project-document {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.75rem;
+}
+
+.fapi-domain-note {
+  margin-top: 0.5rem;
+  color: var(--color-text-secondary, #666);
+  font-size: 0.7rem;
 }

@@ -50,14 +50,104 @@ def _fix_codice(raw: str) -> str:
     return raw.replace("\n", "").replace(" ", "").upper()
 
 
+def _header_key(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(value or "").lower())
+
+
+def _estrai_allegati(
+    pages_tables: list[list[list[list[Any]]]],
+    codice_piano: str | None,
+) -> tuple[list[str], list[dict]]:
+    """Trova Allegato A/B dalle intestazioni, anche con allegati successivi.
+
+    Le convenzioni possono contenere un Allegato C dopo le due tabelle utili:
+    affidarsi a "penultima/ultima pagina" trasforma allora nomi di aziende in
+    codici progetto e perde tutte le beneficiarie.
+    """
+    codici: list[str] = []
+    aziende: list[dict] = []
+    for page_tables in pages_tables:
+        for table in page_tables or []:
+            if not table or not table[0]:
+                continue
+            headers = [_header_key(cell) for cell in table[0]]
+            codice_idx = next(
+                (i for i, value in enumerate(headers) if "codiceprogetto" in value),
+                None,
+            )
+            titolo_idx = next(
+                (i for i, value in enumerate(headers) if value == "titolo"),
+                None,
+            )
+            ragione_idx = next(
+                (i for i, value in enumerate(headers) if "ragionesociale" in value),
+                None,
+            )
+            partecipanti_idx = next(
+                (i for i, value in enumerate(headers) if "partec" in value),
+                None,
+            )
+            totale_idx = next(
+                (i for i, value in enumerate(headers) if value.endswith("totale")),
+                None,
+            )
+
+            if codice_idx is not None and titolo_idx is not None:
+                for row in table[1:]:
+                    if len(row) <= codice_idx or not row[codice_idx]:
+                        continue
+                    codice = _fix_codice(str(row[codice_idx]))
+                    if (
+                        15 <= len(codice) <= 24
+                        and codice.isalnum()
+                        and codice != _fix_codice(codice_piano or "")
+                        and codice not in codici
+                    ):
+                        codici.append(codice)
+
+            if (
+                ragione_idx is not None
+                and codice_idx is not None
+                and partecipanti_idx is not None
+            ):
+                for row in table[1:]:
+                    if len(row) <= ragione_idx or not row[ragione_idx]:
+                        continue
+                    ragione_sociale = str(row[ragione_idx]).strip()
+                    if ragione_sociale.lower() in {"totale", "totali", "data"}:
+                        continue
+                    num_part = None
+                    if len(row) > partecipanti_idx and row[partecipanti_idx]:
+                        try:
+                            num_part = int(str(row[partecipanti_idx]).strip())
+                        except (TypeError, ValueError):
+                            pass
+                    codice_progetto = None
+                    if len(row) > codice_idx and row[codice_idx]:
+                        codice_progetto = _fix_codice(str(row[codice_idx]))
+                    totale = None
+                    if totale_idx is not None and len(row) > totale_idx and row[totale_idx]:
+                        totale = _clean_importo(str(row[totale_idx]).replace("€", ""))
+                    aziende.append({
+                        "ragione_sociale": ragione_sociale,
+                        "partita_iva": None,
+                        "codice_fiscale": None,
+                        "num_partecipanti": num_part,
+                        "codice_progetto": codice_progetto,
+                        "importo": totale,
+                    })
+    return codici, aziende
+
+
 def parse_convenzione(pdf_path: str) -> dict[str, Any]:
     """
     Parsa PDF convenzione FAPI.
     Struttura attesa:
       - Pag 1: Cod. Piano, Contributo FAPI, Cofinanziamento, Delibera, Costo Totale
       - Pag 3: Ente attuatore con P.IVA
-      - Pag penultima: Allegato A — tabella progetti
-      - Pag ultima: Allegato B — tabella aziende beneficiarie (NO P.IVA)
+      - Allegato A: tabella progetti, riconosciuta dalle intestazioni
+      - Allegato B: tabella aziende beneficiarie, riconosciuta dalle
+        intestazioni (può essere seguita da Allegato C)
     """
     warnings: list[str] = []
 
@@ -75,8 +165,9 @@ def parse_convenzione(pdf_path: str) -> dict[str, Any]:
 
     full_text = "\n".join(pages_text)
 
-    # ── Pagina 1: campi piano ─────────────────────────────────────────────────
-    p1 = pages_text[0] if pages_text else ""
+    # Le firme digitali possono anteporre pagine senza testo: cerchiamo nel
+    # documento, non nell'indice fisico della prima pagina.
+    p1 = full_text
 
     m = _RE_CODICE_PIANO.search(p1)
     codice_piano = m.group(1).strip() if m else None
@@ -106,7 +197,7 @@ def parse_convenzione(pdf_path: str) -> dict[str, Any]:
         r"^(.+?),\s*con\s+sede\s+legale\s+in\s+.+C\.F\./P\.IVA\s+(\d{11})",
         re.IGNORECASE,
     )
-    for pt in pages_text[:5]:
+    for pt in pages_text:
         for line in pt.splitlines():
             m = _re_ente_line.match(line.strip())
             if m:
@@ -118,68 +209,7 @@ def parse_convenzione(pdf_path: str) -> dict[str, Any]:
     if not ente_piva:
         warnings.append("P.IVA ente attuatore non trovata")
 
-    # ── Allegato A (penultima pagina) ─────────────────────────────────────────
-    codici_progetto: list[str] = []
-    allegato_a_tables = pages_tables[-2] if len(pages_tables) >= 2 else []
-    for table in allegato_a_tables:
-        if not table:
-            continue
-        header = [str(c or "").strip() for c in table[0]]
-        if "Codice" not in " ".join(header) and "Titolo" not in " ".join(header):
-            continue
-        for row in table[1:]:
-            if not row or not row[0]:
-                continue
-            codice_raw = str(row[0]).strip()
-            codice = _fix_codice(codice_raw)
-            if len(codice) >= 15 and codice != _fix_codice(codice_piano or ""):
-                codici_progetto.append(codice)
-
-    # ── Allegato B (ultima pagina) ────────────────────────────────────────────
-    aziende: list[dict] = []
-    allegato_b_tables = pages_tables[-1] if pages_tables else []
-    for table in allegato_b_tables:
-        if not table:
-            continue
-        header = [str(c or "").strip() for c in table[0]]
-        header_flat = " ".join(header)
-        if "Ragione" not in header_flat and "Sociale" not in header_flat:
-            continue
-        for row in table[1:]:
-            if not row or not row[0]:
-                continue
-            ragione_sociale = str(row[0]).strip()
-            if not ragione_sociale or ragione_sociale.lower() in {"totale", "totali", "data"}:
-                continue
-
-            # n. partecipanti
-            num_part = None
-            if len(row) > 1 and row[1]:
-                try:
-                    num_part = int(str(row[1]).strip())
-                except Exception:
-                    pass
-
-            # codice progetto
-            codice_prog = None
-            if len(row) > 2 and row[2]:
-                codice_prog = _fix_codice(str(row[2]).strip())
-
-            # totale (ultima colonna)
-            totale = None
-            for cell in reversed(row):
-                if cell and "€" in str(cell):
-                    totale = _clean_importo(str(cell).replace("€", ""))
-                    break
-
-            aziende.append({
-                "ragione_sociale": ragione_sociale,
-                "partita_iva": None,        # non presente in Allegato B
-                "codice_fiscale": None,     # non presente in Allegato B
-                "num_partecipanti": num_part,
-                "codice_progetto": codice_prog,
-                "importo": totale,
-            })
+    codici_progetto, aziende = _estrai_allegati(pages_tables, codice_piano)
 
     if not aziende:
         warnings.append("Nessuna azienda estratta dall'Allegato B")

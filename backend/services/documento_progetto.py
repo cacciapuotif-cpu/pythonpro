@@ -43,7 +43,6 @@ CAMPI_DOCUMENTO: tuple[CampoDocumento, ...] = (
     CampoDocumento("cofinanziamento", "Cofinanziamento", "numero"),
     CampoDocumento("budget", "Budget", "numero"),
     CampoDocumento("ente_attuatore_id", "Ente attuatore", "intero"),
-    CampoDocumento("convenzione_file_path", "Documento allegato", "testo"),
 )
 
 _CAMPI_PER_NOME = {c.nome: c for c in CAMPI_DOCUMENTO}
@@ -110,29 +109,42 @@ def _serializza(valore: Any) -> Any:
     return valore
 
 
-def calcola_diff(progetto, estratti: dict[str, Any]) -> list[dict[str, Any]]:
-    """Confronto campo per campo tra progetto e dati estratti dal documento.
+def confronta_dati(progetto, estratti: dict[str, Any]) -> list[dict[str, Any]]:
+    """Confronto completo, compresi i valori identici.
 
-    Ritorna solo i campi per cui il documento porta effettivamente un valore.
-    ``conflitto=True`` significa: il progetto ha gia' un valore diverso, quindi
-    l'applicazione richiede una scelta esplicita dell'operatore.
+    Lo stato è uno fra ``identico``, ``diverso`` e
+    ``assente_nel_sistema``: è il contratto della tabella UX-6b.
     """
-    diff: list[dict[str, Any]] = []
+    confronto: list[dict[str, Any]] = []
     for campo in CAMPI_DOCUMENTO:
         estratto = _coerce(campo, estratti.get(campo.nome))
         if estratto is None:
             continue
         attuale = getattr(progetto, campo.nome, None)
-        if not _vuoto(attuale) and _uguali(campo, attuale, estratto):
-            continue
-        diff.append({
+        if _vuoto(attuale):
+            stato = "assente_nel_sistema"
+        elif _uguali(campo, attuale, estratto):
+            stato = "identico"
+        else:
+            stato = "diverso"
+        confronto.append({
             "campo": campo.nome,
             "etichetta": campo.etichetta,
             "valore_attuale": _serializza(attuale),
             "valore_estratto": _serializza(estratto),
-            "conflitto": not _vuoto(attuale),
+            "stato": stato,
+            "conflitto": stato == "diverso",
         })
-    return diff
+    return confronto
+
+
+def calcola_diff(progetto, estratti: dict[str, Any]) -> list[dict[str, Any]]:
+    """Compatibilità UX-6: ritorna soltanto campi diversi o assenti."""
+    return [
+        voce
+        for voce in confronta_dati(progetto, estratti)
+        if voce["stato"] != "identico"
+    ]
 
 
 def applica_estratti(
@@ -159,6 +171,47 @@ def applica_estratti(
         applicati.append(campo.nome)
 
     return {"campi_applicati": applicati, "campi_in_conflitto_non_applicati": non_applicati}
+
+
+def applica_solo_campi_scelti(
+    progetto,
+    estratti: dict[str, Any],
+    campi_da_applicare: Optional[Iterable[str]] = None,
+) -> dict[str, list[str]]:
+    """UX-6b: applica esattamente la selezione, anche sui campi vuoti.
+
+    La modalità ``associa`` passa una selezione vuota e non modifica alcun dato
+    anagrafico/finanziario. La modalità ``aggiorna`` non può quindi trascinare
+    arricchimenti impliciti non spuntati.
+    """
+    scelti = set(campi_da_applicare or ())
+    sconosciuti = scelti - set(_CAMPI_PER_NOME)
+    if sconosciuti:
+        raise ValueError(
+            "Campi non aggiornabili dal documento: "
+            + ", ".join(sorted(sconosciuti))
+        )
+
+    applicati: list[str] = []
+    disponibili = {
+        voce["campo"]: voce
+        for voce in confronta_dati(progetto, estratti)
+        if voce["stato"] != "identico"
+    }
+    for nome in CAMPI_DOCUMENTO:
+        if nome.nome not in scelti or nome.nome not in disponibili:
+            continue
+        setattr(progetto, nome.nome, _coerce(nome, estratti.get(nome.nome)))
+        applicati.append(nome.nome)
+
+    non_applicati = [
+        nome for nome in disponibili
+        if nome not in scelti
+    ]
+    return {
+        "campi_applicati": applicati,
+        "campi_in_conflitto_non_applicati": non_applicati,
+    }
 
 
 def documento_riconosciuto(piano: dict[str, Any]) -> bool:

@@ -264,7 +264,10 @@ class Project(Base):
     ente_attuatore_id = Column(Integer, ForeignKey("implementing_entities.id", ondelete="SET NULL"), nullable=True, index=True)
 
     # Campi FAPI
-    codice_fapi = Column(String(30), unique=True, nullable=True, index=True)
+    # UX-6b: il codice resta indicizzato ma non globalmente univoco. Un secondo
+    # progetto con lo stesso codice è ammesso solo dal flusso applicativo con
+    # doppia conferma esplicita; il DB non può rappresentare tale intenzione.
+    codice_fapi = Column(String(30), nullable=True, index=True)
     delibera_numero = Column(String(20), nullable=True)
     delibera_data = Column(Date, nullable=True)
     data_approvazione = Column(Date, nullable=True)
@@ -301,6 +304,13 @@ class Project(Base):
     avviso_rel = relationship("Avviso", back_populates="projects", lazy="select")
     avviso_revisione = relationship("AvvisoRevisione", foreign_keys=[avviso_revisione_id], lazy="select")
     piani_finanziari = relationship("PianoFinanziario", back_populates="progetto", lazy="select", cascade="all, delete-orphan")
+    documenti = relationship(
+        "ProjectDocumento",
+        back_populates="project",
+        lazy="select",
+        cascade="all, delete-orphan",
+        order_by="ProjectDocumento.caricato_il.desc()",
+    )
 
     # Proprietà calcolate
     @hybrid_property
@@ -375,6 +385,60 @@ class Project(Base):
         if self.allievi_coinvolti:
             return [allievo.id for allievo in self.allievi_coinvolti]
         return []
+
+
+class ProjectDocumento(Base):
+    """Documento amministrativo versionato e immutabile di un progetto."""
+
+    __tablename__ = "project_documents"
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(
+        Integer,
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    tipo_documento = Column(String(30), nullable=False, index=True)
+    versione = Column(Integer, nullable=False)
+    file_path = Column(String(500), nullable=False)
+    file_name = Column(String(255), nullable=True)
+    mime_type = Column(String(100), nullable=True)
+    sha256 = Column(String(64), nullable=True)
+    caricato_da_user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    caricato_il = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+        index=True,
+    )
+
+    project = relationship("Project", back_populates="documenti", lazy="select")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id",
+            "tipo_documento",
+            "versione",
+            name="uq_project_documento_versione",
+        ),
+        CheckConstraint(
+            "tipo_documento IN ('convenzione','atto_concessione','delibera')",
+            name="ck_project_documento_tipo",
+        ),
+        CheckConstraint("versione > 0", name="ck_project_documento_versione"),
+        Index(
+            "ix_project_documents_project_tipo",
+            "project_id",
+            "tipo_documento",
+        ),
+    )
+
 
 class Avviso(Base):
     __tablename__ = "avvisi"
