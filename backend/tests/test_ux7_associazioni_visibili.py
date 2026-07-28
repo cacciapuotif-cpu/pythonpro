@@ -236,13 +236,33 @@ def test_dopo_il_salvataggio_la_risposta_mostra_gia_gli_associati(client, db_ses
 
 
 def test_rimuovere_un_azienda_si_riflette_in_lettura(client, db_session, scenario):
-    """Anche il verso opposto: se svuoto, la scheda deve svuotarsi."""
+    """Anche il verso opposto: se svuoto, la scheda deve svuotarsi.
+
+    UX-8 ha cambiato le condizioni di questo caso: staccare un'azienda
+    lasciando i suoi allievi sul progetto non e' piu' permesso (li renderebbe
+    orfani della loro azienda), quindi qui si svuotano entrambe le liste.
+    Il divieto ha un test suo, qui sotto.
+    """
     progetto_id = scenario["project"].id
-    resp = client.put(f"/api/v1/projects/{progetto_id}", json={"azienda_ids": []})
+    resp = client.put(
+        f"/api/v1/projects/{progetto_id}",
+        json={"azienda_ids": [], "allievo_ids": []},
+    )
     assert resp.status_code == 200, resp.text
 
     riletto = client.get(f"/api/v1/projects/{progetto_id}").json()
     assert riletto["aziende_coinvolte"] == []
     assert riletto["azienda_ids"] == []
-    # gli allievi non sono stati toccati
+    assert riletto["allievi_coinvolti"] == []
+
+
+def test_svuotare_solo_le_aziende_lascerebbe_allievi_orfani(client, db_session, scenario):
+    """Guardia UX-8 vista da UX-7: il 409 arriva e la scheda non cambia."""
+    progetto_id = scenario["project"].id
+    resp = client.put(f"/api/v1/projects/{progetto_id}", json={"azienda_ids": []})
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["errore"] == "dissociazione_bloccata"
+
+    riletto = client.get(f"/api/v1/projects/{progetto_id}").json()
+    assert len(riletto["aziende_coinvolte"]) == 2
     assert len(riletto["allievi_coinvolti"]) == 3

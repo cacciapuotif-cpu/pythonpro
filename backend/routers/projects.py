@@ -3,7 +3,7 @@ Router per gestione progetti
 Gestisce CRUD progetti e associazioni con collaboratori
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import logging
@@ -12,7 +12,10 @@ import re
 import crud
 import models
 import schemas
+from auth import User, get_current_user, normalize_role, UserRole
 from database import get_db
+from services.audit_log import write_audit_log
+from services import dissociazione_progetto
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/projects", tags=["Projects"])
@@ -254,6 +257,12 @@ def update_project(
         if db_project is None:
             raise HTTPException(status_code=404, detail="Progetto non trovato")
         return db_project
+    except dissociazione_progetto.DissociazioneBloccata as exc:
+        # UX-8: omettere un id dalla lista e' una dissociazione, e passa dalle
+        # stesse guardie della DELETE dedicata. Qui non si forza: per superare
+        # un blocco forzabile si usa l'endpoint esplicito, che pretende motivo.
+        db.rollback()
+        raise HTTPException(status_code=409, detail=exc.as_detail())
     except ValueError as exc:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(exc))
@@ -272,6 +281,203 @@ def delete_project(
     if db_project is None:
         raise HTTPException(status_code=404, detail="Progetto non trovato")
     return {"message": "Progetto eliminato con successo"}
+
+
+# ── Dissociazione allievi / aziende (UX-8) ───────────────────────────
+
+def _client_ip(request: Request) -> str | None:
+    return request.client.host if request.client else None
+
+
+def _is_admin(current_user: User) -> bool:
+    return normalize_role(current_user.role) == UserRole.ADMIN.value
+
+
+def _valida_forzatura(payload: schemas.DissociazioneRequest | None, current_user: User):
+    """La forzatura e' un atto riservato: solo admin, solo con motivo."""
+    if payload is None or not payload.forza:
+        return
+    if not _is_admin(current_user):
+        raise HTTPException(
+            status_code=403,
+            detail="Solo un amministratore puo' forzare la dissociazione",
+        )
+
+
+@router.delete("/{project_id}/allievi/{allievo_id}", response_model=schemas.DissociazioneResponse)
+def dissocia_allievo_da_progetto(
+    project_id: int,
+    allievo_id: int,
+    request: Request,
+    payload: Optional[schemas.DissociazioneRequest] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Stacca un allievo dal progetto applicando le guardie di dominio.
+
+    Blocco assoluto sull'attestato emesso; ore frequentate e dati retributivi
+    sono superabili da un admin con motivo scritto, che finisce in audit.
+    """
+    if not db.query(models.Project.id).filter(models.Project.id == project_id).first():
+        raise HTTPException(status_code=404, detail="Progetto non trovato")
+
+    link = (
+        db.query(models.AllievoProject)
+        .filter(
+            models.AllievoProject.project_id == project_id,
+            models.AllievoProject.allievo_id == allievo_id,
+        )
+        .first()
+    )
+    if link is None:
+        raise HTTPException(
+            status_code=404, detail="Allievo non associato a questo progetto"
+        )
+
+    _valida_forzatura(payload, current_user)
+    forza = bool(payload and payload.forza)
+    motivo = payload.motivo if payload else None
+
+    blocchi = dissociazione_progetto.blocchi_dissociazione_allievo(db, project_id, allievo_id)
+    try:
+        dissociazione_progetto.verifica_dissociazione_allievo(
+            db, project_id, allievo_id, forza=forza
+        )
+    except dissociazione_progetto.DissociazioneBloccata as exc:
+        write_audit_log(
+            db,
+            user_id=current_user.id,
+            azione="project_allievo_dissociato",
+            risorsa_tipo="project",
+            risorsa_id=project_id,
+            dati_prima={"allievo_id": allievo_id},
+            dati_dopo={"blocchi": [b.codice for b in exc.blocchi], "forza": forza},
+            ip_address=_client_ip(request),
+            esito="blocked",
+        )
+        db.commit()
+        raise HTTPException(status_code=409, detail=exc.as_detail())
+
+    stato_prima = {
+        "allievo_id": allievo_id,
+        "stato": link.stato,
+        "ore_frequentate": float(link.ore_frequentate or 0),
+        "attestato_emesso": bool(link.attestato_emesso),
+    }
+    db.delete(link)
+
+    write_audit_log(
+        db,
+        user_id=current_user.id,
+        azione="project_allievo_dissociato",
+        risorsa_tipo="project",
+        risorsa_id=project_id,
+        dati_prima=stato_prima,
+        dati_dopo={
+            "allievo_id": allievo_id,
+            "dissociato": True,
+            "forzata": forza,
+            "motivo": motivo,
+            "blocchi_superati": [b.codice for b in blocchi],
+        },
+        ip_address=_client_ip(request),
+        esito="success",
+    )
+    db.commit()
+
+    logger.info(
+        "UX-8 allievo %s dissociato dal progetto %s (forzata=%s)",
+        allievo_id, project_id, forza,
+    )
+    return schemas.DissociazioneResponse(
+        project_id=project_id,
+        entita="allievo",
+        entita_id=allievo_id,
+        dissociato=True,
+        forzata=forza,
+        blocchi_superati=[schemas.DissociazioneBloccoItem(**b.as_dict()) for b in blocchi],
+    )
+
+
+@router.delete("/{project_id}/aziende/{azienda_id}", response_model=schemas.DissociazioneResponse)
+def dissocia_azienda_da_progetto(
+    project_id: int,
+    azienda_id: int,
+    request: Request,
+    payload: Optional[schemas.DissociazioneRequest] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Stacca un'azienda dal progetto.
+
+    Nessuna cascata implicita: finche' l'azienda porta suoi allievi sul
+    progetto la dissociazione e' bloccata, e il blocco non e' forzabile.
+    """
+    if not db.query(models.Project.id).filter(models.Project.id == project_id).first():
+        raise HTTPException(status_code=404, detail="Progetto non trovato")
+
+    link = (
+        db.query(models.AziendaClienteProjectLink)
+        .filter(
+            models.AziendaClienteProjectLink.project_id == project_id,
+            models.AziendaClienteProjectLink.azienda_cliente_id == azienda_id,
+        )
+        .first()
+    )
+    if link is None:
+        raise HTTPException(
+            status_code=404, detail="Azienda non associata a questo progetto"
+        )
+
+    _valida_forzatura(payload, current_user)
+    forza = bool(payload and payload.forza)
+
+    try:
+        dissociazione_progetto.verifica_dissociazione_azienda(
+            db, project_id, azienda_id, forza=forza
+        )
+    except dissociazione_progetto.DissociazioneBloccata as exc:
+        write_audit_log(
+            db,
+            user_id=current_user.id,
+            azione="project_azienda_dissociata",
+            risorsa_tipo="project",
+            risorsa_id=project_id,
+            dati_prima={"azienda_id": azienda_id},
+            dati_dopo={"blocchi": [b.codice for b in exc.blocchi], "forza": forza},
+            ip_address=_client_ip(request),
+            esito="blocked",
+        )
+        db.commit()
+        raise HTTPException(status_code=409, detail=exc.as_detail())
+
+    stato_prima = {
+        "azienda_id": azienda_id,
+        "regime_aiuto": link.regime_aiuto,
+        "stato": link.stato,
+    }
+    db.delete(link)
+
+    write_audit_log(
+        db,
+        user_id=current_user.id,
+        azione="project_azienda_dissociata",
+        risorsa_tipo="project",
+        risorsa_id=project_id,
+        dati_prima=stato_prima,
+        dati_dopo={"azienda_id": azienda_id, "dissociato": True},
+        ip_address=_client_ip(request),
+        esito="success",
+    )
+    db.commit()
+
+    logger.info("UX-8 azienda %s dissociata dal progetto %s", azienda_id, project_id)
+    return schemas.DissociazioneResponse(
+        project_id=project_id,
+        entita="azienda",
+        entita_id=azienda_id,
+        dissociato=True,
+    )
 
 
 # ── Aziende beneficiarie (regime aiuto) ──────────────────────────────

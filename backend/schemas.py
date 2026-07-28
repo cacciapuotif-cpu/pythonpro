@@ -371,6 +371,44 @@ class BeneficiarioRegimeUpdate(BaseModel):
     plafond_dichiarato: Optional[float] = Field(None, ge=0)
 
 
+class DissociazioneRequest(BaseModel):
+    """UX-8: corpo opzionale della dissociazione allievo/azienda dal progetto.
+
+    `forza` supera i soli blocchi forzabili (ore frequentate, dati
+    retributivi) e richiede un motivo scritto, che finisce in audit.
+    L'attestato emesso non e' superabile in nessun caso.
+    """
+
+    forza: bool = False
+    motivo: Optional[str] = Field(None, max_length=500)
+
+    @model_validator(mode="after")
+    def _motivo_obbligatorio_se_forza(self):
+        if self.forza:
+            motivo = (self.motivo or "").strip()
+            if len(motivo) < 10:
+                raise ValueError(
+                    "Per forzare la dissociazione serve un motivo di almeno 10 caratteri"
+                )
+            self.motivo = motivo
+        return self
+
+
+class DissociazioneBloccoItem(BaseModel):
+    codice: str
+    messaggio: str
+    forzabile: bool
+
+
+class DissociazioneResponse(BaseModel):
+    project_id: int
+    entita: str
+    entita_id: int
+    dissociato: bool
+    forzata: bool = False
+    blocchi_superati: List[DissociazioneBloccoItem] = Field(default_factory=list)
+
+
 class AgentCatalogItem(BaseModel):
     name: str
     label: str

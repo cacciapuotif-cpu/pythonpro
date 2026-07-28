@@ -23,6 +23,7 @@ from piano_finanziario_config import (
 )
 from async_events import enqueue_webhook_notification, track_entity_event
 from services.audit_log import write_audit_log
+from services import dissociazione_progetto
 from fastapi import HTTPException
 
 logger = logging.getLogger(__name__)
@@ -661,6 +662,15 @@ def _sync_project_azienda_links(
             raise ValueError(f"Aziende clienti non trovate: {', '.join(str(item) for item in missing_ids)}")
 
     current_links = {link.azienda_cliente_id: link for link in list(db_project.azienda_links)}
+
+    # UX-8: il PUT non e' una scorciatoia per aggirare le guardie. Ogni azienda
+    # che sparisce dalla lista e' una dissociazione a tutti gli effetti.
+    for azienda_id in current_links:
+        if azienda_id not in unique_azienda_ids:
+            dissociazione_progetto.verifica_dissociazione_azienda(
+                db, db_project.id, azienda_id
+            )
+
     for azienda_id, link in current_links.items():
         if azienda_id not in unique_azienda_ids:
             db.delete(link)
@@ -671,6 +681,22 @@ def _sync_project_azienda_links(
                 azienda_cliente_id=azienda_id,
                 project_id=db_project.id,
             ))
+
+
+def _project_allievo_ids(db: Session, project_id: int) -> List[int]:
+    """Id degli allievi oggi associati al progetto, letti dalla tabella link.
+
+    Volutamente non passa da `db_project.allievi_coinvolti`: la relazione puo'
+    essere gia' stata riassegnata in questa stessa unit of work.
+    """
+    if project_id is None:
+        return []
+    rows = (
+        db.query(models.AllievoProject.allievo_id)
+        .filter(models.AllievoProject.project_id == project_id)
+        .all()
+    )
+    return [row[0] for row in rows]
 
 
 def _sync_project_allievi(
@@ -686,6 +712,14 @@ def _sync_project_allievi(
             continue
         seen_ids.add(normalized_id)
         unique_allievo_ids.append(normalized_id)
+
+    # UX-8: stessa regola delle aziende. Chi esce dalla lista viene dissociato,
+    # quindi passa dalle guardie di dominio come se fosse una DELETE esplicita.
+    for allievo_id in _project_allievo_ids(db, db_project.id):
+        if allievo_id not in seen_ids:
+            dissociazione_progetto.verifica_dissociazione_allievo(
+                db, db_project.id, allievo_id
+            )
 
     if unique_allievo_ids:
         allievi = db.query(models.Allievo).filter(
@@ -854,8 +888,11 @@ def create_project(db: Session, project: schemas.ProjectCreateExtended):
     db_project = models.Project(**payload)
     db.add(db_project)
     db.flush()
-    _sync_project_azienda_links(db, db_project, azienda_ids)
+    # UX-8: gli allievi si sincronizzano per primi, cosi' la guardia azienda
+    # legge lo stato che la richiesta sta costruendo e non quello di partenza.
     _sync_project_allievi(db, db_project, allievo_ids)
+    db.flush()
+    _sync_project_azienda_links(db, db_project, azienda_ids)
 
     return db_project
 
@@ -868,10 +905,17 @@ def update_project(db: Session, project_id: int, project: schemas.ProjectUpdateE
         update_data = _resolve_project_financial_refs(db, update_data, current_project=db_project)
         for key, value in update_data.items():
             setattr(db_project, key, value)
-        if azienda_ids is not None:
-            _sync_project_azienda_links(db, db_project, azienda_ids)
+        # UX-8: prima gli allievi, poi le aziende, con un flush in mezzo.
+        # La sessione ha `autoflush=False`: senza il flush esplicito la
+        # riassegnazione di `allievi_coinvolti` non e' ancora sulla tabella
+        # link, e la guardia azienda vedrebbe allievi che questa stessa
+        # richiesta sta staccando, bloccando un'operazione legittima con un
+        # 409 non forzabile.
         if allievo_ids is not None:
             _sync_project_allievi(db, db_project, allievo_ids)
+            db.flush()
+        if azienda_ids is not None:
+            _sync_project_azienda_links(db, db_project, azienda_ids)
         db.commit()
         db.refresh(db_project)
     return db_project
