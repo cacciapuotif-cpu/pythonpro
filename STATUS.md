@@ -1,6 +1,6 @@
 # PythonPro — Stato corrente
 
-**Aggiornato:** 2026-07-28 (UX-8 CHIUSO: backend, UI, confutazione live, commit)
+**Aggiornato:** 2026-07-28 (UX-8 e UX-9 CHIUSI)
 **Branch:** `claude/platform-audit-compliance-XnH86` (locale, **nessun push**)
 **Percorso:** `/DATA/progetti/pythonpro`
 
@@ -122,12 +122,36 @@ soft-delete che si annuncia come eliminazione e conserva le associazioni.
 mostra il doppione e nasconde il buono. Non causato da UX-8, nessuna modifica
 fatta.
 
-### ▶️ DA FARE, in quest'ordine
+### ✅ Punto 3 — UX-9 albero allievi per azienda: CHIUSO il 2026-07-28
 
-1. **UX-9** — albero di selezione allievi a cascata per azienda. Non iniziato.
-   `Allievo.azienda_cliente_id` porta già il raggruppamento: non serve una
-   seconda chiamata. (`AllievoCoinvolto` lo riespone nello schema.)
-2. Poi **UX-5** (gate dominio date, **da presentare prima di scrivere codice**)
+Commit `9ecf868`, findings `deebe6e`. Decisione dell'utente: **lettura +
+selezione nel form**, non solo lettura.
+
+`components/AlberoAllievi.js` raggruppa per `Allievo.azienda_cliente_id` e serve
+due scopi con un componente solo: la selezione nel form progetto (al posto delle
+due select "scegli → aggiungi → ripeti") e la lettura dentro il pannello
+Associazioni di UX-8, dove porta i pulsanti di distacco.
+
+Regola di dominio: spuntare un allievo associa anche la sua azienda; togliere
+l'ultimo allievo **non** stacca l'azienda. Stesso vincolo di UX-8 in uscita.
+
+**Difetto trovato e corretto per strada:** il form caricava solo la prima pagina
+di `/allievi/` (100) ignorando `total`/`has_next` — oltre il centesimo allievo
+ne nascondeva l'esistenza senza dirlo. `caricaTuttiGliAllievi` ora segue le
+pagine, si ferma a 2000 e dichiara `troncato`, che l'albero mostra.
+
+| Verifica | Esito |
+|---|---|
+| Suite frontend | **206 passed, 22 suite** |
+| Build di produzione | verde — **ha trovato ciò che i test non vedevano** (setter morti dei select rimossi: `no-undef`) |
+| Mutation check | tolta l'auto-associazione dell'azienda ⇒ 1 test rosso; ripristinato |
+| Contratto paginazione live | `limit=100` → `total=4, has_next=false`; `limit=2` → pagina 1 `has_next=true` ids [4,6], pagina 2 `has_next=false` ids [3,5] |
+| Bundle servito | **`main.1f332f0e.js`** con albero, gruppo "senza azienda", avviso di elenco parziale, contatore e chiamata paginata |
+
+Backend non toccato: nessun rilancio della suite backend necessario.
+
+### ▶️ DA FARE, in quest'ordine
+1. **UX-5** (gate dominio date, **da presentare prima di scrivere codice**)
    → UX-0 → UX-1 → UX-2 → UX-3 → UX-4 → gate finale.
 
 Verificato contro il codice il 2026-07-28: UX-5, UX-0, UX-1, UX-2, UX-3 e UX-4
@@ -188,8 +212,9 @@ commit dell'ondata `b1c5ae3`.
   dava 500 sui piani finché il processo caricava il vecchio modello).
 - Baseline backend: **861 passed, 6 skipped, 0 failed** (al commit `99213df`,
   2026-07-28, 20 minuti di esecuzione).
-- Baseline frontend: **183 passed, 21 suite**; build production verde.
-- Frontend ridispiegato il 2026-07-28, bundle **`main.9c025a26.js`** (UX-8 UI).
+- Baseline frontend: **206 passed, 22 suite**; build production verde.
+- Frontend ridispiegato il 2026-07-28, bundle **`main.1f332f0e.js`** (UX-8 UI +
+  UX-9 albero); prima dello stesso giorno `main.9c025a26.js` (solo UX-8).
   Backend riavviato lo stesso giorno per caricare le rotte di dissociazione.
 - Ridispiegato in precedenza il 2026-07-27 sera, bundle **`main.9c62b80d.js`**:
   live allineato a UX-6 e UX-7 oltre che ai fix auth, sedi operative e import
