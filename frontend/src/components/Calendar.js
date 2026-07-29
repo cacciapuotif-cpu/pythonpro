@@ -1,9 +1,9 @@
 /**
  * COMPONENTE CALENDARIO OTTIMIZZATO
+ * - Fetch server-side diretto (filtri mai applicati lato client su tutto il dataset)
+ * - Barra filtri persistente (URL + localStorage per utente)
  * - Performance ottimizzate con memo e callback
- * - State management centralizzato con context
  * - Error handling avanzato
- * - Caching intelligente
  * - Loading states e skeleton UI
  */
 
@@ -14,10 +14,20 @@ import 'moment/locale/it';  // Import locale italiana
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 
 import { useAppContext } from '../context/AppContext';
+import apiService from '../services/apiService';
 import AttendanceModal from './AttendanceModal';
 import LoadingSpinner from './LoadingSpinner';
 import ErrorBoundary from './ErrorBoundary';
 import { canPerform } from '../auth/permissions';
+import {
+  DEFAULT_CALENDAR_FILTERS,
+  MAX_RENDERABLE_EVENTS,
+  filtersFromURL,
+  filtersToParams,
+  loadPersistedFilters,
+  savePersistedFilters,
+} from './calendar/calendarFilters';
+import CalendarFilterBar from './calendar/CalendarFilterBar';
 import './Calendar.css';
 
 // CONFIGURAZIONE LOCALE ITALIANA
@@ -33,12 +43,18 @@ const CALENDAR_CONFIG = {
   dayLayoutAlgorithm: 'no-overlap'
 };
 
-// Colori progetti memoizzati
+// Colori progetti/collaboratori memoizzati
 const PROJECT_COLORS = [
   '#3174ad', '#e74c3c', '#2ecc71', '#f39c12',
   '#9b59b6', '#1abc9c', '#34495e', '#e67e22',
   '#95a5a6', '#f1c40f', '#e91e63', '#00bcd4'
 ];
+
+const VIEW_UNIT = {
+  day: 'day',
+  week: 'week',
+  month: 'month',
+};
 
 /**
  * MESSAGGI DEL CALENDARIO IN ITALIANO
@@ -60,13 +76,18 @@ const messages = {
   noEventsInRange: 'Nessuna presenza in questo periodo.',
 };
 
+const dedupeById = (entities) => {
+  const byId = new Map();
+  entities.forEach((entity) => byId.set(entity.id, entity));
+  return Array.from(byId.values());
+};
+
 /**
  * COMPONENTE CALENDARIO OTTIMIZZATO
  */
 const Calendar = memo(({ currentUser }) => {
   const {
     state,
-    fetchEntity,
     createEntity,
     updateEntity,
     deleteEntity,
@@ -75,63 +96,143 @@ const Calendar = memo(({ currentUser }) => {
     addNotification
   } = useAppContext();
 
+  // Filtri: URL ha priorità, poi localStorage per utente, poi default
+  const [filters, setFilters] = useState(() => {
+    const fromUrl = filtersFromURL();
+    const hasUrlFilters = window.location.search.length > 0;
+    if (hasUrlFilters) return fromUrl;
+    return loadPersistedFilters(currentUser?.username) || DEFAULT_CALENDAR_FILTERS;
+  });
+
   // Local state per UI
   const [selectedSlot, setSelectedSlot] = useState(null);
-  const [currentView, setCurrentView] = useState('month');
-  const [currentDate, setCurrentDate] = useState(new Date());
   const [isRefreshing, setIsRefreshing] = useState(false);
   const canWriteAttendances = canPerform(currentUser, 'WRITE_ATTENDANCES');
 
-  // Destructure da state
-  const {
-    attendances,
-    collaborators,
-    projects
-  } = state;
+  // Dati calendario: fetch diretto, mai dalla cache condivisa AppContext
+  const [attendances, setAttendances] = useState({ items: [], total: 0 });
+  const [loadingAttendances, setLoadingAttendances] = useState(true);
+  const [attendancesError, setAttendancesError] = useState(null);
+
+  const [projects, setProjects] = useState([]);
+  const [collaborators, setCollaborators] = useState([]);
+  const [loadingLookups, setLoadingLookups] = useState(true);
+  const [lookupsError, setLookupsError] = useState(null);
 
   const isModalOpen = state.ui.modals.attendance?.isOpen || false;
   const selectedAttendance = state.ui.modals.attendance?.data || null;
 
-  // Caricamento dati con cache intelligente
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        await Promise.all([
-          fetchEntity('attendances'),
-          fetchEntity('collaborators'),
-          fetchEntity('projects')
-        ]);
-      } catch (error) {
-        console.error('Error loading calendar data:', error);
-      }
+  const loadLookups = useCallback(async () => {
+    const [activeProjects, closedProjects, collaboratorsList] = await Promise.all([
+      apiService.getProjects({}, { skip: 0, limit: 1000 }),
+      apiService.getProjects({ isActive: false }, { skip: 0, limit: 1000 }),
+      apiService.getCollaborators({}, { skip: 0, limit: 1000 }),
+    ]);
+    return {
+      projectsList: dedupeById([...activeProjects, ...closedProjects]),
+      collaboratorsList: collaboratorsList.items || collaboratorsList,
     };
+  }, []);
 
-    loadData();
-  }, [fetchEntity]);
-
-  // Auto-refresh quando cambia la vista o la data
   useEffect(() => {
-    const shouldRefresh = () => {
-      const now = Date.now();
-      const lastFetch = attendances.lastFetch;
-      const fiveMinutes = 5 * 60 * 1000;
-      return !lastFetch || (now - lastFetch) > fiveMinutes;
+    let cancelled = false;
+    loadLookups()
+      .then(({ projectsList, collaboratorsList }) => {
+        if (cancelled) return;
+        setProjects(projectsList);
+        setCollaborators(collaboratorsList);
+        setLookupsError(null);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.error('Errore caricamento progetti/collaboratori:', error);
+        setLookupsError('Impossibile caricare progetti/collaboratori');
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingLookups(false);
+      });
+    return () => { cancelled = true; };
+  }, [loadLookups]);
+
+  // Intervallo di query: la vista corrente, allargata per includere sempre
+  // "oggi" e "questa settimana" (usati dal pannello operativo) anche se
+  // l'utente ha navigato altrove nel calendario. Resta un intervallo
+  // delimitato: mai fetch-tutto-e-filtra-nel-browser.
+  const queryRange = useMemo(() => {
+    const viewUnit = VIEW_UNIT[filters.view] || 'month';
+    const referenceDate = new Date(filters.date);
+    const viewStart = moment(referenceDate).startOf(viewUnit).toDate();
+    const viewEnd = moment(referenceDate).endOf(viewUnit).toDate();
+    const now = new Date();
+    const startOfWeek = moment(now).startOf('week').toDate();
+    const endOfToday = moment(now).endOf('day').toDate();
+
+    return {
+      start: viewStart < startOfWeek ? viewStart : startOfWeek,
+      end: viewEnd > endOfToday ? viewEnd : endOfToday,
     };
+  }, [filters.view, filters.date]);
 
-    if (shouldRefresh()) {
-      fetchEntity('attendances', true);
-    }
-  }, [currentView, currentDate, fetchEntity, attendances.lastFetch]);
+  const loadAttendances = useCallback(() => (
+    apiService.getCalendarAttendances({
+      startDate: queryRange.start.toISOString(),
+      endDate: queryRange.end.toISOString(),
+      collaboratorIds: filters.collaboratorIds,
+      projectIds: filters.projectIds,
+      includeClosedProjects: filters.includeClosedProjects,
+      onlyMine: filters.onlyMine,
+    })
+  ), [queryRange, filters.collaboratorIds, filters.projectIds, filters.includeClosedProjects, filters.onlyMine]);
 
-  // Refresh manuale
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingAttendances(true);
+    loadAttendances()
+      .then((res) => {
+        if (cancelled) return;
+        setAttendances(res);
+        setAttendancesError(null);
+        window.history.replaceState({}, '', `?${filtersToParams(filters).toString()}`);
+        savePersistedFilters(currentUser?.username, filters);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.error('Errore caricamento presenze calendario:', error);
+        setAttendancesError('Impossibile caricare le presenze');
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingAttendances(false);
+      });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters, currentUser?.username]);
+
+  const refreshAttendances = useCallback(() => {
+    loadAttendances()
+      .then(setAttendances)
+      .catch((error) => console.error('Errore aggiornamento presenze calendario:', error));
+  }, [loadAttendances]);
+
+  const updateFilters = useCallback((partial) => {
+    setFilters((previous) => ({ ...previous, ...partial }));
+  }, []);
+
+  const resetFilters = useCallback(() => {
+    setFilters(DEFAULT_CALENDAR_FILTERS);
+    window.history.replaceState({}, '', window.location.pathname);
+  }, []);
+
+  // Refresh manuale (ricarica sia le presenze del calendario che le lookup)
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
     try {
-      await Promise.all([
-        fetchEntity('attendances', true),
-        fetchEntity('collaborators', true),
-        fetchEntity('projects', true)
+      const [attendancesRes, { projectsList, collaboratorsList }] = await Promise.all([
+        loadAttendances(),
+        loadLookups(),
       ]);
+      setAttendances(attendancesRes);
+      setProjects(projectsList);
+      setCollaborators(collaboratorsList);
       addNotification({
         type: 'success',
         message: 'Dati aggiornati con successo'
@@ -141,33 +242,42 @@ const Calendar = memo(({ currentUser }) => {
     } finally {
       setIsRefreshing(false);
     }
-  }, [fetchEntity, addNotification]);
-
-  // Funzioni di utilità memoizzate per performance
-  const getProjectColor = useCallback((projectId) => {
-    return PROJECT_COLORS[projectId % PROJECT_COLORS.length];
-  }, []);
+  }, [loadAttendances, loadLookups, addNotification]);
 
   const getCollaboratorName = useCallback((collaboratorId) => {
-    const collaborator = collaborators.data.find(c => c.id === collaboratorId);
+    const collaborator = collaborators.find(c => c.id === collaboratorId);
     return collaborator ? `${collaborator.first_name} ${collaborator.last_name}` : 'Sconosciuto';
-  }, [collaborators.data]);
+  }, [collaborators]);
 
   const getProjectName = useCallback((projectId) => {
-    const project = projects.data.find(p => p.id === projectId);
+    const project = projects.find(p => p.id === projectId);
     return project ? project.name : 'Progetto sconosciuto';
-  }, [projects.data]);
+  }, [projects]);
+
+  const getEntityColor = useCallback((entityId) => (
+    PROJECT_COLORS[entityId % PROJECT_COLORS.length]
+  ), []);
+
+  // Legenda dinamica: colora per collaboratore quando sono selezionati più
+  // collaboratori e al più un progetto, altrimenti per progetto (default).
+  const colorDimension = filters.collaboratorIds.length > 1 && filters.projectIds.length <= 1
+    ? 'collaborator'
+    : 'project';
+
+  const legendEntities = useMemo(() => (
+    colorDimension === 'collaborator'
+      ? collaborators.filter((c) => filters.collaboratorIds.length === 0 || filters.collaboratorIds.includes(c.id))
+      : projects.filter((p) => filters.projectIds.length === 0 || filters.projectIds.includes(p.id))
+  ), [colorDimension, collaborators, projects, filters.collaboratorIds, filters.projectIds]);
 
   // Eventi calendario memoizzati per performance
-  const calendarEvents = useMemo(() => {
-    if (!attendances.data || !collaborators.data || !projects.data) {
-      return [];
-    }
-
-    return attendances.data.map(attendance => {
+  const calendarEvents = useMemo(() => (
+    attendances.items.map(attendance => {
       const collaboratorName = getCollaboratorName(attendance.collaborator_id);
       const projectName = getProjectName(attendance.project_id);
-      const projectColor = getProjectColor(attendance.project_id);
+      const entityColor = getEntityColor(
+        colorDimension === 'collaborator' ? attendance.collaborator_id : attendance.project_id
+      );
 
       return {
         id: attendance.id,
@@ -176,8 +286,8 @@ const Calendar = memo(({ currentUser }) => {
         end: new Date(attendance.end_time),
         resource: attendance,
         style: {
-          backgroundColor: projectColor,
-          borderColor: projectColor,
+          backgroundColor: entityColor,
+          borderColor: entityColor,
           color: '#ffffff',
           border: 'none',
           borderRadius: '4px',
@@ -185,18 +295,8 @@ const Calendar = memo(({ currentUser }) => {
           fontWeight: '500'
         }
       };
-    });
-  }, [attendances.data, collaborators.data, projects.data, getCollaboratorName, getProjectName, getProjectColor]);
-
-  // Legenda progetti memoizzata
-  const projectsLegend = useMemo(() => {
-    return projects.data.map(project => ({
-      id: project.id,
-      name: project.name,
-      color: getProjectColor(project.id),
-      attendanceCount: attendances.data.filter(a => a.project_id === project.id).length
-    }));
-  }, [projects.data, attendances.data, getProjectColor]);
+    })
+  ), [attendances.items, getCollaboratorName, getProjectName, getEntityColor, colorDimension]);
 
   const operationsBoard = useMemo(() => {
     const now = new Date();
@@ -208,12 +308,12 @@ const Calendar = memo(({ currentUser }) => {
     const startOfWeek = moment(now).startOf('week').toDate();
     const endOfWeek = moment(now).endOf('week').toDate();
 
-    const todayAttendances = attendances.data.filter((attendance) => {
+    const todayAttendances = attendances.items.filter((attendance) => {
       const start = new Date(attendance.start_time);
       return start >= startOfToday && start <= endOfToday;
     });
 
-    const weekAttendances = attendances.data.filter((attendance) => {
+    const weekAttendances = attendances.items.filter((attendance) => {
       const start = new Date(attendance.start_time);
       return start >= startOfWeek && start <= endOfWeek;
     });
@@ -249,28 +349,13 @@ const Calendar = memo(({ currentUser }) => {
       todayAgenda,
       heavyLoad,
     };
-  }, [attendances.data, getCollaboratorName]);
+  }, [attendances.items, getCollaboratorName]);
 
   // Gestori eventi ottimizzati con useCallback
   const handleSelectSlot = useCallback((slotInfo) => {
     if (!canWriteAttendances) return;
     // Permettiamo l'inserimento di presenze anche nel passato
     // (utile per correggere dimenticanze o inserimenti retroattivi)
-
-    // Nota: se si vuole ripristinare il controllo, decommentare questo blocco:
-    // const now = new Date();
-    // now.setHours(0, 0, 0, 0);
-    // const slotDate = new Date(slotInfo.start);
-    // slotDate.setHours(0, 0, 0, 0);
-    // if (slotDate < now) {
-    //   addNotification({
-    //     type: 'warning',
-    //     title: 'Data non valida',
-    //     message: 'Non puoi aggiungere presenze nel passato'
-    //   });
-    //   return;
-    // }
-
     setSelectedSlot({
       start: slotInfo.start,
       end: slotInfo.end,
@@ -291,13 +376,12 @@ const Calendar = memo(({ currentUser }) => {
   }, [closeModal]);
 
   const handleNavigate = useCallback((date, view) => {
-    setCurrentDate(date);
-    setCurrentView(view);
-  }, []);
+    updateFilters({ date: date.toISOString(), view });
+  }, [updateFilters]);
 
   const handleViewChange = useCallback((view) => {
-    setCurrentView(view);
-  }, []);
+    updateFilters({ view });
+  }, [updateFilters]);
 
   // Gestori CRUD ottimizzati
   const handleSaveAttendance = useCallback(async (attendanceData) => {
@@ -308,10 +392,11 @@ const Calendar = memo(({ currentUser }) => {
         await createEntity('attendances', attendanceData);
       }
       handleCloseModal();
+      refreshAttendances();
     } catch (error) {
       console.error('Save error:', error);
     }
-  }, [selectedAttendance, updateEntity, createEntity, handleCloseModal]);
+  }, [selectedAttendance, updateEntity, createEntity, handleCloseModal, refreshAttendances]);
 
   const handleDeleteAttendance = useCallback(async () => {
     if (!selectedAttendance) return;
@@ -319,10 +404,11 @@ const Calendar = memo(({ currentUser }) => {
     try {
       await deleteEntity('attendances', selectedAttendance.id);
       handleCloseModal();
+      refreshAttendances();
     } catch (error) {
       console.error('Delete error:', error);
     }
-  }, [selectedAttendance, deleteEntity, handleCloseModal]);
+  }, [selectedAttendance, deleteEntity, handleCloseModal, refreshAttendances]);
 
   // Event prop getter per performance
   const eventPropGetter = useCallback((event) => ({
@@ -330,10 +416,11 @@ const Calendar = memo(({ currentUser }) => {
   }), []);
 
   // Loading states
-  const isLoading = attendances.loading || collaborators.loading || projects.loading;
-  const hasError = attendances.error || collaborators.error || projects.error;
+  const isLoading = loadingAttendances || loadingLookups;
+  const hasError = attendancesError || lookupsError;
+  const tooManyEvents = attendances.total > MAX_RENDERABLE_EVENTS;
 
-  if (isLoading && !attendances.data.length) {
+  if (isLoading && !attendances.items.length) {
     return (
       <div className="calendar-container">
         <LoadingSpinner message="Caricamento calendario..." />
@@ -341,7 +428,7 @@ const Calendar = memo(({ currentUser }) => {
     );
   }
 
-  if (hasError && !attendances.data.length) {
+  if (hasError && !attendances.items.length) {
     return (
       <div className="calendar-container">
         <div className="error-state">
@@ -377,19 +464,19 @@ const Calendar = memo(({ currentUser }) => {
               </button>
               <div className="view-selector">
                 <button
-                  className={currentView === 'month' ? 'active' : ''}
+                  className={filters.view === 'month' ? 'active' : ''}
                   onClick={() => handleViewChange('month')}
                 >
                   Mese
                 </button>
                 <button
-                  className={currentView === 'week' ? 'active' : ''}
+                  className={filters.view === 'week' ? 'active' : ''}
                   onClick={() => handleViewChange('week')}
                 >
                   Settimana
                 </button>
                 <button
-                  className={currentView === 'day' ? 'active' : ''}
+                  className={filters.view === 'day' ? 'active' : ''}
                   onClick={() => handleViewChange('day')}
                 >
                   Giorno
@@ -401,19 +488,28 @@ const Calendar = memo(({ currentUser }) => {
           {/* STATISTICHE RAPIDE */}
           <div className="calendar-stats">
             <div className="stat-item">
-              <span className="stat-number">{attendances.data.length}</span>
-              <span className="stat-label">Presenze totali</span>
+              <span className="stat-number">{attendances.total}</span>
+              <span className="stat-label">Presenze nel periodo</span>
             </div>
             <div className="stat-item">
               <span className="stat-number">{operationsBoard.todayAttendances.length}</span>
               <span className="stat-label">Presenze oggi</span>
             </div>
             <div className="stat-item">
-              <span className="stat-number">{projects.data.filter(p => p.status === 'active').length}</span>
+              <span className="stat-number">{projects.filter(p => p.is_active).length}</span>
               <span className="stat-label">Progetti attivi</span>
             </div>
           </div>
         </div>
+
+        <CalendarFilterBar
+          filters={filters}
+          projects={projects}
+          collaborators={collaborators}
+          eventCount={attendances.total}
+          onChange={updateFilters}
+          onReset={resetFilters}
+        />
 
         <div className="calendar-ops-board">
           <div className="calendar-ops-card highlight">
@@ -460,19 +556,20 @@ const Calendar = memo(({ currentUser }) => {
           </div>
         </div>
 
-        {/* LEGENDA PROGETTI OTTIMIZZATA */}
-        {projectsLegend.length > 0 && (
+        {/* LEGENDA DINAMICA: PROGETTI O COLLABORATORI */}
+        {legendEntities.length > 0 && (
           <div className="projects-legend">
-            <h3>🏷️ Progetti ({projectsLegend.length})</h3>
+            <h3>🏷️ Legenda: {colorDimension === 'collaborator' ? 'Collaboratori' : 'Progetti'}</h3>
             <div className="legend-items">
-              {projectsLegend.map(project => (
-                <div key={project.id} className="legend-item">
+              {legendEntities.map((entity) => (
+                <div key={entity.id} className="legend-item">
                   <div
                     className="legend-color"
-                    style={{ backgroundColor: project.color }}
+                    style={{ backgroundColor: getEntityColor(entity.id) }}
                   />
-                  <span className="legend-name">{project.name}</span>
-                  <span className="legend-count">({project.attendanceCount})</span>
+                  <span className="legend-name">
+                    {colorDimension === 'collaborator' ? `${entity.first_name} ${entity.last_name}` : entity.name}
+                  </span>
                 </div>
               ))}
             </div>
@@ -487,51 +584,57 @@ const Calendar = memo(({ currentUser }) => {
             </div>
           )}
 
-          <BigCalendar
-            localizer={localizer}
-            events={calendarEvents}
-            messages={messages}
-            startAccessor="start"
-            endAccessor="end"
-            style={{ height: 700 }}
+          {tooManyEvents ? (
+            <div className="calendar-too-many-events">
+              <p>Troppi eventi da mostrare ({attendances.total}): restringi i filtri per continuare.</p>
+            </div>
+          ) : (
+            <BigCalendar
+              localizer={localizer}
+              events={calendarEvents}
+              messages={messages}
+              startAccessor="start"
+              endAccessor="end"
+              style={{ height: 700 }}
 
-            // Configurazioni ottimizzate
-            selectable={true}
-            longPressThreshold={0}
-            onSelectSlot={handleSelectSlot}
-            onSelectEvent={handleSelectEvent}
-            onNavigate={handleNavigate}
-            onView={handleViewChange}
+              // Configurazioni ottimizzate
+              selectable={true}
+              longPressThreshold={0}
+              onSelectSlot={handleSelectSlot}
+              onSelectEvent={handleSelectEvent}
+              onNavigate={handleNavigate}
+              onView={handleViewChange}
 
-            // Vista corrente
-            view={currentView}
-            date={currentDate}
-            views={['month', 'week', 'day', 'agenda']}
-            drilldownView="day"
+              // Vista corrente
+              view={filters.view}
+              date={new Date(filters.date)}
+              views={['month', 'week', 'day', 'agenda']}
+              drilldownView="day"
 
-            // Configurazioni orari
-            {...CALENDAR_CONFIG}
+              // Configurazioni orari
+              {...CALENDAR_CONFIG}
 
-            // Formatters
-            formats={{
-              timeGutterFormat: 'HH:mm',
-              eventTimeRangeFormat: ({ start, end }) =>
-                `${moment(start).format('HH:mm')} - ${moment(end).format('HH:mm')}`,
-              dayHeaderFormat: 'dddd DD/MM',
-              monthHeaderFormat: 'MMMM YYYY',
-              agendaDateFormat: 'DD/MM/YYYY',
-              agendaTimeFormat: 'HH:mm',
-              agendaTimeRangeFormat: ({ start, end }) =>
-                `${moment(start).format('HH:mm')} - ${moment(end).format('HH:mm')}`
-            }}
+              // Formatters
+              formats={{
+                timeGutterFormat: 'HH:mm',
+                eventTimeRangeFormat: ({ start, end }) =>
+                  `${moment(start).format('HH:mm')} - ${moment(end).format('HH:mm')}`,
+                dayHeaderFormat: 'dddd DD/MM',
+                monthHeaderFormat: 'MMMM YYYY',
+                agendaDateFormat: 'DD/MM/YYYY',
+                agendaTimeFormat: 'HH:mm',
+                agendaTimeRangeFormat: ({ start, end }) =>
+                  `${moment(start).format('HH:mm')} - ${moment(end).format('HH:mm')}`
+              }}
 
-            // Performance optimizations
-            eventPropGetter={eventPropGetter}
-            dayLayoutAlgorithm="no-overlap"
-            showMultiDayTimes={true}
-            popup={true}
-            popupOffset={30}
-          />
+              // Performance optimizations
+              eventPropGetter={eventPropGetter}
+              dayLayoutAlgorithm="no-overlap"
+              showMultiDayTimes={true}
+              popup={true}
+              popupOffset={30}
+            />
+          )}
         </div>
 
         {/* MODAL OTTIMIZZATO */}
@@ -543,8 +646,8 @@ const Calendar = memo(({ currentUser }) => {
             onDelete={handleDeleteAttendance}
             attendance={selectedAttendance}
             selectedSlot={selectedSlot}
-            collaborators={collaborators.data}
-            projects={projects.data}
+            collaborators={collaborators}
+            projects={projects}
             readOnly={!canWriteAttendances}
           />
         )}

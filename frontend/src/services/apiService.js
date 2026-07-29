@@ -138,6 +138,7 @@ class ApiService {
     if (pagination.skip) params.skip = pagination.skip;
     if (pagination.limit) params.limit = pagination.limit;
     if (filters.status) params.status = filters.status;
+    if (filters.isActive !== undefined) params.is_active = filters.isActive;
 
     const response = await retryRequest(() =>
       http.get('/projects/', { params })
