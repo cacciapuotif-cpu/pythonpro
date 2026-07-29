@@ -1118,6 +1118,43 @@ def get_attendances_total_hours(
 
     return float(query.scalar() or 0.0)
 
+def get_attendances_calendar(
+    db: Session,
+    *,
+    collaborator_ids: Optional[list[int]] = None,
+    project_ids: Optional[list[int]] = None,
+    start_date: datetime,
+    end_date: datetime,
+    include_closed_projects: bool = False,
+    skip: int = 0,
+    limit: int = 500,
+) -> tuple[list["models.Attendance"], int]:
+    """Query calendario: multi-selezione, esclude progetti chiusi di default,
+    ritorna (righe pagina corrente, conteggio totale non paginato)."""
+    base_query = db.query(models.Attendance).filter(
+        models.Attendance.date.between(start_date, end_date)
+    )
+
+    if collaborator_ids:
+        base_query = base_query.filter(models.Attendance.collaborator_id.in_(collaborator_ids))
+    if project_ids:
+        base_query = base_query.filter(models.Attendance.project_id.in_(project_ids))
+    if not include_closed_projects:
+        base_query = base_query.join(
+            models.Project, models.Attendance.project_id == models.Project.id
+        ).filter(models.Project.is_active.is_(True))
+
+    total = base_query.with_entities(func.count(models.Attendance.id)).scalar() or 0
+
+    items = (
+        base_query
+        .order_by(desc(models.Attendance.date), desc(models.Attendance.start_time))
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+    return items, int(total)
+
 def get_attendances_summary(db: Session, start_date: datetime, end_date: datetime):
     """Ottieni statistiche aggregate delle presenze"""
     return db.query(
@@ -3620,14 +3657,44 @@ def _sync_allievo_projects(
         unique_project_ids.append(normalized_id)
 
     if unique_project_ids:
+        # Un progetto archiviato/cancellato non si puo' aggiungere oggi, ma un
+        # legame storico gia' esistente deve poter sopravvivere a una modifica
+        # anagrafica (per esempio il cambio di azienda dell'allievo).
+        existing_link_ids = {project.id for project in db_obj.projects}
+        new_link_ids = set(unique_project_ids) - existing_link_ids
         projects = db.query(models.Project).filter(
             models.Project.id.in_(unique_project_ids),
-            models.Project.is_active.is_(True)
+            (
+                models.Project.is_active.is_(True)
+                | models.Project.id.in_(existing_link_ids)
+            ),
         ).all()
         existing_ids = {item.id for item in projects}
         missing_ids = sorted(set(unique_project_ids) - existing_ids)
         if missing_ids:
-            raise ValueError(f"Progetti non trovati: {', '.join(str(item) for item in missing_ids)}")
+            raise ValueError(
+                "Progetti non trovati o non più associabili: "
+                + ", ".join(str(item) for item in missing_ids)
+            )
+        if new_link_ids and db_obj.occupato:
+            if not db_obj.azienda_cliente_id:
+                raise ValueError(
+                    "Per aggiungere un progetto a un allievo occupato devi indicare l'azienda"
+                )
+            company_project_ids = {
+                row[0]
+                for row in db.query(models.AziendaClienteProjectLink.project_id).filter(
+                    models.AziendaClienteProjectLink.azienda_cliente_id
+                    == db_obj.azienda_cliente_id,
+                    models.AziendaClienteProjectLink.project_id.in_(new_link_ids),
+                ).all()
+            }
+            unrelated_ids = sorted(new_link_ids - company_project_ids)
+            if unrelated_ids:
+                raise ValueError(
+                    "Progetti non associati all'azienda corrente: "
+                    + ", ".join(str(item) for item in unrelated_ids)
+                )
         db_obj.projects = sorted(projects, key=lambda item: unique_project_ids.index(item.id))
     else:
         db_obj.projects = []
