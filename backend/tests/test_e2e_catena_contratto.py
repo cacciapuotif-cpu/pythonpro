@@ -165,6 +165,8 @@ def _crea_catena_base(client):
     project = client.post("/api/v1/projects/", json={
         "name": "Progetto E2E Catena Contratto",
         "ente_attuatore_id": ente["id"],
+        "data_approvazione": "2026-01-15",
+        "data_avvio_piano": "2026-02-01",
     })
     assert project.status_code in (200, 201), project.text
     project = project.json()
