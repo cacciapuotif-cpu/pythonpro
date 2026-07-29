@@ -163,3 +163,71 @@ def test_consultazione_non_puo_scrivere_ma_legge(client, db_session):
         },
     )
     assert resp_post.status_code == 403
+
+
+def test_only_mine_senza_collaborator_id_collegato_non_mostra_nulla(client, db_session):
+    """Regressione: utente (es. consultazione) senza collaborator_id collegato
+    che chiede only_mine=true deve vedere 0 presenze, non tutte."""
+    c1 = _collaborator(db_session)
+    p1 = _project(db_session)
+    now = datetime(2026, 7, 1, 9, 0)
+    _attendance(db_session, c1.id, p1.id, now)
+    utente_senza_collaboratore = _user(db_session, UserRole.CONSULTAZIONE.value, collaborator_id=None)
+    app.dependency_overrides[get_current_user] = lambda: utente_senza_collaboratore
+
+    resp = client.get(
+        "/api/v1/attendances/calendar",
+        params={
+            "only_mine": "true",
+            "start_date": "2026-06-01T00:00:00",
+            "end_date": "2026-08-01T00:00:00",
+        },
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["total"] == 0
+
+
+def test_collaborator_ids_non_numerico_da_422_non_500(client, db_session):
+    admin = _user(db_session, UserRole.ADMIN.value)
+    app.dependency_overrides[get_current_user] = lambda: admin
+
+    resp = client.get(
+        "/api/v1/attendances/calendar",
+        params={
+            "collaborator_ids": "abc",
+            "start_date": "2026-06-01T00:00:00",
+            "end_date": "2026-08-01T00:00:00",
+        },
+    )
+    assert resp.status_code == 422
+
+
+def test_project_ids_non_numerico_da_422_non_500(client, db_session):
+    admin = _user(db_session, UserRole.ADMIN.value)
+    app.dependency_overrides[get_current_user] = lambda: admin
+
+    resp = client.get(
+        "/api/v1/attendances/calendar",
+        params={
+            "project_ids": "xyz",
+            "start_date": "2026-06-01T00:00:00",
+            "end_date": "2026-08-01T00:00:00",
+        },
+    )
+    assert resp.status_code == 422
+
+
+def test_limit_negativo_da_422_non_500(client, db_session):
+    admin = _user(db_session, UserRole.ADMIN.value)
+    app.dependency_overrides[get_current_user] = lambda: admin
+
+    resp = client.get(
+        "/api/v1/attendances/calendar",
+        params={
+            "limit": "-5",
+            "start_date": "2026-06-01T00:00:00",
+            "end_date": "2026-08-01T00:00:00",
+        },
+    )
+    assert resp.status_code == 422

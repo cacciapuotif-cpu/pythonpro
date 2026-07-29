@@ -128,3 +128,22 @@ def test_total_conta_tutte_le_righe_anche_oltre_il_limit(db_session):
     )
     assert total == 5
     assert len(items) == 2
+
+
+def test_collaborator_ids_lista_vuota_non_mostra_nulla(db_session):
+    """Regressione: only_mine senza collaborator_id collegato passa [] (non
+    None). [] deve significare 'nessun risultato', non 'nessun filtro' —
+    altrimenti un utente senza collaboratore vede le presenze di tutti."""
+    c1 = _make_collaborator(db_session, _n=1)
+    p1 = _make_project(db_session)
+    now = datetime(2026, 7, 1, 9, 0)
+    _make_attendance(db_session, collaborator_id=c1.id, project_id=p1.id, when=now)
+
+    items, total = crud.get_attendances_calendar(
+        db_session,
+        collaborator_ids=[],
+        start_date=now - timedelta(days=1),
+        end_date=now + timedelta(days=1),
+    )
+    assert total == 0
+    assert items == []

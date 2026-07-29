@@ -1135,9 +1135,9 @@ def get_attendances_calendar(
         models.Attendance.date.between(start_date, end_date)
     )
 
-    if collaborator_ids:
+    if collaborator_ids is not None:
         base_query = base_query.filter(models.Attendance.collaborator_id.in_(collaborator_ids))
-    if project_ids:
+    if project_ids is not None:
         base_query = base_query.filter(models.Attendance.project_id.in_(project_ids))
     if not include_closed_projects:
         base_query = base_query.join(

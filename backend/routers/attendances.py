@@ -151,20 +151,27 @@ def read_attendances_calendar(
     project_ids: Optional[str] = Query(None, description="CSV di id progetto"),
     include_closed_projects: bool = False,
     only_mine: bool = False,
-    skip: int = 0,
-    limit: int = 500,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(500, ge=1, le=1000),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Endpoint dedicato calendario: multi-selezione + conteggio totale
     server-side. Non sostituisce GET /attendances/ (usato da AppContext/
     CalendarSimple, invariati)."""
-    parsed_collaborator_ids = (
-        [int(v) for v in collaborator_ids.split(",") if v.strip()] if collaborator_ids else None
-    )
-    parsed_project_ids = (
-        [int(v) for v in project_ids.split(",") if v.strip()] if project_ids else None
-    )
+    def _parse_csv_ids(raw: Optional[str], field_name: str) -> Optional[list[int]]:
+        if not raw:
+            return None
+        try:
+            return [int(v) for v in raw.split(",") if v.strip()]
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"{field_name} deve essere una lista di id numerici separati da virgola",
+            )
+
+    parsed_collaborator_ids = _parse_csv_ids(collaborator_ids, "collaborator_ids")
+    parsed_project_ids = _parse_csv_ids(project_ids, "project_ids")
 
     if only_mine:
         parsed_collaborator_ids = [current_user.collaborator_id] if current_user.collaborator_id else []
