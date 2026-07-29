@@ -194,6 +194,24 @@ class ApiService {
     return response.data;
   }
 
+  async getCalendarAttendances(filters = {}) {
+    const params = {
+      start_date: filters.startDate,
+      end_date: filters.endDate,
+    };
+    if (filters.collaboratorIds && filters.collaboratorIds.length) {
+      params.collaborator_ids = filters.collaboratorIds.join(',');
+    }
+    if (filters.projectIds && filters.projectIds.length) {
+      params.project_ids = filters.projectIds.join(',');
+    }
+    if (filters.includeClosedProjects) params.include_closed_projects = true;
+    if (filters.onlyMine) params.only_mine = true;
+
+    const response = await http.get('/attendances/calendar', { params });
+    return response.data;
+  }
+
   async getAttendance(id) {
     const response = await http.get(`/attendances/${id}`);
     return response.data;
