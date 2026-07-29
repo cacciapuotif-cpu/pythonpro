@@ -13,6 +13,7 @@ import logging
 import crud
 import models
 import schemas
+from auth import User, get_current_user
 from database import get_db
 from error_handler import BusinessLogicError, SafeTransaction, retry_on_db_error
 from validators import EnhancedAttendanceCreate
@@ -140,6 +141,49 @@ def read_attendances(
         end_date=end_date
     )
     return attendances
+
+
+@router.get("/calendar")
+def read_attendances_calendar(
+    start_date: datetime,
+    end_date: datetime,
+    collaborator_ids: Optional[str] = Query(None, description="CSV di id collaboratore"),
+    project_ids: Optional[str] = Query(None, description="CSV di id progetto"),
+    include_closed_projects: bool = False,
+    only_mine: bool = False,
+    skip: int = 0,
+    limit: int = 500,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Endpoint dedicato calendario: multi-selezione + conteggio totale
+    server-side. Non sostituisce GET /attendances/ (usato da AppContext/
+    CalendarSimple, invariati)."""
+    parsed_collaborator_ids = (
+        [int(v) for v in collaborator_ids.split(",") if v.strip()] if collaborator_ids else None
+    )
+    parsed_project_ids = (
+        [int(v) for v in project_ids.split(",") if v.strip()] if project_ids else None
+    )
+
+    if only_mine:
+        parsed_collaborator_ids = [current_user.collaborator_id] if current_user.collaborator_id else []
+
+    items, total = crud.get_attendances_calendar(
+        db,
+        collaborator_ids=parsed_collaborator_ids,
+        project_ids=parsed_project_ids,
+        start_date=start_date,
+        end_date=end_date,
+        include_closed_projects=include_closed_projects,
+        skip=skip,
+        limit=limit,
+    )
+
+    return {
+        "items": [schemas.Attendance.model_validate(a).model_dump(mode="json") for a in items],
+        "total": total,
+    }
 
 
 @router.get("/summary")
