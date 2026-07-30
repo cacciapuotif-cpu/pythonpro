@@ -1,12 +1,90 @@
 # PythonPro — Stato corrente
 
-**Aggiornato:** 2026-07-29 (Calendario con filtri: 8/8 task completati, confutatore OK dopo fix bug reale)
+**Aggiornato:** 2026-07-30 (messa in sicurezza 70 file non committati + gate UX-5 verificato)
 **Branch:** `claude/platform-audit-compliance-XnH86` (locale, **nessun push**)
 **Percorso:** `/DATA/progetti/pythonpro`
 
 > ⚠️ **Due sessioni hanno lavorato su questo branch il 27/07 in parallelo.**
 > Questo file è scritto a quattro mani: la sezione "RIPARTENZA" qui sotto
 > riguarda l'ondata UX; il resto del file traccia l'altro filone.
+
+## ⏸️ CHECKPOINT 2026-07-30 — messa in sicurezza pre-Ondata Mobile
+
+Richiesta utente: nuova "Ondata Mobile" (UX mobile/responsive). Regola
+dell'ondata: se Ondata UX OPERATIVA è ancora aperta, chiuderla prima (stessi
+componenti, rischio conflitto). Verificato: **era aperta**, con 70 file
+modificati mai committati (nonostante multipli "DEPLOY VERIFICATO" nelle
+sessioni del 27-29/07). Sessione fermata su richiesta utente prima di
+scoprire lo scope di UX-0/1/3/4 (vedi sotto). **Non ancora iniziata alcuna
+riga di Ondata Mobile.**
+
+### Fatto in questa sessione
+
+1. **Backup fresco verificato**: `gestionale_backup_daily_20260730_020036.sql.zip.gpg`
+   (container `/app/backups`, oggi 02:00) prima di qualunque operazione.
+
+2. **Messa in sicurezza dei 70 file non committati** — 6 commit atomici locali,
+   nessun push, nessuna perdita (verificato: `git diff --shortstat` tra pre e
+   post = 70 file invariati):
+   - `2f2dfe0` feat(account): area personale, recupero password, gestione
+     utenti admin
+   - `3b54971` feat(UX-2): profilo completo ente attuatore (sedi, conti
+     correnti, stampa/carta intestata, IBAN mascherato con checksum ISO 13616)
+   - `7af5b83` fix(allievi): azienda corrente/sede/progetti nella scheda
+   - `97f9810` fix(convenzione): bivio 409 con conferma esplicita di
+     destinazione
+   - `8edf3ae` test: isola gli startup hook tra fixture TestClient (ux8,
+     portale allievi) — pattern non esteso a ux5/ux6/ux6b/ux7 (stesso
+     sintomo ma preesistente, confermato anche su HEAD pulito, fuori scope)
+   - `9d275f2` docs(status): consolidamento diario sessioni parallele
+   - File misti su più feature (`schemas.py`, `apiService.js`,
+     `apiService.test.js`) separati per hunk/patch manuale, non a blocchi
+     interi, per non mischiare feature diverse nello stesso commit.
+   - Verifica: suite mirate 66+69+67 test verdi sui gruppi committati; build
+     frontend verde; sintassi Python di tutti i file backend OK.
+
+3. **Suite completa (backend, ambiente locale senza container)**: 737 passed,
+   6 skipped, 7 failed, 241 errors. **Confermato con `git stash` che tutti i
+   7 failed e la classe di errori (241, pattern "no such table: users" su
+   `with TestClient(app) as x` che innesca il bootstrap-utenti prima che le
+   tabelle SQLite di test esistano) sono preesistenti anche su HEAD pulito
+   pre-commit** — non causati da questa sessione. Non risolti (fuori scope),
+   solo documentato dove già toccato (vedi commit `8edf3ae`).
+
+4. **Gate UX-5 (dominio date progetto)**: presentate all'utente le 4
+   decisioni di `audit/UX5_GATE_DOMINIO_DATE.md` (2026-07-28) — tutte e
+   quattro **confermate**. Durante la verifica è emerso che **UX-5 era già
+   stato implementato e committato prima di questa sessione**
+   (`aab38cc`/`12edd11`/`3101199`/`0e6cf8e`, migration
+   `064_ux5_date_progetto_esplicite.py`), con tutti i 7 CHECK di coerenza,
+   validazione presenze W1.5 a warning non bloccante, servizio
+   `services/date_progetto.py`, 188 righe di test dedicati. **Migration 064
+   già applicata al DB reale** (head reale = `067`, quindi 064 è a bordo da
+   prima). Il documento gate era rimasto non aggiornato dopo
+   l'implementazione. Le conferme dell'utente coincidono con quanto già
+   implementato: **nessun codice da scrivere per UX-5, gate chiudibile**.
+
+5. **UX-0, UX-1, UX-3, UX-4: scope introvabile.** Nessun file nel repo
+   (STATUS.md, audit/, docs/superpowers/plans/) li definisce; probabile
+   scope dato a voce in una sessione precedente e mai scritto. Ricerca nella
+   memoria cross-sessione (`mcp__plugin_claude-mem`) non disponibile (tool
+   in errore: `uvx` non trovato) o senza risultati. **Bloccante**: non si può
+   implementare uno scope sconosciuto. L'utente ha iniziato a descriverlo
+   quando ha chiesto di fermarsi.
+
+### Prossimo passo (ripresa esatta)
+
+1. Farsi ridescrivere dall'utente lo scope di **UX-0, UX-1, UX-3, UX-4** e
+   scriverlo qui o in un piano dedicato prima di toccare codice.
+2. Decidere se implementarli prima di Mobile (scelta esplicita dell'utente
+   in questa sessione: sì, completare l'ondata UX prima) o se, visto il
+   costo, rivalutare.
+3. Solo dopo, avviare **Ondata Mobile** da **MOB-0** (censimento
+   Livello 1/2/3 delle pagine, gate di prodotto da presentare prima di
+   scrivere codice) — richiesta completa dell'utente con MOB-0…MOB-9 e gate
+   finale, non ancora iniziata.
+4. Backup fresco già verificato oggi; rifare backup pre-migration se si
+   arriva a toccare schema DB per UX-0/1/3/4.
 
 ## ✅ Recupero password + Gestione utenti + Calendario filtri (2026-07-29)
 
