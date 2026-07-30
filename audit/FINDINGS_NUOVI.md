@@ -1135,7 +1135,11 @@ dedotto dal conteggio.
   o password; redigere i sidecar storici; valutare rotazione della password DB
   dopo aver definito il perimetro di esposizione. Aggiungere test che rifiuti
   metadata contenenti password o URL con userinfo.
-- Stato: **aperto**. Registrato senza modificare codice al GATE MOB-0.
+- Stato: **parzialmente mitigato il 2026-07-30** (`39e690c`). I nuovi sidecar
+  passano da `_safe_database_location` e conservano solo schema, host, porta e
+  nome database; test dedicato vieta user/password nei metadata. Restano
+  aperte la bonifica dei sidecar storici già prodotti e la decisione sulla
+  rotazione delle credenziali DB dopo la valutazione dell'esposizione.
 
 ## 2026-07-30 | NEW-045 | Back/gesture e deep-link Collaboratori non sono affidabili
 

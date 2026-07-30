@@ -1,12 +1,38 @@
 # PythonPro — Stato corrente
 
-**Aggiornato:** 2026-07-30 (GATE MOB-0 proposto, in attesa di conferma)
+**Aggiornato:** 2026-07-30 (MOB-1 completato; prossimo MOB-2)
 **Branch:** `claude/platform-audit-compliance-XnH86` (locale, **nessun push**)
 **Percorso:** `/DATA/progetti/pythonpro`
 
 > ⚠️ **Due sessioni hanno lavorato su questo branch il 27/07 in parallelo.**
 > Questo file è scritto a quattro mani: la sezione "RIPARTENZA" qui sotto
 > riguarda l'ondata UX; il resto del file traccia l'altro filone.
+
+## ✅ CHECKPOINT 2026-07-30 — ONDATA MOBILE / MOB-1
+
+L'utente ha confermato il GATE MOB-0 con «procedi» e ha autorizzato il rinvio
+esplicito degli scope UX-0/1/3/4 non recuperabili. MOB-1 è completato e
+documentato in `audit/MOB1_FONDAMENTA_REPORT.md`.
+
+- Viewport corretto con `viewport-fit=cover`, safe area iOS, radice fluida,
+  corpo testo 16px e controlli form mobile `>=16px`.
+- Registro breakpoint unico Sass: 480/768/1024/1025; migrate 23 stylesheet e
+  rimosse le soglie locali 1120/1180 tramite griglie intrinseche.
+- Gate Playwright reale: **4 viewport × (21 sezioni + 4 flussi pubblici)**,
+  zero scroll orizzontale; screenshot Home/Calendario/Login prodotti.
+- Regressione desktop verificata a 1280, 1440 e 1920px.
+- Suite frontend **274 passed**; backend **984 passed, 8 skipped**; build
+  produzione verde. Runtime frontend aggiornato, backend e frontend healthy.
+- Baseline ripristinata con commit `4d554aa` e `39e690c`; fondamenta e gate
+  responsive nel commit `24b5ae5`.
+- `NEW-044` mitigato per i nuovi sidecar (credenziali DB redatte); resta aperta
+  la bonifica dei sidecar storici e l'eventuale rotazione credenziali.
+- Il menu mobile resta alto ma non genera overflow: sostituzione strutturale
+  deliberatamente demandata a MOB-2.
+
+**Prossimo:** MOB-2 navigazione mobile, includendo bottom navigation per ruolo,
+menu “Altro”, header compatto e correzione di back/gesture + deep-link
+`NEW-045`. Nessun push.
 
 ## ⏸️ CHECKPOINT 2026-07-30 — ONDATA MOBILE / GATE MOB-0
 
