@@ -131,8 +131,9 @@ def test_fondo_legacy_resta_supportato_senza_fk(db_session):
 
 
 @pytest.mark.parametrize("role,expected", [("admin", 200), ("operatore", 200), ("consultazione", 403)])
-def test_endpoint_rbac_e_download(db_session, seeded_project, role, expected):
+def test_endpoint_rbac_e_download(db_session, seeded_project, role, expected, monkeypatch):
     project, _, _ = seeded_project
+    monkeypatch.setattr(auth, "RBAC_ENFORCE", True)
 
     def override_db():
         yield db_session

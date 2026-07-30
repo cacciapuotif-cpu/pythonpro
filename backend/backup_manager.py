@@ -39,6 +39,18 @@ def _parse_postgres_url(db_url: str):
 
     return user, password, host, port, database
 
+
+def _safe_database_location(db_path: str) -> str:
+    """Restituisce una provenienza utile senza credenziali incorporabili."""
+    parsed = urlparse(db_path)
+    if not parsed.scheme.startswith("postgresql"):
+        return db_path
+
+    host = parsed.hostname or "localhost"
+    port = parsed.port or 5432
+    database = parsed.path.lstrip("/")
+    return f"{parsed.scheme}://{host}:{port}/{database}"
+
 class BackupManager:
     """Gestione backup automatici del database e configurazioni"""
 
@@ -57,9 +69,15 @@ class BackupManager:
             backup_filename = f"gestionale_backup_{backup_type}_{timestamp}.db"
             backup_path = self.backup_dir / backup_filename
 
-            if "sqlite" in self.db_path.lower():
+            is_postgresql = self.db_path.lower().startswith(
+                ("postgresql://", "postgresql+")
+            )
+            if not is_postgresql:
                 # Backup SQLite
-                with sqlite3.connect(self.db_path) as source:
+                sqlite_path = self.db_path
+                if sqlite_path.lower().startswith("sqlite:///"):
+                    sqlite_path = sqlite_path.removeprefix("sqlite:///")
+                with sqlite3.connect(sqlite_path) as source:
                     with sqlite3.connect(str(backup_path)) as backup:
                         source.backup(backup)
             else:
@@ -192,7 +210,7 @@ class BackupManager:
             "backup_type": backup_type,
             "file_size": backup_path.stat().st_size,
             "checksum": checksum,
-            "db_path": self.db_path
+            "db_path": _safe_database_location(self.db_path),
         }
 
         metadata_path = backup_path.with_suffix('.json')

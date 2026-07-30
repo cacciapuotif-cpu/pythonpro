@@ -10,6 +10,7 @@ from __future__ import annotations
 import subprocess
 import sys
 from datetime import timedelta
+from pathlib import Path
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
@@ -36,7 +37,7 @@ def test_arq_worker_import_registers_users_table():
         [sys.executable, "-c", code],
         capture_output=True,
         text=True,
-        cwd="/app",
+        cwd=Path(__file__).resolve().parents[1],
     )
     assert result.returncode == 0, f"stderr: {result.stderr}"
 

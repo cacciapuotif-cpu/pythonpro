@@ -1,5 +1,6 @@
 """GET /api/v1/attendances/calendar: filtri multi-selezione, only_mine, RBAC."""
 from datetime import datetime, timedelta
+from itertools import count
 
 import pytest
 from fastapi.testclient import TestClient
@@ -12,6 +13,9 @@ from database import Base, get_db
 import auth
 from auth import User, UserRole, SecurityUtils, get_current_user
 import models  # noqa: F401
+
+
+_COLLABORATOR_SEQUENCE = count(1)
 
 
 @pytest.fixture
@@ -65,10 +69,10 @@ def _user(db, role, collaborator_id=None):
 
 
 def _collaborator(db):
-    unique = id(object())
+    unique = next(_COLLABORATOR_SEQUENCE)
     c = models.Collaborator(
         first_name="Mario", last_name="Rossi", email=f"m{unique}@x.it",
-        fiscal_code=f"FSC{unique % 10**13:013d}"[:16],
+        fiscal_code=f"FSC{unique:013d}",
     )
     db.add(c)
     db.commit()

@@ -1,4 +1,6 @@
 import sqlite3
+import shutil
+import json
 from pathlib import Path
 
 import pytest
@@ -152,8 +154,10 @@ class TestInputValidation:
             EnhancedCollaboratorCreate(**{**valid_data, "email": "invalid-email"})
 
 
+@pytest.mark.skipif(shutil.which("gpg") is None, reason="gpg non disponibile nell'ambiente test")
 class TestBackupSystem:
-    def test_backup_creation_and_verification(self, tmp_path):
+    def test_backup_creation_and_verification(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("BACKUP_ENCRYPTION_KEY", "test-only-backup-key")
         db_path = tmp_path / "test_gestionale.db"
         backup_dir = tmp_path / "test_backups"
 
@@ -170,7 +174,8 @@ class TestBackupSystem:
         assert backup_path.endswith(".sql.zip.gpg")
         assert backup_mgr.verify_backup_integrity(backup_path) is True
 
-    def test_backup_listing(self, tmp_path):
+    def test_backup_listing(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("BACKUP_ENCRYPTION_KEY", "test-only-backup-key")
         db_path = tmp_path / "test_gestionale.db"
         backup_dir = tmp_path / "test_backups"
 
@@ -184,6 +189,22 @@ class TestBackupSystem:
 
         backups = backup_mgr.list_backups()
         assert len(backups) >= 2
+
+
+def test_backup_metadata_non_espone_credenziali_database(tmp_path):
+    backup_file = tmp_path / "backup.sql.zip.gpg"
+    backup_file.write_bytes(b"encrypted")
+    manager = BackupManager(
+        "postgresql://backup_user:secret-password@db.internal:5432/pythonpro",
+        str(tmp_path),
+    )
+
+    manager._save_backup_metadata(backup_file, "test", "checksum")
+
+    metadata = json.loads(backup_file.with_suffix(".json").read_text())
+    assert metadata["db_path"] == "postgresql://db.internal:5432/pythonpro"
+    assert "backup_user" not in json.dumps(metadata)
+    assert "secret-password" not in json.dumps(metadata)
 
 
 @pytest.mark.skipif(PerformanceMonitor is None, reason="psutil/performance monitor non disponibile nel container")

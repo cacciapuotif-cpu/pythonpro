@@ -95,7 +95,9 @@ def get_voci(listino_id: int, db: Session = Depends(get_db)):
     for v in voci:
         data = schemas.ListinoVoceWithProdotto.model_validate(v)
         prezzo_base = v.prodotto.prezzo_base if v.prodotto else 0.0
-        data.prezzo_finale = crud.calcola_prezzo_finale(prezzo_base, v.prezzo_override, v.sconto_percentuale)
+        data.prezzo_finale = float(
+            crud.calcola_prezzo_finale(prezzo_base, v.prezzo_override, v.sconto_percentuale)
+        )
         result.append(data)
     return result
 
@@ -118,7 +120,9 @@ def add_voce(listino_id: int, voce: schemas.ListinoVoceCreate, db: Session = Dep
         db_obj = crud.create_voce(db, voce)
         prezzo_base = db_obj.prodotto.prezzo_base if db_obj.prodotto else 0.0
         result = schemas.ListinoVoceWithProdotto.model_validate(db_obj)
-        result.prezzo_finale = crud.calcola_prezzo_finale(prezzo_base, db_obj.prezzo_override, db_obj.sconto_percentuale)
+        result.prezzo_finale = float(
+            crud.calcola_prezzo_finale(prezzo_base, db_obj.prezzo_override, db_obj.sconto_percentuale)
+        )
         return result
     except HTTPException:
         raise
@@ -135,7 +139,9 @@ def update_voce(listino_id: int, voce_id: int, voce: schemas.ListinoVoceUpdate, 
             raise HTTPException(status_code=404, detail="Voce non trovata")
         prezzo_base = db_obj.prodotto.prezzo_base if db_obj.prodotto else 0.0
         result = schemas.ListinoVoceWithProdotto.model_validate(db_obj)
-        result.prezzo_finale = crud.calcola_prezzo_finale(prezzo_base, db_obj.prezzo_override, db_obj.sconto_percentuale)
+        result.prezzo_finale = float(
+            crud.calcola_prezzo_finale(prezzo_base, db_obj.prezzo_override, db_obj.sconto_percentuale)
+        )
         return result
     except HTTPException:
         raise
