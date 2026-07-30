@@ -171,7 +171,7 @@ class TestBackupSystem:
 
         assert backup_path is not None
         assert Path(backup_path).exists()
-        assert backup_path.endswith(".sql.zip.gpg")
+        assert backup_path.endswith(".db.zip.gpg")
         assert backup_mgr.verify_backup_integrity(backup_path) is True
 
     def test_backup_listing(self, tmp_path, monkeypatch):
