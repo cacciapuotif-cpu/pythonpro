@@ -118,6 +118,30 @@ const anteprimaMatch = {
   warnings: [],
 };
 
+const anteprimaDestinazioneErrata = {
+  ...anteprima,
+  preview_token: 'tok-mismatch',
+  project_id: 5,
+  project_mismatch: {
+    current_project_id: 5,
+    current_project_name: 'poppi',
+    matched_project_id: 11,
+    matched_project_name: 'MAXI COMMUNICATION',
+    codice_fapi: '20250611CMIA001',
+  },
+  match: {
+    stato: 'esatto',
+    project_id: 11,
+    candidati: [{
+      project_id: 11,
+      nome: 'MAXI COMMUNICATION',
+      codice_fapi: '20250611CMIA001',
+      confidenza: 'esatta',
+      motivi: ['codice_piano'],
+    }],
+  },
+};
+
 async function selezionaFile() {
   const input = document.querySelector('.fapi-file-input');
   const file = new File(['x'], 'atto.pdf', { type: 'application/pdf' });
@@ -206,6 +230,34 @@ test('il campo in conflitto viene inviato solo se spuntato', async () => {
   await waitFor(() =>
     expect(confirmConvenzioneProgetto).toHaveBeenCalledWith(11, 'tok-1', ['costo_totale'])
   );
+});
+
+test('se il PDF appartiene a un altro progetto mostra il bivio e invia il target corretto', async () => {
+  uploadConvenzioneProgetto.mockResolvedValue(anteprimaDestinazioneErrata);
+  render(<FapiUploadSection project={{
+    id: 5,
+    name: 'poppi',
+    ente_erogatore: 'FAPI',
+  }} />);
+  fireEvent.click(screen.getByRole('button', { name: /Carica Convenzione/i }));
+  await selezionaFile();
+
+  expect(await screen.findByText(/Il documento non appartiene al progetto aperto/i))
+    .toBeInTheDocument();
+  expect(screen.getByText(/Stai operando su #5/i)).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /^Allega al progetto$/i }))
+    .not.toBeInTheDocument();
+
+  await cliccaEAttendi(screen.getByRole('button', {
+    name: /Allega a #11 · MAXI COMMUNICATION/i,
+  }));
+  await waitFor(() => expect(confirmConvenzioneProgetto).toHaveBeenCalledWith(
+    11,
+    'tok-mismatch',
+    [],
+    'associa',
+    'convenzione',
+  ));
 });
 
 test('l esito dichiara cosa e rimasto invariato', async () => {

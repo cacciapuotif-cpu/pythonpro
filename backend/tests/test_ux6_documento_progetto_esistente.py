@@ -262,6 +262,64 @@ def test_token_di_un_altro_progetto_rifiutato(
     assert conferma.status_code == 400
 
 
+def test_conflitto_destinazione_non_consuma_preview_e_consente_target_corretto(
+    client, db_session, progetto, monkeypatch
+):
+    """Caso live: PDF MAXI caricato da #5, mentre MAXI canonico e' #11.
+
+    Il backend deve proporre il progetto riconosciuto, impedire la
+    contaminazione di quello aperto e lasciare riutilizzabile lo stesso token
+    per una conferma esplicita sul destinatario corretto.
+    """
+    progetto.codice_fapi = "20250611CMIA001"
+    progetto.name = "MAXI COMMUNICATION"
+    aperto_per_errore = models.Project(
+        name="poppi",
+        ente_erogatore="FAPI",
+        status="active",
+    )
+    db_session.add(aperto_per_errore)
+    db_session.commit()
+
+    upload = _carica(
+        client,
+        aperto_per_errore.id,
+        monkeypatch,
+        _estrazione(codice_fapi="20250611CMIA001", titolo="MAXI COMMUNICATION"),
+    )
+    assert upload.status_code == 200, upload.text
+    payload = upload.json()
+    assert payload["project_mismatch"] == {
+        "current_project_id": aperto_per_errore.id,
+        "current_project_name": "poppi",
+        "matched_project_id": progetto.id,
+        "matched_project_name": "MAXI COMMUNICATION",
+        "codice_fapi": "20250611CMIA001",
+    }
+
+    conferma_errata = client.post(
+        f"/api/v1/projects/{aperto_per_errore.id}/confirm-convenzione",
+        json={"preview_token": payload["preview_token"]},
+    )
+    assert conferma_errata.status_code == 409
+    db_session.expire_all()
+    assert db_session.get(models.Project, aperto_per_errore.id).codice_fapi is None
+    assert db_session.query(models.ProjectDocumento).count() == 0
+
+    conferma_corretta = client.post(
+        f"/api/v1/projects/{progetto.id}/confirm-convenzione",
+        json={
+            "preview_token": payload["preview_token"],
+            "modalita": "associa",
+        },
+    )
+    assert conferma_corretta.status_code == 200, conferma_corretta.text
+    assert conferma_corretta.json()["project_id"] == progetto.id
+    documento = db_session.query(models.ProjectDocumento).one()
+    assert documento.project_id == progetto.id
+    assert db_session.query(models.Project).count() == 2
+
+
 def test_documento_non_riconosciuto_non_crea_progetti_fantasma(
     client, db_session, monkeypatch
 ):

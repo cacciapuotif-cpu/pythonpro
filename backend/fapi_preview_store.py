@@ -2,6 +2,7 @@
 import json
 import logging
 import os
+from threading import Lock
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,7 @@ except Exception as exc:
 
 # ── Fallback in-memory ────────────────────────────────────────────────────────
 _local: dict = {}
+_local_lock = Lock()
 
 
 def store(token: str, data: dict) -> None:
@@ -30,18 +32,35 @@ def store(token: str, data: dict) -> None:
             return
         except Exception as exc:
             logger.warning("Redis store failed: %s", exc)
-    _local[token] = data
+    with _local_lock:
+        _local[token] = data
+
+
+def get(token: str) -> dict | None:
+    """Legge una preview senza consumarla.
+
+    Serve per validare destinazione e conflitti prima del ``pop`` atomico:
+    un errore correggibile non deve obbligare l'operatore a ricaricare il PDF.
+    """
+    if _redis:
+        try:
+            raw = _redis.get(f"fapi_preview:{token}")
+            return json.loads(raw) if raw else None
+        except Exception as exc:
+            logger.warning("Redis get failed: %s", exc)
+    with _local_lock:
+        return _local.get(token)
 
 
 def pop(token: str) -> dict | None:
     if _redis:
         try:
             key = f"fapi_preview:{token}"
-            raw = _redis.get(key)
-            if raw:
-                _redis.delete(key)
-                return json.loads(raw)
-            return None
+            # Redis >= 6.2: lettura e cancellazione in un'unica operazione.
+            # Un GET seguito da DELETE consentiva due conferme concorrenti.
+            raw = _redis.getdel(key)
+            return json.loads(raw) if raw else None
         except Exception as exc:
             logger.warning("Redis pop failed: %s", exc)
-    return _local.pop(token, None)
+    with _local_lock:
+        return _local.pop(token, None)

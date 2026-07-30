@@ -553,9 +553,23 @@ async def upload_convenzione_progetto(
 
     estratti = _estratti_progetto(db, result, dest)
     diff = documento_progetto.calcola_diff(project, estratti)
+    match = match_documento_progetto.trova_candidati(db, result)
+    candidate_ids = [
+        candidate["project_id"] for candidate in match.get("candidati", [])
+    ]
+    matched_project = None
+    matched_project_diff = None
+    matched_project_id = match.get("project_id")
+    if matched_project_id and matched_project_id != project_id:
+        matched_project = db.get(models.Project, matched_project_id)
+        if matched_project:
+            matched_project_diff = documento_progetto.calcola_diff(
+                matched_project, estratti
+            )
 
     _preview_store.store(token, {
         "project_id": project_id,
+        "candidate_project_ids": candidate_ids,
         "file_path": dest,
         "original_filename": file.filename,
         **result,
@@ -565,6 +579,19 @@ async def upload_convenzione_progetto(
         "preview_token": token,
         "project_id": project_id,
         "diff": diff,
+        "match": match,
+        "project_mismatch": (
+            {
+                "current_project_id": project.id,
+                "current_project_name": project.name,
+                "matched_project_id": matched_project.id,
+                "matched_project_name": matched_project.name,
+                "codice_fapi": (result.get("piano") or {}).get("codice_fapi"),
+            }
+            if matched_project
+            else None
+        ),
+        "matched_project_diff": matched_project_diff,
         **result,
     }
 
@@ -585,7 +612,10 @@ def confirm_convenzione_progetto(
     if not project:
         raise HTTPException(status_code=404, detail="Progetto non trovato")
 
-    preview = _preview_store.pop(body.preview_token)
+    # Prima si valida senza consumare il token. In precedenza un 409 per
+    # destinazione errata distruggeva la preview: il retry sul progetto
+    # riconosciuto diventava 404 e il PDF restava orfano.
+    preview = _preview_store.get(body.preview_token)
     if not preview:
         raise HTTPException(status_code=404, detail="Preview token non trovato o scaduto")
     candidate_ids = set(preview.get("candidate_project_ids") or [])
@@ -613,6 +643,15 @@ def confirm_convenzione_progetto(
                     f"'{altro.name}' (id={altro.id}): documento non associato."
                 ),
             )
+
+    # Claim atomico soltanto dopo le validazioni correggibili. Due conferme
+    # concorrenti non possono quindi archiviare due volte lo stesso upload.
+    preview = _preview_store.pop(body.preview_token)
+    if not preview:
+        raise HTTPException(
+            status_code=409,
+            detail="Anteprima già confermata da un'altra richiesta.",
+        )
 
     file_path = preview["file_path"]
 

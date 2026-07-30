@@ -432,6 +432,7 @@ function ConvenzioneModal({ projectId, onClose, onSuccess }) {
 
   const candidati = preview?.match?.candidati || [];
   const hasGlobalMatch = !associa && candidati.length > 0;
+  const projectMismatch = associa ? preview?.project_mismatch : null;
   const targetProjectId = Number(selectedProjectId || preview?.existing_project_id || 0);
   const confrontoSelezionato = targetProjectId
     ? preview?.confronti_per_progetto?.[String(targetProjectId)] || preview?.confronto
@@ -458,6 +459,16 @@ function ConvenzioneModal({ projectId, onClose, onSuccess }) {
     await handleConfirm(onSuccess, {
       projectId: targetProjectId,
       modalita,
+      tipoDocumento,
+    });
+  }
+
+  async function associaAlProgettoRiconosciuto() {
+    await handleConfirm(onSuccess, {
+      projectId: projectMismatch.matched_project_id,
+      // Il cambio di destinazione autorizzato dall'operatore allega soltanto
+      // il documento: non deve arricchire campi o sincronizzare aziende.
+      modalita: 'associa',
       tipoDocumento,
     });
   }
@@ -511,7 +522,21 @@ function ConvenzioneModal({ projectId, onClose, onSuccess }) {
               <div key={i} className="fapi-warning">⚠️ {w}</div>
             ))}
 
-            {associa && (
+            {associa && projectMismatch && (
+              <div className="fapi-warning" role="alert">
+                <strong>Il documento non appartiene al progetto aperto.</strong>
+                <br />
+                Stai operando su #{projectMismatch.current_project_id} ·{' '}
+                {projectMismatch.current_project_name}, ma il codice piano{' '}
+                <strong>{projectMismatch.codice_fapi}</strong> identifica{' '}
+                #{projectMismatch.matched_project_id} ·{' '}
+                <strong>{projectMismatch.matched_project_name}</strong>.
+                La conferma allegherà soltanto il PDF al progetto riconosciuto,
+                senza modificare dati o aziende.
+              </div>
+            )}
+
+            {associa && !projectMismatch && (
               <DiffProgetto
                 diff={preview.diff}
                 campiScelti={campiScelti}
@@ -679,9 +704,18 @@ function ConvenzioneModal({ projectId, onClose, onSuccess }) {
           </button>
           {step === 'preview' && (
             <>
-              {associa && (
+              {associa && !projectMismatch && (
                 <button className="fapi-btn primary" onClick={() => handleConfirm(onSuccess)}>
                   ✅ Allega al progetto
+                </button>
+              )}
+              {associa && projectMismatch && (
+                <button
+                  className="fapi-btn primary"
+                  onClick={associaAlProgettoRiconosciuto}
+                >
+                  Allega a #{projectMismatch.matched_project_id} ·{' '}
+                  {projectMismatch.matched_project_name}
                 </button>
               )}
               {!associa && !hasGlobalMatch && (
