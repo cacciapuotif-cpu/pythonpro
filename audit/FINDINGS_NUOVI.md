@@ -1114,3 +1114,47 @@ dedotto dal conteggio.
   sicurezza.
 - Stato: **chiuso**, test RED→GREEN specifico sul cockpit più prova delle
   richieste concorrenti.
+
+---
+
+## 2026-07-30 | NEW-044 | I metadati dei backup espongono la URL PostgreSQL completa
+
+- Area: sicurezza / backup / segreti
+- Severità stimata: alta
+- Emerso durante: prerequisito backup del GATE MOB-0
+- Evidenza: il sidecar JSON di ogni backup include `db_path` valorizzato con
+  `BackupManager.db_path`. Nel runtime PostgreSQL questo valore è la URL di
+  connessione completa, comprese le credenziali. Il file cifrato `.gpg` è
+  protetto, ma il relativo `.json` è in chiaro nel volume backup.
+- Causa: `backend/backup_manager.py::_save_backup_metadata` serializza
+  direttamente `self.db_path`.
+- Impatto: chiunque possa leggere il volume o esportare i sidecar può ottenere
+  credenziali DB senza decifrare il backup. Il difetto riguarda anche i
+  metadata storici già prodotti.
+- Correzione proposta: salvare solo tipo DB/host redatto/nome logico, mai user
+  o password; redigere i sidecar storici; valutare rotazione della password DB
+  dopo aver definito il perimetro di esposizione. Aggiungere test che rifiuti
+  metadata contenenti password o URL con userinfo.
+- Stato: **aperto**. Registrato senza modificare codice al GATE MOB-0.
+
+## 2026-07-30 | NEW-045 | Back/gesture e deep-link Collaboratori non sono affidabili
+
+- Area: frontend / navigazione / mobile
+- Severità stimata: alta per MOB-2
+- Emerso durante: censimento statico MOB-0
+- Evidenze:
+  1. `App.navigateToSection` usa sempre `history.replaceState`; non esiste un
+     listener `popstate`. Il back del browser e la gesture iOS non ripristinano
+     quindi la sezione precedente.
+  2. `DocumentiMancanti` inserisce nei solleciti
+     `/collaboratori/{id}/documenti`, ma `getSectionFromPath` non mappa tale
+     percorso.
+  3. `AgentSuggestionsReview` genera `/collaborators`, anch'esso non mappato.
+     Per l'operatore sembra funzionare solo perché Collaboratori è la sua home
+     predefinita; per gli altri ruoli il link atterra altrove.
+- Impatto: i flussi Livello 1 perdono contesto, i link inviati non aprono
+  l'oggetto promesso e la navigazione mobile viola il requisito MOB-2c.
+- Correzione proposta: routing/deep-link canonico per le sezioni e gli oggetti,
+  `pushState` per navigazioni reali, gestione `popstate`, test sui tre ruoli e
+  compatibilità con i link già inviati.
+- Stato: **aperto**. Nessun fix applicato prima del GATE MOB-0.

@@ -1,12 +1,58 @@
 # PythonPro — Stato corrente
 
-**Aggiornato:** 2026-07-30 (messa in sicurezza 70 file non committati + gate UX-5 verificato)
+**Aggiornato:** 2026-07-30 (GATE MOB-0 proposto, in attesa di conferma)
 **Branch:** `claude/platform-audit-compliance-XnH86` (locale, **nessun push**)
 **Percorso:** `/DATA/progetti/pythonpro`
 
 > ⚠️ **Due sessioni hanno lavorato su questo branch il 27/07 in parallelo.**
 > Questo file è scritto a quattro mani: la sezione "RIPARTENZA" qui sotto
 > riguarda l'ondata UX; il resto del file traccia l'altro filone.
+
+## ⏸️ CHECKPOINT 2026-07-30 — ONDATA MOBILE / GATE MOB-0
+
+MOB-0 completato in sola lettura e documentato in
+`audit/MOB0_PERIMETRO_MOBILE.md`. **Nessun componente applicativo modificato;
+MOB-1 non iniziato.**
+
+### Prerequisiti e verifiche
+
+- Letti stato, ledger SDD, GATE UI v3, findings e ultimi 15 commit.
+- Branch locale, nessun push, worktree iniziale pulita.
+- Backup fresco
+  `gestionale_backup_daily_20260730_020036.sql.zip.gpg` verificato realmente:
+  checksum, decrittazione e integrità ZIP OK.
+- Censite 21 sezioni applicative: admin 21, operatore 19, consultazione 18;
+  aggiunti al perimetro i flussi globali/pubblici login/recovery, portale
+  allievi, area personale e notifiche.
+- Proposti i tre livelli per singolo flusso, non per intera pagina:
+  letture rapide e azioni singole spiegate in Livello 1; consultazione densa e
+  CRUD leggero in Livello 2; wizard/import/parsing/configurazioni/bulk e azioni
+  ad alto rischio in Livello 3 desktop-only.
+- Proposta bottom navigation: A/O `Home · Calendario · Presenze · Proposte ·
+  Altro`; C `Home · Calendario · Persone · Archivio · Altro`.
+
+### Finding nuovi
+
+- `NEW-044`: i sidecar JSON dei backup salvano la URL DB completa in chiaro;
+  codice non corretto al gate.
+- `NEW-045`: back/gesture iOS non ripristina le sezioni e due deep-link
+  Collaboratori non sono mappati.
+
+### Blocchi prima di MOB-1
+
+1. Attendere conferma utente del GATE MOB-0.
+2. UX-0/1/3/4 restano senza scope recuperabile: vanno definiti e completati,
+   oppure esplicitamente rinviati/annullati, prima di toccare gli stessi
+   componenti con MOB-1.
+3. La baseline completa locale non è verde (7 failure + 241 errori fixture
+   startup, confermati preesistenti anche su HEAD pulito): va ripristinata
+   prima di usare la suite come gate di non-regressione mobile.
+
+### Ripresa esatta
+
+- Presentare la tabella MOB-0 e attendere le sei decisioni elencate nel report.
+- Dopo conferma e risoluzione dei blocchi, partire da MOB-1; nessun lavoro
+  responsive deve precedere il gate.
 
 ## ⏸️ CHECKPOINT 2026-07-30 — messa in sicurezza pre-Ondata Mobile
 
