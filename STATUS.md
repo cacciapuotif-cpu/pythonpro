@@ -1,12 +1,428 @@
 # PythonPro — Stato corrente
 
-**Aggiornato:** 2026-07-28 (UX-6, UX-8 e UX-9 CHIUSI; GATE UX-5 aperto)
+**Aggiornato:** 2026-07-29 (Calendario con filtri: 8/8 task completati, confutatore OK dopo fix bug reale)
 **Branch:** `claude/platform-audit-compliance-XnH86` (locale, **nessun push**)
 **Percorso:** `/DATA/progetti/pythonpro`
 
 > ⚠️ **Due sessioni hanno lavorato su questo branch il 27/07 in parallelo.**
 > Questo file è scritto a quattro mani: la sezione "RIPARTENZA" qui sotto
 > riguarda l'ondata UX; il resto del file traccia l'altro filone.
+
+## ✅ Recupero password + Gestione utenti + Calendario filtri (2026-07-29)
+
+**Un'altra sessione sta lavorando in parallelo su questo stesso branch**
+(molti file non miei risultano modificati non committati: `git status
+--short` per vedere l'elenco — non toccarli, sono lavoro in corso di
+un'altra sessione su password-reset/gestione-utenti/UX-2).
+
+### Fatto e verificato in questa sessione
+
+1. **Recupero password (admin/operatore/consultazione): chiuso.**
+   - Root cause reale: `SMTP_PASSWORD` in `.env` non era una App Password
+     Gmail valida (48 caratteri invece di 16, Google rispondeva 535
+     BadCredentials). Sostituita con una App Password vera generata
+     dall'utente per `assistentegestionale@gmail.com`: login SMTP reale
+     verificato OK.
+   - Secondo bug trovato: `docker restart` NON rilegge le variabili
+     d'ambiente di `docker-compose.yml` (solo `docker compose up -d
+     --force-recreate` lo fa). `PASSWORD_RESET_URL_BASE` non arrivava al
+     container finché non si è fatto recreate.
+   - Verificato end-to-end con mail reali (alias Gmail `+operatore`/
+     `+consultazione` su `cacciapuotif@gmail.com`): link ricevuti, password
+     reimpostate, login riuscito per tutti e 3 i ruoli. Il caso
+     "consultazione: link scaduto" era scadenza naturale di 30 minuti, non
+     un bug — confermato generando un token fresco e consumandolo subito
+     (e verificato che il riuso dello stesso token viene bloccato).
+
+2. **Creazione utenti con ruolo da parte admin: chiuso.**
+   - Backend `backend/routers/admin.py`: `POST/GET/PATCH/DELETE
+     /api/v1/admin/users`, `POST /api/v1/admin/users/{id}/resend-invite`.
+     Account creato con password inutilizzabile + invito via stesso
+     circuito del recupero password (mai password in chiaro). Guardie:
+     un admin non può disattivare/degradare/eliminare se stesso, né
+     l'ultimo admin attivo del sistema (nessuno può farlo). 29 test
+     backend verdi (`test_admin_user_creation.py`,
+     `test_admin_user_management.py`).
+   - Frontend: nuova sezione "🔑 Utenti" (`frontend/src/components/
+     UserManagement.js` + `.css`), stile "manager" coerente con
+     `CollaboratorManager.css` (card, search/sort, modal conferma). Crea,
+     modifica, disattiva/riattiva, elimina, reinvia credenziali. 9 test
+     frontend verdi. Deployato live (rebuild+recreate sia backend che
+     frontend).
+
+### ✅ Calendario con filtri: CHIUSO (2026-07-29)
+
+Piano completo in `docs/superpowers/plans/2026-07-29-calendar-filters.md`,
+tutti gli 8 task fatti e committati (`b4fc2cf`…`1f60601`, poi fix
+`20290f4`):
+
+- Task 1 `crud.get_attendances_calendar` (`b4fc2cf`)
+- Task 2 endpoint `GET /attendances/calendar` (`d0d1e6d`)
+- Task 3 `apiService.getCalendarAttendances` (`ff0312b`)
+- Task 4 `calendarFilters.js` stato puro URL+localStorage (`9b13712`)
+- Task 5 `CalendarFilterBar.js` (`05554f6`)
+- Task 6+7 `Calendar.js` riscritto fetch server-side + legenda dinamica
+  (`11a5f1a`)
+- Task 8 test performance dataset generato (`1f60601`)
+- Piano con checkbox chiusi (`e1a4995`)
+
+**Verifica confutatore (post-deploy, dati reali, non solo unit test):**
+rebuild+redeploy backend e frontend, poi tentativo attivo di rompere
+l'endpoint reale con curl attraverso il proxy nginx (`localhost:3001`) e
+un JWT generato in-process per l'utente `admin` reale (nessuna password
+toccata). Trovati e corretti **3 bug reali** non catturati dai test
+originali del piano (commit `20290f4`):
+
+1. **RBAC/privacy — grave.** `only_mine=true` per un utente senza
+   `collaborator_id` collegato (es. `ui_test_consultazione`) mostrava
+   **tutte** le presenze invece di zero: `if collaborator_ids:` tratta
+   `[]` come "nessun filtro" (lista vuota è falsy in Python) invece di
+   "nessun risultato". Fix: `is not None`. Test di regressione aggiunti
+   sia a livello `crud` che endpoint.
+2. `collaborator_ids=abc` (non numerico) → 500 invece di 422 (parsing CSV
+   manuale senza try/except). Fix: validazione esplicita → 422.
+3. `limit` negativo → 500 (`DB_ERROR`, offset/limit SQL invalido) invece
+   di 422. Fix: `Query(..., ge=1, le=1000)` / `Query(..., ge=0)`. Nota:
+   lo stesso bug esiste anche su `GET /attendances/` esistente (pattern
+   pre-esistente nel repo, non toccato — fuori scope).
+
+Non verificato: rendering visivo reale in browser (niente `libatk` /
+libs di sistema installabili nel sandbox, no sudo) — copertura sostituita
+con verifica end-to-end via HTTP reale (login reale via JWT, dati reali
+in Postgres, attraverso il proxy nginx) invece che solo mock Jest.
+
+92 test backend + 8/8 `Calendar.test.js` verdi, build produzione pulita,
+nessuna regressione (suite frontend completa ha 1 fallimento
+pre-esistente per test-order pollution in `PianoTemplateWizard.test.js`,
+confermato presente anche senza le modifiche di questa feature).
+
+Dettagli completi: memoria `pythonpro_calendar_filters.md`.
+
+## ✅ UX-2 FOLLOW-UP — INTESTAZIONE MODIFICA LEGGIBILE (2026-07-29)
+
+- navigazione delle sei sezioni trasformata in pulsanti accessibili;
+- layout stabile 3×2 nel modal desktop/tablet e 2 colonne sotto 560 px;
+- icona e testo affiancati, testo multilinea non troncato, nessun overflow
+  orizzontale;
+- stato attivo/completato ad alto contrasto, `aria-current="step"` e focus
+  tastiera con outline conforme `#0b5f8a`;
+- test modal **2/2** e suite frontend **28 suite, 256 test, 3 snapshot**;
+- bundle live `main.41a8d917.js`, CSS `main.7d10a6b6.css`, servizi healthy,
+  `/health` 200 e log senza errori;
+- confutatore indipendente: **OK FINALE POST-DEPLOY**.
+
+## ✅ UX-2 FOLLOW-UP — MODIFICA ENTE COMPLETA (2026-07-29)
+
+Corretto il disallineamento segnalato tra “Dettaglio” e “Modifica”:
+
+- nella finestra Modifica, la sezione Sede legale mostra ora tutte le sedi e
+  consente aggiunta, modifica e disattivazione;
+- la sezione Conti correnti mostra i conti con IBAN mascherato e consente
+  aggiunta, modifica e disattivazione senza passare dalla scheda Dettaglio;
+- dopo CRUD sedi/conti viene aggiornata anche la lista enti, evitando dati
+  visivamente stale;
+- i selettori delle sezioni vanno a capo e rendono chiaramente raggiungibili
+  Legale rappresentante e Note & Logo;
+- nel Dettaglio il legale rappresentante è sempre presente, le note mostrano
+  anche lo stato vuoto e il logo viene visualizzato come immagine tramite
+  download autenticato, non soltanto come nome file;
+- sicurezza invariata: negli elenchi e in modifica gli IBAN restano
+  mascherati; nessun form annidato o submit accidentale.
+
+Verifiche:
+
+- test mirati: **2 suite, 6/6**;
+- frontend completo: **28 suite, 256 test, 3 snapshot**;
+- build produzione e `git diff --check`: verdi;
+- bundle live `main.cfbc3fcf.js`, backend/frontend healthy e `/health` 200;
+- confutatore indipendente: **OK FINALE POST-DEPLOY**, nessun bloccante.
+
+## ✅ UX-2 ENTI ATTUATORI — DEPLOY VERIFICATO (2026-07-29)
+
+Scheda e dati ente:
+
+- aggiunta una vista di dettaglio autonoma con tab per panoramica, sedi,
+  conti correnti e stampa/brand; modifica e consultazione restano separate;
+- logo e carta intestata sono indipendenti; la carta intestata accetta
+  PNG/JPEG/PDF;
+- configurabili margini in mm, dimensione e posizione logo, applicazione
+  carta intestata alla prima o a tutte le pagine e piè di pagina;
+- anteprima PDF neutra disponibile senza generare un contratto reale;
+- aggiunti sito web validato e social estendibili per piattaforma, etichetta
+  e URL.
+
+Sedi e conti:
+
+- nuove entità `ImplementingEntityLocation` e
+  `ImplementingEntityBankAccount`, con CRUD e disattivazione dalla scheda;
+- vincoli DB/applicativi: una sola sede legale attiva, una sola sede
+  principale attiva e un solo conto predefinito attivo per ente;
+- sedi con tipo legale/operativa/amministrativa/accreditata, contatti,
+  estremi di accreditamento e date di attività;
+- IBAN italiano/estero validato con checksum ISO 13616, BIC/SWIFT,
+  intestatario, banca, agenzia e note;
+- IBAN sempre mascherato negli elenchi e nella scheda; consultazione integrale
+  esplicita solo per admin/operator e registrata in audit, inclusi i tentativi
+  negati; nessun IBAN viene scritto nell'audit;
+- il dialogo di generazione contratto permette di scegliere sede e conto;
+  default rispettivamente sede legale e conto predefinito.
+
+Documenti e compatibilità:
+
+- contratti, template contratto e nuovi timesheet applicano la configurazione
+  dell'ente attuatore del progetto solo quando è esplicitamente abilitata;
+- il percorso legacy resta separato: test di parità conferma output
+  byte-identico con configurazione vuota/disabilitata;
+- i documenti già generati sono file persistiti e non vengono rigenerati o
+  modificati;
+- migrazione Alembic `067_ux2_implementing_entity_full_profile.py` applicata,
+  runtime `067 (head)`;
+- backfill live verificato: 2 enti/2 sedi/1 conto, nessun ente senza sede
+  legale, nessun duplicato legale/principale/predefinito e nessun IBAN
+  invalido.
+
+Verifiche e deploy:
+
+- backup pre-migrazione cifrato:
+  `gestionale_backup_pre_ux2_20260729_133801.sql.zip.gpg`; la retention
+  automatica ha rimosso il vecchio backup
+  `gestionale_backup_emergency_shutdown_20260715_125806.sql.zip.gpg`;
+- test backend UX-2: **11/11**, incluso il percorso secondario
+  `/projects/{id}/full-context`;
+- frontend completo: **27 suite, 254 test, 3 snapshot**;
+- build produzione e `git diff --check`: verdi;
+- smoke live autenticato: lista/dettaglio/sedi/conti 200, anteprima 200 e PDF
+  valido, nessuna esposizione dell'IBAN integrale;
+- backend e frontend healthy, `/health` 200; bundle live
+  `main.94bf6e44.js` contiene scheda completa, anteprima, consultazione IBAN e
+  selettori sede/conto per il documento; log post-deploy senza errori.
+- revisione avversariale: chiuso un leak IBAN nel `full-context` tramite
+  serializzazione fail-safe globale; smoke live con ruolo consultazione
+  conferma legacy solo mascherato, conti con `iban=null` e zero IBAN completi;
+- SVG escluso end-to-end dai loghi perché non renderizzabile da ReportLab
+  (nessun SVG preesistente nel DB); BIC validato anche in update e intervalli
+  data sede validati sullo stato finale persistito;
+- confutatore indipendente: **OK FINALE POST-DEPLOY**, nessun bloccante
+  residuo.
+
+Pendenti/non inclusi:
+
+- nessun commit e nessun push effettuati;
+- due vecchi test end-to-end (`test_e2e_catena_contratto.py` e
+  `test_timesheet_snapshot.py`) non partono per un problema preesistente
+  della fixture di startup/TestClient che usa una sessione priva della
+  tabella utenti; i percorsi modificati sono coperti dai test UX-2 isolati.
+
+## ✅ ALLIEVI + AREA PERSONALE — DEPLOY VERIFICATO (2026-07-29)
+
+Correzione Allievi:
+
+- l'API espone ora azienda corrente, sede e tutti i progetti associati;
+- Giovanni Caruso `#4` è visibile con azienda attuale Power Impianti `#10`,
+  progetto MAXI COMMUNICATION `#11` attivo e `#12` storico
+  (`cancelled`/inattivo);
+- il cambio azienda conserva i collegamenti progetto già registrati;
+- i nuovi collegamenti sono ammessi solo verso progetti attivi compatibili
+  con l'azienda corrente; le selezioni nuove incompatibili vengono rimosse;
+- decisione di dominio: viene mostrata una sola **azienda attuale** e tutti i
+  progetti, compresi gli storici. Il DB non conserva l'azienda storica per
+  ogni partecipazione: per ricostruirla servirebbe una futura tabella
+  temporale/snapshot azienda-progetto.
+
+Area personale e amministrazione utenti:
+
+- pulsante profilo sempre disponibile in alto a destra;
+- modifica nome, cognome, email e telefono; foto profilo autenticata con
+  upload/eliminazione; cambio password;
+- avatar limitati a PNG/JPEG/WebP, massimo 2 MB, validati tramite firma reale;
+- l'amministratore crea un utente con nome, cognome, email e ruolo; lo
+  username viene generato automaticamente e l'utente completa il profilo;
+- la propria email non può essere cambiata dal pannello admin: deve passare
+  dall'Area personale con conferma password;
+- l'interfaccia descrive l'invito come predisposto/in coda, senza dichiarare
+  una consegna email non verificata.
+
+Migrazione e deploy:
+
+- aggiunta Alembic `066_add_user_profile_fields.py`; runtime confermato
+  `066 (head)`;
+- backend e frontend ricostruiti e riavviati; health check live verdi;
+- bundle live `main.6eb62e21.js` contiene Area personale e la nuova UI
+  Allievi;
+- test backend eseguiti in due gruppi: **60/60** e **43/43**;
+- frontend completo: **26 suite, 248 test, 3 snapshot**; build produzione
+  pulita;
+- smoke live: profilo 200, avatar senza auth 401, tipo falso 400, oltre 2 MB
+  413, modifica propria email da admin 409;
+- `git diff --check` e compilazione Python dei file modificati: verdi;
+- confutatore indipendente: **OK FINALE POST-DEPLOY**, nessun blocco residuo.
+
+Pendenti/non inclusi:
+
+- nessun commit e nessun push effettuati;
+- lo storico dell'azienda per singolo progetto richiede una futura modifica
+  del modello dati;
+- la consegna SMTP delle email non è dichiarata risolta: il flusso applicativo
+  accoda/predispone correttamente il link, ma il canale Google già censito
+  continua a richiedere credenziali valide.
+
+## ✅ FIX LIVE — 409 allegato convenzione MAXI (2026-07-29)
+
+Caso reale: la UI ha inviato
+`POST /api/v1/projects/5/confirm-convenzione`, ma il DB conferma che `#5` è
+`poppi`; il PDF estrae il codice `20250611CMIA001`, appartenente al canonico
+`MAXI COMMUNICATION #11`. Il `409` proteggeva correttamente `#5` dalla
+contaminazione e **non è stato rimosso**.
+
+Correzione definitiva:
+
+- l'upload project-scoped esegue il match globale e, se riconosce un altro
+  progetto, mostra prima della conferma nome e ID di origine/destinazione;
+- l'utente deve premere esplicitamente
+  **“Allega a #11 · MAXI COMMUNICATION”**;
+- il cambio destinazione usa `modalita=associa`: archivia solo il PDF e non
+  aggiorna campi, aziende o collegamenti;
+- un `409` correggibile non consuma più la preview; il claim finale è atomico
+  (`Redis GETDEL`, `Lock` sul fallback locale), quindi replay/conferme
+  concorrenti non possono archiviare due volte lo stesso token.
+
+Verifiche:
+
+- backend UX-6/UX-6b/token: **35 passed**;
+- frontend mirato: **12 passed**; suite completa: **25 suite, 237 test,
+  3 snapshot**;
+- build produzione e `git diff --check`: verdi;
+- confutatore finale indipendente: **OK**;
+- runtime: backend e frontend healthy, `/health` 200; bundle servito
+  `main.779628f9.js` contiene il nuovo bivio;
+- smoke live con preview temporanea Redis: `409` su #5 e
+  `token_survived_conflict=true`; chiave smoke rimossa, nessun dato reale
+  modificato.
+
+Il tentativo dell'utente precedente al fix aveva già consumato il vecchio
+token: dopo un refresh completo del browser occorre ricaricare il PDF una
+volta, poi scegliere il pulsante esplicito verso `#11`.
+
+Il censimento read-only ha trovato 14 PDF non referenziati nel volume upload,
+compreso l'ultimo tentativo. Non sono stati cancellati: alcuni potrebbero
+essere legacy recuperabili; eventuale cleanup richiede inventario,
+quarantena/TTL e verifica dei riferimenti DB.
+
+File del fix ancora nel worktree, nessun commit e nessun push:
+`backend/fapi_preview_store.py`, `backend/routers/convenzione_upload.py`,
+test backend dedicati, `frontend/src/components/FapiUpload.js` e relativo test.
+
+## ⏸️ CHECKPOINT — Area personale e recupero password (2026-07-28)
+
+Sessione fermata su richiesta dell'utente **prima del deploy**. Le modifiche
+sono ancora nel worktree e non vanno scartate né riscritte da zero.
+
+### Aggiornamento dell'ultimo tentativo di chiusura (22:17)
+
+- Confermato nessun processo `pytest` residuo a fine sessione.
+- La password `ADMIN_DEFAULT_PASSWORD` configurata non coincide con quella
+  reale (`POST /auth/login` → 401); l'utente ha confermato di non ricordare la
+  password admin. Nessuna password è stata forzata o modificata.
+- SMTP PythonPro provato realmente: l'account
+  `assistentegestionale@gmail.com` è quello configurato, ma sia
+  `SMTP_PASSWORD` sia `GMAIL_IMAP_APP_PASSWORD` vengono rifiutate da Google con
+  `535 BadCredentials`. Nessuna mail è partita da quel canale.
+- Recupero consegnato con successo usando il canale SMTP già configurato per
+  gli agenti; il destinatario predefinito è stato confrontato via hash e
+  coincide con l'email dell'admin. È stato inviato un link monouso da 30
+  minuti, senza stampare destinatario o token. Poiché il deploy non è stato
+  ancora eseguito, alla ripresa inviare **un link fresco dopo il deploy**.
+- Le copie temporanee protette di `email.json` usate per l'invio sono state
+  eliminate; gli originali OpenClaw non sono stati modificati.
+- Il confutatore ha trovato un leak P0: `RequestValidationError` includeva
+  password/token nel proprio `input`, che finiva nei log tramite
+  `exc.errors()` e `ErrorHandler.log_error`. Corretto in `error_handler.py` e
+  `main.py`: nei log restano solo campo/tipo, senza input/ctx/traceback.
+- Il verificatore ha trovato un secondo leak: `logger.exception` nel sender
+  poteva serializzare l'indirizzo dentro `SMTPRecipientsRefused`. Corretto con
+  log generico senza eccezione/traceback e test avversariale dedicato.
+- Entrambi i revisori hanno riesaminato i due fix e li considerano chiusi.
+  Non hanno dato approvazione finale: restano suite completa e runtime.
+- Test anti-leak `tests/test_logging_safety.py`: **4 passed**. Il verificatore
+  ha eseguito logging + password-reset service: **8 passed** e frontend mirato:
+  **35 passed**.
+- Suite frontend completa ripetuta: **24 suite, 232 test, 3 snapshot**.
+  Build produzione ripetuta con successo:
+  `main.c30fa976.js`, `main.9cab4140.css`.
+- La suite backend completa (924 test) è stata riavviata su SQLite temporaneo,
+  è arrivata almeno all'11% senza failure visibili ed è stata interrotta
+  dall'interruzione della sessione. Una suite mirata da 30 test è stata poi
+  fermata su richiesta dell'utente dopo 8 test verdi. Nessun test è rimasto
+  attivo.
+- **Nessun deploy e nessun commit** in questa sessione. Runtime ancora sul
+  bundle precedente `main.1f332f0e.js`; OpenAPI live non espone ancora
+  change/forgot/reset password.
+
+### Fatto
+
+- Area personale integrata nel cockpit: modifica nome/email e cambio password.
+- Il cambio email richiede la password corrente; il cambio password invalida
+  access token e refresh token precedenti tramite credential marker.
+- I token refresh non possono autenticare endpoint protetti.
+- Recupero password implementato con risposta anti-enumerazione, token monouso
+  a scadenza 30 minuti, link nel fragment URL, template email HTML/testo e
+  schermate frontend “Password dimenticata?” / reset.
+- PII sensibili oscurati nei log e negli audit; destinatari non stampati nei
+  log del sender.
+- L'account `admin` è stato verificato come unico, attivo e con ruolo `admin`;
+  l'email reale fornita dall'utente è stata associata. Scrittura limitata al
+  solo campo email e registrata come `admin_email_qualified`, con valore
+  precedente e nuovo oscurati nell'audit. Password e altri profili non toccati.
+
+### Evidenze già verdi
+
+- Backend mirato Area personale/recovery/sicurezza: **37 passed**.
+- Frontend completo: **24 suite, 232 test, 3 snapshot**, nessun failure.
+- Build produzione: verde, bundle `main.c30fa976.js`, CSS
+  `main.9cab4140.css`.
+- `git diff --check`: pulito.
+- Suite backend completa su SQLite isolato/seeded: interrotta volontariamente
+  al **33%**, senza errori fino a quel punto, quando l'utente ha chiesto di
+  fermarsi. Una vecchia suite SQLite concorrente era rimasta attiva: verificato
+  che non usasse PostgreSQL e terminata. Nessuna suite lasciata
+  intenzionalmente in esecuzione.
+
+### Stato verificatore e blocchi
+
+- P0 iniziale chiuso: un bearer rubato non può più cambiare email senza
+  conoscere la password corrente.
+- P0 logging Pydantic e leak destinatario SMTP trovati nel secondo riesame:
+  corretti e riesaminati positivamente.
+- Il verificatore mantiene **NO-OK temporaneo** finché non viene provata la
+  consegna tramite il percorso PythonPro post-deploy e completata la verifica
+  runtime. Il canale agenti ha consegnato una mail reale; il canale SMTP
+  PythonPro resta guasto (`535 BadCredentials`).
+- Il deploy invaliderà tutte le sessioni già aperte: prima del riavvio fare una
+  prova di login admin oppure garantire prima il recupero con un link fresco.
+  L'utente non ricorda la password corrente.
+
+### Ripresa esatta
+
+1. Confermare di nuovo che non siano rimasti processi `pytest`.
+2. Eseguire i test mirati Area personale/recovery/logging, poi completare la
+   suite backend da 924 test sul DB SQLite isolato.
+3. Ricreare backend e frontend; il recupero è la via di accesso perché la
+   password admin è dimenticata. Non dipendere dallo SMTP PythonPro finché le
+   sue credenziali non vengono sostituite.
+4. Smoke test health/OpenAPI/bundle,
+   anti-enumerazione e route `/reset-password`.
+5. Subito dopo il deploy inviare un **nuovo** link recovery dal canale agenti,
+   far scegliere all'utente la password e provare login admin. Non inviare mai
+   password in chiaro.
+6. Richiamare verificatore e confutatore separati in read-only;
+   chiudere solo con entrambi in **OK**.
+7. Aggiornare di nuovo questo STATUS e creare commit locali atomici; **mai
+   push**.
+
+Residuali non bloccanti già registrati dal verificatore: rate limit recovery
+solo per IP, nessun pre-verifica della nuova email, concorrenza token coperta
+dal compare-and-swap ma non da un test DB realmente concorrente, tentativi di
+reset con token invalido non auditati.
 
 ## ▶️ ONDATA UX OPERATIVA — stato al 2026-07-28
 
@@ -56,8 +472,20 @@ senza toccare il DB:
 ```bash
 docker exec pythonpro_backend python -c "
 from datetime import timedelta
-from auth import SecurityUtils
-print(SecurityUtils.generate_token(data={'sub':'ui_test_admin','role':'admin'}, expires_delta=timedelta(minutes=30)))"
+from auth import SecurityUtils, User
+from database import SessionLocal
+db = SessionLocal()
+user = db.query(User).filter(User.username == 'ui_test_admin').one()
+print(SecurityUtils.generate_token(
+    data={
+        'sub': user.username,
+        'type': 'access',
+        'role': user.role,
+        'credential_marker': SecurityUtils.credential_marker(user.hashed_password),
+    },
+    expires_delta=timedelta(minutes=30),
+))
+db.close()"
 ```
 
 ### ✅ Punto 2 — UX-8 dissociazione: CHIUSO il 2026-07-28
