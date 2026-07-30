@@ -18,6 +18,32 @@ from main import app
 from request_middleware import RateLimitingMiddleware
 
 
+@pytest.fixture(autouse=True)
+def _isolate_app_lifecycle():
+    """Impedisce ai TestClient isolati di eseguire hook runtime globali.
+
+    I test API sostituiscono ``get_db`` con il proprio database temporaneo, ma
+    lo startup applicativo usa intenzionalmente la ``SessionLocal`` globale per
+    creare gli utenti bootstrap. Eseguire quell'hook dentro ogni TestClient
+    mescola quindi due database e rende la suite dipendente dalla presenza
+    accidentale della tabella ``users`` nel DB globale di test.
+
+    Gli hook vengono preservati e ripristinati dopo ogni test: il runtime non è
+    modificato e un test dedicato allo startup può richiamare esplicitamente la
+    funzione che vuole verificare.
+    """
+
+    startup_handlers = list(app.router.on_startup)
+    shutdown_handlers = list(app.router.on_shutdown)
+    app.router.on_startup.clear()
+    app.router.on_shutdown.clear()
+    try:
+        yield
+    finally:
+        app.router.on_startup[:] = startup_handlers
+        app.router.on_shutdown[:] = shutdown_handlers
+
+
 def _iter_middleware_stack(asgi_app):
     seen = set()
     node = asgi_app
