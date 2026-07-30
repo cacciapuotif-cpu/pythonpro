@@ -71,6 +71,13 @@ def test_snapshot_redacts_cf_composti_e_retribuzioni():
     assert parsed["dati"][0]["importo_progetto"] == 900
 
 
+def test_snapshot_redacts_full_name_from_profile_events():
+    serialized = safe_json({"full_name": "Mario Rossi", "changed_fields": ["full_name"]})
+
+    assert "Mario Rossi" not in serialized
+    assert json.loads(serialized)["full_name"] == "***REDACTED***"
+
+
 def test_write_audit_log_preserves_actor_and_change_shape():
     db = make_db()
     write_audit_log(

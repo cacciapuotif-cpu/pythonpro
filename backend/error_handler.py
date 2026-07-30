@@ -3,7 +3,7 @@ from fastapi import Request, status
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError, HTTPException
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError, OperationalError
-from pydantic import ValidationError
+from pydantic import ValidationError as PydanticValidationError
 import logging
 import traceback
 from datetime import datetime
@@ -100,11 +100,23 @@ class ErrorHandler:
     @staticmethod
     def log_error(error: Exception, request: Request = None, user_id: int = None):
         """Logga l'errore con contesto diagnostico redatto."""
+        if isinstance(error, (RequestValidationError, PydanticValidationError)):
+            # Pydantic include il payload originale dentro ``errors()`` e nella
+            # rappresentazione testuale dell'eccezione. Per gli endpoint auth
+            # quel payload può contenere password o token, quindi nei log
+            # conserviamo solo conteggio e struttura dei campi.
+            safe_errors = ErrorHandler.validation_errors_for_log(error)
+            error_message = f"{type(error).__name__}: {len(safe_errors)} validation error(s)"
+            safe_traceback = None
+        else:
+            error_message = redact_sensitive_text(str(error))
+            safe_traceback = redact_sensitive_text(traceback.format_exc())
+
         error_info = {
             "timestamp": datetime.now().isoformat(),
             "error_type": type(error).__name__,
-            "error_message": redact_sensitive_text(str(error)),
-            "traceback": redact_sensitive_text(traceback.format_exc()),
+            "error_message": error_message,
+            "traceback": safe_traceback,
             "user_id": user_id,
             "request_path": request.url.path if request else None,
             "request_method": request.method if request else None,
@@ -118,6 +130,17 @@ class ErrorHandler:
     def redact_text(value):
         """Expose log redaction for callers that log outside ErrorHandler."""
         return redact_sensitive_text(value)
+
+    @staticmethod
+    def validation_errors_for_log(error):
+        """Restituisce solo metadati strutturali, mai input o contesto Pydantic."""
+        return [
+            {
+                "field": ".".join(str(item) for item in validation_error.get("loc", ())),
+                "type": validation_error.get("type", "validation_error"),
+            }
+            for validation_error in error.errors()
+        ]
 
     @staticmethod
     def handle_database_error(error: SQLAlchemyError) -> JSONResponse:

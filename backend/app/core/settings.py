@@ -107,6 +107,7 @@ class Settings(BaseSettings):
     SMTP_FROM: str = "no-reply@gestionale.local"
     SMTP_TEST_MODE: bool = True
     SMTP_USE_TLS: bool = True
+    PASSWORD_RESET_URL_BASE: str | None = None
 
     # Alias legacy mantenuti per compatibilità
     SMTP_SERVER: str | None = None

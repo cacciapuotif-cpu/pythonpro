@@ -9,6 +9,8 @@ jest.mock('./services/apiService', () => ({
   __esModule: true,
   default: {
     getCurrentUser: jest.fn(),
+    requestPasswordReset: jest.fn(),
+    resetPassword: jest.fn(),
   },
   healthCheck: jest.fn(),
 }));
@@ -24,6 +26,15 @@ jest.mock('./components/HomeCockpit', () => ({ onNavigate }) => (
     Home test
     <button type="button" onClick={() => onNavigate({ section: 'projects', filters: { status: 'active' } })}>
       Vai ai progetti attivi
+    </button>
+  </div>
+));
+jest.mock('./components/AreaPersonale', () => ({ currentUser, onPasswordChanged }) => (
+  <div>
+    <button type="button">Area personale</button>
+    <span>{currentUser?.full_name}</span>
+    <button type="button" onClick={() => onPasswordChanged('Password aggiornata. Effettua di nuovo l’accesso.')}>
+      Simula cambio password
     </button>
   </div>
 ));
@@ -86,6 +97,62 @@ test('senza sessione mostra i profili di accesso correnti', async () => {
   expect(screen.getByText('Operatore', { selector: '.profile-title' })).toBeInTheDocument();
 });
 
+test('dal login apre il recupero password e invia la richiesta email', async () => {
+  apiService.requestPasswordReset.mockResolvedValue({
+    status: 'accepted',
+    message: 'Se l’indirizzo è associato a un account attivo, riceverai un link.',
+  });
+  render(<App />);
+
+  fireEvent.click(await screen.findByRole('button', { name: /password dimenticata/i }));
+  fireEvent.change(screen.getByLabelText(/^email$/i), {
+    target: { value: 'mario@example.com' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: /invia link/i }));
+
+  await waitFor(() => expect(apiService.requestPasswordReset).toHaveBeenCalledWith(
+    'mario@example.com',
+  ));
+  expect(await screen.findByRole('status')).toHaveTextContent(
+    'Se l’indirizzo è associato',
+  );
+});
+
+test('la rotta reset password precede il login e rimuove subito il token dalla URL', async () => {
+  window.history.replaceState({}, '', '/reset-password#token=reset-token-value');
+
+  render(<App />);
+
+  expect(await screen.findByRole('heading', { name: /reimposta la password/i })).toBeInTheDocument();
+  await waitFor(() => expect(window.location.hash).toBe(''));
+  expect(screen.queryByRole('heading', { name: /accesso al gestionale/i })).not.toBeInTheDocument();
+});
+
+test('reset riuscito cancella i token locali e torna al login con conferma', async () => {
+  window.history.replaceState({}, '', '/reset-password#token=reset-token-value');
+  localStorage.setItem('access_token', 'old-access');
+  localStorage.setItem('refresh_token', 'old-refresh');
+  apiService.resetPassword.mockResolvedValue({
+    status: 'password_reset',
+    message: 'Password reimpostata. Ora puoi accedere con la nuova password.',
+  });
+
+  render(<App />);
+  fireEvent.change(await screen.findByLabelText(/^nuova password/i), {
+    target: { value: 'RecoveredPassword789!' },
+  });
+  fireEvent.change(screen.getByLabelText(/conferma nuova password/i), {
+    target: { value: 'RecoveredPassword789!' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: /^reimposta password$/i }));
+
+  expect(await screen.findByRole('heading', { name: /accesso al gestionale/i })).toBeInTheDocument();
+  expect(screen.getByRole('status')).toHaveTextContent('Password reimpostata');
+  expect(localStorage.getItem('access_token')).toBeNull();
+  expect(localStorage.getItem('refresh_token')).toBeNull();
+  expect(window.location.pathname).toBe('/');
+});
+
 test('il portale magic-token precede sempre il login ERP', async () => {
   window.history.replaceState({}, '', '/portale-allievi?token=magic-valido');
 
@@ -146,6 +213,22 @@ test('il Cockpit passa pagina e filtro fino alla sezione di destinazione', async
   expect(window.location.search).toBe('?status=active');
 });
 
+test('dopo il cambio password cancella la sessione e torna al login', async () => {
+  ensureValidAccessToken.mockResolvedValue(true);
+  apiService.getCurrentUser.mockResolvedValue(ADMIN);
+  localStorage.setItem('access_token', 'old-access');
+  localStorage.setItem('refresh_token', 'old-refresh');
+
+  render(<App />);
+  fireEvent.click(await screen.findByRole('button', { name: /^🏠 Home$/i }));
+  fireEvent.click(screen.getByRole('button', { name: /simula cambio password/i }));
+
+  expect(await screen.findByRole('heading', { name: /accesso al gestionale/i })).toBeInTheDocument();
+  expect(screen.getByRole('status')).toHaveTextContent('Password aggiornata');
+  expect(localStorage.getItem('access_token')).toBeNull();
+  expect(localStorage.getItem('refresh_token')).toBeNull();
+});
+
 test('il ruolo user legacy viene normalizzato a operatore', async () => {
   ensureValidAccessToken.mockResolvedValue(true);
   apiService.getCurrentUser.mockResolvedValue(LEGACY_OPERATOR);
@@ -164,7 +247,7 @@ test.each([
   [ADMIN, [
     'Home', 'Dashboard', 'Calendario', 'Timesheet', 'Documenti', 'Collaboratori',
     'Allievi', 'Progetti', 'Aziende', 'Catalogo', 'Listini', 'Preventivi', 'Ordini',
-    'Archivio Risorse', 'Chiedi all’archivio', 'Enti Attuatori', 'Agents Dashboard', 'Agenti', 'Template',
+    'Archivio Risorse', 'Chiedi all’archivio', 'Enti Attuatori', 'Utenti', 'Agents Dashboard', 'Agenti', 'Template',
   ]],
   [CANONICAL_OPERATOR, [
     'Home', 'Dashboard', 'Calendario', 'Timesheet', 'Documenti', 'Collaboratori',

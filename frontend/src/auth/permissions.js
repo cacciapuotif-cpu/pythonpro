@@ -184,6 +184,7 @@ export const SECTION_ACCESS = Object.freeze({
   agents: ['GET', '/api/v1/agents'],
   'agents-review': ['GET', '/api/v1/agent-suggestions'],
   templates: ['GET', '/api/v1/contract-templates'],
+  utenti: ['GET', '/api/v1/admin/users'],
 });
 
 export const canAccessSection = (role, sectionId) => {

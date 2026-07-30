@@ -87,3 +87,9 @@ test('carica le decisioni tramite il client HTTP autenticato condiviso', async (
   await screen.findByText('Proposta agente');
   expect(http.get).toHaveBeenCalledWith('/cockpit/decisioni');
 });
+
+test('usa il nome completo aggiornato nel saluto della Home', async () => {
+  render(<HomeCockpit currentUser={{ role: 'operatore', username: 'mario', full_name: 'Mario Rossi' }} />);
+
+  expect(await screen.findByText('Buongiorno Mario Rossi')).toBeInTheDocument();
+});

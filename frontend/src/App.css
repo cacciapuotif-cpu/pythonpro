@@ -523,6 +523,33 @@
   cursor: wait;
 }
 
+.login-link-button {
+  justify-self: center;
+  border: 0;
+  padding: 6px 8px;
+  background: transparent;
+  color: var(--color-primary);
+  font: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.login-link-button:hover {
+  color: var(--color-primary-strong);
+}
+
+.password-recovery-form {
+  margin-top: 0;
+}
+
+.password-reset-shell .login-field small {
+  color: #666;
+  font-size: 0.82rem;
+  font-weight: 400;
+  line-height: 1.4;
+}
+
 .login-help {
   margin-top: 20px;
   display: grid;
@@ -685,6 +712,259 @@
 }
 
 /* ==========================================
+   AREA PERSONALE
+   ========================================== */
+
+.header-personal-area {
+  display: flex;
+}
+
+.header-profile-button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 14px 16px;
+  border: 0;
+  background: transparent;
+  color: white;
+  text-align: left;
+  cursor: pointer;
+}
+
+.header-profile-button > span:last-child {
+  display: grid;
+  gap: 1px;
+}
+
+.header-profile-button strong {
+  font-size: 13px;
+}
+
+.header-profile-button small {
+  max-width: 170px;
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-avatar {
+  width: 38px;
+  height: 38px;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: 50%;
+  background: #e9f3f6;
+  color: #16324f;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.profile-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.personal-area-overlay {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(15, 30, 45, 0.62);
+  backdrop-filter: blur(4px);
+}
+
+.personal-area {
+  width: min(900px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  border: 1px solid var(--color-border-tertiary);
+  border-radius: var(--border-radius-lg);
+  background: var(--color-background-primary);
+  color: var(--color-text-primary);
+  box-shadow: 0 24px 70px rgba(10, 25, 40, 0.3);
+}
+
+.personal-area-titlebar {
+  position: sticky;
+  z-index: 2;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--color-border-tertiary);
+  background: var(--color-background-primary);
+}
+
+.personal-area-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.personal-area-identity h2,
+.personal-area-identity p {
+  margin: 0;
+}
+
+.personal-area-identity h2 {
+  font-size: 20px;
+}
+
+.personal-area-identity p {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.personal-area-close {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--color-border-secondary);
+  border-radius: 50%;
+  background: var(--color-background-secondary);
+  color: var(--color-text-primary);
+  cursor: pointer;
+}
+
+.personal-area-kicker {
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.personal-area-content {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  padding: 18px;
+  border-top: 1px solid var(--color-border-tertiary);
+  background: var(--color-background-secondary);
+}
+
+.personal-area-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--color-border-tertiary);
+  border-radius: var(--border-radius-md);
+  background: var(--color-background-primary);
+}
+
+.personal-area-heading h3 {
+  margin: 0 0 4px;
+  font-size: 16px;
+}
+
+.personal-area-heading p {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.personal-area-form label {
+  display: grid;
+  gap: 5px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.personal-area-form input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 10px;
+  border: 1px solid var(--color-border-secondary);
+  border-radius: 6px;
+  background: var(--color-background-primary);
+  color: var(--color-text-primary);
+}
+
+.personal-area-photo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.personal-area-photo .profile-avatar {
+  width: 56px;
+  height: 56px;
+}
+
+.personal-area-file-button {
+  display: inline-flex !important;
+  align-items: center;
+  padding: 7px 10px;
+  border: 1px solid var(--color-border-secondary);
+  border-radius: 6px;
+  background: var(--color-background-secondary);
+  color: var(--color-text-primary) !important;
+  cursor: pointer;
+}
+
+.personal-area-file-button input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+}
+
+.personal-area-form input:disabled {
+  opacity: 0.7;
+  background: var(--color-background-secondary);
+}
+
+.personal-area-form small {
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.35;
+}
+
+.personal-area-form button {
+  margin-top: auto;
+}
+
+.personal-area-error,
+.personal-area-success {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.personal-area-error {
+  color: var(--color-text-warning);
+  background: var(--color-background-warning);
+}
+
+.personal-area-success,
+.login-notice {
+  color: var(--color-text-success);
+  background: var(--color-background-success);
+}
+
+.login-notice {
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+/* ==========================================
    RESPONSIVE DESIGN
    ========================================== */
 
@@ -766,6 +1046,10 @@
 
   .api-status {
     font-size: 0.8em;
+  }
+
+  .personal-area-content {
+    grid-template-columns: 1fr;
   }
 }
 

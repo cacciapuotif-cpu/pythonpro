@@ -69,3 +69,9 @@ test('il download del contratto (NEW-022) segue la matrice backend', () => {
   expect(canRequest('operatore', 'GET', '/api/v1/assignments/1/contract')).toBe(true);
   expect(canRequest('admin', 'GET', '/api/v1/assignments/1/contract')).toBe(true);
 });
+
+test('la creazione utenti (/api/v1/admin/users) e riservata all\'admin', () => {
+  expect(canAccessSection('admin', 'utenti')).toBe(true);
+  expect(canAccessSection('operatore', 'utenti')).toBe(false);
+  expect(canAccessSection('consultazione', 'utenti')).toBe(false);
+});

@@ -6,6 +6,8 @@ Implementa JWT, RBAC, rate limiting e security headers
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any, Iterable
 from functools import wraps
+import hashlib
+import hmac
 import inspect
 from jose import jwt  # python-jose library
 import bcrypt
@@ -336,6 +338,10 @@ class User(Base):
     email = Column(String(100), unique=True, index=True, nullable=False)
     hashed_password = Column(String(100), nullable=False)
     full_name = Column(String(100))
+    first_name = Column(String(50), nullable=True)
+    last_name = Column(String(50), nullable=True)
+    phone = Column(String(30), nullable=True)
+    avatar_path = Column(String(500), nullable=True)
     role = Column(String(20), default=UserRole.CONSULTAZIONE.value, nullable=False, server_default=UserRole.CONSULTAZIONE.value, index=True)
 
     is_active = Column(Boolean, default=True, index=True)
@@ -376,7 +382,18 @@ class SecurityUtils:
     @staticmethod
     def verify_password(password: str, hashed: str) -> bool:
         """Verifica password"""
+        if len(password.encode("utf-8")) > 72:
+            return False
         return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
+
+    @staticmethod
+    def credential_marker(hashed_password: str) -> str:
+        """Lega i JWT alla password corrente senza esporne l'hash."""
+        return hmac.new(
+            SECRET_KEY.encode("utf-8"),
+            hashed_password.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
 
     @staticmethod
     def generate_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
@@ -469,6 +486,11 @@ def get_current_user(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Token non valido"
             )
+        if payload.get("type") != "access":
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token di accesso non valido",
+            )
     except Exception:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -486,6 +508,15 @@ def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Utente disattivato"
+        )
+
+    if not hmac.compare_digest(
+        str(payload.get("credential_marker") or ""),
+        SecurityUtils.credential_marker(user.hashed_password),
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Credenziali aggiornate: effettua di nuovo l'accesso",
         )
 
     return user
@@ -639,12 +670,15 @@ def create_user(
         raise ValueError("Username o email già esistenti")
 
     hashed_password = SecurityUtils.hash_password(password)
+    name_parts = full_name.strip().split(maxsplit=1)
 
     user = User(
         username=username,
         email=email,
         hashed_password=hashed_password,
         full_name=full_name,
+        first_name=name_parts[0] if name_parts else None,
+        last_name=name_parts[1] if len(name_parts) > 1 else None,
         role=role.value
     )
 

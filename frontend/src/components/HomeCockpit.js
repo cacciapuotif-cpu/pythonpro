@@ -134,7 +134,10 @@ const DecisioneCard = ({ decisione, onDismiss, onNavigate }) => {
   );
 };
 
-const HomeCockpit = ({ currentUser, onNavigate = () => {} }) => {
+const HomeCockpit = ({
+  currentUser,
+  onNavigate = () => {},
+}) => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [dismissed, setDismissed] = useState(new Set());
@@ -161,7 +164,7 @@ const HomeCockpit = ({ currentUser, onNavigate = () => {} }) => {
   const now = new Date();
   const giornoSettimana = now.toLocaleDateString('it-IT', { weekday: 'long' });
   const dataOggi = now.toLocaleDateString('it-IT', { day: 'numeric', month: 'long' });
-  const nomeUtente = currentUser?.nome || currentUser?.username || 'Francesco';
+  const nomeUtente = currentUser?.full_name || currentUser?.nome || currentUser?.username || 'Francesco';
 
   const decisioni = (data?.decisioni || []).filter(d =>
     !dismissed.has(d.tipo + '_' + d.id) &&

@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 import models
 
 PII_KEYS = {
-    "nome", "cognome", "first_name", "last_name", "email", "phone", "telefono",
+    "nome", "cognome", "first_name", "last_name", "full_name", "email", "phone", "telefono",
     "fiscal_code", "codice_fiscale", "cf", "address", "indirizzo", "birth_date",
     "data_nascita", "ip_address", "token", "password", "secret",
 }

@@ -40,7 +40,7 @@ OPERATOR_DEFAULT_PASSWORD = os.getenv("OPERATOR_DEFAULT_PASSWORD", "").strip()
 CAMPI_SENSIBILI = {
     "password", "token", "access_token", "refresh_token", "secret", "codice_fiscale", "iban",
     "documento_identita", "documento_identita_path", "curriculum_path",
-    "email", "phone", "telefono", "partita_iva", "first_name",
+    "email", "phone", "telefono", "partita_iva", "first_name", "full_name",
     "last_name", "data_nascita",
 }
 
@@ -163,7 +163,11 @@ async def sqlalchemy_exception_handler(request: Request, exc: SQLAlchemyError):
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     error_monitor.record_error("validation_error")
-    logger.error("Validation error on %s: %s", request.url.path, ErrorHandler.redact_text(exc.errors()))
+    logger.error(
+        "Validation error on %s: %s",
+        request.url.path,
+        ErrorHandler.validation_errors_for_log(exc),
+    )
     if request.method == "POST" and request.url.path.startswith("/api/v1/auth/"):
         safe_body = "<auth body redatto>"
     else:

@@ -1,5 +1,10 @@
 import { http } from '../lib/http';
-import { ingestAvvisoRevision, permanentlyDeleteAvviso, healthCheck, caricaTuttiGliAllievi } from './apiService';
+import apiService, {
+  ingestAvvisoRevision,
+  permanentlyDeleteAvviso,
+  healthCheck,
+  caricaTuttiGliAllievi,
+} from './apiService';
 
 jest.mock('../lib/http', () => ({
   apiRootUrl: '',
@@ -7,8 +12,79 @@ jest.mock('../lib/http', () => ({
     delete: jest.fn(),
     post: jest.fn(),
     get: jest.fn(),
+    patch: jest.fn(),
   },
 }));
+
+describe('area personale', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  test('aggiorna il solo profilo corrente', async () => {
+    const profile = { full_name: 'Mario Rossi', email: 'mario@example.com' };
+    http.patch.mockResolvedValue({ data: { id: 7, username: 'mario', ...profile } });
+
+    const result = await apiService.updateCurrentUser(profile);
+
+    expect(http.patch).toHaveBeenCalledWith('/auth/me', profile);
+    expect(result.full_name).toBe('Mario Rossi');
+  });
+
+  test('invia il cambio password all endpoint autenticato', async () => {
+    const payload = {
+      current_password: 'CurrentPass123!',
+      new_password: 'NewPassword456!',
+      confirm_password: 'NewPassword456!',
+    };
+    http.post.mockResolvedValue({ data: { status: 'password_changed' } });
+
+    const result = await apiService.changePassword(payload);
+
+    expect(http.post).toHaveBeenCalledWith('/auth/change-password', payload);
+    expect(result.status).toBe('password_changed');
+  });
+
+  test('carica la foto profilo come multipart autenticato', async () => {
+    const file = new File(['avatar'], 'avatar.png', { type: 'image/png' });
+    http.post.mockResolvedValue({ data: { id: 7, has_avatar: true } });
+
+    const result = await apiService.uploadCurrentUserAvatar(file);
+
+    expect(http.post).toHaveBeenCalledWith(
+      '/auth/me/avatar',
+      expect.any(FormData),
+      { headers: { 'Content-Type': 'multipart/form-data' } },
+    );
+    expect(http.post.mock.calls[0][1].get('file')).toBe(file);
+    expect(result.has_avatar).toBe(true);
+  });
+
+  test('richiede e consuma il recupero password sugli endpoint pubblici', async () => {
+    http.post
+      .mockResolvedValueOnce({ data: { status: 'accepted' } })
+      .mockResolvedValueOnce({ data: { status: 'password_reset' } });
+    const resetPayload = {
+      token: 'reset-token',
+      new_password: 'RecoveredPassword789!',
+      confirm_password: 'RecoveredPassword789!',
+    };
+
+    await apiService.requestPasswordReset('mario@example.com');
+    await apiService.resetPassword(resetPayload);
+
+    expect(http.post).toHaveBeenNthCalledWith(
+      1,
+      '/auth/forgot-password',
+      { email: 'mario@example.com' },
+    );
+    expect(http.post).toHaveBeenNthCalledWith(
+      2,
+      '/auth/reset-password',
+      resetPayload,
+    );
+  });
+});
 
 describe('ingestAvvisoRevision', () => {
   beforeEach(() => {

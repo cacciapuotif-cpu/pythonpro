@@ -10,6 +10,16 @@ from jinja2 import Environment, FileSystemLoader, TemplateNotFound, select_autoe
 logger = logging.getLogger(__name__)
 
 
+def _is_placeholder_sender(address: str | None) -> bool:
+    if not address or "@" not in address:
+        return True
+    domain = address.rsplit("@", 1)[1].strip().lower()
+    return (
+        domain in {"example.com", "example.org", "example.net"}
+        or domain.endswith((".local", ".test", ".example"))
+    )
+
+
 class _FallbackSettings:
     SMTP_HOST = None
     SMTP_PORT = 587
@@ -42,10 +52,15 @@ class EmailSender:
         self.smtp_port = int(os.getenv("SMTP_PORT") or settings.SMTP_PORT or 587)
         self.smtp_user = os.getenv("SMTP_USER") or settings.SMTP_USER
         self.smtp_password = os.getenv("SMTP_PASSWORD") or settings.SMTP_PASSWORD
-        self.smtp_from = (
+        configured_from = (
             os.getenv("SMTP_FROM")
             or getattr(settings, "SMTP_FROM", None)
             or settings.EMAIL_FROM
+        )
+        self.smtp_from = (
+            self.smtp_user
+            if self.smtp_user and _is_placeholder_sender(configured_from)
+            else configured_from
         )
         self.test_mode = str(
             os.getenv("SMTP_TEST_MODE", str(getattr(settings, "SMTP_TEST_MODE", True)))
@@ -82,10 +97,7 @@ class EmailSender:
             message.add_alternative(body_html, subtype="html")
 
         if self.test_mode:
-            logger.info(
-                "SMTP test mode attivo: email non inviata realmente",
-                extra={"to": to, "subject": subject},
-            )
+            logger.info("SMTP test mode attivo: email non inviata realmente")
             return True
 
         if not self.smtp_host:
@@ -108,8 +120,11 @@ class EmailSender:
                         server.login(self.smtp_user, self.smtp_password)
                     server.send_message(message)
             return True
-        except Exception as exc:
-            logger.exception("Errore invio email verso %s: %s", to, exc)
+        except Exception:
+            # Alcune eccezioni SMTP (per esempio SMTPRecipientsRefused)
+            # includono indirizzi e dettagli del destinatario nella propria
+            # rappresentazione. Non allegare traceback o oggetto eccezione.
+            logger.error("Errore invio email")
             return False
 
     def send_template_email(

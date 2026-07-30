@@ -55,6 +55,44 @@ class ApiService {
     return response.data;
   }
 
+  async updateCurrentUser(profile) {
+    const response = await http.patch('/auth/me', profile);
+    return response.data;
+  }
+
+  async getCurrentUserAvatar() {
+    const response = await http.get('/auth/me/avatar', { responseType: 'blob' });
+    return response.data;
+  }
+
+  async uploadCurrentUserAvatar(file) {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await http.post('/auth/me/avatar', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  }
+
+  async deleteCurrentUserAvatar() {
+    await http.delete('/auth/me/avatar');
+  }
+
+  async changePassword(passwords) {
+    const response = await http.post('/auth/change-password', passwords);
+    return response.data;
+  }
+
+  async requestPasswordReset(email) {
+    const response = await http.post('/auth/forgot-password', { email });
+    return response.data;
+  }
+
+  async resetPassword(payload) {
+    const response = await http.post('/auth/reset-password', payload);
+    return response.data;
+  }
+
   async register(userData) {
     const formData = new FormData();
     Object.keys(userData).forEach(key => {
@@ -67,6 +105,31 @@ class ApiService {
       },
     });
 
+    return response.data;
+  }
+
+  // Amministrazione utenti
+  async listUsers() {
+    const response = await http.get('/admin/users');
+    return response.data;
+  }
+
+  async createUser(payload) {
+    const response = await http.post('/admin/users', payload);
+    return response.data;
+  }
+
+  async updateUser(userId, payload) {
+    const response = await http.patch(`/admin/users/${userId}`, payload);
+    return response.data;
+  }
+
+  async deleteUser(userId) {
+    await http.delete(`/admin/users/${userId}`);
+  }
+
+  async resendUserInvite(userId) {
+    const response = await http.post(`/admin/users/${userId}/resend-invite`);
     return response.data;
   }
 

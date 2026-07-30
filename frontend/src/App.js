@@ -31,6 +31,9 @@ import AgentsDashboard from './components/AgentsDashboard';
 import AgentSuggestionsReview from './components/AgentSuggestionsReview';
 import ResourceArchive from './components/ResourceArchive';
 import ArchivioChiedi from './components/ArchivioChiedi';
+import ResetPasswordPage, { ForgotPasswordForm } from './components/PasswordRecovery';
+import UserManagement from './components/UserManagement';
+import AreaPersonale from './components/AreaPersonale';
 import apiService, { healthCheck } from './services/apiService';
 import { http, ensureValidAccessToken } from './lib/http';
 import { formatApiError } from './lib/errors';
@@ -38,7 +41,6 @@ import {
   ACCESS_PROFILES,
   canAccessSection,
   getRoleExperience,
-  getRoleLabel,
   profileAcceptsRole,
 } from './auth/permissions';
 import './App.css';
@@ -61,6 +63,7 @@ const SECTION_CONFIG = [
   { id: 'resources', label: 'Archivio Risorse', icon: '📚', group: 'Conoscenza', title: 'Fonti normative e conoscenza operativa', breadcrumb: '📚 Archivio Risorse' },
   { id: 'archivio-chiedi', label: 'Chiedi all’archivio', icon: '💬', group: null, title: 'Interroga l’archivio normativo con citazioni', breadcrumb: '💬 Chiedi all’archivio' },
   { id: 'entities', label: 'Enti Attuatori', icon: '🏢', group: 'Config', title: 'Enti attuatori', breadcrumb: '🏢 Enti Attuatori' },
+  { id: 'utenti', label: 'Utenti', icon: '🔑', group: null, title: 'Creazione utenti e assegnazione ruoli', breadcrumb: '🔑 Utenti' },
   { id: 'agents-dashboard', label: 'Agents Dashboard', icon: '📡', group: null, title: 'Panoramica sistema agenti', breadcrumb: '📡 Agents Dashboard' },
   { id: 'agents', label: 'Agenti', icon: '🤖', group: null, title: 'Agenti operativi e revisioni AI', breadcrumb: '🤖 Agenti Operativi' },
   { id: 'agents-review', label: 'Revisione Agenti', icon: '✅', group: null, title: 'Revisione umana dei suggerimenti', breadcrumb: '✅ Revisione Agenti', hidden: true },
@@ -170,8 +173,11 @@ function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [selectedProfile, setSelectedProfile] = useState('admin');
   const [credentials, setCredentials] = useState({ username: '', password: '' });
+  const [authNotice, setAuthNotice] = useState('');
   const [authError, setAuthError] = useState('');
   const [isAuthenticating, setIsAuthenticating] = useState(false);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [, setPublicRouteRevision] = useState(0);
 
   // Costruisce la nav raggruppata: array di { groupLabel, sections[] }
   const buildNavGroups = (sections) => {
@@ -304,6 +310,8 @@ function App() {
       setActiveSection(getSectionFromPath(window.location.pathname) || getRoleExperience(user.role).homeSection);
       setSectionFilters(getFiltersFromLocation());
       setCredentials({ username: '', password: '' });
+      setAuthNotice('');
+      setShowForgotPassword(false);
     } catch (error) {
       localStorage.removeItem('access_token');
       localStorage.removeItem('refresh_token');
@@ -319,7 +327,33 @@ function App() {
     setCurrentUser(null);
     setCredentials({ username: '', password: '' });
     setAuthError('');
+    setAuthNotice('');
+    setShowForgotPassword(false);
     setActiveSection('calendar');
+  };
+
+  const handlePasswordChanged = (message) => {
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('refresh_token');
+    setCurrentUser(null);
+    setCredentials({ username: '', password: '' });
+    setAuthError('');
+    setAuthNotice(message || 'Password aggiornata. Accedi con la nuova password.');
+    setShowForgotPassword(false);
+    setActiveSection('calendar');
+    window.history.replaceState({}, '', '/');
+  };
+
+  const returnToLogin = (notice = '') => {
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('refresh_token');
+    setCurrentUser(null);
+    setCredentials({ username: '', password: '' });
+    setAuthError('');
+    setAuthNotice(notice);
+    setShowForgotPassword(false);
+    window.history.replaceState({}, '', '/');
+    setPublicRouteRevision((previous) => previous + 1);
   };
 
   // ==========================================
@@ -380,6 +414,9 @@ function App() {
 
       case 'entities':
         return <ImplementingEntitiesList currentUser={currentUser} />;
+
+      case 'utenti':
+        return <UserManagement currentUser={currentUser} />;
 
       case 'agents-dashboard':
         return <AgentsDashboard currentUser={currentUser} initialFilters={sectionFilters} />;
@@ -467,50 +504,68 @@ function App() {
         </section>
 
         <section className="login-panel">
-          <div className="login-panel-header">
-            <span className="login-panel-eyebrow">Pagina di accesso</span>
-            <h2>{selectedProfileData.label}</h2>
-            <p>Inserisci username e password per entrare nel gestionale.</p>
-          </div>
+          {showForgotPassword ? (
+            <ForgotPasswordForm onBack={() => setShowForgotPassword(false)} />
+          ) : (
+            <>
+              <div className="login-panel-header">
+                <span className="login-panel-eyebrow">Pagina di accesso</span>
+                <h2>{selectedProfileData.label}</h2>
+                <p>Inserisci username e password per entrare nel gestionale.</p>
+              </div>
 
-          <form className="login-form" onSubmit={handleLogin}>
-            <label className="login-field">
-              <span>Username</span>
-              <input
-                type="text"
-                name="username"
-                value={credentials.username}
-                onChange={handleInputChange}
-                placeholder="Inserisci lo username"
-                autoComplete="username"
-                required
-              />
-            </label>
+              <form className="login-form" onSubmit={handleLogin}>
+                <label className="login-field">
+                  <span>Username</span>
+                  <input
+                    type="text"
+                    name="username"
+                    value={credentials.username}
+                    onChange={handleInputChange}
+                    placeholder="Inserisci lo username"
+                    autoComplete="username"
+                    required
+                  />
+                </label>
 
-            <label className="login-field">
-              <span>Password</span>
-              <input
-                type="password"
-                name="password"
-                value={credentials.password}
-                onChange={handleInputChange}
-                placeholder="Inserisci la password"
-                autoComplete="current-password"
-                required
-              />
-            </label>
+                <label className="login-field">
+                  <span>Password</span>
+                  <input
+                    type="password"
+                    name="password"
+                    value={credentials.password}
+                    onChange={handleInputChange}
+                    placeholder="Inserisci la password"
+                    autoComplete="current-password"
+                    required
+                  />
+                </label>
 
-            {authError ? <div className="login-error">{authError}</div> : null}
+                {authError ? <div className="login-error">{authError}</div> : null}
+                {authNotice ? <div className="login-notice" role="status">{authNotice}</div> : null}
 
-            <button type="submit" className="login-submit" disabled={isAuthenticating}>
-              {isAuthenticating ? 'Accesso in corso...' : `Accedi come ${selectedProfileData.label}`}
-            </button>
-          </form>
+                <button type="submit" className="login-submit" disabled={isAuthenticating}>
+                  {isAuthenticating ? 'Accesso in corso...' : `Accedi come ${selectedProfileData.label}`}
+                </button>
+                <button
+                  type="button"
+                  className="login-link-button"
+                  onClick={() => {
+                    setAuthError('');
+                    setAuthNotice('');
+                    setShowForgotPassword(true);
+                  }}
+                >
+                  Password dimenticata?
+                </button>
+              </form>
 
-          <div className="login-help">
-            <strong>Profili disponibili ora:</strong>
-            <span>Amministratore, Operatore e Consultazione.</span>
-          </div>
+              <div className="login-help">
+                <strong>Profili disponibili ora:</strong>
+                <span>Amministratore, Operatore e Consultazione.</span>
+              </div>
+            </>
+          )}
         </section>
       </div>
     );
@@ -525,6 +580,16 @@ function App() {
   const isPortaleAllievi = window.location.pathname === '/portale-allievi';
   if (isPortaleAllievi) {
     return <PortaleAllievi />;
+  }
+
+  const isResetPassword = window.location.pathname === '/reset-password';
+  if (isResetPassword) {
+    return (
+      <ResetPasswordPage
+        onComplete={(message) => returnToLogin(message)}
+        onBack={() => returnToLogin('')}
+      />
+    );
   }
 
   // Se stiamo ancora controllando la connessione API
@@ -610,8 +675,11 @@ function App() {
               </span>
             </div>
             <div className="header-user">
-              <span className="header-user-name">{currentUser.full_name || currentUser.username}</span>
-              <span className="header-user-role">{getRoleLabel(currentUser.role)}</span>
+              <AreaPersonale
+                currentUser={currentUser}
+                onUserUpdated={setCurrentUser}
+                onPasswordChanged={handlePasswordChanged}
+              />
               <button type="button" className="logout-button" onClick={handleLogout}>
                 Esci
               </button>
