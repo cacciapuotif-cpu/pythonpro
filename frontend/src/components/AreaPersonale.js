@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { getRoleLabel } from '../auth/permissions';
 import { formatApiError } from '../lib/errors';
 import apiService from '../services/apiService';
+import useDismissibleLayerHistory from '../hooks/useDismissibleLayerHistory';
 
 const EMPTY_PASSWORDS = {
   current_password: '',
@@ -39,6 +40,11 @@ const AreaPersonale = ({ currentUser, onUserUpdated, onPasswordChanged }) => {
   const [avatarStatus, setAvatarStatus] = useState({ saving: false, error: '' });
   const [avatarUrl, setAvatarUrl] = useState('');
   const [avatarRevision, setAvatarRevision] = useState(0);
+  const closePersonalArea = useDismissibleLayerHistory({
+    id: 'personal-area',
+    open,
+    onDismiss: () => setOpen(false),
+  });
 
   const initials = useMemo(() => {
     const names = nameParts(currentUser);
@@ -180,7 +186,7 @@ const AreaPersonale = ({ currentUser, onUserUpdated, onPasswordChanged }) => {
       </button>
 
       {open && (
-        <div className="personal-area-overlay" onMouseDown={() => setOpen(false)}>
+        <div className="personal-area-overlay" onMouseDown={closePersonalArea}>
           <section
             className="personal-area"
             role="dialog"
@@ -200,7 +206,7 @@ const AreaPersonale = ({ currentUser, onUserUpdated, onPasswordChanged }) => {
               <button
                 type="button"
                 className="personal-area-close"
-                onClick={() => setOpen(false)}
+                onClick={closePersonalArea}
                 aria-label="Chiudi area personale"
               >
                 ✕

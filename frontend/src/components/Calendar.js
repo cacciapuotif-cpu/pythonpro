@@ -19,6 +19,7 @@ import AttendanceModal from './AttendanceModal';
 import LoadingSpinner from './LoadingSpinner';
 import ErrorBoundary from './ErrorBoundary';
 import { canPerform } from '../auth/permissions';
+import useDismissibleLayerHistory from '../hooks/useDismissibleLayerHistory';
 import {
   DEFAULT_CALENDAR_FILTERS,
   MAX_RENDERABLE_EVENTS,
@@ -85,7 +86,12 @@ const dedupeById = (entities) => {
 /**
  * COMPONENTE CALENDARIO OTTIMIZZATO
  */
-const Calendar = memo(({ currentUser }) => {
+const Calendar = memo(({
+  currentUser,
+  initialFocus,
+  mode = null,
+  onConsumeFocus,
+}) => {
   const {
     state,
     createEntity,
@@ -192,7 +198,12 @@ const Calendar = memo(({ currentUser }) => {
         if (cancelled) return;
         setAttendances(res);
         setAttendancesError(null);
-        window.history.replaceState({}, '', `?${filtersToParams(filters).toString()}`);
+        const query = filtersToParams(filters).toString();
+        window.history.replaceState(
+          window.history.state,
+          '',
+          `${window.location.pathname}${query ? `?${query}` : ''}`,
+        );
         savePersistedFilters(currentUser?.username, filters);
       })
       .catch((error) => {
@@ -370,10 +381,27 @@ const Calendar = memo(({ currentUser }) => {
     openModal('attendance', event.resource);
   }, [openModal]);
 
-  const handleCloseModal = useCallback(() => {
+  const dismissAttendanceModal = useCallback(() => {
     closeModal('attendance');
     setSelectedSlot(null);
   }, [closeModal]);
+  const handleCloseModal = useDismissibleLayerHistory({
+    id: 'attendance',
+    open: isModalOpen,
+    onDismiss: dismissAttendanceModal,
+  });
+
+  useEffect(() => {
+    if (initialFocus !== 'new-attendance' || !canWriteAttendances) return;
+    const start = new Date();
+    start.setMinutes(0, 0, 0);
+    const end = new Date(start);
+    end.setHours(end.getHours() + 1);
+    handleSelectSlot({ start, end });
+    onConsumeFocus?.();
+  }, [initialFocus, canWriteAttendances, handleSelectSlot, onConsumeFocus]);
+
+  useEffect(() => () => closeModal('attendance'), [closeModal]);
 
   const handleNavigate = useCallback((date, view) => {
     updateFilters({ date: date.toISOString(), view });
@@ -422,7 +450,7 @@ const Calendar = memo(({ currentUser }) => {
 
   if (isLoading && !attendances.items.length) {
     return (
-      <div className="calendar-container">
+      <div className={`calendar-container ${mode === 'attendance' ? 'attendance-mode' : ''}`}>
         <LoadingSpinner message="Caricamento calendario..." />
       </div>
     );
@@ -450,10 +478,28 @@ const Calendar = memo(({ currentUser }) => {
         <div className="calendar-header">
           <div className="header-content">
             <div className="header-text">
-              <h1>📅 Calendario Presenze</h1>
-              <p>Gestisci le presenze dei collaboratori sui progetti</p>
+              <h1>{mode === 'attendance' ? '✚ Presenze' : '📅 Calendario Presenze'}</h1>
+              <p>
+                {mode === 'attendance'
+                  ? 'Consulta le presenze di oggi e registra una nuova attività'
+                  : 'Gestisci le presenze dei collaboratori sui progetti'}
+              </p>
             </div>
             <div className="header-actions">
+              {mode === 'attendance' && canWriteAttendances && (
+                <button
+                  type="button"
+                  className="attendance-primary-action"
+                  onClick={() => {
+                    const start = new Date();
+                    const end = new Date(start);
+                    end.setHours(end.getHours() + 1);
+                    handleSelectSlot({ start, end });
+                  }}
+                >
+                  ✚ Registra presenza
+                </button>
+              )}
               <button
                 onClick={handleRefresh}
                 disabled={isRefreshing}

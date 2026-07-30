@@ -12,6 +12,7 @@ import {
   reviewAgentSuggestion,
 } from '../services/apiService';
 import { canPerform } from '../auth/permissions';
+import useDismissibleLayerHistory from '../hooks/useDismissibleLayerHistory';
 import './AgentsManager.scss';
 
 const PRIORITY_META = {
@@ -83,7 +84,10 @@ const getEntityLabel = (suggestion, collaboratorsMap, projectsMap) => {
     const name = collaborator
       ? `${collaborator.first_name || ''} ${collaborator.last_name || ''}`.trim()
       : `ID ${suggestion.entity_id || 'N/D'}`;
-    return { href: '/collaborators', text: `Collaboratore: ${name}` };
+    return {
+      href: `/collaborators/${suggestion.entity_id}`,
+      text: `Collaboratore: ${name}`,
+    };
   }
   if (suggestion.entity_type === 'project') {
     const project = projectsMap.get(String(suggestion.entity_id));
@@ -100,7 +104,11 @@ const defaultDetailState = {
   action: 'approve',
 };
 
-export default function AgentSuggestionsReview({ currentUser = null, initialFilters = {} }) {
+export default function AgentSuggestionsReview({
+  currentUser = null,
+  initialFilters = {},
+  onNavigateEntity,
+}) {
   const canReview = canPerform(currentUser, 'REVIEW_AGENTS');
   const [suggestions, setSuggestions] = useState([]);
   const [pendingSuggestions, setPendingSuggestions] = useState([]);
@@ -117,6 +125,11 @@ export default function AgentSuggestionsReview({ currentUser = null, initialFilt
   });
   const [selectedIds, setSelectedIds] = useState([]);
   const [detailSuggestion, setDetailSuggestion] = useState(null);
+  const closeDetail = useDismissibleLayerHistory({
+    id: 'agent-suggestion-detail',
+    open: Boolean(detailSuggestion),
+    onDismiss: () => setDetailSuggestion(null),
+  });
   const [detailForm, setDetailForm] = useState(defaultDetailState);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState('');
@@ -431,7 +444,18 @@ export default function AgentSuggestionsReview({ currentUser = null, initialFilt
                 <div className="agents-suggestion-content">
                   <h3>{suggestion.title}</h3>
                   <p>{suggestion.description || 'Nessuna descrizione disponibile.'}</p>
-                  <a href={entityLink.href} className="agents-inline-link">{entityLink.text}</a>
+                  <a
+                    href={entityLink.href}
+                    className="agents-inline-link"
+                    onClick={onNavigateEntity
+                      ? (event) => {
+                        event.preventDefault();
+                        onNavigateEntity(entityLink.href);
+                      }
+                      : undefined}
+                  >
+                    {entityLink.text}
+                  </a>
                   <div className="agents-meta">Creato il {formatDateTime(suggestion.created_at)}</div>
                 </div>
 
@@ -489,7 +513,7 @@ export default function AgentSuggestionsReview({ currentUser = null, initialFilt
                 <span className="agents-eyebrow">Dettaglio suggerimento</span>
                 <h3>{detailSuggestion.title}</h3>
               </div>
-              <button className="btn btn-ghost" type="button" onClick={() => setDetailSuggestion(null)}>Chiudi</button>
+              <button className="btn btn-ghost" type="button" onClick={closeDetail}>Chiudi</button>
             </div>
 
             <div className="agents-detail-grid">

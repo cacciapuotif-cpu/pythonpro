@@ -8,7 +8,8 @@
  * 4. Coordina tutti i componenti figlio
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { BrowserRouter, useLocation, useNavigate } from 'react-router-dom';
 import Calendar from './components/Calendar';
 import CollaboratorManager from './components/CollaboratorManager';
 import AllieviManager from './components/AllieviManager';
@@ -34,103 +35,48 @@ import ArchivioChiedi from './components/ArchivioChiedi';
 import ResetPasswordPage, { ForgotPasswordForm } from './components/PasswordRecovery';
 import UserManagement from './components/UserManagement';
 import AreaPersonale from './components/AreaPersonale';
+import MobileNavigation from './components/MobileNavigation';
 import apiService, { healthCheck } from './services/apiService';
 import { http, ensureValidAccessToken } from './lib/http';
 import { formatApiError } from './lib/errors';
 import {
   ACCESS_PROFILES,
   canAccessSection,
+  canPerform,
   getRoleExperience,
   profileAcceptsRole,
 } from './auth/permissions';
 import SECTION_CONFIG from './navigation/sections.json';
+import {
+  getPathForSection,
+  getPathWithFilters,
+  resolveAppLocation,
+} from './navigation/routes';
 import './App.scss';
 
-const getSectionFromPath = (pathname) => {
-  if (pathname.startsWith('/agents/dashboard')) {
-    return 'agents-dashboard';
-  }
-  if (pathname.startsWith('/agents/review')) {
-    return 'agents-review';
-  }
-  if (pathname.startsWith('/agents')) {
-    return 'agents';
-  }
-  if (pathname.startsWith('/documenti-mancanti')) {
-    return 'documenti-mancanti';
-  }
-  if (pathname.startsWith('/archivio-chiedi')) {
-    return 'archivio-chiedi';
-  }
-  if (pathname.startsWith('/resources')) {
-    return 'resources';
-  }
-  if (pathname.startsWith('/projects')) {
-    return 'projects';
-  }
-  return null;
-};
+const useMobileLayout = () => {
+  const getMatches = () => window.matchMedia
+    ? window.matchMedia('(max-width: 768px)').matches
+    : window.innerWidth <= 768;
+  const [isMobile, setIsMobile] = useState(getMatches);
 
-const getPathForSection = (sectionId) => {
-  if (sectionId === 'agents-dashboard') {
-    return '/agents/dashboard';
-  }
-  if (sectionId === 'agents-review') {
-    return '/agents/review';
-  }
-  if (sectionId === 'agents') {
-    return '/agents';
-  }
-  if (sectionId === 'documenti-mancanti') {
-    return '/documenti-mancanti';
-  }
-  if (sectionId === 'archivio-chiedi') {
-    return '/archivio-chiedi';
-  }
-  if (sectionId === 'resources') {
-    return '/resources';
-  }
-  if (sectionId === 'projects') {
-    return '/projects';
-  }
-  return '/';
-};
-
-const FILTER_QUERY_KEYS = {
-  status: 'status',
-  runStatus: 'run_status',
-  suggestionId: 'suggestion_id',
-  documentId: 'document_id',
-  collaboratorId: 'collaborator_id',
-  projectId: 'project_id',
-  focus: 'focus',
-  avvisoId: 'avviso_id',
-};
-
-const getFiltersFromLocation = () => {
-  const params = new URLSearchParams(window.location.search);
-  return Object.entries(FILTER_QUERY_KEYS).reduce((filters, [filterKey, queryKey]) => {
-    const value = params.get(queryKey);
-    if (value) filters[filterKey] = value;
-    return filters;
-  }, {});
-};
-
-const getPathWithFilters = (section, filters = {}) => {
-  const params = new URLSearchParams();
-  Object.entries(filters).forEach(([key, value]) => {
-    if (value !== undefined && value !== null && value !== '') {
-      params.set(FILTER_QUERY_KEYS[key] || key, String(value));
-    }
-  });
-  const query = params.toString();
-  return `${getPathForSection(section)}${query ? `?${query}` : ''}`;
+  useEffect(() => {
+    if (!window.matchMedia) return undefined;
+    const media = window.matchMedia('(max-width: 768px)');
+    const update = (event) => setIsMobile(event.matches);
+    media.addEventListener?.('change', update);
+    return () => media.removeEventListener?.('change', update);
+  }, []);
+  return isMobile;
 };
 
 /**
  * COMPONENTE PRINCIPALE APP
  */
-function App() {
+function AppContent() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const isMobileLayout = useMobileLayout();
 
   // ==========================================
   // STATE MANAGEMENT
@@ -139,6 +85,7 @@ function App() {
   // Gestisce quale sezione dell'app è attualmente attiva
   const [activeSection, setActiveSection] = useState('calendar');
   const [sectionFilters, setSectionFilters] = useState({});
+  const [sectionMode, setSectionMode] = useState(null);
 
   // Stato di connessione con l'API backend
   const [apiStatus, setApiStatus] = useState('checking'); // checking, connected, error
@@ -154,6 +101,7 @@ function App() {
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [, setPublicRouteRevision] = useState(0);
+  const connectionStartedRef = useRef(false);
 
   // Costruisce la nav raggruppata: array di { groupLabel, sections[] }
   const buildNavGroups = (sections) => {
@@ -175,6 +123,40 @@ function App() {
     return groups;
   };
 
+  const getDefaultSection = useCallback((role) => (
+    isMobileLayout ? 'home' : getRoleExperience(role).homeSection
+  ), [isMobileLayout]);
+
+  const resolveAuthorizedLocation = useCallback((user) => {
+    const resolved = resolveAppLocation(window.location);
+    const fallbackSection = getDefaultSection(user.role);
+    if (!resolved.section || !canAccessSection(user.role, resolved.section)) {
+      return {
+        section: fallbackSection,
+        filters: {},
+        mode: null,
+        redirectPath: getPathForSection(fallbackSection),
+      };
+    }
+    return {
+      section: resolved.section,
+      filters: resolved.filters,
+      mode: resolved.mode || null,
+      redirectPath: null,
+    };
+  }, [getDefaultSection]);
+
+  const applyAuthorizedLocation = useCallback((user, { replaceInvalid = true } = {}) => {
+    const resolved = resolveAuthorizedLocation(user);
+    setActiveSection(resolved.section);
+    setSectionFilters(resolved.filters);
+    setSectionMode(resolved.mode);
+    if (resolved.redirectPath && replaceInvalid) {
+      navigate(resolved.redirectPath, { replace: true });
+    }
+    return resolved;
+  }, [navigate, resolveAuthorizedLocation]);
+
   // ==========================================
   // VERIFICA CONNESSIONE API AL CARICAMENTO
   // ==========================================
@@ -192,15 +174,14 @@ function App() {
 
     try {
       const user = await apiService.getCurrentUser();
+      applyAuthorizedLocation(user);
       setCurrentUser(user);
-      setActiveSection(getSectionFromPath(window.location.pathname) || getRoleExperience(user.role).homeSection);
-      setSectionFilters(getFiltersFromLocation());
     } catch (error) {
       localStorage.removeItem('access_token');
       localStorage.removeItem('refresh_token');
       setCurrentUser(null);
     }
-  }, []);
+  }, [applyAuthorizedLocation]);
 
   /**
    * FUNZIONE PER VERIFICARE LA CONNESSIONE ALL'API
@@ -237,11 +218,13 @@ function App() {
   }, [restoreSession]);
 
   useEffect(() => {
-    if (window.location.pathname === '/portale-allievi') {
+    if (location.pathname === '/portale-allievi' || location.pathname === '/reset-password') {
       return;
     }
+    if (connectionStartedRef.current) return;
+    connectionStartedRef.current = true;
     checkApiConnection();
-  }, [checkApiConnection]);
+  }, [checkApiConnection, location.pathname]);
 
   const availableSections = SECTION_CONFIG.filter((section) => {
     if (!currentUser) {
@@ -251,15 +234,14 @@ function App() {
   });
 
   useEffect(() => {
-    if (!currentUser || availableSections.length === 0) {
-      return;
-    }
-
-    const hasAccessToCurrentSection = availableSections.some((section) => section.id === activeSection);
-    if (!hasAccessToCurrentSection) {
-      setActiveSection(availableSections[0].id);
-    }
-  }, [currentUser, activeSection, availableSections]);
+    if (!currentUser) return;
+    applyAuthorizedLocation(currentUser);
+  }, [
+    location.pathname,
+    location.search,
+    currentUser,
+    applyAuthorizedLocation,
+  ]);
 
   const handleInputChange = (event) => {
     const { name, value } = event.target;
@@ -282,9 +264,8 @@ function App() {
       localStorage.setItem('access_token', response.access_token);
       localStorage.setItem('refresh_token', response.refresh_token);
       const user = await apiService.getCurrentUser();
+      applyAuthorizedLocation(user);
       setCurrentUser(user);
-      setActiveSection(getSectionFromPath(window.location.pathname) || getRoleExperience(user.role).homeSection);
-      setSectionFilters(getFiltersFromLocation());
       setCredentials({ username: '', password: '' });
       setAuthNotice('');
       setShowForgotPassword(false);
@@ -306,6 +287,9 @@ function App() {
     setAuthNotice('');
     setShowForgotPassword(false);
     setActiveSection('calendar');
+    setSectionFilters({});
+    setSectionMode(null);
+    navigate('/', { replace: true });
   };
 
   const handlePasswordChanged = (message) => {
@@ -317,7 +301,7 @@ function App() {
     setAuthNotice(message || 'Password aggiornata. Accedi con la nuova password.');
     setShowForgotPassword(false);
     setActiveSection('calendar');
-    window.history.replaceState({}, '', '/');
+    navigate('/', { replace: true });
   };
 
   const returnToLogin = (notice = '') => {
@@ -328,7 +312,7 @@ function App() {
     setAuthError('');
     setAuthNotice(notice);
     setShowForgotPassword(false);
-    window.history.replaceState({}, '', '/');
+    navigate('/', { replace: true });
     setPublicRouteRevision((previous) => previous + 1);
   };
 
@@ -340,12 +324,17 @@ function App() {
    * CAMBIA LA SEZIONE ATTIVA
    * @param {string} section - Nome della sezione da mostrare
    */
-  const navigateToSection = (section, filters = {}) => {
+  const navigateToSection = useCallback((section, filters = {}, options = {}) => {
+    if (!canAccessSection(currentUser?.role, section)) return;
     setActiveSection(section);
     setSectionFilters(filters);
-    window.history.replaceState({}, '', getPathWithFilters(section, filters));
+    setSectionMode(options.mode || null);
+    navigate(getPathWithFilters(section, filters, options), {
+      replace: options.replace === true,
+      state: options.state,
+    });
     console.log(`📍 Navigazione verso: ${section}`);
-  };
+  }, [currentUser?.role, navigate]);
 
   const navigateFromCockpit = ({ section, filters = {} }) => {
     if (canAccessSection(currentUser?.role, section)) {
@@ -354,8 +343,10 @@ function App() {
   };
 
   const navigateToAvvisoReview = () => {
-    setActiveSection('agents-review');
-    window.history.replaceState({}, '', '/agents/review?agent_type=avviso_extractor&entity_type=avviso_revisione');
+    navigateToSection('agents-review', {
+      agent_type: 'avviso_extractor',
+      entity_type: 'avviso_revisione',
+    });
   };
 
   // E3.3: deep-link citazione → vista avviso. LIMITE ONESTO (coerente NEW-031):
@@ -367,6 +358,19 @@ function App() {
     navigateToSection('resources', { avvisoId });
   };
 
+  const mobileMenuOpen = location.state?.overlay === 'mobile-menu';
+  const openMobileMenu = useCallback(() => {
+    if (location.state?.overlay === 'mobile-menu') return;
+    navigate(`${location.pathname}${location.search}`, {
+      state: { ...location.state, overlay: 'mobile-menu' },
+    });
+  }, [location.pathname, location.search, location.state, navigate]);
+  const closeMobileMenu = useCallback(() => {
+    if (location.state?.overlay === 'mobile-menu') {
+      navigate(-1);
+    }
+  }, [location.state, navigate]);
+
   // ==========================================
   // RENDER DELLA SEZIONE ATTIVA
   // ==========================================
@@ -377,10 +381,22 @@ function App() {
   const renderActiveSection = () => {
     switch (activeSection) {
       case 'calendar':
-        return <Calendar currentUser={currentUser} />;
+        return (
+          <Calendar
+            currentUser={currentUser}
+            initialFocus={sectionFilters.focus}
+            mode={sectionMode}
+            onConsumeFocus={() => setSectionFilters((previous) => ({ ...previous, focus: undefined }))}
+          />
+        );
 
       case 'collaborators':
-        return <CollaboratorManager currentUser={currentUser} />;
+        return (
+          <CollaboratorManager
+            currentUser={currentUser}
+            initialFilters={sectionFilters}
+          />
+        );
 
       case 'allievi':
         return <AllieviManager currentUser={currentUser} />;
@@ -398,7 +414,16 @@ function App() {
         return <AgentsDashboard currentUser={currentUser} initialFilters={sectionFilters} />;
 
       case 'agents-review':
-        return <AgentSuggestionsReview currentUser={currentUser} initialFilters={sectionFilters} />;
+        return (
+          <AgentSuggestionsReview
+            currentUser={currentUser}
+            initialFilters={sectionFilters}
+            onNavigateEntity={(href) => {
+              const resolved = resolveAppLocation(new URL(href, window.location.origin));
+              if (resolved.section) navigateToSection(resolved.section, resolved.filters);
+            }}
+          />
+        );
 
       case 'resources':
         return (
@@ -553,12 +578,12 @@ function App() {
 
   // Route pubblica: il magic token è l'unica autenticazione del portale.
   // Deve precedere health-check, login ERP e qualsiasi route guard gestionale.
-  const isPortaleAllievi = window.location.pathname === '/portale-allievi';
+  const isPortaleAllievi = location.pathname === '/portale-allievi';
   if (isPortaleAllievi) {
     return <PortaleAllievi />;
   }
 
-  const isResetPassword = window.location.pathname === '/reset-password';
+  const isResetPassword = location.pathname === '/reset-password';
   if (isResetPassword) {
     return (
       <ResetPasswordPage
@@ -637,10 +662,13 @@ function App() {
   return (
     <div className="app">
       {/* HEADER DELL'APPLICAZIONE */}
-      <header className="app-header">
+      <header className="app-header" data-mobile-header>
         <div className="header-brand">
-          <div>
-            <h1>Gestionale</h1>
+          <div className="header-title">
+            <h1 data-page-title title={currentSection?.label}>
+              <span className="desktop-brand-title">Gestionale</span>
+              <span className="mobile-page-title">{currentSection?.label}</span>
+            </h1>
             <p>Collaboratori · Progetti · Contratti</p>
           </div>
           <div className="header-right">
@@ -651,6 +679,19 @@ function App() {
               </span>
             </div>
             <div className="header-user">
+              {isMobileLayout
+                && canPerform(currentUser, 'WRITE_ATTENDANCES')
+                && activeSection === 'calendar'
+                && sectionMode !== 'attendance' && (
+                <button
+                  type="button"
+                  className="mobile-context-action"
+                  data-context-action
+                  onClick={() => navigateToSection('calendar', { focus: 'new-attendance' }, { mode: 'attendance' })}
+                >
+                  Registra
+                </button>
+              )}
               <AreaPersonale
                 currentUser={currentUser}
                 onUserUpdated={setCurrentUser}
@@ -665,7 +706,7 @@ function App() {
       </header>
 
       {/* BARRA DI NAVIGAZIONE RAGGRUPPATA */}
-      <nav className="app-navigation">
+      <nav className="app-navigation desktop-navigation" data-desktop-navigation aria-label="Navigazione principale">
         <div className="nav-container">
           <div className="nav-menu">
             {navGroups.map((group, gi) => (
@@ -674,21 +715,44 @@ function App() {
                   <span className="nav-group-label">{group.label}</span>
                 )}
                 {group.sections.map((section) => (
-                  <button
+                  <a
                     key={section.id}
                     data-section-id={section.id}
                     className={`nav-button ${activeSection === section.id ? 'active' : ''}`}
-                    onClick={() => navigateToSection(section.id)}
+                    href={getPathForSection(section.id)}
+                    aria-current={activeSection === section.id ? 'page' : undefined}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      navigateToSection(section.id);
+                    }}
                     title={section.title}
                   >
                     {section.icon} {section.label}
-                  </button>
+                  </a>
                 ))}
               </div>
             ))}
           </div>
         </div>
       </nav>
+
+      {isMobileLayout && (
+        <MobileNavigation
+          role={currentUser.role}
+          activeSection={activeSection}
+          activeMode={sectionMode}
+          availableSections={availableSections}
+          menuOpen={mobileMenuOpen}
+          onOpenMenu={openMobileMenu}
+          onCloseMenu={closeMobileMenu}
+          onNavigate={(section, filters, options) => navigateToSection(
+            section,
+            filters,
+            { ...options, replace: mobileMenuOpen },
+          )}
+          onLogout={handleLogout}
+        />
+      )}
 
       {/* CONTENUTO PRINCIPALE */}
       <main className="app-main" data-active-section={activeSection}>
@@ -705,7 +769,9 @@ function App() {
 
           {/* CONTENUTO DELLA SEZIONE ATTIVA */}
           <div className="section-content">
-            {renderActiveSection()}
+            <React.Fragment key={`${location.pathname}${location.search}:${activeSection}:${sectionMode || 'default'}`}>
+              {renderActiveSection()}
+            </React.Fragment>
           </div>
         </div>
       </main>
@@ -802,5 +868,11 @@ const ProjectSelect = ({ onSelect, selectedId }) => {
     </select>
   );
 };
+
+const App = () => (
+  <BrowserRouter>
+    <AppContent />
+  </BrowserRouter>
+);
 
 export default App;

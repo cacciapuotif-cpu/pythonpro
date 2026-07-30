@@ -68,7 +68,7 @@ const ResetPasswordPage = ({ onComplete, onBack }) => {
 
   useEffect(() => {
     if (window.location.hash) {
-      window.history.replaceState({}, '', '/reset-password');
+      window.history.replaceState(window.history.state, '', '/reset-password');
     }
   }, []);
 

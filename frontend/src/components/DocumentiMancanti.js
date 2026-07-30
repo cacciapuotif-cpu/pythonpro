@@ -336,7 +336,7 @@ export default function DocumentiMancanti({ currentUser, initialFilters = {} }) 
       buildMailBody(
         collaboratore.nome,
         collaboratore.documenti,
-        `${window.location.origin}/collaboratori/${collaboratore.collaboratore_id}/documenti`,
+        `${window.location.origin}/collaborators/${collaboratore.collaboratore_id}/documents`,
       ),
     );
     const recipient = collaboratore.email || '';

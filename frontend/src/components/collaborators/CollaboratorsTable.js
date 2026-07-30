@@ -193,7 +193,12 @@ const CollaboratorsTable = ({
 
       // Sync URL
       const urlParams = filtersToParams(f);
-      window.history.replaceState(null, '', '?' + urlParams.toString());
+      const query = urlParams.toString();
+      window.history.replaceState(
+        window.history.state,
+        '',
+        `${window.location.pathname}${query ? `?${query}` : ''}`,
+      );
     } catch (e) {
       setError('Errore nel caricamento collaboratori');
     } finally {

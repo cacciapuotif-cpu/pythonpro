@@ -76,9 +76,9 @@ const CONSULTATION_USER = {
 };
 
 const navigationLabels = () => screen
-  .queryAllByRole('navigation')[0]
+  .getByRole('navigation', { name: /navigazione principale/i })
   ?.querySelectorAll('.nav-button')
-  ? Array.from(screen.getByRole('navigation').querySelectorAll('.nav-button'))
+  ? Array.from(screen.getByRole('navigation', { name: /navigazione principale/i }).querySelectorAll('.nav-button'))
     .map((button) => button.textContent.replace(/^\S+\s*/, '').trim())
   : [];
 
@@ -168,9 +168,9 @@ test('admin autenticato vede la navigazione amministrativa', async () => {
 
   render(<App />);
 
-  expect(await screen.findByRole('button', { name: /enti attuatori/i })).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: /timesheet/i })).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: /agenti$/i })).toBeInTheDocument();
+  expect(await screen.findByRole('link', { name: /enti attuatori/i })).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: /timesheet/i })).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: /agenti$/i })).toBeInTheDocument();
 });
 
 test('la documentazione tecnica non è esposta nel gestionale operativo', async () => {
@@ -193,11 +193,11 @@ test('click su Timesheet cambia sezione senza cambiare applicazione', async () =
   apiService.getCurrentUser.mockResolvedValue(ADMIN);
 
   render(<App />);
-  const button = await screen.findByRole('button', { name: /timesheet/i });
-  fireEvent.click(button);
+  const link = await screen.findByRole('link', { name: /timesheet/i });
+  fireEvent.click(link);
 
   expect(await screen.findByText('Report Ore test')).toBeInTheDocument();
-  expect(button).toHaveClass('active');
+  expect(link).toHaveClass('active');
 });
 
 test('il Cockpit passa pagina e filtro fino alla sezione di destinazione', async () => {
@@ -205,7 +205,7 @@ test('il Cockpit passa pagina e filtro fino alla sezione di destinazione', async
   apiService.getCurrentUser.mockResolvedValue(ADMIN);
 
   render(<App />);
-  fireEvent.click(await screen.findByRole('button', { name: /^🏠 Home$/i }));
+  fireEvent.click(await screen.findByRole('link', { name: /^🏠 Home$/i }));
   fireEvent.click(await screen.findByRole('button', { name: /vai ai progetti attivi/i }));
 
   expect(await screen.findByText('Progetti test filtro active')).toBeInTheDocument();
@@ -220,8 +220,7 @@ test('dopo il cambio password cancella la sessione e torna al login', async () =
   localStorage.setItem('refresh_token', 'old-refresh');
 
   render(<App />);
-  fireEvent.click(await screen.findByRole('button', { name: /^🏠 Home$/i }));
-  fireEvent.click(screen.getByRole('button', { name: /simula cambio password/i }));
+  fireEvent.click(await screen.findByRole('button', { name: /simula cambio password/i }));
 
   expect(await screen.findByRole('heading', { name: /accesso al gestionale/i })).toBeInTheDocument();
   expect(screen.getByRole('status')).toHaveTextContent('Password aggiornata');
@@ -236,11 +235,11 @@ test('il ruolo user legacy viene normalizzato a operatore', async () => {
   render(<App />);
 
   await waitFor(() => {
-    expect(screen.getByRole('button', { name: /collaboratori/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /collaboratori/i })).toBeInTheDocument();
   });
-  expect(screen.getByRole('button', { name: /enti attuatori/i })).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: /agenti$/i })).toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: /template/i })).not.toBeInTheDocument();
+  expect(screen.getByRole('link', { name: /enti attuatori/i })).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: /agenti$/i })).toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: /template/i })).not.toBeInTheDocument();
 });
 
 test.each([
@@ -267,4 +266,45 @@ test.each([
 
   await screen.findByText(user.full_name);
   expect(navigationLabels()).toEqual(expected);
+});
+
+test.each([
+  [ADMIN, ['home', 'calendar', 'attendance', 'proposals', 'more']],
+  [CANONICAL_OPERATOR, ['home', 'calendar', 'attendance', 'proposals', 'more']],
+  [CONSULTATION_USER, ['home', 'calendar', 'people', 'archive', 'more']],
+])('su mobile %s vede le cinque destinazioni previste', async (user, expected) => {
+  const desktopWidth = window.innerWidth;
+  const desktopMatchMedia = window.matchMedia;
+  Object.defineProperty(window, 'innerWidth', { configurable: true, value: 375 });
+  window.matchMedia = jest.fn().mockImplementation(() => ({
+    matches: true,
+    addEventListener: jest.fn(),
+    removeEventListener: jest.fn(),
+  }));
+  ensureValidAccessToken.mockResolvedValue(true);
+  apiService.getCurrentUser.mockResolvedValue(user);
+
+  const { unmount } = render(<App />);
+  const navigation = await screen.findByRole('navigation', { name: /navigazione mobile/i });
+  expect(Array.from(
+    navigation.querySelectorAll('[data-mobile-destination]'),
+    (item) => item.dataset.mobileDestination,
+  )).toEqual(expected);
+  expect(document.querySelector('main')).toHaveAttribute('data-active-section', 'home');
+
+  unmount();
+  window.matchMedia = desktopMatchMedia;
+  Object.defineProperty(window, 'innerWidth', { configurable: true, value: desktopWidth });
+});
+
+test('una deep-link vietata viene corretta prima di montare la sezione', async () => {
+  window.history.replaceState({}, '', '/utenti');
+  ensureValidAccessToken.mockResolvedValue(true);
+  apiService.getCurrentUser.mockResolvedValue(CONSULTATION_USER);
+
+  render(<App />);
+
+  await screen.findByText('Home test');
+  expect(document.querySelector('main')).toHaveAttribute('data-active-section', 'home');
+  expect(window.location.pathname).toBe('/home');
 });

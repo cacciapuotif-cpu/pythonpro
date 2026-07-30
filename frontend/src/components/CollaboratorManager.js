@@ -9,7 +9,7 @@
  * - Gestire associazioni con progetti
  */
 
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import {
   assignCollaboratorToProject,
   removeCollaboratorFromProject,
@@ -52,7 +52,7 @@ const ROLE_EXPERIENCE = {
   },
 };
 
-const CollaboratorManager = ({ currentUser }) => {
+const CollaboratorManager = ({ currentUser, initialFilters = {} }) => {
   // ==========================================
   // CONTEXT E HOOKS
   // ==========================================
@@ -106,6 +106,7 @@ const CollaboratorManager = ({ currentUser }) => {
   const [contractOptionsLoading, setContractOptionsLoading] = useState(false);
   const [contractLocationId, setContractLocationId] = useState('');
   const [contractAccountId, setContractAccountId] = useState('');
+  const documentsPanelRef = useRef(null);
 
   // Combina gli stati di loading
   const loading = loadingCollaborators || loadingProjects || loadingAssignments;
@@ -120,6 +121,23 @@ const CollaboratorManager = ({ currentUser }) => {
     () => new Map(projects.map((item) => [item.id, item])),
     [projects]
   );
+
+  useEffect(() => {
+    if (!initialFilters.collaboratorId || collaborators.length === 0) return;
+    const collaborator = collaboratorIndex.get(Number(initialFilters.collaboratorId));
+    if (!collaborator) return;
+    if (initialFilters.focus === 'documents' || initialFilters.focus === 'detail') {
+      setSelectedDocumentCollaborator(collaborator);
+      window.requestAnimationFrame(() => {
+        documentsPanelRef.current?.scrollIntoView({ block: 'start' });
+      });
+    }
+  }, [
+    collaborators.length,
+    collaboratorIndex,
+    initialFilters.collaboratorId,
+    initialFilters.focus,
+  ]);
 
   const getContractPreflight = (assignment) => {
     const collaborator = collaboratorIndex.get(assignment.collaborator_id);
@@ -759,7 +777,7 @@ const CollaboratorManager = ({ currentUser }) => {
       />
 
       {selectedDocumentCollaborator && (
-        <div style={{ marginTop: '1.5rem' }}>
+        <div ref={documentsPanelRef} style={{ marginTop: '1.5rem' }}>
           <DocumentiCollaboratore
             collaboratore_id={selectedDocumentCollaborator.id}
             currentUser={currentUser}

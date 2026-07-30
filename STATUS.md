@@ -1,12 +1,39 @@
 # PythonPro — Stato corrente
 
-**Aggiornato:** 2026-07-30 (MOB-1 completato; prossimo MOB-2)
+**Aggiornato:** 2026-07-30 (MOB-2 completato; prossimo MOB-3)
 **Branch:** `claude/platform-audit-compliance-XnH86` (locale, **nessun push**)
 **Percorso:** `/DATA/progetti/pythonpro`
 
 > ⚠️ **Due sessioni hanno lavorato su questo branch il 27/07 in parallelo.**
 > Questo file è scritto a quattro mani: la sezione "RIPARTENZA" qui sotto
 > riguarda l'ondata UX; il resto del file traccia l'altro filone.
+
+## ✅ CHECKPOINT 2026-07-30 — ONDATA MOBILE / MOB-2
+
+MOB-2 è completato e documentato in
+`audit/MOB2_NAVIGAZIONE_REPORT.md`.
+
+- Bottom navigation reale per i tre ruoli:
+  A/O `Home · Calendario · Presenze · Proposte · Altro`;
+  C `Home · Calendario · Persone · Archivio · Altro`.
+- `/presenze` è una destinazione operativa che riusa Calendario/API/stato,
+  senza logica duplicata.
+- “Altro” full-screen ricercabile, focus trap/Escape/Back, voci filtrate dalla
+  matrice RBAC unica.
+- Header mobile sticky compatto; target navigazione ≥44×44px e safe area.
+- Path canonici per 21/21 sezioni, Router SPA, Back/Forward e deep-link
+  collaboratore/documenti. `NEW-045` chiuso.
+- Layer Livello 1 (Altro, Area personale, presenza, dettaglio proposta)
+  chiudibili con Back/gesture.
+- Gate browser: admin 21/21, operatore 19/19, consultazione 18/18; zero
+  diagnostica browser/API. Desktop verificato a 1280/1440/1920.
+- Regressione MOB-1 rieseguita: 4 profili × 21 sezioni + 4 flussi pubblici,
+  verde. Frontend 33 suite / 311 test / 3 snapshot; build e runtime verdi.
+- Nessun push.
+
+**Prossimo:** MOB-3, componente lista responsive tabella→card e applicazione
+alle nove entità previste. MOB-4/5/6/7/8/9 restano successivi; MOB-7 e MOB-8
+mantengono i rispettivi gate utente.
 
 ## ✅ CHECKPOINT 2026-07-30 — ONDATA MOBILE / MOB-1
 

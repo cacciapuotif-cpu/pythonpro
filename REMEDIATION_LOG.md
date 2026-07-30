@@ -4,6 +4,23 @@ Formato: data | finding ID | cosa fatto | file toccati | test/verifiche eseguiti
 
 > AVVISO PERMANENTE: VIETATO push su remote finche history git non ripulita da `.env`/`.env*` in Ondata 2 con procedura dedicata.
 
+## 2026-07-30 | MOB-2 / NEW-045 | Navigazione mobile e routing canonico
+
+- Introdotti header mobile compatto, bottom navigation per ruolo e menu
+  full-screen “Altro” ricercabile con focus, Escape, Back e safe area.
+- Assegnati path canonici alle 21 sezioni; BrowserRouter, guardia RBAC
+  pre-mount, push/Back/Forward e filtri conservativi.
+- Aggiunta destinazione `/presenze` che riusa Calendario in modalità
+  operativa; corretti deep-link collaboratore/documenti e link delle proposte
+  agente.
+- Back chiude prima i layer Livello 1: menu, Area personale, presenza e
+  dettaglio proposta.
+- Test: frontend 33 suite / 311 test / 3 snapshot; build verde; gate browser
+  MOB-2 21/19/18 sezioni sui tre ruoli, zero diagnostica; regressione MOB-1
+  4 profili × 21 sezioni + 4 flussi pubblici verde; desktop
+  1280/1440/1920 verificato.
+- Runtime frontend ricostruito e ricreato; nessun push.
+
 ## 2026-07-17 | ONDATA S S5 completato / stop prima di S6
 
 - Dopo conferma del GATE S5, `rendicontazione_generator.py` è stato spostato in `services/rendicontazione.py` e collegato a `POST /api/v1/reporting/projects/{project_id}/rendicontazione`.

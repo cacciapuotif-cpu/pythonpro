@@ -1161,4 +1161,11 @@ dedotto dal conteggio.
 - Correzione proposta: routing/deep-link canonico per le sezioni e gli oggetti,
   `pushState` per navigazioni reali, gestione `popstate`, test sui tre ruoli e
   compatibilità con i link già inviati.
-- Stato: **aperto**. Nessun fix applicato prima del GATE MOB-0.
+- Stato: **chiuso il 2026-07-30 con MOB-2**. Tutte le 21 sezioni hanno un path
+  canonico e sono risolte dal router prima del mount con guardia RBAC; i cambi
+  sezione usano push/Back/Forward, mentre i filtri preservano path e stato del
+  router. Introdotti `/collaborators/:id`,
+  `/collaborators/:id/documents` e l'alias storico
+  `/collaboratori/:id/documenti`; corretti i link di sollecito e proposta
+  agente. Gate reale: 21/19/18 sezioni raggiungibili sui tre ruoli, nessuna
+  vietata, diagnostica browser/API zero.
