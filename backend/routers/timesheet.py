@@ -45,6 +45,7 @@ def _build_timesheet_pdf(db: Session, assignment, presenze=None) -> bytes:
 
     ente_attuatore_nome = None
     logo_path = None
+    ente = None
     if project.ente_attuatore_id:
         ente = db.query(ImplementingEntity).filter(
             ImplementingEntity.id == project.ente_attuatore_id
@@ -104,6 +105,7 @@ def _build_timesheet_pdf(db: Session, assignment, presenze=None) -> bytes:
         presenze=presenza_list,
         logo_path=logo_path,
         designer_name=designer_name,
+        ente_print_config=ente,
     )
     return pdf_buffer.read()
 

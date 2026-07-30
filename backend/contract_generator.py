@@ -74,7 +74,12 @@ class ContractGenerator:
             spaceAfter=20
         ))
 
-    def generate_contract(self, assignment_data: Dict[str, Any], contract_type: str = None) -> BytesIO:
+    def generate_contract(
+        self,
+        assignment_data: Dict[str, Any],
+        contract_type: str = None,
+        ente_print_config=None,
+    ) -> BytesIO:
         """
         Genera un contratto PDF compilato con i dati dell'assignment
 
@@ -94,14 +99,25 @@ class ContractGenerator:
 
         # Genera il PDF
         buffer = BytesIO()
-        doc = SimpleDocTemplate(
-            buffer,
-            pagesize=A4,
-            rightMargin=2*cm,
-            leftMargin=2*cm,
-            topMargin=2*cm,
-            bottomMargin=2*cm
+        printing_enabled = bool(
+            ente_print_config
+            and getattr(ente_print_config, "print_config_enabled", False)
         )
+        decoration = None
+        if printing_enabled:
+            from services.entity_printing import page_decoration
+
+            decoration = page_decoration(ente_print_config)
+            doc = SimpleDocTemplate(buffer, pagesize=A4, **decoration.margins)
+        else:
+            doc = SimpleDocTemplate(
+                buffer,
+                pagesize=A4,
+                rightMargin=2*cm,
+                leftMargin=2*cm,
+                topMargin=2*cm,
+                bottomMargin=2*cm
+            )
 
         # Costruisci il contenuto
         story = []
@@ -235,7 +251,14 @@ class ContractGenerator:
         story.append(firma_table)
 
         # Genera il PDF
-        doc.build(story)
+        if decoration:
+            doc.build(
+                story,
+                onFirstPage=decoration.on_first_page,
+                onLaterPages=decoration.on_later_pages,
+            )
+        else:
+            doc.build(story)
         buffer.seek(0)
 
         return buffer
@@ -295,6 +318,7 @@ class ContractGenerator:
         template_html: str,
         context: dict,
         ente_logo_path: str = None,
+        ente_print_config=None,
     ):
         """
         Genera PDF da template HTML con placeholder Jinja2.
@@ -339,18 +363,29 @@ class ContractGenerator:
         paragraphs_raw = text_clean.split("\n")
 
         buffer = BytesIO()
-        doc = SimpleDocTemplate(
-            buffer,
-            pagesize=A4,
-            rightMargin=2*cm,
-            leftMargin=2*cm,
-            topMargin=2*cm,
-            bottomMargin=2*cm,
+        printing_enabled = bool(
+            ente_print_config
+            and getattr(ente_print_config, "print_config_enabled", False)
         )
+        decoration = None
+        if printing_enabled:
+            from services.entity_printing import page_decoration
+
+            decoration = page_decoration(ente_print_config)
+            doc = SimpleDocTemplate(buffer, pagesize=A4, **decoration.margins)
+        else:
+            doc = SimpleDocTemplate(
+                buffer,
+                pagesize=A4,
+                rightMargin=2*cm,
+                leftMargin=2*cm,
+                topMargin=2*cm,
+                bottomMargin=2*cm,
+            )
 
         story = []
 
-        if ente_logo_path:
+        if ente_logo_path and not printing_enabled:
             import os
             full_logo = os.path.join("/app/uploads", ente_logo_path) if not ente_logo_path.startswith("/") else ente_logo_path
             if os.path.exists(full_logo):
@@ -395,7 +430,14 @@ class ContractGenerator:
         ]))
         story.append(firma_table)
 
-        doc.build(story)
+        if decoration:
+            doc.build(
+                story,
+                onFirstPage=decoration.on_first_page,
+                onLaterPages=decoration.on_later_pages,
+            )
+        else:
+            doc.build(story)
         buffer.seek(0)
         return buffer
 

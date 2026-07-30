@@ -1,8 +1,27 @@
-from pydantic import BaseModel, EmailStr, Field, ConfigDict, field_validator, computed_field, model_validator
+from pydantic import (
+    BaseModel,
+    EmailStr,
+    Field,
+    ConfigDict,
+    field_serializer,
+    field_validator,
+    computed_field,
+    model_validator,
+)
 from typing import Any, Dict, Generic, List, Literal, Optional, TypeVar
 from datetime import date, datetime
 
 T = TypeVar("T")
+
+
+def mask_financial_iban(value: Optional[str]) -> Optional[str]:
+    """Fail-safe di serializzazione: un IBAN non deve mai uscire raw."""
+    clean = "".join(str(value or "").split()).upper()
+    if not clean:
+        return None
+    if len(clean) <= 4:
+        return clean
+    return f"{clean[:2]}••••••••••••••••••••{clean[-4:]}"
 
 
 def _validate_piva_light(v: Optional[str]) -> Optional[str]:
@@ -693,6 +712,207 @@ class AssignmentBulkUpdateItem(BaseModel):
 # SCHEMI PER ENTE ATTUATORE (Implementing Entity)
 # ========================================
 
+def validate_iban(value: Optional[str]) -> Optional[str]:
+    """Normalizza e valida IBAN nazionali/esteri con checksum ISO 13616."""
+    if value is None or value == "":
+        return None
+    import re
+
+    clean = re.sub(r"\s+", "", str(value)).upper()
+    if not re.fullmatch(r"[A-Z]{2}\d{2}[A-Z0-9]{11,30}", clean):
+        raise ValueError("IBAN non valido")
+    rearranged = clean[4:] + clean[:4]
+    numeric = "".join(str(ord(char) - 55) if char.isalpha() else char for char in rearranged)
+    if int(numeric) % 97 != 1:
+        raise ValueError("IBAN non valido (checksum)")
+    return clean
+
+
+def validate_http_url(value: Optional[str]) -> Optional[str]:
+    """Accetta URL assoluti HTTP(S), evitando schemi eseguibili."""
+    if value is None or value == "":
+        return None
+    from urllib.parse import urlparse
+
+    clean = str(value).strip()
+    parsed = urlparse(clean)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("URL non valido: usare un indirizzo completo http:// o https://")
+    return clean
+
+
+class SocialLink(BaseModel):
+    """Link social estendibile: ``platform`` non è vincolato a campi fissi."""
+
+    platform: str = Field(min_length=1, max_length=50)
+    label: Optional[str] = Field(default=None, max_length=100)
+    url: str
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, value):
+        return validate_http_url(value)
+
+
+class ImplementingEntityLocationBase(BaseModel):
+    tipo: Literal["legale", "operativa", "amministrativa", "accreditata"]
+    denominazione: str = Field(min_length=1, max_length=200)
+    indirizzo: Optional[str] = None
+    cap: Optional[str] = None
+    citta: Optional[str] = None
+    provincia: Optional[str] = None
+    nazione: str = Field(default="IT", min_length=2, max_length=2)
+    email: Optional[EmailStr] = None
+    pec: Optional[EmailStr] = None
+    telefono: Optional[str] = None
+    is_principale: bool = False
+    accreditamento_ente: Optional[str] = None
+    accreditamento_codice: Optional[str] = None
+    accreditamento_data: Optional[date] = None
+    accreditamento_scadenza: Optional[date] = None
+    is_active: bool = True
+    attiva_dal: Optional[date] = None
+    dismessa_dal: Optional[date] = None
+
+    @model_validator(mode="after")
+    def validate_dates_and_accreditation(self):
+        if self.attiva_dal and self.dismessa_dal and self.dismessa_dal < self.attiva_dal:
+            raise ValueError("La data di dismissione non può precedere la data di attivazione")
+        if self.accreditamento_data and self.accreditamento_scadenza:
+            if self.accreditamento_scadenza < self.accreditamento_data:
+                raise ValueError("La scadenza accreditamento non può precedere la data iniziale")
+        return self
+
+
+class ImplementingEntityLocationCreate(ImplementingEntityLocationBase):
+    pass
+
+
+class ImplementingEntityLocationUpdate(BaseModel):
+    tipo: Optional[Literal["legale", "operativa", "amministrativa", "accreditata"]] = None
+    denominazione: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    indirizzo: Optional[str] = None
+    cap: Optional[str] = None
+    citta: Optional[str] = None
+    provincia: Optional[str] = None
+    nazione: Optional[str] = Field(default=None, min_length=2, max_length=2)
+    email: Optional[EmailStr] = None
+    pec: Optional[EmailStr] = None
+    telefono: Optional[str] = None
+    is_principale: Optional[bool] = None
+    accreditamento_ente: Optional[str] = None
+    accreditamento_codice: Optional[str] = None
+    accreditamento_data: Optional[date] = None
+    accreditamento_scadenza: Optional[date] = None
+    is_active: Optional[bool] = None
+    attiva_dal: Optional[date] = None
+    dismessa_dal: Optional[date] = None
+
+
+class ImplementingEntityLocation(ImplementingEntityLocationBase):
+    id: int
+    ente_id: int
+    indirizzo_completo: Optional[str] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ImplementingEntityBankAccountBase(BaseModel):
+    banca: Optional[str] = None
+    agenzia: Optional[str] = None
+    iban: str
+    bic_swift: Optional[str] = Field(default=None, min_length=8, max_length=11)
+    intestatario: str = Field(min_length=1, max_length=200)
+    is_predefinito: bool = False
+    is_active: bool = True
+    note: Optional[str] = None
+
+    @field_validator("iban")
+    @classmethod
+    def validate_iban_value(cls, value):
+        return validate_iban(value)
+
+    @field_validator("bic_swift")
+    @classmethod
+    def normalize_bic(cls, value):
+        if not value:
+            return None
+        clean = value.replace(" ", "").upper()
+        if len(clean) not in {8, 11} or not clean.isalnum():
+            raise ValueError("BIC/SWIFT deve contenere 8 o 11 caratteri alfanumerici")
+        return clean
+
+
+class ImplementingEntityBankAccountCreate(ImplementingEntityBankAccountBase):
+    pass
+
+
+class ImplementingEntityBankAccountUpdate(BaseModel):
+    banca: Optional[str] = None
+    agenzia: Optional[str] = None
+    iban: Optional[str] = None
+    bic_swift: Optional[str] = Field(default=None, min_length=8, max_length=11)
+    intestatario: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    is_predefinito: Optional[bool] = None
+    is_active: Optional[bool] = None
+    note: Optional[str] = None
+
+    @field_validator("iban")
+    @classmethod
+    def validate_iban_value(cls, value):
+        return validate_iban(value)
+
+    @field_validator("bic_swift")
+    @classmethod
+    def normalize_bic(cls, value):
+        if not value:
+            return None
+        clean = value.replace(" ", "").upper()
+        if len(clean) not in {8, 11} or not clean.isalnum():
+            raise ValueError("BIC/SWIFT deve contenere 8 o 11 caratteri alfanumerici")
+        return clean
+
+
+class ImplementingEntityBankAccount(BaseModel):
+    id: int
+    ente_id: int
+    banca: Optional[str] = None
+    agenzia: Optional[str] = None
+    iban: Optional[str] = None
+    iban_masked: str
+    bic_swift: Optional[str] = None
+    intestatario: str
+    is_predefinito: bool
+    is_active: bool
+    note: Optional[str] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @field_serializer("iban")
+    def serialize_iban_as_hidden(self, _value):
+        # Il valore integrale è disponibile esclusivamente dall'endpoint
+        # reveal autorizzato e auditato.
+        return None
+
+
+class ImplementingEntityPrintConfig(BaseModel):
+    print_config_enabled: bool = True
+    print_margin_top_mm: float = Field(default=20.0, ge=0, le=100)
+    print_margin_bottom_mm: float = Field(default=20.0, ge=0, le=100)
+    print_margin_left_mm: float = Field(default=20.0, ge=0, le=100)
+    print_margin_right_mm: float = Field(default=20.0, ge=0, le=100)
+    print_logo_width_mm: float = Field(default=40.0, gt=0, le=210)
+    print_logo_height_mm: float = Field(default=20.0, gt=0, le=297)
+    print_logo_x_mm: float = Field(default=20.0, ge=0, le=210)
+    print_logo_y_mm: float = Field(default=8.0, ge=0, le=297)
+    print_letterhead_pages: Literal["first", "all"] = "first"
+    print_footer: Optional[str] = None
+
+
 class ImplementingEntityBase(BaseModel):
     """Schema base per Ente Attuatore"""
     # Dati legali
@@ -716,6 +936,8 @@ class ImplementingEntityBase(BaseModel):
     email: Optional[str] = None
     telefono: Optional[str] = None
     sdi: Optional[str] = None
+    sito_web: Optional[str] = None
+    social_links: List[SocialLink] = Field(default_factory=list)
 
     # Dati pagamento
     iban: Optional[str] = None
@@ -741,9 +963,27 @@ class ImplementingEntityBase(BaseModel):
     note: Optional[str] = None
     is_active: bool = True
 
+    # Configurazione stampa. Se disabilitata il generatore usa il ramo legacy.
+    print_config_enabled: bool = False
+    print_margin_top_mm: float = Field(default=20.0, ge=0, le=100)
+    print_margin_bottom_mm: float = Field(default=20.0, ge=0, le=100)
+    print_margin_left_mm: float = Field(default=20.0, ge=0, le=100)
+    print_margin_right_mm: float = Field(default=20.0, ge=0, le=100)
+    print_logo_width_mm: float = Field(default=40.0, gt=0, le=210)
+    print_logo_height_mm: float = Field(default=20.0, gt=0, le=297)
+    print_logo_x_mm: float = Field(default=20.0, ge=0, le=210)
+    print_logo_y_mm: float = Field(default=8.0, ge=0, le=297)
+    print_letterhead_pages: Literal["first", "all"] = "first"
+    print_footer: Optional[str] = None
+
+    @field_validator("sito_web")
+    @classmethod
+    def validate_website(cls, value):
+        return validate_http_url(value)
+
 class ImplementingEntityCreate(ImplementingEntityBase):
     """Schema per creazione Ente Attuatore"""
-    pass
+    partita_iva: str
 
 class ImplementingEntityUpdate(BaseModel):
     """Schema per aggiornamento Ente Attuatore - tutti i campi opzionali"""
@@ -765,6 +1005,8 @@ class ImplementingEntityUpdate(BaseModel):
     email: Optional[str] = None
     telefono: Optional[str] = None
     sdi: Optional[str] = None
+    sito_web: Optional[str] = None
+    social_links: Optional[List[SocialLink]] = None
 
     iban: Optional[str] = None
     intestatario_conto: Optional[str] = None
@@ -785,6 +1027,22 @@ class ImplementingEntityUpdate(BaseModel):
 
     note: Optional[str] = None
     is_active: Optional[bool] = None
+    print_config_enabled: Optional[bool] = None
+    print_margin_top_mm: Optional[float] = Field(default=None, ge=0, le=100)
+    print_margin_bottom_mm: Optional[float] = Field(default=None, ge=0, le=100)
+    print_margin_left_mm: Optional[float] = Field(default=None, ge=0, le=100)
+    print_margin_right_mm: Optional[float] = Field(default=None, ge=0, le=100)
+    print_logo_width_mm: Optional[float] = Field(default=None, gt=0, le=210)
+    print_logo_height_mm: Optional[float] = Field(default=None, gt=0, le=297)
+    print_logo_x_mm: Optional[float] = Field(default=None, ge=0, le=210)
+    print_logo_y_mm: Optional[float] = Field(default=None, ge=0, le=297)
+    print_letterhead_pages: Optional[Literal["first", "all"]] = None
+    print_footer: Optional[str] = None
+
+    @field_validator("sito_web")
+    @classmethod
+    def validate_website(cls, value):
+        return validate_http_url(value)
 
 class ImplementingEntity(ImplementingEntityBase):
     """Schema completo Ente Attuatore con ID e timestamps"""
@@ -795,6 +1053,10 @@ class ImplementingEntity(ImplementingEntityBase):
     # Dati logo (se uploadato)
     logo_filename: Optional[str] = None
     logo_uploaded_at: Optional[datetime] = None
+    letterhead_filename: Optional[str] = None
+    letterhead_uploaded_at: Optional[datetime] = None
+    sedi: List[ImplementingEntityLocation] = Field(default_factory=list)
+    conti_correnti: List[ImplementingEntityBankAccount] = Field(default_factory=list)
 
     # Proprietà calcolate
     indirizzo_completo: Optional[str] = None
@@ -803,6 +1065,10 @@ class ImplementingEntity(ImplementingEntityBase):
 
     class Config:
         from_attributes = True
+
+    @field_serializer("iban")
+    def serialize_legacy_iban_as_masked(self, value):
+        return mask_financial_iban(value)
 
 class ImplementingEntityWithProjects(ImplementingEntity):
     """Schema Ente Attuatore con lista progetti collegati"""
@@ -1100,6 +1366,8 @@ class ContractGenerationRequest(BaseModel):
     collaboratore_id: int
     progetto_id: int
     ente_attuatore_id: int
+    sede_id: Optional[int] = None
+    conto_corrente_id: Optional[int] = None
     mansione: str
 
     # Dati economici e temporali

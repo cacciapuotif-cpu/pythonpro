@@ -909,9 +909,11 @@ class ImplementingEntity(Base):
     email = Column(String(100))
     telefono = Column(String(20))
     sdi = Column(String(7))  # Codice Univoco SDI per fatturazione elettronica
+    sito_web = Column(String(500))
+    social_links = Column(JSON, nullable=False, default=list)
 
     # === DATI PAGAMENTO ===
-    iban = Column(String(27))  # IBAN italiano è lungo 27 caratteri
+    iban = Column(String(34))  # ISO 13616: massimo 34 caratteri
     intestatario_conto = Column(String(200))
 
     # === REFERENTE ===
@@ -934,6 +936,25 @@ class ImplementingEntity(Base):
     logo_filename = Column(String(255))  # Nome file originale
     logo_path = Column(String(500))      # Path storage
     logo_uploaded_at = Column(DateTime)  # Data upload
+    letterhead_filename = Column(String(255))
+    letterhead_path = Column(String(500))
+    letterhead_uploaded_at = Column(DateTime)
+
+    # Configurazione di stampa in millimetri. I default replicano i margini
+    # storici del generatore (2 cm) ma ``print_config_enabled`` resta false:
+    # finché l'operatore non abilita la configurazione il ramo PDF legacy
+    # rimane byte-per-byte invariato.
+    print_config_enabled = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    print_margin_top_mm = Column(Float, nullable=False, default=20.0, server_default=text("20"))
+    print_margin_bottom_mm = Column(Float, nullable=False, default=20.0, server_default=text("20"))
+    print_margin_left_mm = Column(Float, nullable=False, default=20.0, server_default=text("20"))
+    print_margin_right_mm = Column(Float, nullable=False, default=20.0, server_default=text("20"))
+    print_logo_width_mm = Column(Float, nullable=False, default=40.0, server_default=text("40"))
+    print_logo_height_mm = Column(Float, nullable=False, default=20.0, server_default=text("20"))
+    print_logo_x_mm = Column(Float, nullable=False, default=20.0, server_default=text("20"))
+    print_logo_y_mm = Column(Float, nullable=False, default=8.0, server_default=text("8"))
+    print_letterhead_pages = Column(String(20), nullable=False, default="first", server_default="first")
+    print_footer = Column(Text)
 
     # === ALTRO ===
     note = Column(Text)
@@ -944,6 +965,20 @@ class ImplementingEntity(Base):
 
     # Relazione con i progetti
     projects = relationship("Project", back_populates="ente_attuatore", lazy="select")
+    sedi = relationship(
+        "ImplementingEntityLocation",
+        back_populates="ente",
+        cascade="all, delete-orphan",
+        order_by="ImplementingEntityLocation.id",
+        lazy="selectin",
+    )
+    conti_correnti = relationship(
+        "ImplementingEntityBankAccount",
+        back_populates="ente",
+        cascade="all, delete-orphan",
+        order_by="ImplementingEntityBankAccount.id",
+        lazy="selectin",
+    )
 
     # === VALIDAZIONI ===
 
@@ -985,14 +1020,18 @@ class ImplementingEntity(Base):
 
     @validates('iban')
     def validate_iban(self, key, iban):
-        """Valida formato IBAN italiano (27 caratteri)"""
+        """Valida IBAN italiano/estero con checksum ISO 13616."""
         if iban:
-            iban_clean = iban.replace(' ', '').upper()
-
-            # IBAN italiano: IT + 2 cifre controllo + 1 lettera + 10 cifre + 12 caratteri
-            if not iban_clean.startswith('IT') or len(iban_clean) != 27:
-                raise ValueError("IBAN italiano deve iniziare con IT e avere 27 caratteri")
-
+            iban_clean = re.sub(r"\s+", "", iban).upper()
+            if not re.fullmatch(r"[A-Z]{2}\d{2}[A-Z0-9]{11,30}", iban_clean):
+                raise ValueError("IBAN non valido")
+            rearranged = iban_clean[4:] + iban_clean[:4]
+            numeric = "".join(
+                str(ord(char) - 55) if char.isalpha() else char
+                for char in rearranged
+            )
+            if int(numeric) % 97 != 1:
+                raise ValueError("IBAN non valido (checksum)")
             return iban_clean
         return iban
 
@@ -1060,7 +1099,140 @@ class ImplementingEntity(Base):
     __table_args__ = (
         Index('idx_ragione_sociale_active', 'ragione_sociale', 'is_active'),
         Index('idx_citta_provincia', 'citta', 'provincia'),
+        CheckConstraint(
+            "print_letterhead_pages IN ('first', 'all')",
+            name="ck_implementing_entities_letterhead_pages",
+        ),
+        CheckConstraint(
+            "print_margin_top_mm >= 0 AND print_margin_bottom_mm >= 0 "
+            "AND print_margin_left_mm >= 0 AND print_margin_right_mm >= 0",
+            name="ck_implementing_entities_print_margins_nonnegative",
+        ),
     )
+
+
+class ImplementingEntityLocation(Base):
+    """Sede legale, operativa, amministrativa o accreditata di un ente."""
+
+    __tablename__ = "implementing_entity_locations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    ente_id = Column(
+        Integer,
+        ForeignKey("implementing_entities.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    tipo = Column(String(30), nullable=False, index=True)
+    denominazione = Column(String(200), nullable=False)
+    indirizzo = Column(String(200))
+    cap = Column(String(20))
+    citta = Column(String(100), index=True)
+    provincia = Column(String(10))
+    nazione = Column(String(2), nullable=False, default="IT", server_default="IT")
+    email = Column(String(100))
+    pec = Column(String(100))
+    telefono = Column(String(30))
+    is_principale = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    accreditamento_ente = Column(String(200))
+    accreditamento_codice = Column(String(100))
+    accreditamento_data = Column(Date)
+    accreditamento_scadenza = Column(Date)
+    is_active = Column(Boolean, nullable=False, default=True, server_default=text("true"), index=True)
+    attiva_dal = Column(Date)
+    dismessa_dal = Column(Date)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    ente = relationship("ImplementingEntity", back_populates="sedi")
+
+    __table_args__ = (
+        CheckConstraint(
+            "tipo IN ('legale', 'operativa', 'amministrativa', 'accreditata')",
+            name="ck_implementing_entity_locations_tipo",
+        ),
+        CheckConstraint(
+            "dismessa_dal IS NULL OR attiva_dal IS NULL OR dismessa_dal >= attiva_dal",
+            name="ck_implementing_entity_locations_dates",
+        ),
+        Index(
+            "uq_implementing_entity_one_active_legal_location",
+            "ente_id",
+            unique=True,
+            postgresql_where=text("tipo = 'legale' AND is_active"),
+            sqlite_where=text("tipo = 'legale' AND is_active = 1"),
+        ),
+        Index(
+            "uq_implementing_entity_one_active_primary_location",
+            "ente_id",
+            unique=True,
+            postgresql_where=text("is_principale AND is_active"),
+            sqlite_where=text("is_principale = 1 AND is_active = 1"),
+        ),
+    )
+
+    @hybrid_property
+    def indirizzo_completo(self):
+        parts = [part for part in (self.indirizzo, " ".join(filter(None, (self.cap, self.citta)))) if part]
+        if self.provincia:
+            parts.append(f"({self.provincia})")
+        if self.nazione and self.nazione != "IT":
+            parts.append(self.nazione)
+        return ", ".join(parts)
+
+
+class ImplementingEntityBankAccount(Base):
+    """Conto corrente dell'ente; l'IBAN non va serializzato direttamente."""
+
+    __tablename__ = "implementing_entity_bank_accounts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    ente_id = Column(
+        Integer,
+        ForeignKey("implementing_entities.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    banca = Column(String(200))
+    agenzia = Column(String(200))
+    iban = Column(String(34), nullable=False)
+    bic_swift = Column(String(11))
+    intestatario = Column(String(200), nullable=False)
+    is_predefinito = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    is_active = Column(Boolean, nullable=False, default=True, server_default=text("true"), index=True)
+    note = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    ente = relationship("ImplementingEntity", back_populates="conti_correnti")
+
+    __table_args__ = (
+        Index(
+            "uq_implementing_entity_one_active_default_account",
+            "ente_id",
+            unique=True,
+            postgresql_where=text("is_predefinito AND is_active"),
+            sqlite_where=text("is_predefinito = 1 AND is_active = 1"),
+        ),
+    )
+
+    @validates("iban")
+    def validate_iban(self, key, iban):
+        clean = re.sub(r"\s+", "", iban or "").upper()
+        if not re.fullmatch(r"[A-Z]{2}\d{2}[A-Z0-9]{11,30}", clean):
+            raise ValueError("IBAN non valido")
+        rearranged = clean[4:] + clean[:4]
+        numeric = "".join(str(ord(ch) - 55) if ch.isalpha() else ch for ch in rearranged)
+        if int(numeric) % 97 != 1:
+            raise ValueError("IBAN non valido (checksum)")
+        return clean
+
+    @hybrid_property
+    def iban_masked(self):
+        clean = re.sub(r"\s+", "", self.iban or "").upper()
+        if len(clean) <= 4:
+            return clean
+        return f"{clean[:2]}••••••••••••••••••••{clean[-4:]}"
 
 
 class ProgettoMansioneEnte(Base):

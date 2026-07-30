@@ -49,6 +49,7 @@ UPLOAD_DIR = Path(os.getenv("UPLOADS_DIR", "uploads"))
 DOCUMENTS_DIR = UPLOAD_DIR / "documents"
 CURRICULUM_DIR = UPLOAD_DIR / "curriculum"
 ENTITY_LOGOS_DIR = UPLOAD_DIR / "entity_logos"
+ENTITY_LETTERHEADS_DIR = UPLOAD_DIR / "entity_letterheads"
 
 # Dimensione massima file: 10MB
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB in bytes
@@ -56,7 +57,8 @@ MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB in bytes
 # Estensioni permesse
 ALLOWED_DOCUMENT_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png"}
 ALLOWED_CV_EXTENSIONS = {".pdf", ".doc", ".docx"}
-ALLOWED_ENTITY_LOGO_EXTENSIONS = {".png", ".jpg", ".jpeg", ".svg", ".gif"}
+ALLOWED_ENTITY_LOGO_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif"}
+ALLOWED_ENTITY_LETTERHEAD_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg"}
 
 FILE_SIGNATURES = {
     ".pdf": (b"%PDF-",),
@@ -77,6 +79,7 @@ def setup_upload_directories():
     DOCUMENTS_DIR.mkdir(parents=True, exist_ok=True)
     CURRICULUM_DIR.mkdir(parents=True, exist_ok=True)
     ENTITY_LOGOS_DIR.mkdir(parents=True, exist_ok=True)
+    ENTITY_LETTERHEADS_DIR.mkdir(parents=True, exist_ok=True)
     logger.info(f"Upload directories ready: {UPLOAD_DIR}")
 
 # Crea directories all'import
@@ -107,10 +110,6 @@ def validate_file_signature(filename: str, contents: bytes, allowed_extensions: 
     ext = Path(filename).suffix.lower()
     if ext not in allowed_extensions or not contents:
         return False
-
-    if ext == ".svg":
-        prefix = contents[:512].lstrip().lower()
-        return prefix.startswith(b"<svg") or prefix.startswith(b"<?xml")
 
     expected_signatures = FILE_SIGNATURES.get(ext)
     if not expected_signatures:
@@ -226,6 +225,9 @@ async def save_uploaded_file(
     elif file_type == "logo_ente":
         target_dir = ENTITY_LOGOS_DIR
         allowed_extensions = ALLOWED_ENTITY_LOGO_EXTENSIONS
+    elif file_type == "carta_intestata_ente":
+        target_dir = ENTITY_LETTERHEADS_DIR
+        allowed_extensions = ALLOWED_ENTITY_LETTERHEAD_EXTENSIONS
     else:
         raise HTTPException(status_code=400, detail="Tipo file non valido")
 
@@ -240,7 +242,7 @@ async def save_uploaded_file(
     unique_filename = generate_unique_filename(file.filename)
 
     # Crea subdirectory dedicata. Per i loghi usiamo l'ID ente, per gli altri l'ID collaboratore.
-    owner_prefix = "entity" if file_type == "logo_ente" else "collaborator"
+    owner_prefix = "entity" if file_type in {"logo_ente", "carta_intestata_ente"} else "collaborator"
     owner_dir = target_dir / f"{owner_prefix}_{int(collaborator_id)}"
     owner_dir.mkdir(parents=True, exist_ok=True)
 

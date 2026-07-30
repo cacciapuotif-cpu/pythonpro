@@ -14,7 +14,8 @@ import {
   assignCollaboratorToProject,
   removeCollaboratorFromProject,
   downloadAssignmentContract,
-  bulkImportCollaborators
+  bulkImportCollaborators,
+  getImplementingEntity
 } from '../services/apiService';
 import { useCollaborators, useProjects, useAssignments, useNotifications } from '../hooks/useEntity';
 import useDocumentUpload from '../hooks/useDocumentUpload';
@@ -101,6 +102,10 @@ const CollaboratorManager = ({ currentUser }) => {
   const [selectedDocumentCollaborator, setSelectedDocumentCollaborator] = useState(null);
   const [contractPreflight, setContractPreflight] = useState(null);
   const [contractGenerating, setContractGenerating] = useState(false);
+  const [contractEntityOptions, setContractEntityOptions] = useState(null);
+  const [contractOptionsLoading, setContractOptionsLoading] = useState(false);
+  const [contractLocationId, setContractLocationId] = useState('');
+  const [contractAccountId, setContractAccountId] = useState('');
 
   // Combina gli stati di loading
   const loading = loadingCollaborators || loadingProjects || loadingAssignments;
@@ -529,6 +534,10 @@ const CollaboratorManager = ({ currentUser }) => {
   const closeContractPreflight = () => {
     setContractPreflight(null);
     setContractGenerating(false);
+    setContractEntityOptions(null);
+    setContractOptionsLoading(false);
+    setContractLocationId('');
+    setContractAccountId('');
   };
 
   const downloadContract = async (assignment) => {
@@ -554,7 +563,10 @@ const CollaboratorManager = ({ currentUser }) => {
       const collaborator = collaboratorIndex.get(assignment.collaborator_id);
       const project = projectIndex.get(assignment.project_id);
 
-      const responseBlob = await downloadAssignmentContract(assignment.id);
+      const responseBlob = await downloadAssignmentContract(assignment.id, {
+        sedeId: contractLocationId || undefined,
+        contoCorrenteId: contractAccountId || undefined,
+      });
 
       const pdfBlob = responseBlob instanceof Blob
         ? responseBlob
@@ -600,7 +612,33 @@ const CollaboratorManager = ({ currentUser }) => {
    * SCARICA IL CONTRATTO PDF PER UNA ASSEGNAZIONE
    */
   const handleDownloadContract = async (assignment) => {
-    setContractPreflight(getContractPreflight(assignment));
+    const preflight = getContractPreflight(assignment);
+    setContractPreflight(preflight);
+    setContractEntityOptions(null);
+    setContractLocationId('');
+    setContractAccountId('');
+    if (!preflight.project?.ente_attuatore_id) return;
+    setContractOptionsLoading(true);
+    try {
+      const entity = await getImplementingEntity(preflight.project.ente_attuatore_id);
+      const activeLocations = (entity.sedi || []).filter((item) => item.is_active);
+      const activeAccounts = (entity.conti_correnti || []).filter((item) => item.is_active);
+      const defaultLocation = activeLocations.find((item) => item.tipo === 'legale')
+        || activeLocations.find((item) => item.is_principale)
+        || activeLocations[0];
+      const defaultAccount = activeAccounts.find((item) => item.is_predefinito)
+        || activeAccounts[0];
+      setContractEntityOptions({
+        locations: activeLocations,
+        accounts: activeAccounts,
+      });
+      setContractLocationId(defaultLocation ? String(defaultLocation.id) : '');
+      setContractAccountId(defaultAccount ? String(defaultAccount.id) : '');
+    } catch (error) {
+      showError(error?.response?.data?.detail || 'Impossibile caricare sedi e conti dell’ente');
+    } finally {
+      setContractOptionsLoading(false);
+    }
   };
 
   const handleOpenDocuments = (collaborator) => {
@@ -790,6 +828,45 @@ const CollaboratorManager = ({ currentUser }) => {
               ))}
             </div>
 
+            <div className="contract-document-options">
+              <div>
+                <strong>Sede da riportare nel documento</strong>
+                <small>Predefinita: sede legale dell’ente attuatore.</small>
+                <select
+                  aria-label="Sede per il contratto"
+                  value={contractLocationId}
+                  onChange={(event) => setContractLocationId(event.target.value)}
+                  disabled={contractOptionsLoading || !contractEntityOptions?.locations.length}
+                >
+                  {contractOptionsLoading && <option value="">Caricamento sedi…</option>}
+                  {!contractOptionsLoading && !contractEntityOptions?.locations.length && <option value="">Nessuna sede disponibile</option>}
+                  {(contractEntityOptions?.locations || []).map((location) => (
+                    <option key={location.id} value={location.id}>
+                      {location.denominazione} · {location.tipo}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <strong>Conto corrente da riportare nel documento</strong>
+                <small>Predefinito: conto marcato come predefinito; IBAN sempre mascherato qui.</small>
+                <select
+                  aria-label="Conto corrente per il contratto"
+                  value={contractAccountId}
+                  onChange={(event) => setContractAccountId(event.target.value)}
+                  disabled={contractOptionsLoading || !contractEntityOptions?.accounts.length}
+                >
+                  {contractOptionsLoading && <option value="">Caricamento conti…</option>}
+                  {!contractOptionsLoading && !contractEntityOptions?.accounts.length && <option value="">Nessun conto disponibile</option>}
+                  {(contractEntityOptions?.accounts || []).map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.banca || 'Banca non indicata'} · {account.iban_masked}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
             <div className="contract-preflight-actions">
               <button type="button" className="cancel-button" onClick={closeContractPreflight}>
                 Chiudi
@@ -798,7 +875,7 @@ const CollaboratorManager = ({ currentUser }) => {
                 type="button"
                 className="generate-button"
                 onClick={() => downloadContract(contractPreflight.assignment)}
-                disabled={!contractPreflight.canGenerate || contractGenerating}
+                disabled={!contractPreflight.canGenerate || contractGenerating || contractOptionsLoading}
               >
                 {contractGenerating ? 'Generazione in corso...' : 'Genera contratto PDF'}
               </button>

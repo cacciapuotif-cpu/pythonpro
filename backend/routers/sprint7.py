@@ -121,6 +121,8 @@ def run_certification(
 @router.get("/assignments/{assignment_id}/contract")
 def genera_contratto(
     assignment_id: int,
+    sede_id: int | None = None,
+    conto_corrente_id: int | None = None,
     db: Session = Depends(get_db),
     # NEW-022: dipendenza esplicita coerente con timesheet/documenti
     # (require_agents_execute non e' adatta: e' un download operatore, non
@@ -149,6 +151,18 @@ def genera_contratto(
             ImplementingEntity.id == project.ente_attuatore_id
         ).first()
 
+    selected_location = None
+    selected_account = None
+    if ente:
+        from services.entity_printing import select_bank_account, select_location
+
+        selected_location = select_location(ente, sede_id)
+        selected_account = select_bank_account(ente, conto_corrente_id)
+        if sede_id is not None and selected_location is None:
+            raise HTTPException(status_code=422, detail="La sede selezionata non appartiene all'ente del progetto")
+        if conto_corrente_id is not None and selected_account is None:
+            raise HTTPException(status_code=422, detail="Il conto selezionato non appartiene all'ente del progetto")
+
     contract_type = assignment.contract_type or "occasionale"
     template = db.query(ContractTemplate).filter(
         ContractTemplate.tipo_contratto == contract_type,
@@ -176,7 +190,17 @@ def genera_contratto(
             ).strip(", "),
             "ente_ragione_sociale": ente.ragione_sociale if ente else "",
             "ente_piva": getattr(ente, "partita_iva", "") or "" if ente else "",
-            "ente_indirizzo_completo": getattr(ente, "indirizzo", "") or "" if ente else "",
+            "ente_indirizzo_completo": (
+                selected_location.indirizzo_completo
+                if selected_location
+                else (getattr(ente, "indirizzo", "") or "" if ente else "")
+            ),
+            "ente_sede_denominazione": selected_location.denominazione if selected_location else "",
+            "ente_sede_tipo": selected_location.tipo if selected_location else "",
+            "ente_conto_iban": selected_account.iban if selected_account else "",
+            "ente_conto_intestatario": selected_account.intestatario if selected_account else "",
+            "ente_conto_banca": selected_account.banca or "" if selected_account else "",
+            "ente_conto_bic_swift": selected_account.bic_swift or "" if selected_account else "",
             "ente_legale_rappresentante_nome_completo": getattr(ente, "legale_rappresentante_nome", "") or "" if ente else "",
             "progetto_nome": project.name or "",
             "progetto_cup": project.cup or "",
@@ -228,6 +252,7 @@ def genera_contratto(
             template_html=template_html,
             context=jinja_context,
             ente_logo_path=logo_path,
+            ente_print_config=ente,
         )
     else:
         assignment_data = {
@@ -246,12 +271,19 @@ def genera_contratto(
             "project_cup": project.cup,
             "ente_attuatore": ente.ragione_sociale if ente else None,
             "ente_attuatore_piva": getattr(ente, "partita_iva", None) if ente else None,
-            "ente_attuatore_indirizzo": getattr(ente, "indirizzo", None) if ente else None,
+            "ente_attuatore_indirizzo": (
+                selected_location.indirizzo_completo
+                if selected_location
+                else (getattr(ente, "indirizzo", None) if ente else None)
+            ),
+            "ente_conto_iban": selected_account.iban if selected_account else None,
+            "ente_conto_intestatario": selected_account.intestatario if selected_account else None,
             **financial_context,
         }
         pdf_buffer = generator.generate_contract(
             assignment_data=assignment_data,
             contract_type=contract_type,
+            ente_print_config=ente,
         )
 
     def _safe(text):

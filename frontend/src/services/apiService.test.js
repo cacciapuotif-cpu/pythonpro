@@ -86,6 +86,28 @@ describe('area personale', () => {
   });
 });
 
+describe('generazione contratto con sede e conto dell ente', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    http.get.mockResolvedValue({ data: new Blob(['pdf']) });
+  });
+
+  test('trasmette le selezioni esplicite al backend', async () => {
+    await apiService.downloadAssignmentContract(9, {
+      sedeId: 3,
+      contoCorrenteId: 4,
+    });
+
+    expect(http.get).toHaveBeenCalledWith('/assignments/9/contract', {
+      params: {
+        sede_id: 3,
+        conto_corrente_id: 4,
+      },
+      responseType: 'blob',
+    });
+  });
+});
+
 describe('ingestAvvisoRevision', () => {
   beforeEach(() => {
     jest.clearAllMocks();

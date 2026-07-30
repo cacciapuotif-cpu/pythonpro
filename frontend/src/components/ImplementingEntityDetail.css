@@ -1,0 +1,286 @@
+.entity-detail-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  padding: 2.5vh 2vw;
+  background: rgba(15, 23, 42, 0.72);
+  backdrop-filter: blur(4px);
+}
+
+.entity-detail-shell {
+  width: min(1240px, 100%);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  border-radius: 18px;
+  background: #f8fafc;
+  box-shadow: 0 28px 70px rgba(15, 23, 42, 0.35);
+}
+
+.entity-detail-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 24px 28px 18px;
+  color: #f8fafc;
+  background: linear-gradient(135deg, #172554, #1d4ed8);
+}
+
+.entity-detail-header h2 {
+  margin: 4px 0;
+  font-size: clamp(1.45rem, 2.5vw, 2rem);
+}
+
+.entity-detail-header p {
+  margin: 0;
+  color: #dbeafe;
+}
+
+.detail-eyebrow {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #93c5fd;
+}
+
+.entity-detail-actions,
+.detail-row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.entity-detail-actions .close-button {
+  color: #fff;
+}
+
+.entity-detail-tabs {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  padding: 10px 24px 0;
+  border-bottom: 1px solid #dbe3ef;
+  background: #fff;
+}
+
+.entity-detail-tabs button {
+  padding: 12px 16px;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  color: #475569;
+  background: transparent;
+  font-weight: 650;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.entity-detail-tabs button.active {
+  border-bottom-color: #2563eb;
+  color: #1d4ed8;
+}
+
+.entity-detail-body {
+  padding: 24px 28px 36px;
+  overflow: auto;
+}
+
+.entity-detail-grid,
+.brand-assets-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.detail-card,
+.detail-list-item,
+.inline-detail-form {
+  padding: 18px;
+  border: 1px solid #dbe3ef;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.detail-card-wide {
+  grid-column: 1 / -1;
+}
+
+.detail-card h3,
+.detail-card h4,
+.detail-list-item h4,
+.inline-detail-form h4 {
+  margin: 0 0 12px;
+  color: #172554;
+}
+
+.detail-card dl {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.8fr) minmax(0, 1.5fr);
+  gap: 8px 14px;
+  margin: 0;
+}
+
+.detail-card dt {
+  color: #64748b;
+  font-size: 0.86rem;
+}
+
+.detail-card dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: #0f172a;
+}
+
+.social-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.entity-logo-preview {
+  display: block;
+  max-width: 220px;
+  max-height: 140px;
+  object-fit: contain;
+  padding: 10px;
+  border: 1px solid #dbe3ea;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.social-links a,
+.detail-badges span {
+  padding: 4px 9px;
+  border-radius: 999px;
+  color: #1d4ed8;
+  background: #dbeafe;
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.detail-section-heading,
+.detail-list-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.detail-section-heading {
+  margin-bottom: 16px;
+}
+
+.detail-section-heading h3,
+.detail-section-heading p {
+  margin: 0 0 4px;
+}
+
+.detail-list {
+  display: grid;
+  gap: 12px;
+}
+
+.detail-list-item.inactive {
+  opacity: 0.68;
+  background: #f1f5f9;
+}
+
+.detail-list-item p {
+  margin: 7px 0;
+}
+
+.detail-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 9px;
+}
+
+.iban-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: 0.03em;
+  color: #172554;
+}
+
+.inline-detail-form {
+  margin-top: 18px;
+}
+
+.detail-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+  margin-bottom: 16px;
+}
+
+.detail-form-grid label {
+  display: grid;
+  gap: 5px;
+  color: #334155;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.detail-form-grid label.wide {
+  grid-column: 1 / -1;
+}
+
+.detail-form-grid label.checkbox,
+.inline-detail-form > label.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.detail-form-grid input,
+.detail-form-grid select,
+.detail-form-grid textarea {
+  width: 100%;
+  min-height: 42px;
+  padding: 9px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.brand-assets-grid {
+  margin-bottom: 16px;
+}
+
+.brand-assets-grid input {
+  max-width: 100%;
+  margin: 8px 0;
+}
+
+@media (max-width: 760px) {
+  .entity-detail-overlay {
+    padding: 0;
+  }
+
+  .entity-detail-shell {
+    border-radius: 0;
+  }
+
+  .entity-detail-header,
+  .detail-section-heading,
+  .detail-list-item {
+    flex-direction: column;
+  }
+
+  .entity-detail-grid,
+  .brand-assets-grid,
+  .detail-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-card-wide,
+  .detail-form-grid label.wide {
+    grid-column: auto;
+  }
+}

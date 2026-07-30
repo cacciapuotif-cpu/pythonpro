@@ -113,24 +113,36 @@ class TimesheetGenerator:
         presenze: list,
         logo_path: Optional[str] = None,
         designer_name: Optional[str] = None,
+        ente_print_config=None,
     ) -> BytesIO:
         config = _get_fondo_config(ente_erogatore)
         # SQLAlchemy restituisce Numeric come Decimal; ReportLab e i totali
         # delle presenze lavorano con float. Normalizziamo una volta al confine.
         ore_assegnate_num = float(ore_assegnate or 0)
         buffer = BytesIO()
-        doc = SimpleDocTemplate(
-            buffer,
-            pagesize=A4,
-            rightMargin=2*cm,
-            leftMargin=2*cm,
-            topMargin=2*cm,
-            bottomMargin=2*cm,
+        printing_enabled = bool(
+            ente_print_config
+            and getattr(ente_print_config, "print_config_enabled", False)
         )
+        decoration = None
+        if printing_enabled:
+            from services.entity_printing import page_decoration
+
+            decoration = page_decoration(ente_print_config)
+            doc = SimpleDocTemplate(buffer, pagesize=A4, **decoration.margins)
+        else:
+            doc = SimpleDocTemplate(
+                buffer,
+                pagesize=A4,
+                rightMargin=2*cm,
+                leftMargin=2*cm,
+                topMargin=2*cm,
+                bottomMargin=2*cm,
+            )
 
         story = []
 
-        if logo_path and Path(logo_path).exists():
+        if logo_path and Path(logo_path).exists() and not printing_enabled:
             try:
                 logo = Image(logo_path, width=4*cm, height=2*cm, kind='proportional')
                 logo.hAlign = 'LEFT'
@@ -285,6 +297,13 @@ class TimesheetGenerator:
             self.styles['TSSmall']
         ))
 
-        doc.build(story)
+        if decoration:
+            doc.build(
+                story,
+                onFirstPage=decoration.on_first_page,
+                onLaterPages=decoration.on_later_pages,
+            )
+        else:
+            doc.build(story)
         buffer.seek(0)
         return buffer

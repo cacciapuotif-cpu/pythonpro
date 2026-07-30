@@ -12,9 +12,46 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import http from '../lib/http';
+import apiService from '../services/apiService';
 import './ImplementingEntityModal.css';
 
-const ImplementingEntityModal = ({ entity, onClose, onSave }) => {
+const EMPTY_LOCATION = {
+  tipo: 'operativa',
+  denominazione: '',
+  indirizzo: '',
+  cap: '',
+  citta: '',
+  provincia: '',
+  nazione: 'IT',
+  email: '',
+  pec: '',
+  telefono: '',
+  is_principale: false,
+  accreditamento_ente: '',
+  accreditamento_codice: '',
+  accreditamento_data: '',
+  accreditamento_scadenza: '',
+  is_active: true,
+  attiva_dal: '',
+  dismessa_dal: '',
+};
+
+const EMPTY_ACCOUNT = {
+  banca: '',
+  agenzia: '',
+  iban: '',
+  bic_swift: '',
+  intestatario: '',
+  is_predefinito: false,
+  is_active: true,
+  note: '',
+};
+
+const cleanRelatedPayload = (value) => Object.fromEntries(
+  Object.entries(value).map(([key, item]) => [key, item === '' ? null : item])
+);
+
+const ImplementingEntityModal = ({ entity, onClose, onSave, onChanged }) => {
   // ==========================================
   // STATE MANAGEMENT
   // ==========================================
@@ -41,6 +78,8 @@ const ImplementingEntityModal = ({ entity, onClose, onSave }) => {
     email: '',
     telefono: '',
     sdi: '',
+    sito_web: '',
+    social_links: [],
 
     // Dati pagamento
     iban: '',
@@ -65,6 +104,12 @@ const ImplementingEntityModal = ({ entity, onClose, onSave }) => {
   const [logoFile, setLogoFile] = useState(null);
   const [logoPreview, setLogoPreview] = useState(null);
   const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [locations, setLocations] = useState([]);
+  const [accounts, setAccounts] = useState([]);
+  const [locationForm, setLocationForm] = useState(null);
+  const [accountForm, setAccountForm] = useState(null);
+  const [relatedBusy, setRelatedBusy] = useState(false);
+  const [relatedError, setRelatedError] = useState('');
 
   const revokeObjectUrl = useCallback((url) => {
     if (url && url.startsWith('blob:')) {
@@ -84,7 +129,7 @@ const ImplementingEntityModal = ({ entity, onClose, onSave }) => {
     { id: 'legal', title: 'Dati Legali', icon: '📋' },
     { id: 'address', title: 'Sede Legale', icon: '📍' },
     { id: 'contacts', title: 'Contatti', icon: '📧' },
-    { id: 'payment', title: 'Pagamento', icon: '💳' },
+    { id: 'payment', title: 'Conti correnti', icon: '💳' },
     { id: 'legalRepresentative', title: 'Legale Rappresentante', icon: '👤' },
     { id: 'notes', title: 'Note & Logo', icon: '📝' }
   ];
@@ -134,8 +179,10 @@ const ImplementingEntityModal = ({ entity, onClose, onSave }) => {
         email: entity.email || '',
         telefono: entity.telefono || '',
         sdi: entity.sdi || '',
-        iban: entity.iban || '',
-        intestatario_conto: entity.intestatario_conto || '',
+        sito_web: entity.sito_web || '',
+        social_links: entity.social_links || [],
+        iban: '',
+        intestatario_conto: '',
         legale_rappresentante_nome: entity.legale_rappresentante_nome || '',
         legale_rappresentante_cognome: entity.legale_rappresentante_cognome || '',
         legale_rappresentante_luogo_nascita: entity.legale_rappresentante_luogo_nascita || '',
@@ -164,6 +211,29 @@ const ImplementingEntityModal = ({ entity, onClose, onSave }) => {
     };
   }, [entity, updateLogoPreview]);
 
+  const loadRelatedData = useCallback(async () => {
+    if (!entity?.id) {
+      setLocations([]);
+      setAccounts([]);
+      return;
+    }
+    setRelatedError('');
+    try {
+      const [locationRows, accountRows] = await Promise.all([
+        apiService.getEntityLocations(entity.id),
+        apiService.getEntityAccounts(entity.id),
+      ]);
+      setLocations(locationRows);
+      setAccounts(accountRows);
+    } catch (error) {
+      setRelatedError(error.response?.data?.detail || 'Impossibile caricare sedi e conti correnti');
+    }
+  }, [entity?.id]);
+
+  useEffect(() => {
+    loadRelatedData();
+  }, [loadRelatedData]);
+
   useEffect(() => {
     return () => {
       revokeObjectUrl(logoPreview);
@@ -191,6 +261,29 @@ const ImplementingEntityModal = ({ entity, onClose, onSave }) => {
     }
   };
 
+  const addSocialLink = () => {
+    setFormData((current) => ({
+      ...current,
+      social_links: [...(current.social_links || []), { platform: 'LinkedIn', label: '', url: '' }],
+    }));
+  };
+
+  const updateSocialLink = (index, field, value) => {
+    setFormData((current) => ({
+      ...current,
+      social_links: current.social_links.map((link, linkIndex) => (
+        linkIndex === index ? { ...link, [field]: value } : link
+      )),
+    }));
+  };
+
+  const removeSocialLink = (index) => {
+    setFormData((current) => ({
+      ...current,
+      social_links: current.social_links.filter((_, linkIndex) => linkIndex !== index),
+    }));
+  };
+
   /**
    * GESTISCE LA SELEZIONE DEL FILE LOGO
    */
@@ -199,9 +292,9 @@ const ImplementingEntityModal = ({ entity, onClose, onSave }) => {
     if (!file) return;
 
     // Valida tipo file
-    const allowedTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/svg+xml', 'image/gif'];
+    const allowedTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/gif'];
     if (!allowedTypes.includes(file.type)) {
-      alert('Formato file non supportato. Usa PNG, JPG, SVG o GIF.');
+      alert('Formato file non supportato. Usa PNG, JPG o GIF.');
       return;
     }
 
@@ -289,6 +382,53 @@ const ImplementingEntityModal = ({ entity, onClose, onSave }) => {
     }
   };
 
+  const runRelatedOperation = async (operation) => {
+    setRelatedBusy(true);
+    setRelatedError('');
+    try {
+      await operation();
+      await loadRelatedData();
+      await onChanged?.();
+      return true;
+    } catch (error) {
+      setRelatedError(error.response?.data?.detail || 'Operazione non riuscita');
+      return false;
+    } finally {
+      setRelatedBusy(false);
+    }
+  };
+
+  const saveLocation = async () => {
+    if (!entity?.id || !locationForm) return;
+    const { id, ...payload } = locationForm;
+    const saved = await runRelatedOperation(() => (
+      id
+        ? apiService.updateEntityLocation(entity.id, id, cleanRelatedPayload(payload))
+        : apiService.createEntityLocation(entity.id, cleanRelatedPayload(payload))
+    ));
+    if (saved) setLocationForm(null);
+  };
+
+  const deactivateLocation = (locationId) => runRelatedOperation(
+    () => apiService.deactivateEntityLocation(entity.id, locationId)
+  );
+
+  const saveAccount = async () => {
+    if (!entity?.id || !accountForm) return;
+    const { id, ...payload } = accountForm;
+    if (id && !payload.iban) delete payload.iban;
+    const saved = await runRelatedOperation(() => (
+      id
+        ? apiService.updateEntityAccount(entity.id, id, cleanRelatedPayload(payload))
+        : apiService.createEntityAccount(entity.id, cleanRelatedPayload(payload))
+    ));
+    if (saved) setAccountForm(null);
+  };
+
+  const deactivateAccount = (accountId) => runRelatedOperation(
+    () => apiService.deactivateEntityAccount(entity.id, accountId)
+  );
+
   /**
    * VALIDA IL FORM
    */
@@ -350,19 +490,23 @@ const ImplementingEntityModal = ({ entity, onClose, onSave }) => {
       newErrors.provincia = 'Provincia deve essere 2 lettere (es: NA, MI)';
     }
 
-    if (formData.iban && formData.iban.trim()) {
-      const iban = formData.iban.replace(/\s/g, '');
-      if (!/^IT\d{2}[A-Z]\d{10}[A-Z0-9]{12}$/.test(iban)) {
-        newErrors.iban = 'IBAN italiano non valido (deve iniziare con IT e avere 27 caratteri)';
-      }
-    }
-
     if (formData.pec && formData.pec.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.pec)) {
       newErrors.pec = 'Formato PEC non valido';
     }
 
     if (formData.email && formData.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
       newErrors.email = 'Formato email non valido';
+    }
+
+    if (formData.sito_web && !/^https?:\/\/[^\s/$.?#].[^\s]*$/i.test(formData.sito_web)) {
+      newErrors.sito_web = 'Inserisci un URL completo http:// o https://';
+    }
+
+    const invalidSocial = (formData.social_links || []).find(
+      (link) => !link.platform?.trim() || !/^https?:\/\/[^\s/$.?#].[^\s]*$/i.test(link.url || '')
+    );
+    if (invalidSocial) {
+      newErrors.social_links = 'Ogni pagina social richiede piattaforma e URL completo';
     }
 
     if (
@@ -401,7 +545,7 @@ const ImplementingEntityModal = ({ entity, onClose, onSave }) => {
           setCurrentSection(0);
         } else if (['indirizzo', 'cap', 'citta', 'provincia', 'nazione'].includes(firstError)) {
           setCurrentSection(1);
-        } else if (['pec', 'email', 'telefono', 'sdi'].includes(firstError)) {
+        } else if (['pec', 'email', 'telefono', 'sdi', 'sito_web', 'social_links'].includes(firstError)) {
           setCurrentSection(2);
         } else if (['iban', 'intestatario_conto'].includes(firstError)) {
           setCurrentSection(3);
@@ -422,6 +566,10 @@ const ImplementingEntityModal = ({ entity, onClose, onSave }) => {
     if (cleanData.legale_rappresentante_data_nascita) {
       cleanData.legale_rappresentante_data_nascita = `${cleanData.legale_rappresentante_data_nascita}T00:00:00Z`;
     }
+    // I conti sono entità dedicate e gli IBAN non vengono mai rimandati dal
+    // form anagrafico (la scheda li mostra mascherati).
+    delete cleanData.iban;
+    delete cleanData.intestatario_conto;
 
     try {
       const savedEntity = await onSave(cleanData);
@@ -495,6 +643,184 @@ const ImplementingEntityModal = ({ entity, onClose, onSave }) => {
     e.preventDefault();
     e.stopPropagation();
     prevSection();
+  };
+
+  const renderLocationsManager = () => {
+    if (!entity?.id) {
+      return (
+        <div className="info-message">
+          Salva prima il nuovo ente; subito dopo potrai aggiungere tutte le sedi da questa stessa finestra.
+        </div>
+      );
+    }
+
+    return (
+      <div className="entity-related-editor">
+        <div className="related-editor-heading">
+          <div>
+            <h4>Sedi censite</h4>
+            <p>Puoi aggiungere, modificare o disattivare le sedi senza uscire dalla modifica.</p>
+          </div>
+          <button
+            type="button"
+            className="btn-primary btn-small"
+            onClick={() => setLocationForm({ ...EMPTY_LOCATION })}
+          >
+            Aggiungi sede
+          </button>
+        </div>
+        {relatedError && <div className="alert alert-error">{relatedError}</div>}
+        <div className="related-record-list">
+          {locations.map((location) => (
+            <article key={location.id} className={`related-record ${!location.is_active ? 'inactive' : ''}`}>
+              <div>
+                <strong>{location.denominazione}</strong>
+                <span>{location.tipo}{location.is_principale ? ' · principale' : ''}{!location.is_active ? ' · dismessa' : ''}</span>
+                <small>{location.indirizzo_completo || 'Indirizzo non indicato'}</small>
+              </div>
+              <div className="related-record-actions">
+                <button type="button" className="btn-secondary btn-small" onClick={() => setLocationForm({ ...location })}>Modifica</button>
+                {location.is_active && (
+                  <button type="button" className="btn-danger btn-small" onClick={() => deactivateLocation(location.id)}>Disattiva</button>
+                )}
+              </div>
+            </article>
+          ))}
+          {locations.length === 0 && <p className="related-empty">Nessuna sede censita.</p>}
+        </div>
+        {locationForm && (
+          <div className="related-inline-form">
+            <h4>{locationForm.id ? 'Modifica sede' : 'Nuova sede'}</h4>
+            <div className="form-row">
+              <div className="form-group">
+                <label>Tipo</label>
+                <select value={locationForm.tipo} onChange={(e) => setLocationForm({ ...locationForm, tipo: e.target.value })}>
+                  <option value="legale">Legale</option>
+                  <option value="operativa">Operativa</option>
+                  <option value="amministrativa">Amministrativa</option>
+                  <option value="accreditata">Accreditata</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label>Denominazione *</label>
+                <input required value={locationForm.denominazione || ''} onChange={(e) => setLocationForm({ ...locationForm, denominazione: e.target.value })} />
+              </div>
+            </div>
+            <div className="form-group">
+              <label>Indirizzo</label>
+              <input value={locationForm.indirizzo || ''} onChange={(e) => setLocationForm({ ...locationForm, indirizzo: e.target.value })} />
+            </div>
+            <div className="form-row">
+              <div className="form-group"><label>CAP</label><input value={locationForm.cap || ''} onChange={(e) => setLocationForm({ ...locationForm, cap: e.target.value })} /></div>
+              <div className="form-group"><label>Città</label><input value={locationForm.citta || ''} onChange={(e) => setLocationForm({ ...locationForm, citta: e.target.value })} /></div>
+            </div>
+            <div className="form-row">
+              <div className="form-group"><label>Provincia</label><input maxLength="2" value={locationForm.provincia || ''} onChange={(e) => setLocationForm({ ...locationForm, provincia: e.target.value.toUpperCase() })} /></div>
+              <div className="form-group"><label>Nazione</label><input maxLength="2" value={locationForm.nazione || 'IT'} onChange={(e) => setLocationForm({ ...locationForm, nazione: e.target.value.toUpperCase() })} /></div>
+            </div>
+            <div className="form-row">
+              <div className="form-group"><label>Email</label><input type="email" value={locationForm.email || ''} onChange={(e) => setLocationForm({ ...locationForm, email: e.target.value })} /></div>
+              <div className="form-group"><label>PEC</label><input type="email" value={locationForm.pec || ''} onChange={(e) => setLocationForm({ ...locationForm, pec: e.target.value })} /></div>
+            </div>
+            <div className="form-row">
+              <div className="form-group"><label>Telefono</label><input value={locationForm.telefono || ''} onChange={(e) => setLocationForm({ ...locationForm, telefono: e.target.value })} /></div>
+              <div className="form-group"><label>Attiva dal</label><input type="date" value={locationForm.attiva_dal || ''} onChange={(e) => setLocationForm({ ...locationForm, attiva_dal: e.target.value })} /></div>
+            </div>
+            {locationForm.tipo === 'accreditata' && (
+              <>
+                <div className="form-row">
+                  <div className="form-group"><label>Ente accreditante</label><input value={locationForm.accreditamento_ente || ''} onChange={(e) => setLocationForm({ ...locationForm, accreditamento_ente: e.target.value })} /></div>
+                  <div className="form-group"><label>Codice accreditamento</label><input value={locationForm.accreditamento_codice || ''} onChange={(e) => setLocationForm({ ...locationForm, accreditamento_codice: e.target.value })} /></div>
+                </div>
+                <div className="form-row">
+                  <div className="form-group"><label>Data accreditamento</label><input type="date" value={locationForm.accreditamento_data || ''} onChange={(e) => setLocationForm({ ...locationForm, accreditamento_data: e.target.value })} /></div>
+                  <div className="form-group"><label>Scadenza accreditamento</label><input type="date" value={locationForm.accreditamento_scadenza || ''} onChange={(e) => setLocationForm({ ...locationForm, accreditamento_scadenza: e.target.value })} /></div>
+                </div>
+              </>
+            )}
+            <div className="form-group checkbox-group">
+              <label><input type="checkbox" checked={Boolean(locationForm.is_principale)} onChange={(e) => setLocationForm({ ...locationForm, is_principale: e.target.checked })} /> Sede principale</label>
+            </div>
+            <div className="related-record-actions">
+              <button type="button" className="btn-secondary" onClick={() => setLocationForm(null)}>Annulla</button>
+              <button type="button" className="btn-primary" disabled={relatedBusy || !locationForm.denominazione?.trim()} onClick={saveLocation}>Salva sede</button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderAccountsManager = () => {
+    if (!entity?.id) {
+      return (
+        <div className="info-message">
+          Salva prima il nuovo ente; subito dopo potrai aggiungere i conti correnti da questa stessa finestra.
+        </div>
+      );
+    }
+
+    return (
+      <div className="entity-related-editor">
+        <div className="related-editor-heading">
+          <div>
+            <h4>Conti correnti</h4>
+            <p>Gli IBAN restano mascherati. Per modificarne uno inserisci il nuovo valore; lasciandolo vuoto non cambia.</p>
+          </div>
+          <button
+            type="button"
+            className="btn-primary btn-small"
+            onClick={() => setAccountForm({ ...EMPTY_ACCOUNT, intestatario: formData.ragione_sociale })}
+          >
+            Aggiungi conto
+          </button>
+        </div>
+        {relatedError && <div className="alert alert-error">{relatedError}</div>}
+        <div className="related-record-list">
+          {accounts.map((account) => (
+            <article key={account.id} className={`related-record ${!account.is_active ? 'inactive' : ''}`}>
+              <div>
+                <strong>{account.banca || 'Banca non indicata'}{account.agenzia ? ` · ${account.agenzia}` : ''}</strong>
+                <span className="iban-value">{account.iban_masked || 'IBAN non disponibile'}</span>
+                <small>{account.intestatario}{account.is_predefinito ? ' · predefinito' : ''}{!account.is_active ? ' · disattivato' : ''}</small>
+              </div>
+              <div className="related-record-actions">
+                <button type="button" className="btn-secondary btn-small" onClick={() => setAccountForm({ ...account, iban: '' })}>Modifica</button>
+                {account.is_active && (
+                  <button type="button" className="btn-danger btn-small" onClick={() => deactivateAccount(account.id)}>Disattiva</button>
+                )}
+              </div>
+            </article>
+          ))}
+          {accounts.length === 0 && <p className="related-empty">Nessun conto corrente censito.</p>}
+        </div>
+        {accountForm && (
+          <div className="related-inline-form">
+            <h4>{accountForm.id ? 'Modifica conto corrente' : 'Nuovo conto corrente'}</h4>
+            <div className="form-row">
+              <div className="form-group"><label>Banca</label><input value={accountForm.banca || ''} onChange={(e) => setAccountForm({ ...accountForm, banca: e.target.value })} /></div>
+              <div className="form-group"><label>Agenzia</label><input value={accountForm.agenzia || ''} onChange={(e) => setAccountForm({ ...accountForm, agenzia: e.target.value })} /></div>
+            </div>
+            <div className="form-group">
+              <label>IBAN {accountForm.id ? '(lascia vuoto per non cambiarlo)' : '*'}</label>
+              <input required={!accountForm.id} value={accountForm.iban || ''} onChange={(e) => setAccountForm({ ...accountForm, iban: e.target.value.toUpperCase() })} />
+            </div>
+            <div className="form-row">
+              <div className="form-group"><label>BIC/SWIFT</label><input value={accountForm.bic_swift || ''} onChange={(e) => setAccountForm({ ...accountForm, bic_swift: e.target.value.toUpperCase() })} /></div>
+              <div className="form-group"><label>Intestatario *</label><input required value={accountForm.intestatario || ''} onChange={(e) => setAccountForm({ ...accountForm, intestatario: e.target.value })} /></div>
+            </div>
+            <div className="form-group"><label>Note conto</label><textarea value={accountForm.note || ''} onChange={(e) => setAccountForm({ ...accountForm, note: e.target.value })} /></div>
+            <div className="form-group checkbox-group">
+              <label><input type="checkbox" checked={Boolean(accountForm.is_predefinito)} onChange={(e) => setAccountForm({ ...accountForm, is_predefinito: e.target.checked })} /> Conto predefinito</label>
+            </div>
+            <div className="related-record-actions">
+              <button type="button" className="btn-secondary" onClick={() => setAccountForm(null)}>Annulla</button>
+              <button type="button" className="btn-primary" disabled={relatedBusy || (!accountForm.id && !accountForm.iban?.trim()) || !accountForm.intestatario?.trim()} onClick={saveAccount}>Salva conto</button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
   };
 
   // ==========================================
@@ -690,6 +1016,8 @@ const ImplementingEntityModal = ({ entity, onClose, onSave }) => {
                 />
               </div>
             </div>
+            <div className="related-editor-divider" />
+            {renderLocationsManager()}
           </div>
         );
 
@@ -750,38 +1078,57 @@ const ImplementingEntityModal = ({ entity, onClose, onSave }) => {
                 />
               </div>
             </div>
+
+            <div className="form-group">
+              <label htmlFor="sito_web">Sito web</label>
+              <input
+                type="url"
+                id="sito_web"
+                name="sito_web"
+                value={formData.sito_web}
+                onChange={handleChange}
+                placeholder="https://www.ente.it"
+                className={errors.sito_web ? 'error' : ''}
+              />
+              {errors.sito_web && <span className="error-text">{errors.sito_web}</span>}
+            </div>
+
+            <div className="form-group">
+              <div className="social-links-heading">
+                <label>Pagine social</label>
+                <button type="button" className="btn-secondary btn-small" onClick={addSocialLink}>
+                  Aggiungi pagina
+                </button>
+              </div>
+              {(formData.social_links || []).map((link, index) => (
+                <div className="form-row social-link-row" key={`social-${index}`}>
+                  <input
+                    aria-label={`Piattaforma social ${index + 1}`}
+                    value={link.platform}
+                    onChange={(e) => updateSocialLink(index, 'platform', e.target.value)}
+                    placeholder="LinkedIn, Facebook, Instagram, YouTube, altro"
+                  />
+                  <input
+                    type="url"
+                    aria-label={`URL social ${index + 1}`}
+                    value={link.url}
+                    onChange={(e) => updateSocialLink(index, 'url', e.target.value)}
+                    placeholder="https://..."
+                  />
+                  <button type="button" className="btn-danger btn-small" onClick={() => removeSocialLink(index)}>
+                    Rimuovi
+                  </button>
+                </div>
+              ))}
+              {errors.social_links && <span className="error-text">{errors.social_links}</span>}
+            </div>
           </div>
         );
 
-      case 3: // Pagamento
+      case 3: // Conti correnti
         return (
           <div className="form-section">
-            <div className="form-group">
-              <label htmlFor="iban">IBAN</label>
-              <input
-                type="text"
-                id="iban"
-                name="iban"
-                value={formData.iban}
-                onChange={handleChange}
-                placeholder="IT60 X054 2811 1010 0000 0123 456"
-                maxLength="27"
-                className={errors.iban ? 'error' : ''}
-              />
-              {errors.iban && <span className="error-text">{errors.iban}</span>}
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="intestatario_conto">Intestatario Conto</label>
-              <input
-                type="text"
-                id="intestatario_conto"
-                name="intestatario_conto"
-                value={formData.intestatario_conto}
-                onChange={handleChange}
-                placeholder="Nome intestatario"
-              />
-            </div>
+            {renderAccountsManager()}
           </div>
         );
 
@@ -915,7 +1262,7 @@ const ImplementingEntityModal = ({ entity, onClose, onSave }) => {
 
             {/* Upload Logo */}
             <div className="form-group">
-              <label>Logo o Carta Intestata Ente</label>
+              <label>Logo ente</label>
               <div className="logo-upload-container">
                 {logoPreview && (
                   <div className="logo-preview">
@@ -936,7 +1283,7 @@ const ImplementingEntityModal = ({ entity, onClose, onSave }) => {
                   <div className="logo-upload-controls">
                     <input
                       type="file"
-                      accept="image/png,image/jpeg,image/jpg,image/svg+xml,image/gif"
+                      accept="image/png,image/jpeg,image/jpg,image/gif"
                       onChange={handleLogoSelect}
                       id="logo-input"
                       style={{ display: 'none' }}
@@ -957,9 +1304,9 @@ const ImplementingEntityModal = ({ entity, onClose, onSave }) => {
                     )}
 
                     <small className="help-text">
-                      Formati: PNG, JPG, SVG, GIF • Max 5MB
+                      Formati: PNG, JPG, GIF • Max 5MB
                       <br />
-                      Puoi usare un logo oppure un'immagine di carta intestata dell'ente
+                      La carta intestata è un file indipendente e si gestisce dalla scheda completa.
                     </small>
                   </div>
                 ) : (
@@ -1005,18 +1352,20 @@ const ImplementingEntityModal = ({ entity, onClose, onSave }) => {
         </div>
 
         {/* Indicatore sezioni */}
-        <div className="sections-indicator">
+        <nav className="sections-indicator" aria-label="Sezioni modifica ente">
           {sections.map((section, index) => (
-            <div
+            <button
+              type="button"
               key={section.id}
               className={`section-step ${currentSection === index ? 'active' : ''} ${currentSection > index ? 'completed' : ''}`}
               onClick={handleSectionStepClick(index)}
+              aria-current={currentSection === index ? 'step' : undefined}
             >
-              <div className="step-icon">{section.icon}</div>
-              <div className="step-title">{section.title}</div>
-            </div>
+              <span className="step-icon" aria-hidden="true">{section.icon}</span>
+              <span className="step-title">{section.title}</span>
+            </button>
           ))}
-        </div>
+        </nav>
 
         {/* Form */}
         <form onSubmit={handleSubmit} onKeyDown={handleFormKeyDown}>

@@ -434,6 +434,14 @@ def _generate_contract_pdf_response(
         ente = crud.get_implementing_entity(db, request.ente_attuatore_id)
         if not ente:
             raise HTTPException(status_code=404, detail="Ente attuatore non trovato")
+        from services.entity_printing import select_bank_account, select_location
+
+        selected_location = select_location(ente, request.sede_id)
+        selected_account = select_bank_account(ente, request.conto_corrente_id)
+        if request.sede_id is not None and selected_location is None:
+            raise HTTPException(status_code=422, detail="La sede selezionata non appartiene all'ente")
+        if request.conto_corrente_id is not None and selected_account is None:
+            raise HTTPException(status_code=422, detail="Il conto selezionato non appartiene all'ente")
 
         if request.template_id:
             template = crud.get_contract_template(db, request.template_id)
@@ -456,7 +464,9 @@ def _generate_contract_pdf_response(
 
         compenso_totale = request.ore_previste * request.tariffa_oraria
 
-        ente_sede_via, ente_sede_numero_civico = _split_street_and_number(ente.indirizzo)
+        ente_sede_via, ente_sede_numero_civico = _split_street_and_number(
+            selected_location.indirizzo if selected_location else ente.indirizzo
+        )
         progetto_sede_completa = ", ".join(
             part for part in [
                 progetto.sede_aziendale_via or "",
@@ -489,10 +499,20 @@ def _generate_contract_pdf_response(
             'ente_forma_giuridica': ente.forma_giuridica or 'N/A',
             'ente_piva': ente.partita_iva,
             'ente_codice_fiscale': ente.codice_fiscale or 'N/A',
-            'ente_indirizzo_completo': ente.indirizzo_completo or 'N/A',
-            'ente_sede_comune': ente.citta or 'N/A',
+            'ente_indirizzo_completo': (
+                selected_location.indirizzo_completo if selected_location else ente.indirizzo_completo
+            ) or 'N/A',
+            'ente_sede_comune': (
+                selected_location.citta if selected_location else ente.citta
+            ) or 'N/A',
             'ente_sede_via': ente_sede_via,
             'ente_sede_numero_civico': ente_sede_numero_civico,
+            'ente_sede_denominazione': selected_location.denominazione if selected_location else 'N/A',
+            'ente_sede_tipo': selected_location.tipo if selected_location else 'legale',
+            'ente_conto_iban': selected_account.iban if selected_account else 'N/A',
+            'ente_conto_intestatario': selected_account.intestatario if selected_account else 'N/A',
+            'ente_conto_banca': selected_account.banca or 'N/A' if selected_account else 'N/A',
+            'ente_conto_bic_swift': selected_account.bic_swift or 'N/A' if selected_account else 'N/A',
             'ente_legale_rappresentante_nome': ente.legale_rappresentante_nome or 'N/A',
             'ente_legale_rappresentante_cognome': ente.legale_rappresentante_cognome or 'N/A',
             'ente_legale_rappresentante_nome_completo': ente.legale_rappresentante_nome_completo or 'N/A',
@@ -537,7 +557,9 @@ def _generate_contract_pdf_response(
             'COSTO_TOTALE': f"{compenso_totale:.2f}",
             'PERIODO_DAL': context['data_inizio'],
             'PERIODO_AL': context['data_fine'],
-            'SEDE_AZIENDALE': ente.indirizzo_completo or 'N/A',
+            'SEDE_AZIENDALE': (
+                selected_location.indirizzo_completo if selected_location else ente.indirizzo_completo
+            ) or 'N/A',
             'CODICE_PROGETTO': progetto.cup or progetto.name,
             'RUOLO_PROGETTUALE': request.mansione,
             'ATTO_DI_APPROVAZIONE': progetto.atto_approvazione or 'N/A',
@@ -578,10 +600,22 @@ def _generate_contract_pdf_response(
         from reportlab.lib.utils import ImageReader
         from io import BytesIO
 
+        entity_printing_enabled = bool(getattr(ente, "print_config_enabled", False))
+        entity_decoration = None
+        if entity_printing_enabled:
+            from services.entity_printing import page_decoration
+
+            entity_decoration = page_decoration(ente)
+
         header_logo_path = None
         header_logo_width = None
         header_logo_height = None
-        if template.include_logo_ente and template.posizione_logo == "header" and ente.logo_path:
+        if (
+            not entity_printing_enabled
+            and template.include_logo_ente
+            and template.posizione_logo == "header"
+            and ente.logo_path
+        ):
             try:
                 from file_upload import get_file_path
                 header_logo_path = get_file_path(ente.logo_path)
@@ -604,16 +638,19 @@ def _generate_contract_pdf_response(
                 header_logo_width = None
                 header_logo_height = None
 
-        top_margin = max(2 * cm, (header_logo_height or 0) + 1.6 * cm)
         buffer = BytesIO()
-        doc = SimpleDocTemplate(
-            buffer,
-            pagesize=A4,
-            rightMargin=2*cm,
-            leftMargin=2*cm,
-            topMargin=top_margin,
-            bottomMargin=2*cm
-        )
+        if entity_decoration:
+            doc = SimpleDocTemplate(buffer, pagesize=A4, **entity_decoration.margins)
+        else:
+            top_margin = max(2 * cm, (header_logo_height or 0) + 1.6 * cm)
+            doc = SimpleDocTemplate(
+                buffer,
+                pagesize=A4,
+                rightMargin=2*cm,
+                leftMargin=2*cm,
+                topMargin=top_margin,
+                bottomMargin=2*cm
+            )
         story = []
         styles = getSampleStyleSheet()
         body_style = ParagraphStyle(
@@ -658,7 +695,12 @@ def _generate_contract_pdf_response(
             for block in _html_to_text_blocks(pie_pagina_compilato):
                 story.append(Paragraph(escape(block), body_style))
 
-        if template.include_logo_ente and template.posizione_logo == "footer" and ente.logo_path:
+        if (
+            not entity_printing_enabled
+            and template.include_logo_ente
+            and template.posizione_logo == "footer"
+            and ente.logo_path
+        ):
             try:
                 from file_upload import get_file_path
                 logo_path = get_file_path(ente.logo_path)
@@ -674,7 +716,14 @@ def _generate_contract_pdf_response(
             except Exception as e:
                 logger.warning(f"Errore caricamento logo footer: {e}")
 
-        doc.build(story, onFirstPage=draw_header_logo, onLaterPages=draw_header_logo)
+        if entity_decoration:
+            doc.build(
+                story,
+                onFirstPage=entity_decoration.on_first_page,
+                onLaterPages=entity_decoration.on_later_pages,
+            )
+        else:
+            doc.build(story, onFirstPage=draw_header_logo, onLaterPages=draw_header_logo)
         buffer.seek(0)
 
         crud.increment_template_usage(db, template.id)

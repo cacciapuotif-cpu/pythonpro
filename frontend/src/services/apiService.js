@@ -410,6 +410,93 @@ class ApiService {
     return response.data;
   }
 
+  async getEntityLocations(entityId) {
+    const response = await http.get(`/entities/${entityId}/locations`);
+    return response.data;
+  }
+
+  async createEntityLocation(entityId, data) {
+    const response = await http.post(`/entities/${entityId}/locations`, data);
+    return response.data;
+  }
+
+  async updateEntityLocation(entityId, locationId, data) {
+    const response = await http.put(`/entities/${entityId}/locations/${locationId}`, data);
+    return response.data;
+  }
+
+  async deactivateEntityLocation(entityId, locationId) {
+    const response = await http.delete(`/entities/${entityId}/locations/${locationId}`);
+    return response.data;
+  }
+
+  async getEntityAccounts(entityId) {
+    const response = await http.get(`/entities/${entityId}/accounts`);
+    return response.data;
+  }
+
+  async createEntityAccount(entityId, data) {
+    const response = await http.post(`/entities/${entityId}/accounts`, data);
+    return response.data;
+  }
+
+  async updateEntityAccount(entityId, accountId, data) {
+    const response = await http.put(`/entities/${entityId}/accounts/${accountId}`, data);
+    return response.data;
+  }
+
+  async deactivateEntityAccount(entityId, accountId) {
+    const response = await http.delete(`/entities/${entityId}/accounts/${accountId}`);
+    return response.data;
+  }
+
+  async revealEntityIban(entityId, accountId) {
+    const response = await http.get(`/entities/${entityId}/accounts/${accountId}/iban`);
+    return response.data;
+  }
+
+  async uploadEntityLetterhead(entityId, file) {
+    const form = new FormData();
+    form.append('file', file);
+    const response = await http.post(`/entities/${entityId}/upload-letterhead`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  }
+
+  async deleteEntityLetterhead(entityId) {
+    const response = await http.delete(`/entities/${entityId}/delete-letterhead`);
+    return response.data;
+  }
+
+  async uploadEntityLogo(entityId, file) {
+    const form = new FormData();
+    form.append('file', file);
+    const response = await http.post(`/entities/${entityId}/upload-logo`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  }
+
+  async downloadEntityLogo(entityId) {
+    const response = await http.get(`/entities/${entityId}/download-logo`, {
+      responseType: 'blob',
+    });
+    return response.data;
+  }
+
+  async deleteEntityLogo(entityId) {
+    const response = await http.delete(`/entities/${entityId}/delete-logo`);
+    return response.data;
+  }
+
+  async previewEntityPrint(entityId, config) {
+    const response = await http.post(`/entities/${entityId}/print-preview`, config, {
+      responseType: 'blob',
+    });
+    return response.data;
+  }
+
   // Contract Templates
   async getContractTemplates(filters = {}) {
     const params = {
@@ -450,8 +537,12 @@ class ApiService {
     return response.data;
   }
 
-  async downloadAssignmentContract(assignmentId) {
+  async downloadAssignmentContract(assignmentId, options = {}) {
+    const params = {};
+    if (options.sedeId) params.sede_id = options.sedeId;
+    if (options.contoCorrenteId) params.conto_corrente_id = options.contoCorrenteId;
     const response = await http.get(`/assignments/${assignmentId}/contract`, {
+      params,
       responseType: 'blob',
     });
     return response.data;
@@ -747,7 +838,8 @@ export const getContractTemplate = (id) => apiService.getContractTemplate(id);
 export const createContractTemplate = (data) => apiService.createContractTemplate(data);
 export const updateContractTemplate = (id, data) => apiService.updateContractTemplate(id, data);
 export const deleteContractTemplate = (id, soft_delete = true) => apiService.deleteContractTemplate(id, soft_delete);
-export const downloadAssignmentContract = (assignmentId) => apiService.downloadAssignmentContract(assignmentId);
+export const downloadAssignmentContract = (assignmentId, options) =>
+  apiService.downloadAssignmentContract(assignmentId, options);
 
 // Avvisi
 export const getAvvisi = (params = {}) =>

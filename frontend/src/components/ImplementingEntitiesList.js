@@ -12,6 +12,7 @@
 import React, { useState } from 'react';
 import { useImplementingEntities, useNotifications } from '../hooks/useEntity';
 import ImplementingEntityModal from './ImplementingEntityModal';
+import ImplementingEntityDetail from './ImplementingEntityDetail';
 import { canPerform, normalizeRole } from '../auth/permissions';
 import './ImplementingEntitiesList.css';
 
@@ -45,6 +46,7 @@ const ImplementingEntitiesList = ({ currentUser }) => {
   // Modal per creare/modificare ente
   const [showModal, setShowModal] = useState(false);
   const [editingEntity, setEditingEntity] = useState(null);
+  const [detailEntityId, setDetailEntityId] = useState(null);
 
   // Stati locali per UI
   const [searchTerm, setSearchTerm] = useState('');
@@ -68,6 +70,7 @@ const ImplementingEntitiesList = ({ currentUser }) => {
    * APRE IL MODAL PER MODIFICARE UN ENTE ESISTENTE
    */
   const handleEdit = (entity) => {
+    setDetailEntityId(null);
     setEditingEntity(entity);
     setShowModal(true);
   };
@@ -328,7 +331,15 @@ const ImplementingEntitiesList = ({ currentUser }) => {
               </div>
 
               {/* Azioni */}
-              {canWriteEntities ? <div className="entity-actions">
+              <div className="entity-actions">
+                <button
+                  className="btn-primary"
+                  onClick={() => setDetailEntityId(entity.id)}
+                  title="Apri scheda completa"
+                >
+                  👁️ Dettaglio
+                </button>
+                {canWriteEntities ? <>
                 <button
                   className="btn-secondary"
                   onClick={() => handleEdit(entity)}
@@ -345,7 +356,8 @@ const ImplementingEntitiesList = ({ currentUser }) => {
                     🗑️ Disattiva
                   </button>
                 )}
-              </div> : null}
+                </> : null}
+              </div>
             </div>
           ))}
         </div>
@@ -360,6 +372,16 @@ const ImplementingEntitiesList = ({ currentUser }) => {
             setEditingEntity(null);
           }}
           onSave={handleSave}
+          onChanged={refresh}
+        />
+      )}
+      {detailEntityId && (
+        <ImplementingEntityDetail
+          entityId={detailEntityId}
+          currentUser={currentUser}
+          onClose={() => setDetailEntityId(null)}
+          onEdit={handleEdit}
+          onChanged={refresh}
         />
       )}
     </div>
