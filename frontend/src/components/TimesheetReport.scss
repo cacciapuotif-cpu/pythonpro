@@ -1,3 +1,5 @@
+@use "../styles/breakpoints" as bp;
+
 /**
  * STILI TIMESHEET REPORT
  * Interfaccia per visualizzare report ore lavorate
@@ -449,7 +451,7 @@
    RESPONSIVE
    ========================================== */
 
-@media (max-width: 768px) {
+@include bp.mobile {
   .timesheet-report {
     padding: 15px;
   }
@@ -497,7 +499,7 @@
   }
 }
 
-@media (max-width: 480px) {
+@include bp.phone {
   .timesheet-section {
     padding: 15px;
   }

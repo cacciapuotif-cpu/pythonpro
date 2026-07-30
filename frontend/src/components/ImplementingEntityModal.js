@@ -13,7 +13,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import http from '../lib/http';
 import apiService from '../services/apiService';
-import './ImplementingEntityModal.css';
+import './ImplementingEntityModal.scss';
 
 const EMPTY_LOCATION = {
   tipo: 'operativa',

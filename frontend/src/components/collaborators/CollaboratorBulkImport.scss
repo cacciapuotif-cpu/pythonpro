@@ -1,3 +1,5 @@
+@use "../../styles/breakpoints" as bp;
+
 /* Container principale */
 .bulk-import-container {
   background: white;
@@ -326,7 +328,7 @@
 }
 
 /* Responsive */
-@media (max-width: 768px) {
+@include bp.mobile {
   .bulk-import-header {
     flex-direction: column;
     align-items: flex-start;

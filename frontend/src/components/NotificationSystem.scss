@@ -1,3 +1,5 @@
+@use "../styles/breakpoints" as bp;
+
 /* Sistema di notifiche moderno con animazioni fluide */
 
 .notification-container {
@@ -222,7 +224,7 @@
 }
 
 /* Mobile responsive */
-@media (max-width: 640px) {
+@include bp.mobile {
   .notification-container {
     right: 10px;
     left: 10px;

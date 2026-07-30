@@ -18,7 +18,7 @@ import AssignmentModal from './AssignmentModal';
 import GestioneAssociati from './GestioneAssociati';
 import AlberoAllievi from './AlberoAllievi';
 import { canPerform, normalizeRole } from '../auth/permissions';
-import './ProjectManager.css';
+import './ProjectManager.scss';
 
 const ROLE_EXPERIENCE = {
   admin: {

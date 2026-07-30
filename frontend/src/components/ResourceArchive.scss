@@ -1,3 +1,5 @@
+@use "../styles/breakpoints" as bp;
+
 .resources-page {
   --resources-ink: #172033;
   --resources-muted: #667085;
@@ -481,7 +483,7 @@
 .resources-empty-detail h3 { margin: 0.65rem 0 0.25rem; color: var(--resources-ink); }
 .resources-empty-detail p { margin: 0; }
 
-@media (max-width: 1050px) {
+@include bp.tablet-down {
   .resources-types { grid-template-columns: 1fr; }
   .resources-workflow { grid-template-columns: 1fr 1fr; }
   .resources-workflow > div:nth-child(2) { border-right: 0; }
@@ -491,7 +493,7 @@
   .resources-list { max-height: 280px; }
 }
 
-@media (max-width: 720px) {
+@include bp.mobile {
   .resources-hero { flex-direction: column; padding: 1.35rem; }
   .resources-hero-rule { flex-basis: auto; }
   .resources-workflow { grid-template-columns: 1fr; }

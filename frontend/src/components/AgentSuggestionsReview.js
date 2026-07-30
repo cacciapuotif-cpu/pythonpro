@@ -12,7 +12,7 @@ import {
   reviewAgentSuggestion,
 } from '../services/apiService';
 import { canPerform } from '../auth/permissions';
-import './AgentsManager.css';
+import './AgentsManager.scss';
 
 const PRIORITY_META = {
   critical: { label: 'Critica', color: '#991b1b', background: '#fee2e2' },

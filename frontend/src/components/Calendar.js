@@ -28,7 +28,7 @@ import {
   savePersistedFilters,
 } from './calendar/calendarFilters';
 import CalendarFilterBar from './calendar/CalendarFilterBar';
-import './Calendar.css';
+import './Calendar.scss';
 
 // CONFIGURAZIONE LOCALE ITALIANA
 moment.locale('it');

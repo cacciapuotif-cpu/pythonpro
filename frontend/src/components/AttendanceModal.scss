@@ -1,3 +1,5 @@
+@use "../styles/breakpoints" as bp;
+
 /**
  * STILI PER IL MODAL DELLE PRESENZE
  * Definisce l'aspetto del modal per aggiungere/modificare presenze
@@ -346,7 +348,7 @@
    RESPONSIVE DESIGN
    ========================================== */
 
-@media (max-width: 768px) {
+@include bp.mobile {
   .attendance-modal {
     width: 95%;
     margin: 10px;

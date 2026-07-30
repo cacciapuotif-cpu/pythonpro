@@ -25,7 +25,7 @@ import CollaboratorBulkImport from './collaborators/CollaboratorBulkImport';
 import AssignmentModal from './AssignmentModal';
 import DocumentiCollaboratore from './DocumentiCollaboratore';
 import { canPerform, normalizeRole } from '../auth/permissions';
-import './CollaboratorManager.css';
+import './CollaboratorManager.scss';
 
 const CONTRACT_TYPE_LABELS = {
   professionale: 'Professionale',

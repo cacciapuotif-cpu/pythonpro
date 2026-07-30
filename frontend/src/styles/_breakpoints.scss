@@ -1,0 +1,44 @@
+// Unico registro dei breakpoint responsive di PythonPro.
+//
+// Le soglie descrivono capacità/layout, non singoli dispositivi:
+// telefono <= 480px, telefono grande/tablet verticale <= 768px,
+// tablet <= 1024px, desktop >= 1025px.
+$phone-max: 30rem;
+$mobile-max: 48rem;
+$tablet-max: 64rem;
+
+@mixin phone {
+  @media (max-width: $phone-max) {
+    @content;
+  }
+}
+
+@mixin large-phone {
+  @media (min-width: calc($phone-max + 0.0625rem)) and (max-width: $mobile-max) {
+    @content;
+  }
+}
+
+@mixin mobile {
+  @media (max-width: $mobile-max) {
+    @content;
+  }
+}
+
+@mixin tablet {
+  @media (min-width: calc($mobile-max + 0.0625rem)) and (max-width: $tablet-max) {
+    @content;
+  }
+}
+
+@mixin tablet-down {
+  @media (max-width: $tablet-max) {
+    @content;
+  }
+}
+
+@mixin desktop {
+  @media (min-width: calc($tablet-max + 0.0625rem)) {
+    @content;
+  }
+}

@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import apiService from '../services/apiService';
 import { getAgentCommunications, getAgentSuggestions } from '../services/apiService';
 import { isAdminRole, normalizeRole, ROLES } from '../auth/permissions';
-import './Dashboard.css';
+import './Dashboard.scss';
 
 const formatNumber = (value) => new Intl.NumberFormat('it-IT').format(Number(value || 0));
 

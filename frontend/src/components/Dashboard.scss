@@ -1,3 +1,5 @@
+@use "../styles/breakpoints" as bp;
+
 .dashboard-shell {
   padding: 28px;
   display: grid;
@@ -9,7 +11,7 @@
 
 .dashboard-hero {
   display: grid;
-  grid-template-columns: 1.4fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 28rem), 1fr));
   gap: 20px;
   padding: 28px;
   border-radius: 24px;
@@ -76,7 +78,7 @@
 
 .dashboard-grid-kpi {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr));
   gap: 16px;
 }
 
@@ -115,7 +117,7 @@
 
 .dashboard-grid-main {
   display: grid;
-  grid-template-columns: 1.35fr 0.95fr;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 28rem), 1fr));
   gap: 20px;
 }
 
@@ -377,22 +379,7 @@
   }
 }
 
-@media (max-width: 1120px) {
-  .dashboard-hero,
-  .dashboard-grid-main {
-    grid-template-columns: 1fr;
-  }
-
-  .dashboard-refresh {
-    justify-self: start;
-  }
-
-  .dashboard-grid-kpi {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 720px) {
+@include bp.mobile {
   .dashboard-shell {
     padding: 18px;
   }
@@ -411,7 +398,7 @@
   }
 }
 
-@media (max-width: 520px) {
+@include bp.mobile {
   .dashboard-shell {
     padding: 14px;
   }

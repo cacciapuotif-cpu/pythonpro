@@ -1,3 +1,5 @@
+@use "../styles/breakpoints" as bp;
+
 /**
  * STILI PER LA GESTIONE COLLABORATORI
  * Interfaccia completa con form, liste e modal
@@ -475,7 +477,7 @@
   cursor: pointer;
 }
 
-@media (max-width: 900px) {
+@include bp.tablet-down {
   .contract-preflight-summary {
     grid-template-columns: 1fr;
   }
@@ -489,7 +491,7 @@
   }
 }
 
-@media (max-width: 720px) {
+@include bp.mobile {
   .role-operations-banner {
     text-align: center;
   }
@@ -998,7 +1000,7 @@
   text-align: center;
 }
 
-@media (max-width: 960px) {
+@include bp.tablet-down {
   .wizard-header,
   .wizard-layout {
     grid-template-columns: 1fr;
@@ -1014,7 +1016,7 @@
   }
 }
 
-@media (max-width: 720px) {
+@include bp.mobile {
   .form-grid {
     grid-template-columns: 1fr;
   }
@@ -1652,7 +1654,7 @@
    RESPONSIVE DESIGN
    ========================================== */
 
-@media (max-width: 768px) {
+@include bp.mobile {
   .collaborators-ops-summary {
     grid-template-columns: 1fr;
   }
@@ -1867,7 +1869,7 @@
   box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
 }
 
-@media (max-width: 480px) {
+@include bp.phone {
   .collaborator-card {
     padding: 15px;
   }
@@ -2012,7 +2014,7 @@
 }
 
 /* Responsive per sezione documenti */
-@media (max-width: 768px) {
+@include bp.mobile {
   .doc-controls {
     flex-direction: column;
     align-items: stretch;
@@ -2199,7 +2201,7 @@
 }
 
 /* Responsive per la tabella */
-@media (max-width: 1024px) {
+@include bp.tablet-down {
   .compact-table {
     font-size: 0.85em;
   }
@@ -2223,7 +2225,7 @@
   }
 }
 
-@media (max-width: 768px) {
+@include bp.mobile {
   .collaborators-table {
     overflow-x: auto;
   }
@@ -2477,7 +2479,7 @@
 }
 
 /* Responsive per pannello espanso */
-@media (max-width: 768px) {
+@include bp.mobile {
   .projects-grid-expanded {
     grid-template-columns: 1fr;
   }

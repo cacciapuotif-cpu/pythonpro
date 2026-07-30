@@ -1,3 +1,5 @@
+@use "../styles/breakpoints" as bp;
+
 /**
  * STILI GESTIONE UTENTI
  * Stessa identità visiva di CollaboratorManager.css (header a gradiente,
@@ -461,7 +463,7 @@
   background-color: #c82333;
 }
 
-@media (max-width: 720px) {
+@include bp.mobile {
   .user-form {
     grid-template-columns: 1fr;
   }

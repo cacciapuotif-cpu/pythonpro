@@ -14,7 +14,7 @@ import { useImplementingEntities, useNotifications } from '../hooks/useEntity';
 import ImplementingEntityModal from './ImplementingEntityModal';
 import ImplementingEntityDetail from './ImplementingEntityDetail';
 import { canPerform, normalizeRole } from '../auth/permissions';
-import './ImplementingEntitiesList.css';
+import './ImplementingEntitiesList.scss';
 
 const ROLE_EXPERIENCE = {
   admin: {

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { downloadJsonTemplate, excelSerialToDateString, parseExcelFile } from '../../utils/excelUtils';
-import './CollaboratorBulkImport.css';
+import './CollaboratorBulkImport.scss';
 
 /**
  * Componente per l'importazione massiva di collaboratori da file Excel

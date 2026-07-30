@@ -4,7 +4,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useAppContext } from '../context/AppContext';
-import './NotificationSystem.css';
+import './NotificationSystem.scss';
 
 const NotificationSystem = () => {
   const { state, removeNotification } = useAppContext();

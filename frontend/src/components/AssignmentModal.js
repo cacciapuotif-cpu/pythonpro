@@ -18,7 +18,7 @@ import {
   getProjectModuloVocePiano
 } from '../services/apiService';
 import ErrorBanner from './ErrorBanner';
-import './AssignmentModal.css';
+import './AssignmentModal.scss';
 
 const PIANO_ROLE_TEMPLATES = [
   { voce_codice: 'A.1', descrizione: 'Progettazione esecutiva' },

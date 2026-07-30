@@ -13,7 +13,7 @@ import { useCollaborators, useProjects } from '../hooks/useEntity';
 import apiService from '../services/apiService';
 import { canPerform } from '../auth/permissions';
 import { formatApiError } from '../lib/errors';
-import './TimesheetReport.css';
+import './TimesheetReport.scss';
 
 const DEFAULT_PAGE_SIZE = 100;
 const PAGE_SIZE_OPTIONS = [50, 100, 250, 500, 1000];

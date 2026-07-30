@@ -13,7 +13,7 @@ import {
   sendEmailInboxFollowup,
 } from '../services/apiService';
 import { canPerform } from '../auth/permissions';
-import './AgentsManager.css';
+import './AgentsManager.scss';
 
 const FIELD_OPTIONS = [
   { value: 'curriculum', label: 'CV' },

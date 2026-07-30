@@ -1,3 +1,5 @@
+@use "../styles/breakpoints" as bp;
+
 .preventivi-manager {
   padding: 1.5rem;
   max-width: 1300px;
@@ -136,7 +138,7 @@
   align-items: end;
 }
 
-@media (max-width: 700px) {
+@include bp.mobile {
   .riga-form-grid { grid-template-columns: 1fr 1fr; }
 }
 

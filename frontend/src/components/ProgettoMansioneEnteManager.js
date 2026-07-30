@@ -12,7 +12,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import ErrorBanner from './ErrorBanner';
 import { http } from '../lib/http';
-import './ProgettoMansioneEnteManager.css';
+import './ProgettoMansioneEnteManager.scss';
 
 const CONTRACT_TYPE_LABELS = {
   professionale: 'Professionale',

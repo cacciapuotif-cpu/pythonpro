@@ -1,3 +1,5 @@
+@use "../styles/breakpoints" as bp;
+
 /* ==========================================
    GESTIONE TEMPLATE CONTRATTI - STYLES
    ========================================== */
@@ -503,7 +505,7 @@
    RESPONSIVE
    ========================================== */
 
-@media (max-width: 768px) {
+@include bp.mobile {
   .templates-manager {
     padding: 16px;
   }

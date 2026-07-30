@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import apiService from '../services/apiService';
 import { canPerform, normalizeRole } from '../auth/permissions';
-import './ImplementingEntityDetail.css';
+import './ImplementingEntityDetail.scss';
 
 const EMPTY_LOCATION = {
   tipo: 'operativa',

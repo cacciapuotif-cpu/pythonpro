@@ -1,3 +1,5 @@
+@use "../styles/breakpoints" as bp;
+
 /**
  * STILI PER IL COMPONENTE CALENDARIO
  * Definisce l'aspetto visivo del calendario e tutti i suoi elementi
@@ -334,7 +336,7 @@
 }
 
 /* RESPONSIVE DESIGN */
-@media (max-width: 768px) {
+@include bp.mobile {
   .calendar-stats,
   .calendar-ops-board {
     grid-template-columns: 1fr;

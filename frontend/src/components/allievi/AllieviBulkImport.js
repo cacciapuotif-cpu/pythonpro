@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { downloadJsonTemplate, excelSerialToDateString, parseExcelFile } from '../../utils/excelUtils';
-import '../collaborators/CollaboratorBulkImport.css';
+import '../collaborators/CollaboratorBulkImport.scss';
 
 const COLUMN_MAPPING = {
   Nome: 'nome',

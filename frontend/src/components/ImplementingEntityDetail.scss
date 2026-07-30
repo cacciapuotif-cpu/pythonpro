@@ -1,3 +1,5 @@
+@use "../styles/breakpoints" as bp;
+
 .entity-detail-overlay {
   position: fixed;
   inset: 0;
@@ -258,7 +260,7 @@
   margin: 8px 0;
 }
 
-@media (max-width: 760px) {
+@include bp.mobile {
   .entity-detail-overlay {
     padding: 0;
   }

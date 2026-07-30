@@ -1,3 +1,5 @@
+@use "../styles/breakpoints" as bp;
+
 /* ==========================================
  * STILI PER IL MODAL DELLE ASSEGNAZIONI
  * ========================================== */
@@ -101,7 +103,7 @@
   gap: 16px;
 }
 
-@media (max-width: 768px) {
+@include bp.mobile {
   .form-grid {
     grid-template-columns: 1fr;
   }
@@ -229,7 +231,7 @@
   font-weight: 600;
 }
 
-@media (max-width: 600px) {
+@include bp.mobile {
   .hours-grid {
     grid-template-columns: 1fr;
   }
@@ -317,7 +319,7 @@
 }
 
 /* Responsive Design */
-@media (max-width: 600px) {
+@include bp.mobile {
   .modal-overlay {
     padding: 10px;
   }

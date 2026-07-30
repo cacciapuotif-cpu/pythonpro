@@ -1,3 +1,5 @@
+@use "../styles/breakpoints" as bp;
+
 .allievi-manager {
   padding: 1.5rem;
   max-width: 1300px;
@@ -244,7 +246,7 @@
   cursor: not-allowed;
 }
 
-@media (max-width: 900px) {
+@include bp.tablet-down {
   .allievi-form-grid,
   .allievi-summary {
     grid-template-columns: 1fr;

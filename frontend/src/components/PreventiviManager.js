@@ -6,7 +6,7 @@ import {
   getProdotti, getAziendeClienti, getListini, getConsulenti,
 } from '../services/apiService';
 import { canPerform } from '../auth/permissions';
-import './PreventiviManager.css';
+import './PreventiviManager.scss';
 
 const fmt = (n) => new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(n ?? 0);
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString('it-IT') : '—';

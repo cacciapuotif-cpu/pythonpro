@@ -5,7 +5,7 @@ import {
 } from '../services/apiService';
 import AziendeBulkImport from './aziende/AziendeBulkImport';
 import { canPerform } from '../auth/permissions';
-import './AziendeClientiManager.css';
+import './AziendeClientiManager.scss';
 
 const normalizePartitaIva = (value = '') => value.replace(/\s+/g, '').replace(/^IT/i, '');
 

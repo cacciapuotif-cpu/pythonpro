@@ -1,3 +1,5 @@
+@use "../styles/breakpoints" as bp;
+
 /* GESTIONE ENTI ATTUATORI - STYLES */
 
 .entities-manager {
@@ -439,7 +441,7 @@
    RESPONSIVE
    ========================================== */
 
-@media (max-width: 768px) {
+@include bp.mobile {
   .entities-header {
     flex-direction: column;
     align-items: flex-start;

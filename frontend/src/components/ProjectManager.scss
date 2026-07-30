@@ -1,3 +1,5 @@
+@use "../styles/breakpoints" as bp;
+
 /**
  * STILI PER LA GESTIONE PROGETTI
  * Interfaccia completa con form, liste, filtri e modal
@@ -987,7 +989,7 @@
    RESPONSIVE DESIGN
    ========================================== */
 
-@media (max-width: 768px) {
+@include bp.mobile {
   .projects-ops-summary {
     grid-template-columns: 1fr;
   }
@@ -1069,7 +1071,7 @@
   }
 }
 
-@media (max-width: 480px) {
+@include bp.phone {
   .project-card {
     padding: 15px;
   }

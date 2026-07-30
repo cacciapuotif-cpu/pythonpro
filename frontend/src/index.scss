@@ -1,3 +1,5 @@
+@use "./styles/breakpoints" as bp;
+
 /**
  * STILI GLOBALI DELL'APPLICAZIONE
  * Definisce gli stili base che si applicano a tutta l'applicazione
@@ -26,6 +28,11 @@
   --radius-lg: 28px;
   --radius-md: 18px;
   --radius-sm: 12px;
+  --touch-target-min: 44px;
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --safe-area-right: env(safe-area-inset-right, 0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-left: env(safe-area-inset-left, 0px);
 }
 
 * {
@@ -35,8 +42,21 @@
 }
 
 /* STILI BASE HTML E BODY */
-html, body {
+html,
+body,
+#root {
   height: 100%;
+  width: 100%;
+  min-width: 0;
+}
+
+html {
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
   font-family: var(--font-sans);
   background:
     radial-gradient(circle at top left, rgba(217, 121, 37, 0.12), transparent 30%),
@@ -47,9 +67,28 @@ html, body {
 
 /* ROOT DELL'APPLICAZIONE REACT */
 #root {
-  height: 100%;
   display: flex;
   flex-direction: column;
+}
+
+img,
+picture,
+svg,
+video,
+canvas {
+  max-width: 100%;
+}
+
+main,
+section,
+article,
+aside,
+form,
+fieldset,
+.app,
+.content-container,
+.section-content {
+  min-width: 0;
 }
 
 /* TIPOGRAFIA GENERALE */
@@ -92,6 +131,7 @@ button:disabled {
 input, select, textarea {
   font-family: inherit;
   font-size: inherit;
+  max-width: 100%;
 }
 
 input:focus, select:focus, textarea:focus {
@@ -119,3 +159,15 @@ input:focus, select:focus, textarea:focus {
 .error { color: var(--color-danger); }
 .warning { color: var(--color-warning); }
 .info { color: var(--color-info); }
+
+@include bp.mobile {
+  /*
+   * iOS ingrandisce automaticamente la pagina quando un controllo attivo ha
+   * testo sotto i 16px. La soglia mobile resta quindi un requisito globale.
+   */
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea {
+    font-size: 1rem !important;
+  }
+}

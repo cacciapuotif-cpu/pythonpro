@@ -12,7 +12,7 @@ import {
 import AllieviBulkImport from './allievi/AllieviBulkImport';
 import { canPerform } from '../auth/permissions';
 import { formatApiError } from '../lib/errors';
-import './AllieviManager.css';
+import './AllieviManager.scss';
 
 const blankToNull = (value) => {
   if (typeof value !== 'string') return value;

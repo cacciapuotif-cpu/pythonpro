@@ -10,7 +10,7 @@ import {
   retryAvvisoExtraction,
 } from '../services/apiService';
 import { canPerform } from '../auth/permissions';
-import './ResourceArchive.css';
+import './ResourceArchive.scss';
 
 const FONDI = [
   { value: 'fondimpresa', label: 'Fondimpresa' },

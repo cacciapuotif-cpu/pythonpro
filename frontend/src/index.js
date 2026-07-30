@@ -10,7 +10,7 @@
 
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import './index.css';  // Stili globali dell'applicazione
+import './index.scss';  // Stili globali dell'applicazione
 import AppRoot from './AppRoot';  // Albero applicativo (provider + componenti sempre montati)
 
 // CONFIGURAZIONE DEL RENDERING

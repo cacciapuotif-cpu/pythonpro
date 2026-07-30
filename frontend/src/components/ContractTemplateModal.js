@@ -10,7 +10,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { http } from '../lib/http';
 import { createAvviso, getAvvisi } from '../services/apiService';
-import './ContractTemplateModal.css';
+import './ContractTemplateModal.scss';
 
 // ============================================================
 // COSTANTI

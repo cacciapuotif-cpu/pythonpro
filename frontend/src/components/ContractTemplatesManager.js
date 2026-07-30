@@ -12,7 +12,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useContractTemplates, useNotifications } from '../hooks/useEntity';
 import ContractTemplateModal from './ContractTemplateModal';
 import { getAvvisi, updateAvviso } from '../services/apiService';
-import './ContractTemplatesManager.css';
+import './ContractTemplatesManager.scss';
 
 const AMBITI_TEMPLATE = {
   contratto:         '📄 Contratto',

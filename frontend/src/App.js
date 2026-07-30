@@ -43,32 +43,8 @@ import {
   getRoleExperience,
   profileAcceptsRole,
 } from './auth/permissions';
-import './App.css';
-
-// group: raggruppa le voci nella nav — null = nessun separatore
-const SECTION_CONFIG = [
-  { id: 'home', label: 'Home', icon: '🏠', group: null, title: 'Decisioni urgenti', breadcrumb: '🏠 Home' },
-  { id: 'dashboard', label: 'Dashboard', icon: '📊', group: null, title: 'Statistiche e report', breadcrumb: '📊 Dashboard' },
-  { id: 'calendar', label: 'Calendario', icon: '📅', group: 'Attività', title: 'Presenze sul calendario', breadcrumb: '📅 Calendario Presenze' },
-  { id: 'timesheet', label: 'Timesheet', icon: '⏱️', group: null, title: 'Timesheet delle ore lavorate', breadcrumb: '⏱️ Timesheet' },
-  { id: 'documenti-mancanti', label: 'Documenti', icon: '📑', group: 'Reportistica', title: 'Documenti mancanti o in scadenza', breadcrumb: '📑 Documenti Mancanti' },
-  { id: 'collaborators', label: 'Collaboratori', icon: '👥', group: 'Persone', title: 'Gestione collaboratori', breadcrumb: '👥 Collaboratori' },
-  { id: 'allievi', label: 'Allievi', icon: '🎓', group: null, title: 'Gestione allievi', breadcrumb: '🎓 Allievi' },
-  { id: 'projects', label: 'Progetti', icon: '📁', group: null, title: 'Progetti formativi', breadcrumb: '📁 Progetti' },
-  { id: 'aziende-clienti', label: 'Aziende', icon: '🏭', group: 'Commerciale', title: 'Aziende clienti', breadcrumb: '🏭 Aziende Clienti' },
-  { id: 'catalogo', label: 'Catalogo', icon: '📦', group: null, title: 'Catalogo prodotti e servizi', breadcrumb: '📦 Catalogo' },
-  { id: 'listini', label: 'Listini', icon: '💰', group: null, title: 'Listini prezzi', breadcrumb: '💰 Listini' },
-  { id: 'preventivi', label: 'Preventivi', icon: '📝', group: null, title: 'Preventivi commerciali', breadcrumb: '📝 Preventivi' },
-  { id: 'ordini', label: 'Ordini', icon: '🛒', group: null, title: 'Gestione ordini', breadcrumb: '🛒 Ordini' },
-  { id: 'resources', label: 'Archivio Risorse', icon: '📚', group: 'Conoscenza', title: 'Fonti normative e conoscenza operativa', breadcrumb: '📚 Archivio Risorse' },
-  { id: 'archivio-chiedi', label: 'Chiedi all’archivio', icon: '💬', group: null, title: 'Interroga l’archivio normativo con citazioni', breadcrumb: '💬 Chiedi all’archivio' },
-  { id: 'entities', label: 'Enti Attuatori', icon: '🏢', group: 'Config', title: 'Enti attuatori', breadcrumb: '🏢 Enti Attuatori' },
-  { id: 'utenti', label: 'Utenti', icon: '🔑', group: null, title: 'Creazione utenti e assegnazione ruoli', breadcrumb: '🔑 Utenti' },
-  { id: 'agents-dashboard', label: 'Agents Dashboard', icon: '📡', group: null, title: 'Panoramica sistema agenti', breadcrumb: '📡 Agents Dashboard' },
-  { id: 'agents', label: 'Agenti', icon: '🤖', group: null, title: 'Agenti operativi e revisioni AI', breadcrumb: '🤖 Agenti Operativi' },
-  { id: 'agents-review', label: 'Revisione Agenti', icon: '✅', group: null, title: 'Revisione umana dei suggerimenti', breadcrumb: '✅ Revisione Agenti', hidden: true },
-  { id: 'templates', label: 'Template', icon: '📋', group: null, title: 'Template documentali', breadcrumb: '📋 Template' },
-];
+import SECTION_CONFIG from './navigation/sections.json';
+import './App.scss';
 
 const getSectionFromPath = (pathname) => {
   if (pathname.startsWith('/agents/dashboard')) {
@@ -700,6 +676,7 @@ function App() {
                 {group.sections.map((section) => (
                   <button
                     key={section.id}
+                    data-section-id={section.id}
                     className={`nav-button ${activeSection === section.id ? 'active' : ''}`}
                     onClick={() => navigateToSection(section.id)}
                     title={section.title}
@@ -714,7 +691,7 @@ function App() {
       </nav>
 
       {/* CONTENUTO PRINCIPALE */}
-      <main className="app-main">
+      <main className="app-main" data-active-section={activeSection}>
         <div className="content-container">
           {/* TITOLO SEZIONE ATTIVA */}
           <div className="breadcrumb">

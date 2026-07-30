@@ -1,3 +1,5 @@
+@use "../styles/breakpoints" as bp;
+
 /**
  * STILI GESTIONE ASSOCIAZIONI PROGETTO-MANSIONE-ENTE
  */
@@ -593,7 +595,7 @@
    RESPONSIVE
    ========================================== */
 
-@media (max-width: 1024px) {
+@include bp.tablet-down {
   .form-grid {
     grid-template-columns: 1fr;
   }
@@ -608,7 +610,7 @@
   }
 }
 
-@media (max-width: 768px) {
+@include bp.mobile {
   .progetto-mansione-ente-manager {
     padding: 15px;
   }
@@ -639,7 +641,7 @@
   }
 }
 
-@media (max-width: 480px) {
+@include bp.phone {
   .header-title h2 {
     font-size: 1.4em;
   }

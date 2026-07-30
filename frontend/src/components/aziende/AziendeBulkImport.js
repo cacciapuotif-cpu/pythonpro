@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { downloadJsonTemplate, parseExcelFile } from '../../utils/excelUtils';
-import '../collaborators/CollaboratorBulkImport.css';
+import '../collaborators/CollaboratorBulkImport.scss';
 
 const COLUMN_MAPPING = {
   'Ragione Sociale': 'ragione_sociale',

@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { getRoleLabel } from '../auth/permissions';
 import { formatApiError } from '../lib/errors';
 import apiService from '../services/apiService';
-import './UserManagement.css';
+import './UserManagement.scss';
 
 const EMPTY_FORM = {
   email: '',

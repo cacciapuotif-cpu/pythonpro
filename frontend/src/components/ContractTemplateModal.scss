@@ -1,3 +1,5 @@
+@use "../styles/breakpoints" as bp;
+
 /* ==========================================
    MODAL TEMPLATE CONTRATTO - STYLES
    ========================================== */
@@ -480,7 +482,7 @@
    RESPONSIVE
    ========================================== */
 
-@media (max-width: 768px) {
+@include bp.mobile {
   .template-modal {
     width: 95%;
     max-height: 95vh;
@@ -664,7 +666,7 @@
   gap: 16px;
 }
 
-@media (max-width: 768px) {
+@include bp.mobile {
   .piano-voci-grid {
     grid-template-columns: 1fr;
   }

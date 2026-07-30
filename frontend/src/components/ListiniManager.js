@@ -5,7 +5,7 @@ import {
   getProdotti,
 } from '../services/apiService';
 import { canPerform } from '../auth/permissions';
-import './ListiniManager.css';
+import './ListiniManager.scss';
 
 const TIPI_CLIENTE = ['standard', 'apprendistato', 'finanziato', 'gratis'];
 const TIPO_LABELS = { standard: 'Standard', apprendistato: 'Apprendistato', finanziato: 'Finanziato', gratis: 'Gratuito' };

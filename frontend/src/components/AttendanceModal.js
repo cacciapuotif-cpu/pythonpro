@@ -17,7 +17,7 @@ import React, { useState, useEffect } from 'react';
 import Modal from 'react-modal';
 import moment from 'moment';
 import { createAttendance, updateAttendance, getAssignments } from '../services/apiService';
-import './AttendanceModal.css';
+import './AttendanceModal.scss';
 
 // CONFIGURAZIONE DEL MODAL
 // Impostiamo l'elemento root per l'accessibilità
