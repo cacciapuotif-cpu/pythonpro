@@ -70,6 +70,8 @@ def _fake_user(role: str, user_id: int = 1):
 @pytest.fixture(scope="function")
 def make_client(db_session):
     """Client parametrico sul ruolo: serve per la guardia RBAC sulla forzatura."""
+    original_startup = list(app.router.on_startup)
+    app.router.on_startup.clear()
 
     def _factory(role: str = "admin"):
         def override_get_db():
@@ -79,8 +81,11 @@ def make_client(db_session):
         app.dependency_overrides[get_current_user] = lambda: _fake_user(role)
         return TestClient(app)
 
-    yield _factory
-    app.dependency_overrides.clear()
+    try:
+        yield _factory
+    finally:
+        app.router.on_startup[:] = original_startup
+        app.dependency_overrides.clear()
 
 
 @pytest.fixture(scope="function")
