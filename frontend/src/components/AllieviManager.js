@@ -54,6 +54,23 @@ const projectLabel = (project = {}) => {
   return project.status ? `${primaryName} · ${project.status}` : primaryName;
 };
 
+const projectStatusLabel = (project = {}) => {
+  if (project.status === 'cancelled') return 'Cancellato · storico';
+  if (project.is_active === false) return 'Archiviato · storico';
+  if (project.status === 'completed') return 'Completato · storico';
+  if (project.status === 'paused') return 'In pausa';
+  return 'Attivo';
+};
+
+const sortLinkedProjects = (projects = []) => [...projects].sort((left, right) => {
+  const leftHistorical = /storico/i.test(projectStatusLabel(left));
+  const rightHistorical = /storico/i.test(projectStatusLabel(right));
+  if (leftHistorical !== rightHistorical) return leftHistorical ? 1 : -1;
+  return String(left.name || '').localeCompare(String(right.name || ''), 'it', {
+    sensitivity: 'base',
+  }) || Number(left.id) - Number(right.id);
+});
+
 const mapAllievoToForm = (allievo = {}) => ({
   nome: allievo.nome || '',
   cognome: allievo.cognome || '',
@@ -102,6 +119,7 @@ export default function AllieviManager({ currentUser }) {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [allievoProjectToAdd, setAllievoProjectToAdd] = useState('');
+  const [linkedProjectDetails, setLinkedProjectDetails] = useState([]);
   const [showBulkImport, setShowBulkImport] = useState(false);
   const [bulkImporting, setBulkImporting] = useState(false);
 
@@ -153,17 +171,20 @@ export default function AllieviManager({ currentUser }) {
 
   const openCreate = () => {
     setForm(EMPTY_FORM);
+    setLinkedProjectDetails([]);
     setAllievoProjectToAdd('');
     setModal({ mode: 'create' });
   };
 
   const openEdit = async (allievo) => {
+    let detail = allievo;
     try {
-      const detail = await getAllievo(allievo.id);
-      setForm(mapAllievoToForm(detail));
+      detail = await getAllievo(allievo.id);
     } catch {
-      setForm(mapAllievoToForm(allievo));
+      detail = allievo;
     }
+    setForm(mapAllievoToForm(detail));
+    setLinkedProjectDetails(Array.isArray(detail.projects) ? detail.projects : []);
     setAllievoProjectToAdd('');
     setModal({ mode: 'edit', data: allievo });
   };
@@ -224,6 +245,10 @@ export default function AllieviManager({ currentUser }) {
     () => new Set(companyProjectIds),
     [companyProjectIds]
   );
+  const persistedProjectIdSet = useMemo(
+    () => new Set(linkedProjectDetails.map((project) => Number(project.id))),
+    [linkedProjectDetails]
+  );
   const companySediOperativeIdSet = useMemo(
     () => new Set(selectedCompanySediOperative.map((sede) => Number(sede.id))),
     [selectedCompanySediOperative]
@@ -235,9 +260,12 @@ export default function AllieviManager({ currentUser }) {
       : [])
     : projectOptions;
 
-  const selectedProjects = form.project_ids
-    .map((projectId) => projectOptions.find((project) => Number(project.id) === Number(projectId)))
-    .filter(Boolean);
+  const selectedProjects = sortLinkedProjects(form.project_ids
+    .map((projectId) => (
+      projectOptions.find((project) => Number(project.id) === Number(projectId))
+      || linkedProjectDetails.find((project) => Number(project.id) === Number(projectId))
+    ))
+    .filter(Boolean));
 
   const availableProjects = eligibleProjectOptions.filter(
     (project) => !form.project_ids.includes(Number(project.id))
@@ -248,27 +276,39 @@ export default function AllieviManager({ currentUser }) {
       return;
     }
 
-    const allowedProjectIds = new Set(companyProjectIds);
     setForm((prev) => {
-      const filteredProjectIds = prev.project_ids.filter((projectId) => allowedProjectIds.has(Number(projectId)));
+      const retainedProjectIds = prev.project_ids.filter((projectId) => (
+        persistedProjectIdSet.has(Number(projectId))
+        || companyProjectIdSet.has(Number(projectId))
+      ));
       const hasValidSedeOperativa = prev.azienda_sede_operativa_id && companySediOperativeIdSet.has(Number(prev.azienda_sede_operativa_id));
       const nextSedeOperativaId = hasValidSedeOperativa ? prev.azienda_sede_operativa_id : '';
-      return filteredProjectIds.length === prev.project_ids.length && nextSedeOperativaId === prev.azienda_sede_operativa_id
+      return (
+        retainedProjectIds.length === prev.project_ids.length
+        && nextSedeOperativaId === prev.azienda_sede_operativa_id
+      )
         ? prev
-        : { ...prev, project_ids: filteredProjectIds, azienda_sede_operativa_id: nextSedeOperativaId };
+        : {
+          ...prev,
+          project_ids: retainedProjectIds,
+          azienda_sede_operativa_id: nextSedeOperativaId,
+        };
     });
-  }, [form.occupato, selectedCompanyId, companyProjectIds, companySediOperativeIdSet]);
+  }, [
+    form.occupato,
+    selectedCompanyId,
+    companyProjectIdSet,
+    persistedProjectIdSet,
+    companySediOperativeIdSet,
+  ]);
 
   const handleSave = async () => {
     if (!validateForm()) return;
     setSaving(true);
     const normalizedProjectIds = Array.isArray(form.project_ids)
-      ? form.project_ids
+      ? [...new Set(form.project_ids
         .map((projectId) => Number(projectId))
-        .filter((projectId) => !Number.isNaN(projectId))
-        .filter((projectId) => (
-          !form.occupato || !selectedCompany ? true : companyProjectIdSet.has(projectId)
-        ))
+        .filter((projectId) => !Number.isNaN(projectId)))]
       : [];
 
     const payload = {
@@ -425,8 +465,19 @@ export default function AllieviManager({ currentUser }) {
             <tbody>
               {result.items.length === 0 ? (
                 <tr><td colSpan={6} className="empty-cell">Nessun allievo trovato.</td></tr>
-              ) : result.items.map((allievo) => (
-                <tr key={allievo.id}>
+              ) : result.items.map((allievo) => {
+                const currentCompany = allievo.azienda_cliente
+                  || aziendaOptions.find((azienda) => Number(azienda.id) === Number(allievo.azienda_cliente_id));
+                const linkedProjects = sortLinkedProjects(
+                  Array.isArray(allievo.projects) && allievo.projects.length > 0
+                    ? allievo.projects
+                    : (allievo.project_ids || [])
+                      .map((projectId) => projectOptions.find(
+                        (project) => Number(project.id) === Number(projectId)
+                      ))
+                      .filter(Boolean)
+                );
+                return <tr key={allievo.id}>
                   <td>
                     <strong>{[allievo.cognome, allievo.nome].filter(Boolean).join(' ')}</strong>
                     <div className="sub-text">
@@ -439,18 +490,22 @@ export default function AllieviManager({ currentUser }) {
                   </td>
                   <td>{[allievo.residenza, allievo.citta, allievo.provincia].filter(Boolean).join(', ') || '—'}</td>
                   <td>
-                    {allievo.azienda_cliente ? (
+                    {currentCompany ? (
                       <>
-                        <div>{allievo.azienda_cliente.ragione_sociale}</div>
+                        <div>{currentCompany.ragione_sociale}</div>
+                        <div className="sub-text">Azienda attuale</div>
                         {allievo.sede_operativa?.nome && <div className="sub-text">{allievo.sede_operativa.nome}</div>}
                         {allievo.mansione && <div className="sub-text">{allievo.mansione}</div>}
                       </>
                     ) : '—'}
                   </td>
                   <td>
-                    {Array.isArray(allievo.projects) && allievo.projects.length > 0
-                      ? allievo.projects.map((project) => (
-                        <div key={project.id} className="sub-text project-line">{project.name}</div>
+                    {linkedProjects.length > 0
+                      ? linkedProjects.map((project) => (
+                        <div key={project.id} className="sub-text project-line">
+                          <strong>{project.name}</strong>
+                          {' · '}#{project.id} · {projectStatusLabel(project)}
+                        </div>
                       ))
                       : '—'}
                   </td>
@@ -458,8 +513,8 @@ export default function AllieviManager({ currentUser }) {
                     <button className="btn-sm btn-secondary" onClick={() => openEdit(allievo)}>Modifica</button>
                     <button className="btn-sm btn-danger" onClick={() => handleDelete(allievo)}>Disattiva</button>
                   </td> : <td className="action-cell">Sola lettura</td>}
-                </tr>
-              ))}
+                </tr>;
+              })}
             </tbody>
           </table>
         </div>
@@ -586,7 +641,7 @@ export default function AllieviManager({ currentUser }) {
                     <small className="sub-text">
                       {selectedCompany
                         ? (availableProjects.length > 0 || selectedProjects.length > 0
-                          ? 'Sono disponibili solo i progetti collegati all’azienda selezionata.'
+                          ? 'I nuovi collegamenti sono limitati ai progetti dell’azienda attuale; le partecipazioni già presenti restano come storico.'
                           : 'L’azienda selezionata non ha ancora progetti associati in Aziende Clienti.')
                         : 'Seleziona prima l’azienda per vedere i progetti disponibili.'}
                     </small>
@@ -607,7 +662,7 @@ export default function AllieviManager({ currentUser }) {
                       <div key={project.id} className="allievi-project-item">
                         <div>
                           <strong>{project.name}</strong>
-                          {project.status && <small>{project.status}</small>}
+                          <small>#{project.id} · {projectStatusLabel(project)}</small>
                         </div>
                         <button type="button" className="btn-sm btn-danger" onClick={() => handleRemoveProject(Number(project.id))}>
                           Rimuovi

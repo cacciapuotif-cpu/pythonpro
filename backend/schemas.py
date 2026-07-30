@@ -1700,6 +1700,36 @@ class AziendaClienteWithConsulente(AziendaCliente):
 
 # ── Allievo ───────────────────────────────────
 
+class AllievoAziendaSummary(BaseModel):
+    """Azienda lavorativa corrente mostrata nell'elenco allievi."""
+
+    id: int
+    ragione_sociale: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AllievoSedeOperativaSummary(BaseModel):
+    id: int
+    nome: str
+    citta: Optional[str] = None
+    provincia: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AllievoProjectSummary(BaseModel):
+    """Partecipazione a progetto, inclusi i progetti ormai storici."""
+
+    id: int
+    name: str
+    status: str
+    is_active: bool
+    codice_fapi: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class AllievoBase(BaseModel):
     nome: str = Field(..., min_length=1, max_length=100)
     cognome: str = Field(..., min_length=1, max_length=100)
@@ -1758,6 +1788,9 @@ class AllievoOut(AllievoBase):
     id: int
     created_at: datetime
     updated_at: Optional[datetime] = None
+    azienda_cliente: Optional[AllievoAziendaSummary] = None
+    sede_operativa: Optional[AllievoSedeOperativaSummary] = None
+    projects: List[AllievoProjectSummary] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 
