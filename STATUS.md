@@ -1258,6 +1258,14 @@ Riprendi PythonPro da `/DATA/progetti/pythonpro`. Leggi prima `STATUS.md`, la se
 
 ## Memoria storica
 
+## Ondata Revisione e Cancellazioni — checkpoint DEL-1(a) (2026-07-31)
+
+- Backup fresco verificato prima della diagnosi: `/DATA/progetti/pythonpro_backup_pre_rev_del_20260731_110138.sql.gz`, SHA-256 `bb86b9d13027fa93b961a27aacd48829dd35647413ed2512d63c9f129cfdbbd3`.
+- Diagnosi runtime completata senza modifiche al DB reale: hard delete azienda non esiste (nessun endpoint `/permanent`, servizio, matrice, UI, RBAC ADMIN o audit). Esiste solo `DELETE /api/v1/aziende-clienti/{id}` soft-delete (`attivo=false`). Su copia: `/permanent` 404, DELETE esistente 200 con `attivo=false`.
+- Censimento preliminare aziende: isolate #3, #4, #11, #12, #13, #14; collegate #1, #2, #10. Matrice completa da estendere a documenti, ordini/preventivi, piani, interazioni e rendicontazione.
+- REV-0 read-only: 178 pending totali; 54 orfani `avviso_revisione` dell'assistente `avviso_extractor`, 56 validi. Proposta: stato tracciabile “superato/non più applicabile”, in attesa di conferma.
+- Report: `audit/REVISIONE_CANCELLAZIONI_REPORT.md`. **Gate aperto: nessun codice fix ancora scritto.**
+
 - Storico precedente completo: `STATUS_ARCHIVE_2026H1.md`.
 - Decisioni/verifiche dettagliate: `REMEDIATION_LOG.md`.
 - Findings: `audit/FINDINGS_NUOVI.md`.

@@ -1248,3 +1248,10 @@ dedotto dal conteggio.
   copertura PostgreSQL.
 - Stato: **chiuso il 2026-07-30**. L’asserzione usa ora `.db.zip.gpg`; prova
   mirata nel container con `gpg` reale: 1/1 verde.
+
+## 2026-07-31 | REV-DEL-001 | Hard delete aziende assente e suggerimenti orfani
+
+- Area: aziende clienti / revisione agenti / integrità dati
+- Evidenza: il runtime espone solo `DELETE /api/v1/aziende-clienti/{id}` soft-delete; il percorso `/permanent` restituisce 404 anche con ADMIN su DB copia.
+- Impatto: aziende isolate non sono eliminabili definitivamente; 54 suggerimenti pending `avviso_revisione` di `avviso_extractor` hanno riferimento non risolvibile dopo la pulizia degli avvisi.
+- Stato: **gate DEL-1(a) diagnosticato; fix e bonifica sospesi in attesa di conferma del perimetro e del trattamento REV-0**.
