@@ -1,12 +1,33 @@
 # PythonPro — Stato corrente
 
-**Aggiornato:** 2026-07-31 (MOB-4 GATE CHIUSO con confutatore; prossimo MOB-5)
+**Aggiornato:** 2026-07-31 (bonifica progetti + fix Calendario confutati; prossimo MOB-5)
 **Branch:** `claude/platform-audit-compliance-XnH86` (locale, **nessun push**)
 **Percorso:** `/DATA/progetti/pythonpro`
 
 > ⚠️ **Due sessioni hanno lavorato su questo branch il 27/07 in parallelo.**
 > Questo file è scritto a quattro mani: la sezione "RIPARTENZA" qui sotto
 > riguarda l'ondata UX; il resto del file traccia l'altro filone.
+
+## ✅ BONIFICA PROGETTI + CALENDARIO — 2026-07-31
+
+Su richiesta utente è stato eseguito un censimento read-only del DB reale:
+7 progetti iniziali. Sono stati conservati esclusivamente `poppi` (#5) e
+`MAXI COMMUNICATION` canonico (#11); rimossi in una transazione con guardie
+gli ID #1, #2, #6, #12 (doppione Maxi) e #13 (fantasma FAPI).
+
+- Backup pre-bonifica verificato:
+  `/DATA/progetti/pythonpro_backup_pre_project_cleanup_20260731_083529.sql.gz`
+  (`gzip -t` OK; SHA-256 `e2c8f711feb7933cdc7823ea4421f2fe22c798bba1232bf440beed510e96f0e4`).
+- Post-bonifica: 2/2 progetti attesi, entrambi attivi; zero riferimenti
+  residui in allievi, assegnazioni, presenze, aziende, collaboratori,
+  moduli, piani, documenti e tabelle a vincolo RESTRICT.
+- Calendario corretto: la legenda ora filtra gli inattivi come la checklist;
+  i progetti chiusi compaiono solo attivando “Includi progetti chiusi”.
+- Confutatore: frontend 40 suite / 325 test / 0 fallimenti; build esplicita
+  e recreate live completati; bundle servito `main.9ebaaa1c.js` contiene il
+  filtro `includeClosedProjects`.
+- Commit applicativo locale `7632c51`, nessun push. La cancellazione DB è
+  già applicata al runtime reale e non è rappresentata da una migration.
 
 ## ✅ GATE CHIUSO 2026-07-31 — ONDATA MOBILE / MOB-4
 
