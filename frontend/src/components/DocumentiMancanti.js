@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { canPerform } from '../auth/permissions';
+import { formatPersonName } from '../utils/personName';
 import { getDocumentiRichiesti } from '../services/apiService';
 import ResponsiveEntityList from './responsive/ResponsiveEntityList';
 import ResponsiveFilters from './responsive/ResponsiveFilters';
@@ -104,7 +105,7 @@ const getCollaboratorName = (doc) => {
   const collaborator = doc.collaboratore || {};
   return (
     collaborator.full_name
-    || [collaborator.first_name, collaborator.last_name].filter(Boolean).join(' ')
+    || formatPersonName(collaborator)
     || `Collaboratore #${doc.collaboratore_id || 'N/D'}`
   );
 };

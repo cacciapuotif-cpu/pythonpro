@@ -41,7 +41,7 @@ test('selezionare un collaboratore aggiunge il suo id (multi-selezione)', () => 
     />,
   );
 
-  fireEvent.click(screen.getByLabelText(/mario rossi/i));
+  fireEvent.click(screen.getByLabelText(/rossi mario/i));
 
   expect(onChange).toHaveBeenCalledWith({ collaboratorIds: [10] });
 });
@@ -59,7 +59,7 @@ test('deselezionare un collaboratore già scelto lo rimuove', () => {
     />,
   );
 
-  fireEvent.click(screen.getByLabelText(/mario rossi/i));
+  fireEvent.click(screen.getByLabelText(/rossi mario/i));
 
   expect(onChange).toHaveBeenCalledWith({ collaboratorIds: [11] });
 });
@@ -78,8 +78,8 @@ test('la ricerca collaboratore filtra la lista visibile', () => {
 
   fireEvent.change(screen.getByPlaceholderText(/cerca collaboratore/i), { target: { value: 'giulia' } });
 
-  expect(screen.queryByLabelText(/mario rossi/i)).not.toBeInTheDocument();
-  expect(screen.getByLabelText(/giulia bianchi/i)).toBeInTheDocument();
+  expect(screen.queryByLabelText(/rossi mario/i)).not.toBeInTheDocument();
+  expect(screen.getByLabelText(/bianchi giulia/i)).toBeInTheDocument();
 });
 
 test('il toggle "includi chiusi" mostra anche il progetto chiuso nel select', () => {

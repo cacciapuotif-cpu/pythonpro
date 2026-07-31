@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { getRoleLabel } from '../auth/permissions';
+import { formatPersonName } from '../utils/personName';
 import { formatApiError } from '../lib/errors';
 import apiService from '../services/apiService';
 import useMobileLayout from '../hooks/useMobileLayout';
@@ -494,7 +495,7 @@ const UserManagement = ({ currentUser }) => {
                   </div>
                   <div className="info-row">
                     <span className="label">Nome</span>
-                    <span>{user.full_name}</span>
+                    <span>{formatPersonName(user) || user.full_name || '—'}</span>
                   </div>
                   <div className="info-row">
                     <span className="label">Ruolo</span>

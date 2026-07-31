@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import DOMPurify from 'dompurify';
+import { formatPersonName } from '../utils/personName';
 import {
   applyAgentSuggestionFix,
   bulkReviewAgentSuggestions,
@@ -86,7 +87,7 @@ const getEntityLabel = (suggestion, collaboratorsMap, projectsMap) => {
   if (suggestion.entity_type === 'collaborator') {
     const collaborator = collaboratorsMap.get(String(suggestion.entity_id));
     const name = collaborator
-      ? `${collaborator.first_name || ''} ${collaborator.last_name || ''}`.trim()
+      ? formatPersonName(collaborator)
       : `ID ${suggestion.entity_id || 'N/D'}`;
     return {
       href: `/collaborators/${suggestion.entity_id}`,

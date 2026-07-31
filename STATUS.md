@@ -4,6 +4,26 @@
 **Branch:** `claude/platform-audit-compliance-XnH86` (locale, **nessun push**)
 **Percorso:** `/DATA/progetti/pythonpro`
 
+## ✅ CONVENZIONE NOMINATIVI — 2026-07-31
+
+Applicata la regola unica `COGNOME Nome` e ordinamento alfabetico per cognome
+poi nome, insensibile a maiuscole e accenti. Utility condivisa frontend
+`utils/personName.js`; query server aggiornate per collaboratori, allievi e
+consulenti, con `lower(unaccent())` prima di paginazione/filtri. Migration
+Alembic `070` con extension/funzione `unaccent` e indici funzionali, provata su
+copia e applicata al DB reale.
+
+Punti coperti: timesheet, calendario, presenze, assegnazioni, collaboratori,
+allievi, associati progetto, aziende/referenti, consulenti, preventivi,
+dashboard, utenti, documenti mancanti, proposte agenti e fallback contratti.
+Report: `audit/NOMINATIVI_REPORT.md`. Censimento: capitalizzazioni storiche in
+maiuscolo e record di prova `Codex Runtime Test` id 33; nessuna normalizzazione
+dati eseguita.
+
+Verifiche: frontend **41 suite / 327 test / 0 fallimenti**; backend completo
+**986 passed / 6 skipped / 0 fallimenti** (33 warning non bloccanti). Backup pre-migration SHA-256
+`f27f2a55b0b0a13815c3cc9ab3b6a006e385723a09bbaaf6d0c67b4fe2700471`.
+
 ## ✅ FOLLOW-UP UI ELIMINAZIONE AZIENDE — 2026-07-31
 
 Riprodotto il terzo tentativo: lo scenario era B lato UI (handler asincrono

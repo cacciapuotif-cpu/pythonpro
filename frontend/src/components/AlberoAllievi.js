@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { formatPersonName } from '../utils/personName';
 
 import './AlberoAllievi.css';
 
@@ -19,7 +20,7 @@ import './AlberoAllievi.css';
 
 export const SENZA_AZIENDA = 'senza-azienda';
 
-const nomeAllievo = (allievo) => `${allievo.nome || ''} ${allievo.cognome || ''}`.trim();
+const nomeAllievo = (allievo) => formatPersonName(allievo);
 
 export function raggruppaPerAzienda(aziende = [], allievi = []) {
   const perAzienda = new Map(

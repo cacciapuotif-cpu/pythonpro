@@ -13,6 +13,7 @@ import { useCollaborators, useProjects } from '../hooks/useEntity';
 import apiService from '../services/apiService';
 import { canPerform } from '../auth/permissions';
 import { formatApiError } from '../lib/errors';
+import { formatPersonName } from '../utils/personName';
 import './TimesheetReport.scss';
 
 const DEFAULT_PAGE_SIZE = 100;
@@ -212,7 +213,7 @@ const TimesheetReport = ({ currentUser }) => {
               <option value="">Tutti i collaboratori</option>
               {collaborators.map(collab => (
                 <option key={collab.id} value={collab.id}>
-                  {collab.first_name} {collab.last_name}
+                  {formatPersonName(collab)}
                 </option>
               ))}
             </select>

@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import ResponsiveFilters from '../responsive/ResponsiveFilters';
 import useMobileLayout from '../../hooks/useMobileLayout';
+import { formatPersonName } from '../../utils/personName';
 import './CalendarFilterBar.css';
 
 const CalendarFilterBar = ({ filters, projects, collaborators, eventCount, onChange, onReset }) => {
@@ -20,7 +21,7 @@ const CalendarFilterBar = ({ filters, projects, collaborators, eventCount, onCha
     const term = collaboratorSearch.trim().toLowerCase();
     if (!term) return collaborators;
     return collaborators.filter((c) => (
-      `${c.first_name} ${c.last_name}`.toLowerCase().includes(term)
+      formatPersonName(c).toLowerCase().includes(term)
     ));
   }, [collaborators, collaboratorSearch]);
 
@@ -88,7 +89,7 @@ const CalendarFilterBar = ({ filters, projects, collaborators, eventCount, onCha
                 checked={filters.collaboratorIds.includes(collaborator.id)}
                 onChange={() => toggleCollaborator(collaborator.id)}
               />
-              {collaborator.first_name} {collaborator.last_name}
+              {formatPersonName(collaborator)}
             </label>
           ))}
         </div>

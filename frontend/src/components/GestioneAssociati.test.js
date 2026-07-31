@@ -86,28 +86,28 @@ describe('elenco e permessi', () => {
   test('elenca aziende e allievi associati', () => {
     renderPannello();
     expect(screen.getByText('Alfa Srl')).toBeInTheDocument();
-    expect(screen.getByText('Ada Rossi')).toBeInTheDocument();
+    expect(screen.getByText('Rossi Ada')).toBeInTheDocument();
   });
 
   test('UX-9: ogni allievo sta sotto la sua azienda, non in una lista piatta', () => {
     renderPannello();
     const alfa = screen.getByRole('group', { name: /Alfa Srl/ });
 
-    expect(within(alfa).getByText('Ada Rossi')).toBeInTheDocument();
-    expect(within(alfa).queryByText('Bruno Verdi')).not.toBeInTheDocument();
-    expect(within(screen.getByRole('group', { name: /Beta Spa/ })).getByText('Bruno Verdi'))
+    expect(within(alfa).getByText('Rossi Ada')).toBeInTheDocument();
+    expect(within(alfa).queryByText('Verdi Bruno')).not.toBeInTheDocument();
+    expect(within(screen.getByRole('group', { name: /Beta Spa/ })).getByText('Verdi Bruno'))
       .toBeInTheDocument();
   });
 
   test('la consultazione vede l elenco ma nessun pulsante Stacca', () => {
     renderPannello({ currentUser: { role: 'consultazione' } });
-    expect(screen.getByText('Ada Rossi')).toBeInTheDocument();
+    expect(screen.getByText('Rossi Ada')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^Stacca / })).not.toBeInTheDocument();
   });
 
   test('l operatore puo staccare', () => {
     renderPannello({ currentUser: { role: 'operatore' } });
-    expect(screen.getByRole('button', { name: 'Stacca Ada Rossi' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Stacca Rossi Ada' })).toBeInTheDocument();
   });
 });
 
@@ -117,7 +117,7 @@ describe('dissociazione pulita', () => {
     dissociaAllievoDaProgetto.mockResolvedValue({ dissociato: true });
     renderPannello({ onChange });
 
-    apriConferma('Ada Rossi');
+    apriConferma('Rossi Ada');
     fireEvent.click(screen.getByRole('button', { name: 'Conferma dissociazione' }));
 
     await waitFor(() => expect(dissociaAllievoDaProgetto).toHaveBeenCalledWith(11, 1, undefined));
@@ -150,7 +150,7 @@ describe('blocco non forzabile', () => {
     dissociaAllievoDaProgetto.mockRejectedValue(conflitto(bloccoAttestato));
     renderPannello();
 
-    apriConferma('Ada Rossi');
+    apriConferma('Rossi Ada');
     fireEvent.click(screen.getByRole('button', { name: 'Conferma dissociazione' }));
 
     expect(await screen.findByText(/L'attestato e' gia' stato emesso/)).toBeInTheDocument();
@@ -165,7 +165,7 @@ describe('blocco forzabile', () => {
     const onChange = jest.fn();
     renderPannello({ onChange });
 
-    apriConferma('Ada Rossi');
+    apriConferma('Rossi Ada');
     fireEvent.click(screen.getByRole('button', { name: 'Conferma dissociazione' }));
 
     expect(await screen.findByText(/12 ore frequentate/)).toBeInTheDocument();
@@ -193,7 +193,7 @@ describe('blocco forzabile', () => {
     dissociaAllievoDaProgetto.mockRejectedValue(conflitto(bloccoOre));
     renderPannello({ currentUser: { role: 'operatore' } });
 
-    apriConferma('Ada Rossi');
+    apriConferma('Rossi Ada');
     fireEvent.click(screen.getByRole('button', { name: 'Conferma dissociazione' }));
 
     expect(await screen.findByText(/12 ore frequentate/)).toBeInTheDocument();
@@ -207,7 +207,7 @@ describe('blocco forzabile', () => {
     dissociaAllievoDaProgetto.mockRejectedValue(err);
     renderPannello();
 
-    apriConferma('Ada Rossi');
+    apriConferma('Rossi Ada');
     fireEvent.click(screen.getByRole('button', { name: 'Conferma dissociazione' }));
 
     expect(await screen.findByRole('alert')).toBeInTheDocument();

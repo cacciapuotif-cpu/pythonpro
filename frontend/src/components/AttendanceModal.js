@@ -17,6 +17,7 @@ import React, { useState, useEffect } from 'react';
 import Modal from 'react-modal';
 import moment from 'moment';
 import { createAttendance, updateAttendance, getAssignments } from '../services/apiService';
+import { comparePeople, formatPersonName } from '../utils/personName';
 import './AttendanceModal.scss';
 
 // CONFIGURAZIONE DEL MODAL
@@ -489,9 +490,9 @@ const AttendanceModal = ({
                 disabled={loading || readOnly}
               >
                 <option value="">Seleziona collaboratore...</option>
-                {[...collaborators].sort((a, b) => (a.last_name || '').localeCompare(b.last_name || '', 'it')).map(collaborator => (
+                {[...collaborators].sort(comparePeople).map(collaborator => (
                   <option key={collaborator.id} value={collaborator.id}>
-                    {collaborator.last_name} {collaborator.first_name}
+                    {formatPersonName(collaborator)}
                   </option>
                 ))}
               </select>

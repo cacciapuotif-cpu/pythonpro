@@ -13,6 +13,7 @@ import {
   sendEmailInboxFollowup,
 } from '../services/apiService';
 import { canPerform } from '../auth/permissions';
+import { formatPersonName } from '../utils/personName';
 import './AgentsManager.scss';
 
 const FIELD_OPTIONS = [
@@ -44,7 +45,7 @@ const parsePayload = (value) => {
 
 const collaboratorName = (collaborator) => {
   if (!collaborator) return null;
-  return `${collaborator.first_name || ''} ${collaborator.last_name || ''}`.trim() || `Collaboratore #${collaborator.id}`;
+  return formatPersonName(collaborator) || `Collaboratore #${collaborator.id}`;
 };
 
 function Badge({ tone, children }) {

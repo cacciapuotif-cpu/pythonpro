@@ -6,6 +6,7 @@ import {
   getProdotti, getAziendeClienti, getListini, getConsulenti,
 } from '../services/apiService';
 import { canPerform } from '../auth/permissions';
+import { formatPersonName } from '../utils/personName';
 import ResponsiveEntityList from './responsive/ResponsiveEntityList';
 import ResponsivePagination from './responsive/ResponsivePagination';
 import ResponsiveFilters from './responsive/ResponsiveFilters';
@@ -439,7 +440,7 @@ export default function PreventiviManager({ currentUser }) {
                 <label>Consulente (opzionale)</label>
                 <select {...f('consulente_id')}>
                   <option value="">— Nessun consulente —</option>
-                  {consulenti.map(c => <option key={c.id} value={c.id}>{c.nome} {c.cognome}</option>)}
+                  {consulenti.map(c => <option key={c.id} value={c.id}>{formatPersonName(c)}</option>)}
                 </select>
               </div>
               <div className="form-group">

@@ -25,6 +25,7 @@ from async_events import enqueue_webhook_notification, track_entity_event
 from services.audit_log import write_audit_log
 from services import dissociazione_progetto
 from services import date_progetto
+from services.person_ordering import person_order
 from fastapi import HTTPException
 
 logger = logging.getLogger(__name__)
@@ -341,7 +342,7 @@ def get_collaborators(db: Session, skip: int = 0, limit: int = 100, search: Opti
     if is_active is not None:
         query = query.filter(models.Collaborator.is_active == is_active)
 
-    return query.order_by(models.Collaborator.last_name, models.Collaborator.first_name).offset(skip).limit(limit).all()
+    return query.order_by(*person_order(models.Collaborator.last_name, models.Collaborator.first_name, db.bind)).offset(skip).limit(limit).all()
 
 def get_collaborators_with_projects(db: Session, skip: int = 0, limit: int = 100):
     return db.query(models.Collaborator).options(
@@ -791,7 +792,7 @@ def get_project_full_context(db: Session, project_id: int) -> Optional[schemas.P
         )
         .join(assignment_hours_subq, assignment_hours_subq.c.collaborator_id == models.Collaborator.id)
         .outerjoin(attendance_hours_subq, attendance_hours_subq.c.collaborator_id == models.Collaborator.id)
-        .order_by(models.Collaborator.last_name, models.Collaborator.first_name)
+        .order_by(*person_order(models.Collaborator.last_name, models.Collaborator.first_name, db.bind))
         .all()
     )
 
@@ -3323,7 +3324,7 @@ def get_consulenti(db: Session, search: str = None, attivo: bool = None,
         )
     total = q.count()
     pages = max(1, -(-total // limit))
-    items = (q.order_by(models.Consulente.cognome, models.Consulente.nome)
+    items = (q.order_by(*person_order(models.Consulente.cognome, models.Consulente.nome, db.bind))
               .offset((page - 1) * limit).limit(limit).all())
     return items, total, pages
 
@@ -3733,7 +3734,7 @@ def get_allievi(
 
     total = q.count()
     pages = max(1, -(-total // limit))
-    items = q.order_by(models.Allievo.cognome.asc(), models.Allievo.nome.asc()).offset((page - 1) * limit).limit(limit).all()
+    items = q.order_by(*person_order(models.Allievo.cognome, models.Allievo.nome, db.bind)).offset((page - 1) * limit).limit(limit).all()
     return items, total, pages
 
 
@@ -3893,7 +3894,11 @@ def search_collaborators_paginated(
     col = SORT_FIELDS.get(sort_by, models.Collaborator.last_name)
     col = col.desc() if order == "desc" else col.asc()
 
-    items = q.order_by(col, models.Collaborator.first_name.asc()).offset((page - 1) * limit).limit(limit).all()
+    if sort_by == "last_name":
+        ordering = person_order(models.Collaborator.last_name, models.Collaborator.first_name, db.bind)
+    else:
+        ordering = (col, models.Collaborator.first_name.asc())
+    items = q.order_by(*ordering).offset((page - 1) * limit).limit(limit).all()
 
     return items, total, pages
 

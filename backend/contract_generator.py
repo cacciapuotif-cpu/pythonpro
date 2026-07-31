@@ -284,7 +284,7 @@ class ContractGenerator:
             birthdate = datetime.fromisoformat(birthdate.replace('Z', '+00:00')).strftime('%d/%m/%Y')
 
         return {
-            'collaborator_name': assignment_data.get('collaborator_name') or f"{collaborator.get('first_name', '')} {collaborator.get('last_name', '')}",
+            'collaborator_name': assignment_data.get('collaborator_name') or f"{collaborator.get('last_name', '')} {collaborator.get('first_name', '')}".strip(),
             'collaborator_email': collaborator.get('email', ''),
             'collaborator_fiscal_code': assignment_data.get('collaborator_fiscal_code') or collaborator.get('fiscal_code', 'N/A'),
             'collaborator_birthplace': collaborator.get('birthplace', 'N/A'),

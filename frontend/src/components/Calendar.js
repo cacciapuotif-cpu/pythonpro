@@ -10,6 +10,7 @@
 import React, { useState, useEffect, useCallback, useMemo, memo } from 'react';
 import { Calendar as BigCalendar, momentLocalizer } from 'react-big-calendar';
 import moment from 'moment';
+import { formatPersonName } from '../utils/personName';
 import 'moment/locale/it';  // Import locale italiana
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 
@@ -257,7 +258,7 @@ const Calendar = memo(({
 
   const getCollaboratorName = useCallback((collaboratorId) => {
     const collaborator = collaborators.find(c => c.id === collaboratorId);
-    return collaborator ? `${collaborator.first_name} ${collaborator.last_name}` : 'Sconosciuto';
+    return collaborator ? formatPersonName(collaborator) : 'Sconosciuto';
   }, [collaborators]);
 
   const getProjectName = useCallback((projectId) => {
@@ -624,7 +625,7 @@ const Calendar = memo(({
                     style={{ backgroundColor: getEntityColor(entity.id) }}
                   />
                   <span className="legend-name">
-                    {colorDimension === 'collaborator' ? `${entity.first_name} ${entity.last_name}` : entity.name}
+                    {colorDimension === 'collaborator' ? formatPersonName(entity) : entity.name}
                   </span>
                 </div>
               ))}

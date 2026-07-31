@@ -10,6 +10,7 @@
 import React from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
+import { formatPersonName } from '../utils/personName';
 
 import AlberoAllievi, { raggruppaPerAzienda, SENZA_AZIENDA } from './AlberoAllievi';
 
@@ -93,21 +94,21 @@ describe('selezione a cascata', () => {
 
   test('selezionare un allievo tira dentro la sua azienda', () => {
     const { onChange } = renderAlbero();
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Ada Rossi' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Rossi Ada' }));
 
     expect(onChange).toHaveBeenCalledWith({ azienda_ids: [10], allievo_ids: [1] });
   });
 
   test('l ultimo allievo tolto non trascina fuori l azienda: puo restare da sola', () => {
     const { onChange } = renderAlbero({ aziendeSelezionate: [10], allieviSelezionati: [1] });
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Ada Rossi' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Rossi Ada' }));
 
     expect(onChange).toHaveBeenCalledWith({ azienda_ids: [10], allievo_ids: [] });
   });
 
   test('un allievo senza azienda non inventa associazioni', () => {
     const { onChange } = renderAlbero();
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Dario Blu' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Blu Dario' }));
 
     expect(onChange).toHaveBeenCalledWith({ azienda_ids: [], allievo_ids: [4] });
   });
@@ -125,8 +126,8 @@ describe('ricerca e leggibilita', () => {
     renderAlbero();
     fireEvent.change(screen.getByLabelText(/Cerca/), { target: { value: 'carla' } });
 
-    expect(screen.getByText('Carla Neri')).toBeInTheDocument();
-    expect(screen.queryByText('Ada Rossi')).not.toBeInTheDocument();
+    expect(screen.getByText('Neri Carla')).toBeInTheDocument();
+    expect(screen.queryByText('Rossi Ada')).not.toBeInTheDocument();
     expect(screen.queryByText(/Power Impianti srl/)).not.toBeInTheDocument();
   });
 
@@ -134,8 +135,8 @@ describe('ricerca e leggibilita', () => {
     renderAlbero();
     fireEvent.change(screen.getByLabelText(/Cerca/), { target: { value: 'power' } });
 
-    expect(within(gruppo('Power Impianti srl')).getByText('Ada Rossi')).toBeInTheDocument();
-    expect(screen.queryByText('Carla Neri')).not.toBeInTheDocument();
+    expect(within(gruppo('Power Impianti srl')).getByText('Rossi Ada')).toBeInTheDocument();
+    expect(screen.queryByText('Neri Carla')).not.toBeInTheDocument();
   });
 
   test('ogni azienda dichiara quanti dei suoi sono selezionati', () => {
@@ -168,7 +169,7 @@ describe('sola lettura', () => {
     );
 
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
-    expect(screen.getByText('Ada Rossi')).toBeInTheDocument();
+    expect(screen.getByText('Rossi Ada')).toBeInTheDocument();
   });
 
   test('in lettura mostra solo cio che e associato', () => {
@@ -181,8 +182,8 @@ describe('sola lettura', () => {
       />,
     );
 
-    expect(screen.getByText('Ada Rossi')).toBeInTheDocument();
-    expect(screen.queryByText('Bruno Verdi')).not.toBeInTheDocument();
+    expect(screen.getByText('Rossi Ada')).toBeInTheDocument();
+    expect(screen.queryByText('Verdi Bruno')).not.toBeInTheDocument();
     expect(screen.queryByText(/Beta Spa/)).not.toBeInTheDocument();
   });
 
@@ -193,12 +194,12 @@ describe('sola lettura', () => {
         allievi={allievi}
         aziendeSelezionate={[10]}
         allieviSelezionati={[1]}
-        renderAzioneAllievo={(allievo) => <button type="button">{`Stacca ${allievo.nome}`}</button>}
+        renderAzioneAllievo={(allievo) => <button type="button">{`Stacca ${formatPersonName(allievo)}`}</button>}
         renderAzioneAzienda={(azienda) => <button type="button">{`Stacca ${azienda.ragione_sociale}`}</button>}
       />,
     );
 
-    expect(screen.getByRole('button', { name: 'Stacca Ada' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Stacca Rossi Ada' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Stacca Power Impianti srl' })).toBeInTheDocument();
   });
 });

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import apiService from '../services/apiService';
 import { getAgentCommunications, getAgentSuggestions } from '../services/apiService';
 import { isAdminRole, normalizeRole, ROLES } from '../auth/permissions';
+import { formatPersonName } from '../utils/personName';
 import './Dashboard.scss';
 
 const formatNumber = (value) => new Intl.NumberFormat('it-IT').format(Number(value || 0));
@@ -277,7 +278,7 @@ const Dashboard = ({ currentUser }) => {
     } = state.data;
 
     const collaboratorsMap = new Map(
-      collaborators.map((collaborator) => [collaborator.id, `${collaborator.first_name} ${collaborator.last_name}`])
+      collaborators.map((collaborator) => [collaborator.id, formatPersonName(collaborator)])
     );
     const projectsMap = new Map(projects.map((project) => [project.id, project.name]));
 
@@ -291,7 +292,7 @@ const Dashboard = ({ currentUser }) => {
         return {
           id: `document-${collaborator.id}`,
           area: 'Documenti',
-          owner: `${collaborator.first_name} ${collaborator.last_name}`,
+          owner: formatPersonName(collaborator),
           ...alert,
         };
       })

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { formatPersonName } from '../utils/personName';
 import {
   getAllievi,
   getAllievo,
@@ -510,7 +511,7 @@ export default function AllieviManager({ currentUser }) {
                     const { currentCompany, linkedProjects } = displayDataFor(allievo);
                     return <tr key={allievo.id} data-entity-id={allievo.id}>
                       <td>
-                        <strong>{[allievo.cognome, allievo.nome].filter(Boolean).join(' ')}</strong>
+                        <strong>{formatPersonName(allievo)}</strong>
                         <div className="sub-text">
                           {[allievo.luogo_nascita, allievo.data_nascita ? new Date(allievo.data_nascita).toLocaleDateString('it-IT') : null].filter(Boolean).join(' · ') || 'Anagrafica base'}
                         </div>
@@ -552,7 +553,7 @@ export default function AllieviManager({ currentUser }) {
           )}
           renderCard={(allievo) => {
             const { currentCompany, linkedProjects } = displayDataFor(allievo);
-            const fullName = [allievo.cognome, allievo.nome].filter(Boolean).join(' ');
+                  const fullName = formatPersonName(allievo);
             return (
               <article className="responsive-card">
                 <div className="responsive-card-header">

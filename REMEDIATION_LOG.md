@@ -2,6 +2,17 @@
 
 Formato: data | finding ID | cosa fatto | file toccati | test/verifiche eseguiti
 
+## 2026-07-31 | UX-NOMINATIVI | Formato e ordinamento uniforme
+
+- Aggiunta utility frontend `formatPersonName`/`comparePeople` e applicata a
+  liste e selettori di collaboratori, allievi, consulenti, utenti, referenti,
+  documenti, dashboard, agenti, calendario, timesheet e contratti.
+- Ordinamento backend case/accent-insensitive con `unaccent`, indici funzionali
+  Alembic 070, paginazione server-side preservata.
+- Censiti record anomali e `Codex Runtime Test`; nessuna modifica dati.
+- Test frontend 41/327 verdi; backend completo 986 passed / 6 skipped;
+  migration provata su copia e applicata al DB reale.
+
 ## 2026-07-31 | DEL-UI-03 | Eliminazione aziende senza fallimenti silenziosi
 
 - Dialog UI con stato di verifica, conferma esplicita, errore leggibile e

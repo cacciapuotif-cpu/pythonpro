@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { formatPersonName } from '../utils/personName';
 
 import AlberoAllievi from './AlberoAllievi';
 import { canPerform, isAdminRole } from '../auth/permissions';
@@ -23,7 +24,7 @@ export const MOTIVO_MIN = 10;
 
 export const motivoValido = (motivo) => (motivo || '').trim().length >= MOTIVO_MIN;
 
-const nomeAllievo = (allievo) => `${allievo.nome} ${allievo.cognome}`.trim();
+const nomeAllievo = (allievo) => formatPersonName(allievo);
 
 const dettaglioConflitto = (error) => {
   if (error?.response?.status !== 409) return null;

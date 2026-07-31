@@ -9,6 +9,7 @@ import { canPerform } from '../auth/permissions';
 import ResponsiveEntityList from './responsive/ResponsiveEntityList';
 import ResponsivePagination from './responsive/ResponsivePagination';
 import ResponsiveFilters from './responsive/ResponsiveFilters';
+import { formatPersonName } from '../utils/personName';
 import useMobileLayout from '../hooks/useMobileLayout';
 import useResponsivePageItems from '../hooks/useResponsivePageItems';
 import './AziendeClientiManager.scss';
@@ -753,7 +754,7 @@ export default function AziendeClientiManager({ currentUser }) {
                       ) : '—'}
                     </td>
                     <td>
-                      <div>{[az.referente_nome, az.referente_cognome].filter(Boolean).join(' ') || '—'}</div>
+                      <div>{formatPersonName({ nome: az.referente_nome, cognome: az.referente_cognome }) || '—'}</div>
                       {az.referente_email && <div className="sub-text">{az.referente_email}</div>}
                     </td>
                     <td>
@@ -788,7 +789,7 @@ export default function AziendeClientiManager({ currentUser }) {
               ? az.fund_memberships.find((membership) => !membership.data_fine) || az.fund_memberships[0]
               : null;
             const projectCount = Array.isArray(az.linked_projects) ? az.linked_projects.length : 0;
-            const contact = [az.referente_nome, az.referente_cognome].filter(Boolean).join(' ');
+            const contact = formatPersonName({ nome: az.referente_nome, cognome: az.referente_cognome });
             return (
               <article className="responsive-card">
                 <div className="responsive-card-header">

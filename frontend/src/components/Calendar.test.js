@@ -64,9 +64,9 @@ test('al primo caricamento chiama getCalendarAttendances con i filtri di default
 
 test('selezionare un collaboratore rifà la fetch con il filtro e aggiorna la URL', async () => {
   render(<Calendar currentUser={CURRENT_USER} />);
-  await screen.findByLabelText(/mario rossi/i);
+  await screen.findByLabelText(/rossi mario/i);
 
-  fireEvent.click(screen.getByLabelText(/mario rossi/i));
+  fireEvent.click(screen.getByLabelText(/rossi mario/i));
 
   await waitFor(() => {
     const lastCall = apiService.getCalendarAttendances.mock.calls.at(-1)[0];
@@ -111,7 +111,7 @@ test('oltre la soglia mostra l\'avviso invece del calendario', async () => {
 test('azzera filtri riporta ai valori di default e pulisce la URL', async () => {
   window.history.replaceState({}, '', '/?project_ids=1');
   render(<Calendar currentUser={CURRENT_USER} />);
-  await screen.findByLabelText(/mario rossi/i);
+  await screen.findByLabelText(/rossi mario/i);
 
   fireEvent.click(screen.getByRole('button', { name: /azzera filtri/i }));
 

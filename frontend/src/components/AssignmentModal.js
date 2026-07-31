@@ -8,6 +8,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { formatPersonName } from '../utils/personName';
 import {
   createAssignment,
   updateAssignment,
@@ -562,7 +563,7 @@ const AssignmentModal = ({
                   <option value="">Seleziona collaboratore...</option>
                   {availableCollaborators.map(collab => (
                     <option key={collab.id} value={collab.id}>
-                      {collab.first_name} {collab.last_name} - {collab.email}
+                      {formatPersonName(collab)} - {collab.email}
                     </option>
                   ))}
                 </select>
