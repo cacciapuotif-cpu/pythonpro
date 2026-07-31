@@ -12,6 +12,8 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import ErrorBanner from './ErrorBanner';
 import { http } from '../lib/http';
+import useMobileLayout from '../hooks/useMobileLayout';
+import DesktopOnlyNotice from './common/DesktopOnlyNotice';
 import './ProgettoMansioneEnteManager.scss';
 
 const CONTRACT_TYPE_LABELS = {
@@ -41,6 +43,10 @@ const formatContractTypeLabel = (value) => {
 };
 
 const ProgettoMansioneEnteManager = () => {
+  // MOB-4: piano finanziario è Livello 3 (MOB-0 gate) — riepilogo read-only
+  // su mobile, creazione/modifica/eliminazione righe restano desktop-only.
+  const isMobile = useMobileLayout();
+
   // ==========================================
   // STATE MANAGEMENT
   // ==========================================
@@ -424,9 +430,13 @@ const ProgettoMansioneEnteManager = () => {
           <h2>Piano Finanziario Progetto</h2>
           <p>Apri un progetto, leggi il riepilogo autoalimentato e gestisci le righe economiche del suo piano.</p>
         </div>
-        <button className="btn-primary" onClick={openCreateModal} disabled={!selectedProject}>
-          + Nuova Riga Piano
-        </button>
+        {isMobile ? (
+          <p className="desktop-only-hint">Creazione righe piano disponibile da desktop.</p>
+        ) : (
+          <button className="btn-primary" onClick={openCreateModal} disabled={!selectedProject}>
+            + Nuova Riga Piano
+          </button>
+        )}
       </div>
 
       {/* MESSAGGI ERRORE */}
@@ -627,20 +637,26 @@ const ProgettoMansioneEnteManager = () => {
                       </span>
                     </td>
                     <td className="actions-cell">
-                      <button
-                        className="btn-icon btn-edit"
-                        onClick={() => openEditModal(ass)}
-                        title="Modifica"
-                      >
-                        ✏️
-                      </button>
-                      <button
-                        className="btn-icon btn-delete"
-                        onClick={() => handleDelete(ass.id)}
-                        title="Elimina"
-                      >
-                        🗑️
-                      </button>
+                      {isMobile ? (
+                        <span className="desktop-only-hint">Da desktop</span>
+                      ) : (
+                        <>
+                          <button
+                            className="btn-icon btn-edit"
+                            onClick={() => openEditModal(ass)}
+                            title="Modifica"
+                          >
+                            ✏️
+                          </button>
+                          <button
+                            className="btn-icon btn-delete"
+                            onClick={() => handleDelete(ass.id)}
+                            title="Elimina"
+                          >
+                            🗑️
+                          </button>
+                        </>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -650,8 +666,8 @@ const ProgettoMansioneEnteManager = () => {
         </div>
       )}
 
-      {/* MODAL CREA/MODIFICA */}
-      {showModal && (
+      {/* MODAL CREA/MODIFICA — Livello 3, i trigger sono nascosti su mobile */}
+      {showModal && !isMobile && (
         <div className="modal-overlay" onClick={closeModal}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">

@@ -47,3 +47,11 @@
 .row-inactive td {
   opacity: 0.55;
 }
+
+/* MOB-4: form modale a due colonne, illeggibile su schermi stretti.
+   768px = $mobile-max del registro Sass (questo file resta plain CSS). */
+@media (max-width: 768px) {
+  .modal-grid-2 {
+    grid-template-columns: 1fr;
+  }
+}

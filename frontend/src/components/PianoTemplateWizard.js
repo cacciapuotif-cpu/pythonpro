@@ -25,6 +25,8 @@ import {
 } from '../services/apiService';
 import { canRequest } from '../auth/permissions';
 import ErrorBanner from './ErrorBanner';
+import useMobileLayout from '../hooks/useMobileLayout';
+import DesktopOnlyNotice from './common/DesktopOnlyNotice';
 import './PianoTemplateWizard.css';
 
 // Stessi valori ammessi dal validator backend PianoFinanziario.tipo_fondo.
@@ -60,6 +62,9 @@ const extractApiError = (err, fallback) => {
 const CLOSE_CONFIRM_MESSAGE = 'Chiudere il wizard? Le selezioni andranno perse.';
 
 const PianoTemplateWizard = ({ project = null, availableProjects = [], onClose, onSuccess }) => {
+  // MOB-4: wizard da template è Livello 3 (MOB-0 gate) — desktop-only.
+  const isMobile = useMobileLayout();
+
   const [step, setStep] = useState(1);
 
   // Passo 1 — selezione
@@ -576,43 +581,54 @@ const PianoTemplateWizard = ({ project = null, availableProjects = [], onClose, 
           <button type="button" onClick={requestClose} className="ptw-close" aria-label="Chiudi wizard">✕</button>
         </div>
 
-        {!pianoCreato && renderStepIndicator()}
+        {isMobile ? (
+          <DesktopOnlyNotice
+            title="Piano da template: solo desktop"
+            message="Selezione avviso, anteprima e conferma del piano si fanno da desktop."
+          >
+            {project?.name && <strong>{project.name}</strong>}
+          </DesktopOnlyNotice>
+        ) : (
+          <>
+            {!pianoCreato && renderStepIndicator()}
 
-        {error && (
-          <div className="ptw-error" role="alert">⚠️ <ErrorBanner error={error} /></div>
-        )}
+            {error && (
+              <div className="ptw-error" role="alert">⚠️ <ErrorBanner error={error} /></div>
+            )}
 
-        {pianoCreato
-          ? renderPianoCreato()
-          : step === 1
-            ? renderSelezione()
-            : step === 2
-              ? renderAnteprima()
-              : renderConferma()}
+            {pianoCreato
+              ? renderPianoCreato()
+              : step === 1
+                ? renderSelezione()
+                : step === 2
+                  ? renderAnteprima()
+                  : renderConferma()}
 
-        {!pianoCreato && step !== 3 && (
-          <div className="ptw-footer">
-            {step === 2 ? (
-              <button type="button" className="ptw-btn" onClick={() => setStep(1)}>← Indietro</button>
-            ) : (
-              <button type="button" className="ptw-btn" onClick={onClose}>Annulla</button>
+            {!pianoCreato && step !== 3 && (
+              <div className="ptw-footer">
+                {step === 2 ? (
+                  <button type="button" className="ptw-btn" onClick={() => setStep(1)}>← Indietro</button>
+                ) : (
+                  <button type="button" className="ptw-btn" onClick={onClose}>Annulla</button>
+                )}
+                {step === 1 && (
+                  <button
+                    type="button"
+                    className="ptw-btn primary"
+                    onClick={loadAnteprima}
+                    disabled={!fondo || !templateId || !annoValido || loadingAnteprima}
+                  >
+                    {loadingAnteprima ? '⏳ Caricamento...' : 'Avanti →'}
+                  </button>
+                )}
+                {step === 2 && (
+                  <button type="button" className="ptw-btn primary" onClick={goToConferma}>
+                    Avanti →
+                  </button>
+                )}
+              </div>
             )}
-            {step === 1 && (
-              <button
-                type="button"
-                className="ptw-btn primary"
-                onClick={loadAnteprima}
-                disabled={!fondo || !templateId || !annoValido || loadingAnteprima}
-              >
-                {loadingAnteprima ? '⏳ Caricamento...' : 'Avanti →'}
-              </button>
-            )}
-            {step === 2 && (
-              <button type="button" className="ptw-btn primary" onClick={goToConferma}>
-                Avanti →
-              </button>
-            )}
-          </div>
+          </>
         )}
       </div>
     </div>

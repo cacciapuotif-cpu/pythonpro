@@ -1,0 +1,26 @@
+@use "breakpoints" as bp;
+
+// MOB-4: guscio full-screen mobile per i modal esistenti.
+// I modal restano home-grown (nessun componente React condiviso, ogni
+// manager mantiene il proprio markup); questo mixin cambia solo la resa
+// sotto la soglia mobile, in un solo punto per selettore overlay.
+// !important necessario: vince sempre sulle regole @include bp.mobile
+// già presenti nei singoli file, il cui ordine di bundling non è garantito.
+@mixin fullscreen-shell {
+  @include bp.mobile {
+    padding: 0 !important;
+    align-items: stretch !important;
+    justify-content: stretch !important;
+
+    > * {
+      width: 100% !important;
+      max-width: 100% !important;
+      height: 100% !important;
+      max-height: 100% !important;
+      margin: 0 !important;
+      border-radius: 0 !important;
+      padding-top: env(safe-area-inset-top, 0px);
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+  }
+}

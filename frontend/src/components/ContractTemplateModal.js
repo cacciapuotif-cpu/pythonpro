@@ -10,6 +10,8 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { http } from '../lib/http';
 import { createAvviso, getAvvisi } from '../services/apiService';
+import useMobileLayout from '../hooks/useMobileLayout';
+import DesktopOnlyNotice from './common/DesktopOnlyNotice';
 import './ContractTemplateModal.scss';
 
 // ============================================================
@@ -133,6 +135,9 @@ const DEFAULT_MACROVOCI = [
 // ============================================================
 
 const ContractTemplateModal = ({ template, onClose, onSave }) => {
+  // MOB-4: generazione contratto/template è Livello 3 (MOB-0 gate) —
+  // desktop-only, nessun form template DOCX su mobile.
+  const isMobile = useMobileLayout();
 
   // --- Dati base (tutti gli ambiti) ---
   const [nomeTemplate, setNomeTemplate]   = useState('');
@@ -608,6 +613,15 @@ const ContractTemplateModal = ({ template, onClose, onSave }) => {
           <button className="close-button" onClick={onClose}>×</button>
         </div>
 
+        {isMobile ? (
+          <DesktopOnlyNotice
+            title="Template contratto: solo desktop"
+            message="Generazione contratto e template DOCX si gestiscono da desktop."
+          >
+            {template?.nome && <strong>{template.nome}</strong>}
+          </DesktopOnlyNotice>
+        ) : (
+          <>
         {/* BODY */}
         <div className="modal-body">
 
@@ -1181,6 +1195,8 @@ const ContractTemplateModal = ({ template, onClose, onSave }) => {
             {template ? '💾 Salva Modifiche' : '➕ Crea Template'}
           </button>
         </div>
+          </>
+        )}
 
       </div>
     </div>

@@ -3,3 +3,4 @@ export { default as LoadingSpinner } from './LoadingSpinner';
 export { default as ErrorMessage } from './ErrorMessage';
 export { default as ConfirmModal } from './ConfirmModal';
 export { default as Button } from './Button';
+export { default as DesktopOnlyNotice } from './DesktopOnlyNotice';

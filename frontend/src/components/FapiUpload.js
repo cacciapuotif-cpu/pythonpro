@@ -10,6 +10,7 @@ import {
   getDocumentiProgetto, downloadDocumentoProgetto,
 } from '../services/apiService';
 import { formatApiError } from '../lib/errors';
+import useMobileLayout from '../hooks/useMobileLayout';
 import './FapiUpload.css';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -1204,7 +1205,11 @@ function NuovoPianoModal({ onChoose, onClose }) {
 // ── FapiUploadSection (componente principale) ────────────────────────────────
 
 export function FapiUploadSection({ project, onRefresh, autoOpenConvenzione, autoOpenMode, onAutoClose }) {
-  const [modal, setModal] = useState(autoOpenConvenzione ? (autoOpenMode || 'new-piano') : null);
+  // MOB-4: upload/parsing convenzione, formulario, piano sono Livello 3
+  // (MOB-0 gate) — su mobile restano lo stato/elenco documenti read-only
+  // (DocumentiProgetto) e un messaggio esplicito, nessun upload.
+  const isMobile = useMobileLayout();
+  const [modal, setModal] = useState(!isMobile && autoOpenConvenzione ? (autoOpenMode || 'new-piano') : null);
   const [documentRefreshKey, setDocumentRefreshKey] = useState(0);
 
   const isFapi = project?.ente_erogatore === 'FAPI' || project?.codice_fapi;
@@ -1224,13 +1229,16 @@ export function FapiUploadSection({ project, onRefresh, autoOpenConvenzione, aut
   return (
     <div className="fapi-upload-section">
       <h4>📁 Documenti {isFondimpresa ? 'Fondimpresa' : isFormazienda ? 'Formazienda' : 'FAPI'}</h4>
+      {isMobile && (
+        <p className="desktop-only-hint">Upload e parsing documenti disponibili da desktop.</p>
+      )}
       <div className="fapi-buttons">
-        {!project && (
+        {!isMobile && !project && (
           <button className="fapi-btn primary" onClick={() => setModal('new-piano')}>
             📄 Carica Atto / Convenzione
           </button>
         )}
-        {project && isFapi && (
+        {!isMobile && project && isFapi && (
           <>
             <button className="fapi-btn primary" onClick={() => setModal('convenzione')}>
               {primaryLabel}
@@ -1243,7 +1251,7 @@ export function FapiUploadSection({ project, onRefresh, autoOpenConvenzione, aut
             </button>
           </>
         )}
-        {project && isFondimpresa && (
+        {!isMobile && project && isFondimpresa && (
           <>
             <button className="fapi-btn primary" onClick={() => setModal('ammissione-fondimpresa')}>
               {primaryLabel}
@@ -1253,7 +1261,7 @@ export function FapiUploadSection({ project, onRefresh, autoOpenConvenzione, aut
             </button>
           </>
         )}
-        {project && isFormazienda && (
+        {!isMobile && project && isFormazienda && (
           <>
             <button className="fapi-btn primary" onClick={() => setModal('atto-formazienda')}>
               {primaryLabel}
@@ -1281,13 +1289,13 @@ export function FapiUploadSection({ project, onRefresh, autoOpenConvenzione, aut
         />
       )}
 
-      {modal === 'new-piano' && (
+      {!isMobile && modal === 'new-piano' && (
         <NuovoPianoModal
           onChoose={(value) => setModal(value)}
           onClose={() => { setModal(null); onAutoClose && onAutoClose(); }}
         />
       )}
-      {modal === 'convenzione' && (
+      {!isMobile && modal === 'convenzione' && (
         <ConvenzioneModal
           projectId={project?.id}
           onClose={() => { setModal(null); onAutoClose && onAutoClose(); }}
@@ -1300,21 +1308,21 @@ export function FapiUploadSection({ project, onRefresh, autoOpenConvenzione, aut
           }}
         />
       )}
-      {modal === 'ammissione-fondimpresa' && (
+      {!isMobile && modal === 'ammissione-fondimpresa' && (
         <AmmissioneFondimpresaModal
           projectId={project?.id}
           onClose={() => { setModal(null); onAutoClose && onAutoClose(); }}
           onSuccess={() => { onRefresh && onRefresh(); }}
         />
       )}
-      {modal === 'riepilogo-fondimpresa' && project && (
+      {!isMobile && modal === 'riepilogo-fondimpresa' && project && (
         <RiepilogoFondimpresaModal
           projectId={project.id}
           onClose={() => setModal(null)}
           onSuccess={() => { setModal(null); onRefresh && onRefresh(); }}
         />
       )}
-      {modal === 'atto-formazienda' && (
+      {!isMobile && modal === 'atto-formazienda' && (
         <PlaceholderDocumentModal
           title="🏢 Carica Atto adesione Formazienda"
           label="Trascina o clicca per selezionare l'atto adesione PDF"
@@ -1324,7 +1332,7 @@ export function FapiUploadSection({ project, onRefresh, autoOpenConvenzione, aut
           onSuccess={() => { setModal(null); onAutoClose && onAutoClose(); onRefresh && onRefresh(); }}
         />
       )}
-      {modal === 'altro-ente' && (
+      {!isMobile && modal === 'altro-ente' && (
         <PlaceholderDocumentModal
           title="🏛️ Altro ente"
           label="Seleziona l'atto ufficiale del fondo/ente"
@@ -1334,14 +1342,14 @@ export function FapiUploadSection({ project, onRefresh, autoOpenConvenzione, aut
           onSuccess={() => { setModal(null); onAutoClose && onAutoClose(); }}
         />
       )}
-      {modal === 'formulario' && project && (
+      {!isMobile && modal === 'formulario' && project && (
         <FormularioModal
           projectId={project.id}
           onClose={() => setModal(null)}
           onSuccess={() => setModal(null)}
         />
       )}
-      {(modal === 'piano' || modal === 'piano-formazienda') && project && (
+      {!isMobile && (modal === 'piano' || modal === 'piano-formazienda') && project && (
         <PianoFinanziarioModal
           projectId={project.id}
           onClose={() => setModal(null)}

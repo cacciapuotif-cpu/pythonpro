@@ -1,4 +1,5 @@
 @use "./styles/breakpoints" as bp;
+@use "./styles/modal-fullscreen" as mf;
 
 /**
  * STILI GLOBALI DELL'APPLICAZIONE
@@ -171,4 +172,14 @@ input:focus, select:focus, textarea:focus {
   textarea {
     font-size: 1rem !important;
   }
+}
+
+/*
+ * MOB-4: guscio full-screen mobile per tutti i modal che usano la classe
+ * condivisa .modal-overlay (una decina di manager, nessuna copia del CSS
+ * per file). I modal Livello 3 (wizard/form completi/import) restano allo
+ * stesso guscio ma sostituiscono il contenuto con DesktopOnlyNotice via JS.
+ */
+.modal-overlay {
+  @include mf.fullscreen-shell;
 }

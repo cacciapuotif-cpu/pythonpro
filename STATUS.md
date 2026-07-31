@@ -1,12 +1,39 @@
 # PythonPro — Stato corrente
 
-**Aggiornato:** 2026-07-31 (MOB-3 GATE CHIUSO con confutatore; prossimo MOB-4)
+**Aggiornato:** 2026-07-31 (MOB-4 GATE CHIUSO con confutatore; prossimo MOB-5)
 **Branch:** `claude/platform-audit-compliance-XnH86` (locale, **nessun push**)
 **Percorso:** `/DATA/progetti/pythonpro`
 
 > ⚠️ **Due sessioni hanno lavorato su questo branch il 27/07 in parallelo.**
 > Questo file è scritto a quattro mani: la sezione "RIPARTENZA" qui sotto
 > riguarda l'ondata UX; il resto del file traccia l'altro filone.
+
+## ✅ GATE CHIUSO 2026-07-31 — ONDATA MOBILE / MOB-4
+
+MOB-4 committato e documentato in `audit/MOB4_FORM_REPORT.md`. Form/wizard/
+modali censiti secondo la matrice Livelli 1/2/3 già confermata in MOB-0:
+guscio full-screen condiviso (`_modal-fullscreen.scss`) per i flussi L1/L2
+(Presenze, Area personale, Assegnazioni, e i manager con overlay condiviso);
+`DesktopOnlyNotice` per i flussi L3 dichiarati desktop-only (profilo ente,
+gestione utenti, piano finanziario, wizard da template, generazione
+contratto, upload/parsing FAPI/Fondimpresa, dissociazione forzata).
+
+**Verifiche:** frontend 40 suite/325 test/0 falliti (incl. 4 nuovi su
+`DesktopOnlyNotice`); build verde; diff avversariale su
+`UserManagement.js`/`GestioneAssociati.js` senza guardie RBAC rimosse.
+
+**Correzione importante trovata dal confutatore**: `docker compose up -d
+--force-recreate` da solo **non ribuilda l'immagine**, riusa quella in
+cache — il bundle servito dopo il primo tentativo aveva ancora l'hash
+pre-MOB-4. Serve `docker compose build frontend` esplicito prima di
+`up -d --force-recreate`. Questo mette in dubbio la verifica runtime del
+gate MOB-3 chiuso stamattina con lo stesso comando incompleto: il rebuild
+vero fatto ora per MOB-4 include comunque tutto lo storico fino a HEAD,
+quindi il bundle attuale conferma live **sia** i marker MOB-3 (“Carica
+altri”, `--breakpoint-mobile-max`) **sia** quelli MOB-4 — MOB-3 resta
+confermato, ma retroattivamente. Dettagli in `audit/MOB4_FORM_REPORT.md`.
+
+**Prossimo:** MOB-5 (vedi roadmap sotto per lo scope non ancora dettagliato).
 
 ## ✅ GATE CHIUSO 2026-07-31 — ONDATA MOBILE / MOB-3
 

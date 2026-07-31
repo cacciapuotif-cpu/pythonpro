@@ -1,4 +1,5 @@
 @use "./styles/breakpoints" as bp;
+@use "./styles/modal-fullscreen" as mf;
 
 /**
  * STILI PER IL COMPONENTE PRINCIPALE APP
@@ -1108,6 +1109,9 @@
   padding: 24px;
   background: rgba(15, 30, 45, 0.62);
   backdrop-filter: blur(4px);
+
+  // MOB-4: Area personale è Livello 2 senza eccezione L3, full-screen mobile.
+  @include mf.fullscreen-shell;
 }
 
 .personal-area {

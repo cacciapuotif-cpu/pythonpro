@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import AlberoAllievi from './AlberoAllievi';
 import { canPerform, isAdminRole } from '../auth/permissions';
 import { formatApiError } from '../lib/errors';
+import useMobileLayout from '../hooks/useMobileLayout';
 import {
   dissociaAllievoDaProgetto,
   dissociaAziendaDaProgetto,
@@ -31,6 +32,10 @@ const dettaglioConflitto = (error) => {
 };
 
 const GestioneAssociati = ({ project, currentUser, onChange }) => {
+  // MOB-4: dissociazione normale resta Livello 2 (mobile-usabile); la
+  // forzatura admin e' "dissociazione forzata" Livello 3 (MOB-0 gate) —
+  // azione non mostrata su mobile, spiegazione desktop.
+  const isMobile = useMobileLayout();
   const [bersaglio, setBersaglio] = useState(null);
   const [conflitto, setConflitto] = useState(null);
   const [errore, setErrore] = useState('');
@@ -76,7 +81,8 @@ const GestioneAssociati = ({ project, currentUser, onChange }) => {
     }
   };
 
-  const forzaOfferta = Boolean(conflitto?.forzabile) && puoForzare;
+  const forzaBloccataDaMobile = Boolean(conflitto?.forzabile) && puoForzare && isMobile;
+  const forzaOfferta = Boolean(conflitto?.forzabile) && puoForzare && !isMobile;
 
   const bottoneStacca = (tipo, entita, nome) => (puoStaccare ? (
     <button
@@ -125,6 +131,11 @@ const GestioneAssociati = ({ project, currentUser, onChange }) => {
                 {conflitto.forzabile && !puoForzare && (
                   <p className="dissociazione-nota">
                     Il blocco e' superabile, ma solo un amministratore puo' forzare la dissociazione.
+                  </p>
+                )}
+                {forzaBloccataDaMobile && (
+                  <p className="dissociazione-nota">
+                    Il blocco e' superabile, ma la forzatura si fa solo da desktop.
                   </p>
                 )}
               </div>

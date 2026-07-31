@@ -13,6 +13,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import http from '../lib/http';
 import apiService from '../services/apiService';
+import useMobileLayout from '../hooks/useMobileLayout';
+import DesktopOnlyNotice from './common/DesktopOnlyNotice';
 import './ImplementingEntityModal.scss';
 
 const EMPTY_LOCATION = {
@@ -52,6 +54,10 @@ const cleanRelatedPayload = (value) => Object.fromEntries(
 );
 
 const ImplementingEntityModal = ({ entity, onClose, onSave, onChanged }) => {
+  // MOB-4: profilo ente è Livello 3 (MOB-0 gate) — form completo, sedi,
+  // conti, reveal IBAN, logo/carta intestata restano desktop-only.
+  const isMobile = useMobileLayout();
+
   // ==========================================
   // STATE MANAGEMENT
   // ==========================================
@@ -1351,56 +1357,72 @@ const ImplementingEntityModal = ({ entity, onClose, onSave, onChanged }) => {
           <button className="close-button" onClick={onClose}>✕</button>
         </div>
 
-        {/* Indicatore sezioni */}
-        <nav className="sections-indicator" aria-label="Sezioni modifica ente">
-          {sections.map((section, index) => (
-            <button
-              type="button"
-              key={section.id}
-              className={`section-step ${currentSection === index ? 'active' : ''} ${currentSection > index ? 'completed' : ''}`}
-              onClick={handleSectionStepClick(index)}
-              aria-current={currentSection === index ? 'step' : undefined}
-            >
-              <span className="step-icon" aria-hidden="true">{section.icon}</span>
-              <span className="step-title">{section.title}</span>
-            </button>
-          ))}
-        </nav>
-
-        {/* Form */}
-        <form onSubmit={handleSubmit} onKeyDown={handleFormKeyDown}>
-          <div className="modal-body">
-            <h3 className="section-title">
-              {sections[currentSection].icon} {sections[currentSection].title}
-            </h3>
-            {renderSection()}
-          </div>
-
-          {/* Footer con navigazione */}
-          <div className="modal-footer">
-            <div className="navigation-buttons">
-              {currentSection > 0 && (
-                <button type="button" className="btn-secondary" onClick={handlePrevSectionClick}>
-                  ← Indietro
+        {isMobile ? (
+          <DesktopOnlyNotice
+            title="Profilo ente: solo desktop"
+            message="Form completo, sedi, conti correnti, IBAN e carta intestata si gestiscono da desktop."
+          >
+            {entity && (
+              <>
+                <strong>{entity.ragione_sociale}</strong>
+                {entity.forma_giuridica && <div>{entity.forma_giuridica}</div>}
+              </>
+            )}
+          </DesktopOnlyNotice>
+        ) : (
+          <>
+            {/* Indicatore sezioni */}
+            <nav className="sections-indicator" aria-label="Sezioni modifica ente">
+              {sections.map((section, index) => (
+                <button
+                  type="button"
+                  key={section.id}
+                  className={`section-step ${currentSection === index ? 'active' : ''} ${currentSection > index ? 'completed' : ''}`}
+                  onClick={handleSectionStepClick(index)}
+                  aria-current={currentSection === index ? 'step' : undefined}
+                >
+                  <span className="step-icon" aria-hidden="true">{section.icon}</span>
+                  <span className="step-title">{section.title}</span>
                 </button>
-              )}
+              ))}
+            </nav>
 
-              {currentSection < sections.length - 1 ? (
-                <button type="button" className="btn-primary" onClick={handleNextSectionClick}>
-                  Avanti →
-                </button>
-              ) : (
-                <button type="submit" className="btn-success">
-                  {entity ? '💾 Salva Modifiche' : '➕ Crea Ente'}
-                </button>
-              )}
-            </div>
+            {/* Form */}
+            <form onSubmit={handleSubmit} onKeyDown={handleFormKeyDown}>
+              <div className="modal-body">
+                <h3 className="section-title">
+                  {sections[currentSection].icon} {sections[currentSection].title}
+                </h3>
+                {renderSection()}
+              </div>
 
-            <button type="button" className="btn-cancel" onClick={onClose}>
-              Annulla
-            </button>
-          </div>
-        </form>
+              {/* Footer con navigazione */}
+              <div className="modal-footer">
+                <div className="navigation-buttons">
+                  {currentSection > 0 && (
+                    <button type="button" className="btn-secondary" onClick={handlePrevSectionClick}>
+                      ← Indietro
+                    </button>
+                  )}
+
+                  {currentSection < sections.length - 1 ? (
+                    <button type="button" className="btn-primary" onClick={handleNextSectionClick}>
+                      Avanti →
+                    </button>
+                  ) : (
+                    <button type="submit" className="btn-success">
+                      {entity ? '💾 Salva Modifiche' : '➕ Crea Ente'}
+                    </button>
+                  )}
+                </div>
+
+                <button type="button" className="btn-cancel" onClick={onClose}>
+                  Annulla
+                </button>
+              </div>
+            </form>
+          </>
+        )}
       </div>
     </div>
   );

@@ -3,6 +3,8 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { getRoleLabel } from '../auth/permissions';
 import { formatApiError } from '../lib/errors';
 import apiService from '../services/apiService';
+import useMobileLayout from '../hooks/useMobileLayout';
+import DesktopOnlyNotice from './common/DesktopOnlyNotice';
 import './UserManagement.scss';
 
 const EMPTY_FORM = {
@@ -48,6 +50,10 @@ const splitName = (user = {}) => {
 };
 
 const UserManagement = ({ currentUser }) => {
+  // MOB-4: gestione utenti è Livello 3 (MOB-0 gate) — solo elenco read-only
+  // su mobile, creazione/modifica/eliminazione restano desktop-only.
+  const isMobile = useMobileLayout();
+
   const [users, setUsers] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(true);
   const [error, setError] = useState('');
@@ -247,13 +253,17 @@ const UserManagement = ({ currentUser }) => {
         <h1>Gestione Utenti</h1>
         <p>Crea account, assegna il ruolo, modifica o disattiva chi non serve più.</p>
         <div className="header-buttons">
-          <button
-            type="button"
-            className={`add-button ${showForm && !editingUser ? 'active' : ''}`}
-            onClick={openCreateForm}
-          >
-            {showForm && !editingUser ? '✕ Chiudi' : '+ Nuovo utente'}
-          </button>
+          {isMobile ? (
+            <p className="desktop-only-hint">Creazione utenti disponibile da desktop.</p>
+          ) : (
+            <button
+              type="button"
+              className={`add-button ${showForm && !editingUser ? 'active' : ''}`}
+              onClick={openCreateForm}
+            >
+              {showForm && !editingUser ? '✕ Chiudi' : '+ Nuovo utente'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -270,7 +280,16 @@ const UserManagement = ({ currentUser }) => {
         </div>
       )}
 
-      {showForm && (
+      {showForm && isMobile && (
+        <DesktopOnlyNotice
+          title="Gestione utenti: solo desktop"
+          message="Creazione, modifica ed eliminazione utenti si fanno da desktop."
+        >
+          {editingUser && <strong>{editingUser.username}</strong>}
+        </DesktopOnlyNotice>
+      )}
+
+      {showForm && !isMobile && (
         <div className="form-section">
           <h2>{editingUser ? `Modifica "${editingUser.username}"` : 'Crea nuovo utente'}</h2>
           <p className="form-section-hint">
@@ -412,53 +431,59 @@ const UserManagement = ({ currentUser }) => {
                     {isSelf && <span className="self-tag">tu</span>}
                   </h3>
                   <div className="card-actions">
-                    <button
-                      type="button"
-                      className="edit-button"
-                      onClick={() => openEditForm(user)}
-                      title="Modifica"
-                    >
-                      ✏️
-                    </button>
-                    <button
-                      type="button"
-                      className="resend-invite-button"
-                      onClick={() => resendInvite(user)}
-                      disabled={busy || !user.is_active}
-                      title={user.is_active ? 'Reinvia credenziali' : 'Riattiva prima di reinviare le credenziali'}
-                    >
-                      ✉️
-                    </button>
-                    <button
-                      type="button"
-                      className="toggle-active-button"
-                      onClick={() => toggleActive(user)}
-                      disabled={busy || (user.is_active && disableDangerousActions)}
-                      title={
-                        isSelf
-                          ? 'Non puoi disattivare te stesso'
-                          : lastAdmin
-                            ? 'È l\'unico amministratore attivo'
-                            : user.is_active ? 'Disattiva' : 'Riattiva'
-                      }
-                    >
-                      {user.is_active ? '🔒' : '🔓'}
-                    </button>
-                    <button
-                      type="button"
-                      className="delete-button"
-                      onClick={() => setDeleteConfirm(user)}
-                      disabled={busy || disableDangerousActions}
-                      title={
-                        isSelf
-                          ? 'Non puoi eliminare te stesso'
-                          : lastAdmin
-                            ? 'È l\'unico amministratore attivo'
-                            : 'Elimina'
-                      }
-                    >
-                      🗑️
-                    </button>
+                    {isMobile ? (
+                      <span className="desktop-only-hint">Azioni da desktop</span>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          className="edit-button"
+                          onClick={() => openEditForm(user)}
+                          title="Modifica"
+                        >
+                          ✏️
+                        </button>
+                        <button
+                          type="button"
+                          className="resend-invite-button"
+                          onClick={() => resendInvite(user)}
+                          disabled={busy || !user.is_active}
+                          title={user.is_active ? 'Reinvia credenziali' : 'Riattiva prima di reinviare le credenziali'}
+                        >
+                          ✉️
+                        </button>
+                        <button
+                          type="button"
+                          className="toggle-active-button"
+                          onClick={() => toggleActive(user)}
+                          disabled={busy || (user.is_active && disableDangerousActions)}
+                          title={
+                            isSelf
+                              ? 'Non puoi disattivare te stesso'
+                              : lastAdmin
+                                ? 'È l\'unico amministratore attivo'
+                                : user.is_active ? 'Disattiva' : 'Riattiva'
+                          }
+                        >
+                          {user.is_active ? '🔒' : '🔓'}
+                        </button>
+                        <button
+                          type="button"
+                          className="delete-button"
+                          onClick={() => setDeleteConfirm(user)}
+                          disabled={busy || disableDangerousActions}
+                          title={
+                            isSelf
+                              ? 'Non puoi eliminare te stesso'
+                              : lastAdmin
+                                ? 'È l\'unico amministratore attivo'
+                                : 'Elimina'
+                          }
+                        >
+                          🗑️
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
 
@@ -492,7 +517,25 @@ const UserManagement = ({ currentUser }) => {
         </div>
       )}
 
-      {deleteConfirm && (
+      {deleteConfirm && isMobile && (
+        <div className="modal-overlay">
+          <div className="confirm-modal">
+            <DesktopOnlyNotice
+              title="Eliminazione utente: solo desktop"
+              message="Questa azione strutturale si conferma da desktop."
+            >
+              <strong>{deleteConfirm.username}</strong>
+            </DesktopOnlyNotice>
+            <div className="modal-buttons">
+              <button type="button" className="cancel-button" onClick={() => setDeleteConfirm(null)}>
+                Chiudi
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteConfirm && !isMobile && (
         <div className="modal-overlay">
           <div className="confirm-modal">
             <h3>⚠️ Conferma eliminazione</h3>
