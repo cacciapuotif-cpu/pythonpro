@@ -1265,6 +1265,7 @@ Riprendi PythonPro da `/DATA/progetti/pythonpro`. Leggi prima `STATUS.md`, la se
 - Censimento preliminare aziende: isolate #3, #4, #11, #12, #13, #14; collegate #1, #2, #10. Matrice completa da estendere a documenti, ordini/preventivi, piani, interazioni e rendicontazione.
 - REV-0 read-only: 178 pending totali; 54 orfani `avviso_revisione` dell'assistente `avviso_extractor`, 56 validi. Proposta: stato tracciabile “superato/non più applicabile”, in attesa di conferma.
 - Report: `audit/REVISIONE_CANCELLAZIONI_REPORT.md`. **Gate aperto: nessun codice fix ancora scritto.**
+- Nuova diagnosi Maxi Communication: `upload-formulario` e `upload-piano-finanziario` non archiviano i file in `project_documents`; non esistono endpoint DELETE documenti. La conferma formulario inserisce sempre nuovi `ModuloFormativo` senza deduplica. PG01 ha tre batch identici (25 righe ciascuno); il set canonico è 3 moduli formativi/40h + 2 propedeutici/20h. Pulizia dati e fix idempotenza sospesi in attesa di confermare quale batch conservare.
 
 - Storico precedente completo: `STATUS_ARCHIVE_2026H1.md`.
 - Decisioni/verifiche dettagliate: `REMEDIATION_LOG.md`.

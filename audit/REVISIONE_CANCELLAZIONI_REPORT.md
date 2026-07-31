@@ -38,3 +38,11 @@ La catena si interrompe dopo il soft-delete CRUD: hard-delete azienda non è mai
 ## REV-0 — censimento iniziale orfani (sola lettura)
 
 Nel DB reale risultano 178 suggerimenti `pending`; per `avviso_revisione` 54 sono orfani (assistente `avviso_extractor`, `entity_id` nullo dopo la cancellazione), 56 restano validi. Gli `AgentRun` collegati restano presenti e alcuni hanno `entity_id` nullo. Proposta: chiudere gli orfani con stato tracciabile “superato/non più applicabile” e motivo, non cancellarli in silenzio; il gate richiede conferma prima della bonifica.
+
+## 2026-07-31 — Maxi Communication / PG01: diagnosi import documenti e moduli
+
+Il progetto #11 ha due soli record in `project_documents`, entrambi di tipo `convenzione` (v1 senza nome file, v2 `convenzioneAvviso012022_20250611CMIA001.pdf`). I due file fisici esistono nello storage (`335642` e `40344` byte). Non esistono record archiviati per formulario o piano finanziario.
+
+I router `upload-formulario` e `upload-piano-finanziario` salvano il file in storage e usano un preview token, ma nei rispettivi `confirm_*` non chiamano `_archivia_documento` e quindi non creano `ProjectDocumento`. Non esistono inoltre endpoint DELETE dei documenti.
+
+Il formulario è non idempotente: ogni conferma esegue solo `INSERT` dei moduli. Per Maxi sono presenti tre batch da 25 righe, creati il 22/04, 31/07 07:23 e 31/07 11:13. PG01 (`...01`) contiene 9 moduli formativi per 120 ore e 6 propedeutici per 60 ore: tre copie dello stesso set da 3+2 moduli. Il set singolo coerente con il dato fornito dall’utente è 3 moduli formativi (40 ore) + 2 propedeutici (20 ore). La correzione deve conservare un solo batch canonico, rendere l’import idempotente e archiviare formulario/piano come documenti versionati.
