@@ -4,6 +4,28 @@
 **Branch:** `claude/platform-audit-compliance-XnH86` (locale, **nessun push**)
 **Percorso:** `/DATA/progetti/pythonpro`
 
+## ✅ DEL-01 / DOC-01 — ELIMINAZIONE AZIENDE E DOCUMENTI — 2026-07-31
+
+Implementate e verificate su DB copia le eliminazioni definitive richieste:
+azienda isolata eliminabile da ADMIN con doppia conferma e audit; azienda
+collegata bloccata con elenco dei collegamenti; documento di progetto su bozza
+eliminabile con rimozione del file fisico; documento su rendicontazione
+archiviabile con motivo; RBAC ADMIN/OPERATORE applicato. Dopo l'eliminazione
+documentale la versione precedente torna corrente e i dati derivati restano
+marcati `fonte_rimossa` per riverifica. Pulsanti e metadati uploader/data sono
+presenti nella UI. Migration Alembic `069` applicata al DB reale dopo prova
+downgrade/upgrade su copia.
+
+Commit locali: `a22e381`, `52dc15f`, `9f2f9b3`, `03cb9fe` (nessun push).
+Backup: `/DATA/progetti/pythonpro_backup_pre_del_doc_20260731_120500.sql.gz`,
+SHA-256 `94dd7dc2efc0fa4260ce7423d55961b21e2ce477a6c3be03cf566fa4128a6c59`.
+Report: `audit/ELIMINAZIONE_AZIENDE_DOCUMENTI_REPORT.md`.
+
+Dichiarazione finale: **ELIMINAZIONE AZIENDE FUNZIONANTE: SÌ**;
+**ELIMINAZIONE DOCUMENTI FUNZIONANTE: SÌ**. Suite backend: **986 passed,
+6 skipped, 0 failed**. Frontend: **40 suite, 325 test, 0 fallimenti**.
+La copia DB e i file temporanei della prova sono stati rimossi.
+
 > ⚠️ **Due sessioni hanno lavorato su questo branch il 27/07 in parallelo.**
 > Questo file è scritto a quattro mani: la sezione "RIPARTENZA" qui sotto
 > riguarda l'ondata UX; il resto del file traccia l'altro filone.

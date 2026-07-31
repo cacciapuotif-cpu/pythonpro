@@ -2,6 +2,17 @@
 
 Formato: data | finding ID | cosa fatto | file toccati | test/verifiche eseguiti
 
+## 2026-07-31 | DEL-01 / DOC-01 | Eliminazione aziende e documenti resa operativa
+
+- Implementati hard-delete aziende/documenti, archiviazione documenti, impatto,
+  RBAC, doppia conferma, audit, chiusura suggerimenti collegati, ripristino
+  versione precedente e rimozione file fisico.
+- Commit: `a22e381`, `52dc15f`, `9f2f9b3`, `03cb9fe`.
+- Verifica su DB copia: azienda isolata eliminata e auditata; azienda collegata
+  bloccata con collegamenti; documento bozza eliminato con file; documento in
+  rendicontazione archiviato. Backup verificato e copia poi rimossa.
+- Test: backend 986 passed / 6 skipped; frontend 40 suite / 325 test.
+
 > AVVISO PERMANENTE: VIETATO push su remote finche history git non ripulita da `.env`/`.env*` in Ondata 2 con procedura dedicata.
 
 ## 2026-07-30 | MOB-3 / NEW-046…049 | Liste, card, filtri e paginazione mobile
