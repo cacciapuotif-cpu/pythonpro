@@ -1,10 +1,13 @@
 """Router per gestione aziende clienti."""
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
 import logging
+from auth import User, get_current_user, normalize_role, UserRole
+from services.azienda_deletion import build_azienda_deletion_impact, permanently_delete_azienda
 
 import crud
 import schemas
@@ -12,6 +15,20 @@ from database import get_db
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/aziende-clienti", tags=["Aziende Clienti"])
+
+class AziendaPermanentDeleteRequest(BaseModel):
+    confirmation_phrase: str
+    linked_records_confirmed: bool = False
+
+def _require_write(current_user: User = Depends(get_current_user)) -> User:
+    if normalize_role(current_user.role) not in {UserRole.ADMIN.value, UserRole.OPERATORE.value}:
+        raise HTTPException(status_code=403, detail="Solo amministratori e operatori possono modificare le aziende")
+    return current_user
+
+def _require_admin(current_user: User = Depends(get_current_user)) -> User:
+    if normalize_role(current_user.role) != UserRole.ADMIN.value:
+        raise HTTPException(status_code=403, detail="Solo un amministratore può eliminare definitivamente un'azienda")
+    return current_user
 
 SORT_FIELDS = {"ragione_sociale", "citta", "created_at", "partita_iva"}
 
@@ -121,7 +138,7 @@ def update_azienda_cliente(azienda_id: int, azienda: schemas.AziendaClienteUpdat
 
 
 @router.delete("/{azienda_id}", response_model=schemas.AziendaCliente)
-def delete_azienda_cliente(azienda_id: int, db: Session = Depends(get_db)):
+def delete_azienda_cliente(azienda_id: int, db: Session = Depends(get_db), _user: User = Depends(_require_write)):
     """Soft delete: imposta attivo=False."""
     try:
         db_obj = crud.delete_azienda_cliente(db, azienda_id)
@@ -137,6 +154,37 @@ def delete_azienda_cliente(azienda_id: int, db: Session = Depends(get_db)):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Impossibile eliminare: esistono preventivi o ordini collegati a questa azienda. Eliminali prima."
         )
+
+@router.get("/{azienda_id}/deletion-impact")
+def azienda_deletion_impact(azienda_id: int, db: Session = Depends(get_db), _user: User = Depends(_require_admin)):
+    impact = build_azienda_deletion_impact(db, azienda_id)
+    if impact is None:
+        raise HTTPException(status_code=404, detail="Azienda cliente non trovata")
+    return impact
+
+@router.delete("/{azienda_id}/permanent")
+def hard_delete_azienda(azienda_id: int, confirmation: AziendaPermanentDeleteRequest, db: Session = Depends(get_db), current_user: User = Depends(_require_admin)):
+    impact = build_azienda_deletion_impact(db, azienda_id)
+    if impact is None:
+        raise HTTPException(status_code=404, detail="Azienda cliente non trovata")
+    if not impact["eliminabile"]:
+        raise HTTPException(status_code=409, detail={"message": "Azienda non eliminabile: esistono collegamenti", "collegamenti": impact["collegamenti"], "impact": impact})
+    if not confirmation.linked_records_confirmed or confirmation.confirmation_phrase != impact["confirmation_phrase"]:
+        raise HTTPException(status_code=400, detail="Conferma collegamenti e frase obbligatorie")
+    return permanently_delete_azienda(db, azienda_id, user_id=current_user.id)
+
+@router.post("/bulk-permanent")
+def bulk_hard_delete_aziende(azienda_ids: list[int], db: Session = Depends(get_db), current_user: User = Depends(_require_admin)):
+    results = []
+    for azienda_id in azienda_ids:
+        impact = build_azienda_deletion_impact(db, azienda_id)
+        if not impact:
+            results.append({"id": azienda_id, "deleted": False, "reason": "non trovata"})
+        elif not impact["eliminabile"]:
+            results.append({"id": azienda_id, "deleted": False, "reason": "collegamenti", "collegamenti": impact["collegamenti"]})
+        else:
+            results.append({"id": azienda_id, "deleted": True, **permanently_delete_azienda(db, azienda_id, user_id=current_user.id)})
+    return {"results": results}
 
 
 @router.post("/bulk-import")
