@@ -1,12 +1,36 @@
 # PythonPro — Stato corrente
 
-**Aggiornato:** 2026-07-31 (bonifica progetti + fix Calendario confutati; prossimo MOB-5)
+**Aggiornato:** 2026-07-31 (GATE PRJ-5 censimento avvisi; in attesa conferma dati)
 **Branch:** `claude/platform-audit-compliance-XnH86` (locale, **nessun push**)
 **Percorso:** `/DATA/progetti/pythonpro`
 
 > ⚠️ **Due sessioni hanno lavorato su questo branch il 27/07 in parallelo.**
 > Questo file è scritto a quattro mani: la sezione "RIPARTENZA" qui sotto
 > riguarda l'ondata UX; il resto del file traccia l'altro filone.
+
+## ⏸️ GATE PRJ-5 — ONDATA CORREZIONI PROGETTI E ANAGRAFICHE — 2026-07-31
+
+Eseguiti diagnosi e censimento read-only, senza modificare dati. Backup fresco
+verificato: `/DATA/progetti/pythonpro_backup_pre_prj5_20260731_093201.sql.gz`,
+SHA-256 `30b8c85f93689cd98fc4460256c5b3959af18632d831d87efcd75e8243deb75c`.
+
+- #5 `poppi`: FAPI 4/2025, nessun documento convenzione disponibile; confronto
+  non verificabile, nessuna correzione proposta.
+- #11 `MAXI COMMUNICATION` + piano #7: DB collegato a FAPI 2/2025 (ID 6), ma
+  entrambi i PDF convenzione riportano FAPI Avviso 6-2025 e codice piano
+  `20250611CMIA001`; disallineamento certo.
+- Il DB non contiene ancora il record ufficiale FAPI 6/2025. La correzione
+  richiede prima ingestione della fonte e poi riallineamento FK progetto/piano.
+- Sospetto fallback al primo avviso del fondo **confutato nel codice corrente**:
+  parser e conferma non estraggono proprio numero/anno avviso; il dato errato
+  deriva dalla bonifica storica NEW-010 che assegnò esplicitamente ID 6.
+- Report e query proposte: `audit/PROGETTI_ANAGRAFICHE_REPORT.md`.
+- Finding registrato in `audit/FINDINGS_NUOVI.md` come PRJ-5.
+
+**Blocco:** attendere conferma utente progetto per progetto (#11/piano #7 da
+correggere verso 6/2025; #5 invariato) e autorizzazione a implementare il fix
+applicativo (estrazione esplicita, nessun fallback, mismatch alert, modifica
+auditata). PRJ-2/3/1/4/6 non iniziano prima del gate.
 
 ## ✅ BONIFICA PROGETTI + CALENDARIO — 2026-07-31
 

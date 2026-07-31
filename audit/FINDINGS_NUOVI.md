@@ -1,5 +1,22 @@
 # Finding nuovi emersi durante remediation
 
+## 2026-07-31 | PRJ-5 | Avviso progetto non verificato dal documento
+
+- **Area:** progetti / avvisi / rendicontazione
+- **Severità:** alta
+- **Stato:** aperto, GATE PRJ-5 in attesa di conferma dati
+- **Descrizione:** il progetto #11 `MAXI COMMUNICATION` e il piano #7 sono
+  collegati a FAPI 2/2025 (ID 6), ma entrambi i PDF convenzione archiviati
+  dichiarano FAPI Avviso 6-2025. Il DB non contiene ancora l'Avviso FAPI
+  6/2025 come record ufficiale.
+- **Diagnosi:** il parser FAPI non estrae numero/anno avviso e il percorso di
+  conferma non valorizza `avviso_id`; il disallineamento corrente proviene da
+  una bonifica storica che assegnò esplicitamente ID 6. Non è stato trovato un
+  fallback corrente al primo avviso del fondo.
+- **Impatto:** regole, massimali, scadenze e checklist possono essere quelle
+  dell'avviso errato e propagarsi a piani e rendicontazione.
+- **Evidenza/query/proposta:** `audit/PROGETTI_ANAGRAFICHE_REPORT.md`.
+
 ## 2026-07-05 | NEW-001 | Backup encryption key non propagata ai container
 
 - Area: segreti / backup runtime
