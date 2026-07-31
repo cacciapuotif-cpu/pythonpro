@@ -111,3 +111,22 @@ Richiesta decisione utente:
 
 Fino a queste conferme non vengono modificati né `projects` né
 `piani_finanziari`.
+
+## Aggiornamento successivo — pulizia avvisi 2026-07-31
+
+Su richiesta esplicita dell'utente è stato conservato esclusivamente l'Avviso
+`#8 FAPI 6/2025` appena caricato. Gli avvisi #1–#7 sono stati eliminati
+definitivamente tramite `permanently_delete_avviso`, con audit trail e pulizia
+delle sorgenti gestite dal servizio. L'operazione ha sganciato i riferimenti
+di Poppi (#5) e Maxi (#11), inclusi i piani #4 e #7; le stringhe legacy
+`projects.avviso` sono state azzerate per non mostrare etichette stale.
+
+Backup immediatamente precedente all'hard-delete:
+`/DATA/progetti/pythonpro_backup_pre_avvisi_cleanup_20260731_101102.sql.gz`
+(gzip verificato; SHA-256
+`dca5390197a333ada17fe5cebacd57e9517a7931388d66bf9f10de810a788691`).
+
+Post-verifica: 1 avviso residuo (#8), 7 audit `avviso_hard_delete`, zero
+revisioni/regole/scadenze/documenti/conoscenze/esiti residui degli avvisi
+eliminati. #8 è ancora in stato `bozza` senza revisione corrente e non è stato
+collegato automaticamente a Maxi: resta una decisione del gate PRJ-5.

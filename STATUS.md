@@ -32,6 +32,21 @@ correggere verso 6/2025; #5 invariato) e autorizzazione a implementare il fix
 applicativo (estrazione esplicita, nessun fallback, mismatch alert, modifica
 auditata). PRJ-2/3/1/4/6 non iniziano prima del gate.
 
+### Pulizia avvisi eseguita su richiesta — 2026-07-31
+
+Conservato esclusivamente l'Avviso **#8 FAPI 6/2025** appena caricato; hard-
+delete applicativo degli avvisi #1–#7 completato con 7 audit
+`avviso_hard_delete`. Poppi (#5) e Maxi (#11), e i piani #4/#7, sono rimasti
+senza FK avviso; le stringhe legacy `projects.avviso` sono state azzerate per
+evitare riferimenti stale. Zero residui nelle tabelle revisioni/regole/
+scadenze/documenti/conoscenze/esiti degli avvisi rimossi.
+
+Backup: `/DATA/progetti/pythonpro_backup_pre_avvisi_cleanup_20260731_101102.sql.gz`,
+SHA-256 `dca5390197a333ada17fe5cebacd57e9517a7931388d66bf9f10de810a788691`.
+L'Avviso #8 è `bozza`, senza revisione corrente e non ancora collegato a Maxi;
+la correzione PRJ-5 resta sospesa fino all'ingestione della revisione ufficiale
+e al gate dati.
+
 ## ✅ BONIFICA PROGETTI + CALENDARIO — 2026-07-31
 
 Su richiesta utente è stato eseguito un censimento read-only del DB reale:
