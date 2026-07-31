@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   getAziendeClienti, createAziendaCliente, updateAziendaCliente, deleteAziendaCliente,
-  getConsulenti, getAgenzie, getAziendaCliente, getProjects, bulkImportAziendeClienti
+  getConsulenti, getAgenzie, getAziendaCliente, getProjects, bulkImportAziendeClienti,
+  getAziendaDeletionImpact, permanentlyDeleteAzienda
 } from '../services/apiService';
 import AziendeBulkImport from './aziende/AziendeBulkImport';
 import { canPerform } from '../auth/permissions';
@@ -142,6 +143,7 @@ const EMPTY_FORM = {
 
 export default function AziendeClientiManager({ currentUser }) {
   const canWrite = canPerform(currentUser, 'WRITE_AZIENDE');
+  const canHardDelete = currentUser?.role === 'admin';
   const isMobile = useMobileLayout();
   const [result, setResult] = useState({ items: [], total: 0, pages: 1 });
   const [agenzie, setAgenzie] = useState([]);
@@ -407,6 +409,23 @@ export default function AziendeClientiManager({ currentUser }) {
     } catch {
       showToast('Errore nella disattivazione', 'error');
     }
+  };
+
+  const handlePermanentDelete = async (az) => {
+    if (!canHardDelete) return;
+    try {
+      const impact = await getAziendaDeletionImpact(az.id);
+      if (!impact.eliminabile) {
+        showToast(`Non eliminabile: ${impact.collegamenti.map((item) => `${item.table} (${item.count})`).join(', ')}`, 'error');
+        return;
+      }
+      if (!window.confirm(`Saranno eliminati definitivamente i dati di "${impact.ragione_sociale}". Continuare?`)) return;
+      const phrase = window.prompt(`Digita esattamente: ${impact.confirmation_phrase}`);
+      if (phrase !== impact.confirmation_phrase) return;
+      await permanentlyDeleteAzienda(az.id, phrase);
+      showToast('Azienda eliminata definitivamente');
+      load();
+    } catch (e) { showToast(e?.response?.data?.detail?.message || e?.response?.data?.detail || 'Eliminazione non consentita', 'error'); }
   };
 
   const handleBulkImport = async (rows) => {
@@ -710,6 +729,7 @@ export default function AziendeClientiManager({ currentUser }) {
                       {az.attivo && (
                         <button className="btn-sm btn-danger" onClick={() => handleDelete(az)}>Disattiva</button>
                       )}
+                      {canHardDelete && <button className="btn-sm btn-danger is-destructive" onClick={() => handlePermanentDelete(az)}>Elimina definitivamente</button>}
                     </td> : <td className="action-cell">Sola lettura</td>}
                   </tr>
                 )})}
@@ -753,6 +773,7 @@ export default function AziendeClientiManager({ currentUser }) {
                   {az.telefono ? <a href={`tel:${az.telefono}`} data-primary-action>Chiama</a> : null}
                   {canWrite ? <button className="btn-secondary" data-action="edit" onClick={() => openEdit(az)}>Modifica</button> : <span>Sola lettura</span>}
                   {canWrite && az.attivo ? <button className="btn-danger is-destructive" data-action="deactivate" onClick={() => handleDelete(az)}>Disattiva</button> : null}
+                  {canHardDelete ? <button className="btn-danger is-destructive" data-action="hard-delete" onClick={() => handlePermanentDelete(az)}>Elimina definitivamente</button> : null}
                 </div>
               </article>
             );
