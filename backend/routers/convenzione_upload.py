@@ -265,7 +265,7 @@ def _archivia_documento(
         versione=versione,
         file_path=file_path,
         file_name=preview.get("original_filename"),
-        mime_type="application/pdf",
+        mime_type=preview.get("mime_type") or "application/pdf",
         sha256=digest,
         caricato_da_user_id=current_user.id,
     )

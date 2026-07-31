@@ -13,6 +13,7 @@ import models
 from database import get_db
 from auth import get_current_user, User
 import fapi_preview_store as _preview_store
+from routers.convenzione_upload import _archivia_documento
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +62,8 @@ async def upload_piano_finanziario(
     _preview_store.store(token, {
         "project_id": project_id,
         "file_path": dest,
+        "original_filename": file.filename,
+        "mime_type": file.content_type or "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         **result,
     })
 
@@ -88,6 +91,15 @@ def confirm_piano_finanziario(
 
     if preview["project_id"] != project_id:
         raise HTTPException(status_code=400, detail="Token non appartiene a questo progetto")
+
+    _archivia_documento(
+        db,
+        project=project,
+        preview=preview,
+        file_path=preview["file_path"],
+        tipo_documento="piano_finanziario",
+        current_user=current_user,
+    )
 
     anno = datetime.now().year
 

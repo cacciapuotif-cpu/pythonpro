@@ -14,6 +14,7 @@ import models
 from database import get_db
 from auth import get_current_user, User
 import fapi_preview_store as _preview_store
+from routers.convenzione_upload import _archivia_documento
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +93,8 @@ async def upload_formulario(
     _preview_store.store(token, {
         "project_id": project_id,
         "file_path": dest,
+        "original_filename": file.filename,
+        "mime_type": file.content_type or "application/pdf",
         **result,
     })
 
@@ -195,10 +198,36 @@ def confirm_formulario(
                 link.regime_aiuto = regime_aiuto
                 regimi_aiuto_impostati += 1
 
-    # ── Crea moduli formativi ─────────────────────────────────────────────────
+    # ── Archivia il formulario come documento versionato ─────────────────────
+    _archivia_documento(
+        db,
+        project=project,
+        preview=preview,
+        file_path=preview["file_path"],
+        tipo_documento="formulario",
+        current_user=current_user,
+    )
+
+    # ── Crea moduli formativi senza duplicare una riga già presente ───────────
     moduli_creati = 0
     for m in preview.get("tutti_moduli", []):
         try:
+            signature = (
+                m.get("codice_progetto_fapi"), m.get("titolo_modulo"),
+                m.get("materia"), m.get("modalita_erogazione"),
+                m.get("tipo_attivita", "formativa"), m.get("ore_previste"),
+            )
+            duplicate = any(
+                (
+                    existing.codice_progetto_fapi, existing.titolo_modulo,
+                    existing.materia, existing.modalita_erogazione,
+                    existing.tipo_attivita, float(existing.ore_previste or 0),
+                ) == signature
+                for existing in db.query(models.ModuloFormativo)
+                .filter(models.ModuloFormativo.project_id == project_id).all()
+            )
+            if duplicate:
+                continue
             modulo = models.ModuloFormativo(
                 project_id=project_id,
                 codice_progetto_fapi=m.get("codice_progetto_fapi"),
