@@ -4,6 +4,22 @@
 **Branch:** `claude/platform-audit-compliance-XnH86` (locale, **nessun push**)
 **Percorso:** `/DATA/progetti/pythonpro`
 
+## ✅ FOLLOW-UP UI ELIMINAZIONE AZIENDE — 2026-07-31
+
+Riprodotto il terzo tentativo: lo scenario era B lato UI (handler asincrono
+senza stato visibile e errori affidati al toast globale). Ora il click apre un
+dialog esplicito con verifica collegamenti, conferma tramite ragione sociale,
+stato di avanzamento e messaggi di errore; le aziende non eliminabili mostrano
+i collegamenti che bloccano l'operazione. Le azioni della tabella sono raccolte
+nel menu contestuale “Azioni”, senza sovrapposizioni.
+
+Sul DB reale, dopo backup verificato, sono state eliminate con audit le aziende
+`Azienda 06615351217` (id 4) e `Azienda 97294390584` (id 3). `Ccccc` è bloccata
+da 1 membership fondo e 1 associazione progetto; `Maximercato uno srl` da 1
+associazione progetto. Il controllo hard-delete resta ADMIN-only; OPERATORE non
+vede il pulsante. Frontend ricostruito e container ricreato. Suite: 40 suite /
+325 test / 0 fallimenti.
+
 ## ✅ DEL-01 / DOC-01 — ELIMINAZIONE AZIENDE E DOCUMENTI — 2026-07-31
 
 Implementate e verificate su DB copia le eliminazioni definitive richieste:

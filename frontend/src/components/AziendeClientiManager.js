@@ -161,6 +161,7 @@ export default function AziendeClientiManager({ currentUser }) {
   const [projectToAdd, setProjectToAdd] = useState('');
   const [showBulkImport, setShowBulkImport] = useState(false);
   const [bulkImporting, setBulkImporting] = useState(false);
+  const [deletion, setDeletion] = useState(null);
   const searchTimer = useRef(null);
 
   const loadCommercialOptions = useCallback(async () => {
@@ -412,20 +413,34 @@ export default function AziendeClientiManager({ currentUser }) {
   };
 
   const handlePermanentDelete = async (az) => {
-    if (!canHardDelete) return;
+    if (!canHardDelete || deletion?.loading) return;
+    setDeletion({ loading: true, azienda: az, status: 'Verifica dei collegamenti in corso…' });
     try {
       const impact = await getAziendaDeletionImpact(az.id);
       if (!impact.eliminabile) {
-        showToast(`Non eliminabile: ${impact.collegamenti.map((item) => `${item.table} (${item.count})`).join(', ')}`, 'error');
+        setDeletion({ loading: false, azienda: az, impact, status: 'blocked' });
         return;
       }
-      if (!window.confirm(`Saranno eliminati definitivamente i dati di "${impact.ragione_sociale}". Continuare?`)) return;
-      const phrase = window.prompt(`Digita esattamente: ${impact.confirmation_phrase}`);
-      if (phrase !== impact.confirmation_phrase) return;
-      await permanentlyDeleteAzienda(az.id, phrase);
-      showToast('Azienda eliminata definitivamente');
-      load();
-    } catch (e) { showToast(e?.response?.data?.detail?.message || e?.response?.data?.detail || 'Eliminazione non consentita', 'error'); }
+      setDeletion({ loading: false, azienda: az, impact, status: 'confirm' });
+    } catch (e) {
+      const detail = e?.response?.data?.detail;
+      const message = typeof detail === 'string' ? detail : detail?.message;
+      setDeletion({ loading: false, azienda: az, status: 'error', error: message || e?.message || 'Il server non ha risposto. Riprova.' });
+    }
+  };
+
+  const confirmPermanentDelete = async () => {
+    if (!deletion?.impact || deletion.confirmation !== deletion.impact.confirmation_phrase) return;
+    setDeletion((current) => ({ ...current, loading: true, status: 'Eliminazione in corso…' }));
+    try {
+      await permanentlyDeleteAzienda(deletion.azienda.id, deletion.confirmation);
+      setDeletion({ loading: false, azienda: deletion.azienda, status: 'success' });
+      await load();
+    } catch (e) {
+      const detail = e?.response?.data?.detail;
+      const message = typeof detail === 'string' ? detail : detail?.message;
+      setDeletion((current) => ({ ...current, loading: false, status: 'error', error: message || e?.message || 'Eliminazione non consentita.' }));
+    }
   };
 
   const handleBulkImport = async (rows) => {
@@ -591,6 +606,34 @@ export default function AziendeClientiManager({ currentUser }) {
 
       {success && <div className="toast toast-success">{success}</div>}
       {error && <div className="toast toast-error">{error}</div>}
+      {deletion && (
+        <div className="modal-overlay aziende-modal-overlay" role="presentation" onClick={() => !deletion.loading && setDeletion(null)}>
+          <div className="modal-box aziende-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="azienda-delete-title" onClick={(event) => event.stopPropagation()}>
+            <h3 id="azienda-delete-title">Eliminazione definitiva</h3>
+            {deletion.loading && <p role="status">{deletion.status}</p>}
+            {deletion.status === 'error' && <p className="form-error" role="alert">{deletion.error}</p>}
+            {deletion.status === 'blocked' && (
+              <>
+                <p className="form-error" role="alert">Non eliminabile: l’azienda ha ancora collegamenti.</p>
+                <ul className="deletion-links">{(deletion.impact.collegamenti || []).map((item) => <li key={item.table}>{item.label || item.table}: {item.count} collegamento/i</li>)}</ul>
+                <p>Puoi chiudere questa finestra e disattivare l’azienda oppure rimuovere prima i collegamenti.</p>
+              </>
+            )}
+            {deletion.status === 'confirm' && (
+              <>
+                <p>Stai per eliminare definitivamente <strong>{deletion.impact.ragione_sociale}</strong>. L’operazione non è reversibile.</p>
+                <p>Digita la ragione sociale per confermare:</p>
+                <input aria-label="Conferma ragione sociale" value={deletion.confirmation || ''} onChange={(event) => setDeletion((current) => ({ ...current, confirmation: event.target.value }))} autoFocus />
+              </>
+            )}
+            {deletion.status === 'success' && <p className="form-success" role="status">Azienda eliminata definitivamente.</p>}
+            <div className="modal-footer">
+              {deletion.status === 'confirm' && <button className="btn-danger" onClick={confirmPermanentDelete} disabled={deletion.confirmation !== deletion.impact.confirmation_phrase}>Conferma eliminazione</button>}
+              <button className="btn-secondary" onClick={() => setDeletion(null)} disabled={deletion.loading}>{deletion.status === 'success' ? 'Chiudi' : 'Annulla'}</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Filtri */}
       <div className="aziende-filters">
@@ -725,11 +768,14 @@ export default function AziendeClientiManager({ currentUser }) {
                       </span>
                     </td>
                     {canWrite ? <td className="action-cell">
-                      <button className="btn-sm btn-secondary" onClick={() => openEdit(az)}>Modifica</button>
-                      {az.attivo && (
-                        <button className="btn-sm btn-danger" onClick={() => handleDelete(az)}>Disattiva</button>
-                      )}
-                      {canHardDelete && <button className="btn-sm btn-danger is-destructive" onClick={() => handlePermanentDelete(az)}>Elimina definitivamente</button>}
+                      <details className="row-action-menu">
+                        <summary>Azioni</summary>
+                        <div className="row-action-menu-items">
+                          <button className="btn-sm btn-secondary" onClick={() => openEdit(az)}>Modifica</button>
+                          {az.attivo && <button className="btn-sm btn-danger" onClick={() => handleDelete(az)}>Disattiva</button>}
+                          {canHardDelete && <button className="btn-sm btn-danger is-destructive" onClick={() => handlePermanentDelete(az)}>Elimina definitivamente</button>}
+                        </div>
+                      </details>
                     </td> : <td className="action-cell">Sola lettura</td>}
                   </tr>
                 )})}
@@ -771,9 +817,11 @@ export default function AziendeClientiManager({ currentUser }) {
                 </dl>
                 <div className="responsive-card-actions">
                   {az.telefono ? <a href={`tel:${az.telefono}`} data-primary-action>Chiama</a> : null}
-                  {canWrite ? <button className="btn-secondary" data-action="edit" onClick={() => openEdit(az)}>Modifica</button> : <span>Sola lettura</span>}
-                  {canWrite && az.attivo ? <button className="btn-danger is-destructive" data-action="deactivate" onClick={() => handleDelete(az)}>Disattiva</button> : null}
-                  {canHardDelete ? <button className="btn-danger is-destructive" data-action="hard-delete" onClick={() => handlePermanentDelete(az)}>Elimina definitivamente</button> : null}
+                  {canWrite ? <details className="row-action-menu"><summary>Azioni</summary><div className="row-action-menu-items">
+                    <button className="btn-secondary" data-action="edit" onClick={() => openEdit(az)}>Modifica</button>
+                    {az.attivo ? <button className="btn-danger is-destructive" data-action="deactivate" onClick={() => handleDelete(az)}>Disattiva</button> : null}
+                    {canHardDelete ? <button className="btn-danger is-destructive" data-action="hard-delete" onClick={() => handlePermanentDelete(az)}>Elimina definitivamente</button> : null}
+                  </div></details> : <span>Sola lettura</span>}
                 </div>
               </article>
             );

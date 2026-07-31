@@ -149,6 +149,63 @@
   border-radius: 22px;
 }
 
+.aziende-delete-dialog {
+  width: min(560px, 95vw);
+  padding: 1.5rem;
+}
+
+.aziende-delete-dialog input {
+  width: 100%;
+  margin: .5rem 0 1rem;
+  padding: .65rem .75rem;
+}
+
+.deletion-links {
+  margin: .75rem 0;
+  padding-left: 1.25rem;
+}
+
+.aziende-delete-dialog .modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: .75rem;
+  margin-top: 1rem;
+}
+
+.row-action-menu {
+  position: relative;
+  display: inline-block;
+}
+
+.row-action-menu summary {
+  cursor: pointer;
+  list-style: none;
+  padding: .4rem .65rem;
+  border: 1px solid #d7ddea;
+  border-radius: 6px;
+  background: #fff;
+  font-weight: 600;
+}
+
+.row-action-menu summary::-webkit-details-marker { display: none; }
+
+.row-action-menu-items {
+  position: absolute;
+  z-index: 20;
+  right: 0;
+  top: calc(100% + .25rem);
+  min-width: 220px;
+  display: grid;
+  gap: .35rem;
+  padding: .5rem;
+  background: #fff;
+  border: 1px solid #d7ddea;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(20, 35, 65, .16);
+}
+
+.row-action-menu-items button { width: 100%; text-align: left; }
+
 .aziende-modal-header {
   position: sticky;
   top: 0;

@@ -42,3 +42,25 @@ modificato il DB reale.
 
 **ELIMINAZIONE AZIENDE FUNZIONANTE: SÌ**  
 **ELIMINAZIONE DOCUMENTI FUNZIONANTE: SÌ**
+
+## Follow-up UI aziende — 31/07/2026
+
+La riproduzione del terzo tentativo ha confermato uno scenario **B/UI**:
+il pulsante era collegato a un handler asincrono, ma non mostrava alcuno stato
+prima della richiesta di impatto e gli errori finivano nel toast globale. Il
+flusso è stato sostituito con dialog renderizzato, stato “verifica/eliminazione
+in corso”, errore esplicito, blocco motivato con collegamenti e conferma tramite
+ragione sociale. Le azioni tabellari sono ora raccolte nel menu “Azioni” per riga.
+
+Prova sul DB reale con utente amministratore (user id 1), dopo backup
+`/tmp/pre_company_delete_20260731.dump` SHA-256
+`05e588946e414fd9ff5ae870755dcd8fa15fdd12e48c5eda1e3efdceca8a3ac2`:
+
+1. `Azienda 06615351217` (id 4): eliminata; assente dal DB; audit `azienda_hard_delete`, id 4.
+2. `Azienda 97294390584` (id 3): eliminata; assente dal DB; audit `azienda_hard_delete`, id 3.
+3. `Ccccc` (id 2): bloccata; collegamenti `azienda_cliente_fund_memberships=1`, `azienda_cliente_projects=1`.
+4. `Maximercato uno srl` (id 12): bloccata; collegamento `azienda_cliente_projects=1`.
+5. OPERATORE: il controllo hard-delete resta escluso dalla UI e l'endpoint è ADMIN-only (`403` per ruolo non admin).
+
+Build frontend riuscita (`main.ee28978b.js`), container ricreato sul sistema
+reale. Suite frontend: **40 suite, 325 test, 0 fallimenti**.

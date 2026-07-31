@@ -2,6 +2,15 @@
 
 Formato: data | finding ID | cosa fatto | file toccati | test/verifiche eseguiti
 
+## 2026-07-31 | DEL-UI-03 | Eliminazione aziende senza fallimenti silenziosi
+
+- Dialog UI con stato di verifica, conferma esplicita, errore leggibile e
+  elenco collegamenti; menu azioni per riga per evitare sovrapposizione.
+- Eliminati sul DB reale gli isolati `Azienda 06615351217` e
+  `Azienda 97294390584`, audit presenti. `Ccccc` e `Maximercato uno srl`
+  bloccate con collegamenti espliciti.
+- Frontend build/recreate live; 40 suite, 325 test, 0 fallimenti.
+
 ## 2026-07-31 | DEL-01 / DOC-01 | Eliminazione aziende e documenti resa operativa
 
 - Implementati hard-delete aziende/documenti, archiviazione documenti, impatto,
