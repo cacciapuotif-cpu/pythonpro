@@ -159,6 +159,21 @@ def confirm_piano_finanziario(
     voci_create = 0
     from services.parsers.fapi.piano_finanziario_parser import resolve_modulo_formativo_id
 
+    existing_voice_signatures = {
+        (
+            voce.voce_codice,
+            voce.categoria,
+            voce.sottocategoria,
+            voce.mansione_riferimento,
+            float(voce.ore_previste or 0),
+            voce.descrizione,
+            voce.modulo_formativo_id,
+        )
+        for voce in db.query(models.VocePianoFinanziario)
+        .filter(models.VocePianoFinanziario.piano_id == piano.id)
+        .all()
+    }
+
     for v in preview.get("voci", []):
         try:
             codice = v.get("voce_codice") or "A"
@@ -170,9 +185,16 @@ def confirm_piano_finanziario(
             if not importo_preventivo and categoria == "docenza" and ore_previste:
                 importo_preventivo = round(ore_previste * 50.0, 2)
             tariffa_oraria = round(importo_preventivo / ore_previste, 2) if ore_previste else 0.0
+            modulo_formativo_id = resolve_modulo_formativo_id(db, project, v)
+            signature = (
+                codice, categoria, desc, materia, ore_previste,
+                v.get("azienda"), modulo_formativo_id,
+            )
+            if signature in existing_voice_signatures:
+                continue
             voce = models.VocePianoFinanziario(
                 piano_id=piano.id,
-                modulo_formativo_id=resolve_modulo_formativo_id(db, project, v),
+                modulo_formativo_id=modulo_formativo_id,
                 macrovoce=_macrovoce(codice),
                 voce_codice=codice,
                 categoria=categoria,
@@ -187,6 +209,7 @@ def confirm_piano_finanziario(
                 stato="previsto",
             )
             db.add(voce)
+            existing_voice_signatures.add(signature)
             voci_create += 1
         except Exception as exc:
             logger.warning("Errore creazione voce piano: %s — %s", v, exc)

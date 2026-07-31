@@ -174,13 +174,22 @@ def read_project_moduli_formativi(
         azienda = aziende[order - 1] if order and 0 < order <= len(aziende) else None
 
         if codice not in grouped:
+            partecipanti = None
+            if azienda:
+                partecipanti = db.query(models.Allievo).join(
+                    models.allievo_project,
+                    models.allievo_project.c.allievo_id == models.Allievo.id,
+                ).filter(
+                    models.allievo_project.c.project_id == project_id,
+                    models.Allievo.azienda_cliente_id == azienda.id,
+                ).count()
             grouped[codice] = {
                 "codice_progetto_fapi": codice,
                 "azienda": (
                     {"id": azienda.id, "ragione_sociale": azienda.ragione_sociale}
                     if azienda else None
                 ),
-                "partecipanti": 9 if order == 1 else None,
+                "partecipanti": partecipanti,
                 "moduli_formativi": [],
                 "moduli_propedeutici": [],
                 "ore_formative_totali": 0.0,
