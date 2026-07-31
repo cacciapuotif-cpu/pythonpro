@@ -46,3 +46,12 @@ Il progetto #11 ha due soli record in `project_documents`, entrambi di tipo `con
 I router `upload-formulario` e `upload-piano-finanziario` salvano il file in storage e usano un preview token, ma nei rispettivi `confirm_*` non chiamano `_archivia_documento` e quindi non creano `ProjectDocumento`. Non esistono inoltre endpoint DELETE dei documenti.
 
 Il formulario è non idempotente: ogni conferma esegue solo `INSERT` dei moduli. Per Maxi sono presenti tre batch da 25 righe, creati il 22/04, 31/07 07:23 e 31/07 11:13. PG01 (`...01`) contiene 9 moduli formativi per 120 ore e 6 propedeutici per 60 ore: tre copie dello stesso set da 3+2 moduli. Il set singolo coerente con il dato fornito dall’utente è 3 moduli formativi (40 ore) + 2 propedeutici (20 ore). La correzione deve conservare un solo batch canonico, rendere l’import idempotente e archiviare formulario/piano come documenti versionati.
+
+### Esito correzione e confutatore
+
+- Bonifica autorizzata: conservato il batch moduli delle 11:13 (ID 188–212), rimossi 50 duplicati; 15 riferimenti di piano e 5 assegnazioni riallineati, zero FK orfane.
+- Piano #7: conservato il batch voci più recente (25 voci), rimossi 25 duplicati precedenti; zero giustificativi collegati al batch rimosso.
+- Migration `068` provata su copia e applicata al reale: `project_documents` ora accetta `formulario` e `piano_finanziario`.
+- Fix applicativi: archiviazione versionata con hash per formulario/piano, deduplica firme su formulario e piano, partecipanti derivati dagli allievi reali (PG01 = 4, non hardcoded 9).
+- Verifica HTTP: moduli 200 e documenti 200 con formulario/piano presenti.
+- **Confutatore finale: VALIDATO.** Nota non bloccante: la UI documenti mostra ancora `utente #N`, solo “Scarica”; resta DOC-1/DOC-3.

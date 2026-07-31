@@ -1266,6 +1266,7 @@ Riprendi PythonPro da `/DATA/progetti/pythonpro`. Leggi prima `STATUS.md`, la se
 - REV-0 read-only: 178 pending totali; 54 orfani `avviso_revisione` dell'assistente `avviso_extractor`, 56 validi. Proposta: stato tracciabile “superato/non più applicabile”, in attesa di conferma.
 - Report: `audit/REVISIONE_CANCELLAZIONI_REPORT.md`. **Gate aperto: nessun codice fix ancora scritto.**
 - Nuova diagnosi Maxi Communication: `upload-formulario` e `upload-piano-finanziario` non archiviano i file in `project_documents`; non esistono endpoint DELETE documenti. La conferma formulario inserisce sempre nuovi `ModuloFormativo` senza deduplica. PG01 ha tre batch identici (25 righe ciascuno); il set canonico è 3 moduli formativi/40h + 2 propedeutici/20h. Pulizia dati e fix idempotenza sospesi in attesa di confermare quale batch conservare.
+- Conferma utente: mantenere il batch moduli delle 11:13. Bonifica eseguita: 50 moduli duplicati rimossi, riferimenti riallineati; piano #7 ripulito a 25 voci (rimossi 25 duplicati senza giustificativi). Migration 068 applicata; formulario e piano recenti archiviati con hash/audit. Fix idempotenza piano/formulario e partecipanti derivati dal DB. Confutatore finale **VALIDATO** con HTTP 200: PG01 3/40h formative + 2/20h propedeutiche, 4 partecipanti derivati, documenti formulario/piano presenti, zero FK orfane. Restano non bloccanti UI `utente #N`/solo Scarica (DOC-1/DOC-3).
 
 - Storico precedente completo: `STATUS_ARCHIVE_2026H1.md`.
 - Decisioni/verifiche dettagliate: `REMEDIATION_LOG.md`.
