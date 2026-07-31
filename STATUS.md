@@ -1,6 +1,6 @@
 # PythonPro — Stato corrente
 
-**Aggiornato:** 2026-07-30 (MOB-3 completato; prossimo MOB-4)
+**Aggiornato:** 2026-07-31 (MOB-3 GATE CHIUSO con confutatore; prossimo MOB-4)
 **Branch:** `claude/platform-audit-compliance-XnH86` (locale, **nessun push**)
 **Percorso:** `/DATA/progetti/pythonpro`
 
@@ -8,9 +8,9 @@
 > Questo file è scritto a quattro mani: la sezione "RIPARTENZA" qui sotto
 > riguarda l'ondata UX; il resto del file traccia l'altro filone.
 
-## ✅ CHECKPOINT 2026-07-30 — ONDATA MOBILE / MOB-3
+## ✅ GATE CHIUSO 2026-07-31 — ONDATA MOBILE / MOB-3
 
-MOB-3 è completato e documentato in
+MOB-3 committato (`1abafbd`, locale, nessun push) e documentato in
 `audit/MOB3_ELENCHI_REPORT.md`.
 
 - Introdotti i componenti condivisi `ResponsiveEntityList`,
@@ -25,16 +25,35 @@ MOB-3 è completato e documentato in
   proposte agenti sono limitate a blocchi di 20 su telefono.
 - `NEW-046` e `NEW-047` chiusi; `NEW-048` resta onestamente a MOB-6 per
   consolidare Context/lista Collaboratori; `NEW-049` chiuso.
-- Frontend completo e build verdi; Playwright reale verde su iPhone SE e
-  desktop 1280/1440/1920, 21 sezioni + 4 flussi pubblici, zero overflow,
-  nessuna doppia resa/ID duplicato.
-- Suite backend completa in riesecuzione finale dopo la correzione del solo
-  contratto test backup SQLite; il singolo test corretto è verde.
-- Runtime frontend va ricostruito un’ultima volta dopo le rifiniture CSS
-  finali MOB-3; nessun push.
 
-**Prossimo:** chiudere suite backend e runtime/gate finale MOB-3, quindi MOB-4
-form, wizard e modali full-screen. MOB-7 e MOB-8 mantengono i gate utente.
+**Verifiche del gate (2026-07-31):**
+
+- Backend completo: **984 passed, 8 skipped, 0 failed** (SQLite isolato locale).
+- Frontend completo: **320/321** (39 suite); unico rosso
+  `PianoTemplateWizard.test.js` è inquinamento da ordine test già noto,
+  confermato riprovando il file isolato: **19/19 verde**. Non è una
+  regressione MOB-3 (file non toccato dal commit).
+- Build produzione: verde (`main.1adac526.js` locale; il container ricostruisce
+  la propria immagine e serve hash diversi ma dallo stesso sorgente
+  committato, atteso).
+- Runtime ricostruito: `docker compose up -d --force-recreate --no-deps
+  frontend` + `docker restart pythonpro_backend`. `/health` 200 su entrambi,
+  bundle live `main.61d7625e.js`/`main.eab03e3a.css`, log container puliti.
+- Confutatore: diff di `OrdiniManager.js`/`PreventiviManager.js`/
+  `AziendeClientiManager.js` (dati economici/PII) senza `console.log` aggiunti
+  né guardie ruolo/token rimosse; bundle servito contiene il token CSS
+  `--breakpoint-mobile-max` e la stringa “Carica altri”, a conferma che il
+  meccanismo responsive è davvero live e non solo nei test.
+- **Limite dichiarato**: nessuna verifica Playwright reale in questa sessione
+  — `libatk-1.0.so.0` assente anche ora, stesso limite già registrato per
+  UX-8/UX-9. La copertura “Playwright reale” del report MOB3 andrebbe
+  riverificata quando l'ambiente avrà le lib di sistema; qui sostituita da
+  test Jest + verifica bundle/log live.
+- Commit `1abafbd`: 40 file, MOB-3 puro frontend, **zero file backend
+  toccati**.
+
+**Prossimo:** MOB-4, form, wizard e modali full-screen. MOB-7 e MOB-8
+mantengono i gate utente.
 
 ## ✅ CHECKPOINT 2026-07-30 — ONDATA MOBILE / MOB-2
 
