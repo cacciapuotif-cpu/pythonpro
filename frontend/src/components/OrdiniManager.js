@@ -1,6 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { deleteOrdine, getOrdini, updateOrdine } from '../services/apiService';
 import { canPerform } from '../auth/permissions';
+import ResponsiveEntityList from './responsive/ResponsiveEntityList';
+import ResponsivePagination from './responsive/ResponsivePagination';
+import ResponsiveFilters from './responsive/ResponsiveFilters';
+import useMobileLayout from '../hooks/useMobileLayout';
+import useResponsivePageItems from '../hooks/useResponsivePageItems';
 import './OrdiniManager.css';
 
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString('it-IT') : '—';
@@ -22,6 +27,7 @@ const StatoBadge = ({ stato }) => {
 
 export default function OrdiniManager({ currentUser }) {
   const canWrite = canPerform(currentUser, 'WRITE_ORDINI');
+  const isMobile = useMobileLayout();
   const [ordini, setOrdini] = useState([]);
   const [total, setTotal] = useState(0);
   const [filters, setFilters] = useState({ search: '', stato: '', page: 1, limit: 20 });
@@ -72,6 +78,12 @@ export default function OrdiniManager({ currentUser }) {
   };
 
   const pages = Math.ceil(total / filters.limit) || 1;
+  const visibleItems = useResponsivePageItems({
+    pageItems: ordini,
+    page: filters.page,
+    isMobile,
+    resetKey: `${filters.search}|${filters.stato}|${filters.limit}`,
+  });
 
   return (
     <div className="ordini-manager">
@@ -90,16 +102,31 @@ export default function OrdiniManager({ currentUser }) {
         <input className="search-input" placeholder="Cerca numero…"
           value={filters.search}
           onChange={e => setFilters(f => ({ ...f, search: e.target.value, page: 1 }))} />
-        <select className="filter-select-sm" value={filters.stato}
-          onChange={e => setFilters(f => ({ ...f, stato: e.target.value, page: 1 }))}>
-          <option value="">Tutti gli stati</option>
-          <option value="in_lavorazione">In lavorazione</option>
-          <option value="completato">Completato</option>
-          <option value="annullato">Annullato</option>
-        </select>
+        <ResponsiveFilters
+          className="ordini-filter-options"
+          title="Filtri ordini"
+          layerId="order-filters"
+          activeCount={Number(Boolean(filters.stato))}
+          onReset={() => setFilters((current) => ({ ...current, stato: '', page: 1 }))}
+        >
+          <select className="filter-select-sm" value={filters.stato}
+            onChange={e => setFilters(f => ({ ...f, stato: e.target.value, page: 1 }))}>
+            <option value="">Tutti gli stati</option>
+            <option value="in_lavorazione">In lavorazione</option>
+            <option value="completato">Completato</option>
+            <option value="annullato">Annullato</option>
+          </select>
+        </ResponsiveFilters>
       </div>
 
-      {loading ? <div className="loading-spinner">Caricamento…</div> : (
+      {loading && visibleItems.length === 0 ? <div className="loading-spinner">Caricamento…</div> : (
+        <ResponsiveEntityList
+          listId="orders"
+          items={visibleItems}
+          entityLabel="ordini"
+          emptyIcon="🧾"
+          emptyMessage="Nessun ordine trovato."
+          renderDesktop={(items) => (
         <div className="ordini-table-wrap">
           <table className="ordini-table">
             <thead>
@@ -114,11 +141,8 @@ export default function OrdiniManager({ currentUser }) {
               </tr>
             </thead>
             <tbody>
-              {ordini.length === 0 && (
-                <tr><td colSpan={7} className="empty-state">Nessun ordine trovato.</td></tr>
-              )}
-              {ordini.map(o => (
-                <tr key={o.id}>
+              {items.map(o => (
+                <tr key={o.id} data-entity-id={o.id}>
                   <td><span className="ordine-numero">{o.numero}</span></td>
                   <td>{o.azienda_cliente?.ragione_sociale || <span className="muted">—</span>}</td>
                   <td>
@@ -146,15 +170,51 @@ export default function OrdiniManager({ currentUser }) {
             </tbody>
           </table>
         </div>
+          )}
+          renderCard={(ordine) => (
+            <article className="responsive-card">
+              <div className="responsive-card-header">
+                <h3 className="responsive-card-title">Ordine {ordine.numero}</h3>
+                <StatoBadge stato={ordine.stato} />
+              </div>
+              <dl className="responsive-card-fields">
+                <div className="responsive-card-field">
+                  <dt>Cliente</dt>
+                  <dd>{ordine.azienda_cliente?.ragione_sociale || 'Non indicato'}</dd>
+                </div>
+                <div className="responsive-card-field">
+                  <dt>Origine</dt>
+                  <dd>{ordine.preventivo ? `Preventivo ${ordine.preventivo.numero}` : 'Inserimento diretto'}</dd>
+                </div>
+                <div className="responsive-card-field">
+                  <dt>Creato il</dt>
+                  <dd>{fmtDate(ordine.created_at)}</dd>
+                </div>
+              </dl>
+              <div className="responsive-card-actions">
+                {canWrite && ordine.stato === 'in_lavorazione' ? (
+                  <button className="btn-success" data-primary-action onClick={() => handleUpdateStato(ordine, 'completato')}>Completa</button>
+                ) : <span>Sola lettura</span>}
+                {canWrite && ordine.stato === 'in_lavorazione' ? (
+                  <button className="btn-danger is-destructive" data-action="cancel" onClick={() => handleDelete(ordine.id)}>Annulla</button>
+                ) : null}
+              </div>
+            </article>
+          )}
+        />
       )}
 
-      {pages > 1 && (
-        <div className="pagination">
-          <button disabled={filters.page === 1} onClick={() => setFilters(f => ({ ...f, page: f.page - 1 }))}>‹</button>
-          <span>{filters.page} / {pages}</span>
-          <button disabled={filters.page >= pages} onClick={() => setFilters(f => ({ ...f, page: f.page + 1 }))}>›</button>
-        </div>
-      )}
+      <ResponsivePagination
+        page={filters.page}
+        pages={pages}
+        total={total}
+        visibleCount={visibleItems.length}
+        loading={loading}
+        onPageChange={(page) => setFilters((current) => ({ ...current, page }))}
+        pageSize={filters.limit}
+        onPageSizeChange={(limit) => setFilters((current) => ({ ...current, limit, page: 1 }))}
+        entityLabel="ordini"
+      />
     </div>
   );
 }

@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { canPerform } from '../auth/permissions';
 import { getDocumentiRichiesti } from '../services/apiService';
+import ResponsiveEntityList from './responsive/ResponsiveEntityList';
+import ResponsiveFilters from './responsive/ResponsiveFilters';
 
 const pageStyle = {
   display: 'flex',
@@ -397,7 +399,24 @@ export default function DocumentiMancanti({ currentUser, initialFilters = {} }) 
               Dashboard operativa dei documenti mancanti o scaduti, con ordinamento per urgenza, sollecito rapido ed export CSV.
             </p>
           </div>
-          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+          <ResponsiveFilters
+            className="document-filter-controls"
+            title="Filtri documenti"
+            layerId="document-filters"
+            activeCount={
+              Number(statusFilter !== 'all')
+              + Number(Boolean(tipoFilter))
+              + Number(scadenzaFilter !== 'all')
+              + Number(Boolean(focusedDocumentId || focusedCollaboratorId))
+            }
+            onReset={() => {
+              setStatusFilter('all');
+              setTipoFilter('');
+              setScadenzaFilter('all');
+              setFocusedDocumentId(null);
+              setFocusedCollaboratorId(null);
+            }}
+          >
             <button type="button" style={secondaryButtonStyle} onClick={exportCsv}>
               Export CSV
             </button>
@@ -409,7 +428,7 @@ export default function DocumentiMancanti({ currentUser, initialFilters = {} }) 
             >
               Invia sollecito bulk
             </button> : null}
-          </div>
+          </ResponsiveFilters>
         </div>
       </section>
 
@@ -485,6 +504,14 @@ export default function DocumentiMancanti({ currentUser, initialFilters = {} }) 
           </div>
         ) : null}
 
+        <ResponsiveEntityList
+          listId="missing-documents"
+          items={groupedCollaborators}
+          getItemKey={(item) => item.collaboratore_id}
+          entityLabel="collaboratori con documenti mancanti"
+          emptyIcon="✅"
+          emptyMessage={loading ? 'Caricamento documenti mancanti…' : 'Nessun documento mancante per i filtri correnti.'}
+          renderDesktop={(items) => (
         <div style={{ overflowX: 'auto' }}>
           <table style={tableStyle}>
             <thead>
@@ -497,18 +524,8 @@ export default function DocumentiMancanti({ currentUser, initialFilters = {} }) 
               </tr>
             </thead>
             <tbody>
-              {!loading && groupedCollaborators.length === 0 ? (
-                <tr>
-                  <td style={cellStyle} colSpan="5">Nessun documento mancante per i filtri correnti.</td>
-                </tr>
-              ) : null}
-              {loading ? (
-                <tr>
-                  <td style={cellStyle} colSpan="5">Caricamento documenti mancanti...</td>
-                </tr>
-              ) : null}
-              {groupedCollaborators.map((item) => (
-                <tr key={item.collaboratore_id}>
+              {items.map((item) => (
+                <tr key={item.collaboratore_id} data-entity-id={item.collaboratore_id}>
                   <td style={cellStyle}>
                     <strong>{item.nome}</strong>
                     <div style={{ marginTop: '0.35rem', fontSize: '0.82rem', color: '#64748b' }}>
@@ -577,6 +594,51 @@ export default function DocumentiMancanti({ currentUser, initialFilters = {} }) 
             </tbody>
           </table>
         </div>
+          )}
+          renderCard={(item) => {
+            const datedDocuments = item.documenti
+              .filter((document) => document.data_scadenza)
+              .sort((left, right) => new Date(left.data_scadenza) - new Date(right.data_scadenza));
+            return (
+              <article className="responsive-card">
+                <div className="responsive-card-header">
+                  <h3 className="responsive-card-title">{item.nome}</h3>
+                  <span style={{ color: item.urgency.color, background: item.urgency.background, padding: '0.35rem 0.7rem', borderRadius: '999px', fontWeight: 700 }}>
+                    {item.urgency.label}
+                  </span>
+                </div>
+                <dl className="responsive-card-fields">
+                  <div className="responsive-card-field">
+                    <dt>Documenti aperti</dt>
+                    <dd>{item.documenti.length} · {item.documenti.map((document) => document.tipo_documento).join(', ')}</dd>
+                  </div>
+                  <div className="responsive-card-field">
+                    <dt>Scadenza più vicina</dt>
+                    <dd>{datedDocuments.length ? formatDate(datedDocuments[0].data_scadenza) : 'Senza scadenza'}</dd>
+                  </div>
+                  <div className="responsive-card-field">
+                    <dt>Email</dt>
+                    <dd>{item.email || 'Non disponibile'}</dd>
+                  </div>
+                </dl>
+                <details className="responsive-card-details">
+                  <summary>Mostra documenti</summary>
+                  {item.documenti.map((document) => {
+                    const status = buildDocumentStatus(document);
+                    return <p key={document.id}><strong>{document.tipo_documento}</strong> · {status.label} · {formatDate(document.data_scadenza)}</p>;
+                  })}
+                </details>
+                <div className="responsive-card-actions">
+                  {canSendReminders ? (
+                    <button type="button" style={{ ...primaryButtonStyle, opacity: item.email ? 1 : 0.55 }} data-primary-action onClick={() => openMailto(item)}>
+                      Invia sollecito
+                    </button>
+                  ) : <span>Sola lettura</span>}
+                </div>
+              </article>
+            );
+          }}
+        />
       </section>
     </div>
   );

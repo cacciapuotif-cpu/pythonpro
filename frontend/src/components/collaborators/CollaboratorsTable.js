@@ -2,6 +2,11 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { getAgentSuggestions, getCollaboratorsPaginated } from '../../services/apiService';
 import CollaboratorProjectsRow from './CollaboratorProjectsRow';
 import { canPerform } from '../../auth/permissions';
+import ResponsiveEntityList from '../responsive/ResponsiveEntityList';
+import ResponsivePagination from '../responsive/ResponsivePagination';
+import ResponsiveFilters from '../responsive/ResponsiveFilters';
+import useMobileLayout from '../../hooks/useMobileLayout';
+import useResponsivePageItems from '../../hooks/useResponsivePageItems';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -142,10 +147,10 @@ const CollaboratorsTable = ({
 }) => {
   const canWriteCollaborators = canPerform(currentUser, 'WRITE_COLLABORATORS');
   const canManageProjectLinks = canPerform(currentUser, 'MANAGE_PROJECT_LINKS');
+  const isMobile = useMobileLayout();
 
   // ── State ────────────────────────────────────────────────────────────────
   const [filters, setFilters] = useState(filtersFromURL);
-  const [viewMode, setViewMode] = useState('list'); // 'list' | 'card'
   const [result, setResult] = useState({ items: [], total: 0, pages: 1 });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -208,6 +213,13 @@ const CollaboratorsTable = ({
 
   useEffect(() => { fetchData(filters); }, [filters, refreshTrigger, fetchData]);
 
+  const visibleItems = useResponsivePageItems({
+    pageItems: result.items,
+    page: filters.page,
+    isMobile,
+    resetKey: `${filters.search}|${filters.competenza}|${filters.disponibile}|${filters.citta}|${filters.sort_by}|${filters.order}|${filters.limit}`,
+  });
+
   // ── Handlers filtri ──────────────────────────────────────────────────────
   const setFilter = (key, value) => setFilters(f => ({ ...f, [key]: value, page: 1 }));
 
@@ -248,11 +260,11 @@ const CollaboratorsTable = ({
 
   // ── Unique positions (from current result set) ───────────────────────────
   const uniquePositions = [...new Set(
-    result.items.map(c => c.position).filter(Boolean)
+    visibleItems.map(c => c.position).filter(Boolean)
   )].sort();
 
   // ── Summary cards ────────────────────────────────────────────────────────
-  const summary = result.items.reduce((s, c) => {
+  const summary = visibleItems.reduce((s, c) => {
     const hasActive = (c.projects || []).some(p => p.status === 'active');
     const hasDoc = !!c.documento_identita_scadenza;
     const exp = hasDoc ? new Date(c.documento_identita_scadenza) : null;
@@ -314,35 +326,39 @@ const CollaboratorsTable = ({
               onChange={handleSearchInput}
             />
           </div>
-          <select className="filter-select-sm" value={filters.competenza}
-            onChange={e => setFilter('competenza', e.target.value)}>
-            <option value="">Tutte le competenze</option>
-            {uniquePositions.map(p => <option key={p} value={p}>{p}</option>)}
-          </select>
-          <select className="filter-select-sm" value={filters.disponibile}
-            onChange={e => setFilter('disponibile', e.target.value)}>
-            {DISPONIBILE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-          <input className="filter-select-sm" placeholder="Città…"
-            value={filters.citta} onChange={e => setFilter('citta', e.target.value)} />
+          <ResponsiveFilters
+            className="collab-filter-options"
+            title="Filtri collaboratori"
+            layerId="collaborator-filters"
+            activeCount={[filters.competenza, filters.disponibile, filters.citta].filter(Boolean).length}
+            onReset={() => setFilters((current) => ({
+              ...current,
+              competenza: '',
+              disponibile: '',
+              citta: '',
+              page: 1,
+            }))}
+          >
+            <select className="filter-select-sm" value={filters.competenza}
+              onChange={e => setFilter('competenza', e.target.value)}>
+              <option value="">Tutte le competenze</option>
+              {uniquePositions.map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+            <select className="filter-select-sm" value={filters.disponibile}
+              onChange={e => setFilter('disponibile', e.target.value)}>
+              {DISPONIBILE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+            <input className="filter-select-sm" placeholder="Città…"
+              value={filters.citta} onChange={e => setFilter('citta', e.target.value)} />
+          </ResponsiveFilters>
         </div>
         <div className="filter-bar-right">
           <span className="collab-counter">
             {loading ? '…' : `${result.total} collaboratori`}
           </span>
-          <button className="view-toggle-btn" title="Vista lista"
-            onClick={() => setViewMode('list')}
-            data-active={viewMode === 'list'}>
-            ☰
-          </button>
-          <button className="view-toggle-btn" title="Vista card"
-            onClick={() => setViewMode('card')}
-            data-active={viewMode === 'card'}>
-            ⊞
-          </button>
           <button className="btn-export" title="Esporta CSV"
-            onClick={() => exportCSV(result.items)}
-            disabled={result.items.length === 0}>
+            onClick={() => exportCSV(visibleItems)}
+            disabled={visibleItems.length === 0}>
             ↓ CSV
           </button>
         </div>
@@ -351,9 +367,9 @@ const CollaboratorsTable = ({
       {error && <div className="smart-error">{error}</div>}
 
       {/* ── Content ── */}
-      {loading && result.items.length === 0 ? (
+      {loading && visibleItems.length === 0 ? (
         <div className="smart-loading">Caricamento…</div>
-      ) : result.items.length === 0 ? (
+      ) : visibleItems.length === 0 ? (
         <div className="smart-empty">
           <div>👥</div>
           <p>Nessun collaboratore trovato.</p>
@@ -364,60 +380,63 @@ const CollaboratorsTable = ({
             </button>
           )}
         </div>
-      ) : viewMode === 'card' ? (
-        <CardView
-          items={result.items}
-          currentUser={currentUser}
-          onEdit={onEdit}
-          onOpenAssignmentModal={onOpenAssignmentModal}
-          onDelete={onDelete}
-          canWrite={canWriteCollaborators}
-          canManageProjectLinks={canManageProjectLinks}
-          agentQueueByCollaborator={agentQueueByCollaborator}
-        />
       ) : (
-        <ListView
-          items={result.items}
-          projects={projects}
-          assignments={assignments}
-          currentUser={currentUser}
-          filters={filters}
-          expandedRows={expandedRows}
-          canWrite={canWriteCollaborators}
-          canManageProjectLinks={canManageProjectLinks}
-          onEdit={onEdit}
-          onDelete={onDelete}
-          onOpenDocuments={onOpenDocuments}
-          onOpenAssignmentModal={onOpenAssignmentModal}
-          onAssignProject={onAssignProject}
-          onRemoveProject={onRemoveProject}
-          onEditAssignment={onEditAssignment}
-          onDownloadContract={onDownloadContract}
-          agentQueueByCollaborator={agentQueueByCollaborator}
-          toggleSort={toggleSort}
-          toggleRowExpansion={toggleRowExpansion}
-          SortIcon={SortIcon}
+        <ResponsiveEntityList
+          listId="collaborators"
+          items={visibleItems}
+          entityLabel="collaboratori"
+          renderCard={(collaborator) => (
+            <CollaboratorCard
+              collaborator={collaborator}
+              currentUser={currentUser}
+              onEdit={onEdit}
+              onOpenDocuments={onOpenDocuments}
+              onOpenAssignmentModal={onOpenAssignmentModal}
+              onDelete={onDelete}
+              canWrite={canWriteCollaborators}
+              canManageProjectLinks={canManageProjectLinks}
+              agentQueue={agentQueueByCollaborator[collaborator.id]}
+            />
+          )}
+          renderDesktop={(items) => (
+            <ListView
+              items={items}
+              projects={projects}
+              assignments={assignments}
+              currentUser={currentUser}
+              filters={filters}
+              expandedRows={expandedRows}
+              canWrite={canWriteCollaborators}
+              canManageProjectLinks={canManageProjectLinks}
+              onEdit={onEdit}
+              onDelete={onDelete}
+              onOpenDocuments={onOpenDocuments}
+              onOpenAssignmentModal={onOpenAssignmentModal}
+              onAssignProject={onAssignProject}
+              onRemoveProject={onRemoveProject}
+              onEditAssignment={onEditAssignment}
+              onDownloadContract={onDownloadContract}
+              agentQueueByCollaborator={agentQueueByCollaborator}
+              toggleSort={toggleSort}
+              toggleRowExpansion={toggleRowExpansion}
+              SortIcon={SortIcon}
+            />
+          )}
         />
       )}
 
       {/* ── Paginazione ── */}
-      {result.pages > 1 && (
-        <div className="smart-pagination">
-          <button disabled={filters.page <= 1}
-            onClick={() => setFilters(f => ({ ...f, page: 1 }))}>⏮</button>
-          <button disabled={filters.page <= 1}
-            onClick={() => setFilters(f => ({ ...f, page: f.page - 1 }))}>‹</button>
-          <span>Pag. {filters.page} / {result.pages}</span>
-          <button disabled={filters.page >= result.pages}
-            onClick={() => setFilters(f => ({ ...f, page: f.page + 1 }))}>›</button>
-          <button disabled={filters.page >= result.pages}
-            onClick={() => setFilters(f => ({ ...f, page: result.pages }))}>⏭</button>
-          <select className="filter-select-sm" value={filters.limit}
-            onChange={e => setFilters(f => ({ ...f, limit: Number(e.target.value), page: 1 }))}>
-            {[10, 20, 50, 100].map(n => <option key={n} value={n}>{n} per pagina</option>)}
-          </select>
-        </div>
-      )}
+      <ResponsivePagination
+        page={filters.page}
+        pages={result.pages}
+        total={result.total}
+        visibleCount={visibleItems.length}
+        loading={loading}
+        onPageChange={(page) => setFilters((current) => ({ ...current, page }))}
+        pageSize={filters.limit}
+        onPageSizeChange={(limit) => setFilters((current) => ({ ...current, limit, page: 1 }))}
+        entityLabel="collaboratori"
+      />
     </div>
   );
 };
@@ -425,19 +444,27 @@ const CollaboratorsTable = ({
 // ─────────────────────────────────────────────────────────────────────────────
 // Card View
 // ─────────────────────────────────────────────────────────────────────────────
-const CardView = ({ items, currentUser, onEdit, onOpenAssignmentModal, onDelete, canWrite, canManageProjectLinks, agentQueueByCollaborator }) => (
-  <div className="collab-card-grid">
-    {items.map(c => {
-      const activeProjects = (c.projects || []).filter(p => p.status === 'active');
-      return (
-        <div key={c.id} className="collab-card">
+const CollaboratorCard = ({
+  collaborator: c,
+  currentUser,
+  onEdit,
+  onOpenDocuments,
+  onOpenAssignmentModal,
+  onDelete,
+  canWrite,
+  canManageProjectLinks,
+  agentQueue,
+}) => {
+  const activeProjects = (c.projects || []).filter(p => p.status === 'active');
+  return (
+        <article className="collab-card responsive-card">
           <div className="collab-card-top">
             <AvatarInitials name={`${c.first_name} ${c.last_name}`} size={44} />
             <div className="collab-card-info">
               <strong>{c.last_name} {c.first_name}</strong>
               <AgencyBadge collaborator={c} />
               <ConsultantBadge collaborator={c} />
-              <AgentTaskBadge queue={agentQueueByCollaborator[c.id]} />
+              <AgentTaskBadge queue={agentQueue} />
               {c.position && <span className="position-tag">{c.position}</span>}
             </div>
             <StateBadge collaborator={c} />
@@ -447,24 +474,29 @@ const CardView = ({ items, currentUser, onEdit, onOpenAssignmentModal, onDelete,
             📁 {activeProjects.length} progett{activeProjects.length === 1 ? 'o' : 'i'} attiv{activeProjects.length === 1 ? 'o' : 'i'}
           </div>
           <DocBadge collaborator={c} />
-          <div className="collab-card-actions">
+          <div className="collab-card-actions responsive-card-actions">
+            <button
+              className="btn-sm btn-primary"
+              data-primary-action
+              onClick={() => onOpenDocuments(c)}
+            >
+              Dettaglio
+            </button>
             {c.email && (
-              <a href={`mailto:${c.email}`} className="btn-sm btn-icon" title="Invia email">✉</a>
+              <a href={`mailto:${c.email}`} className="btn-sm btn-icon" data-action="email" aria-label={`Invia email a ${c.first_name} ${c.last_name}`}>✉</a>
             )}
             {c.phone && (
-              <a href={`tel:${c.phone}`} className="btn-sm btn-icon" title="Chiama">📞</a>
+              <a href={`tel:${c.phone}`} className="btn-sm btn-icon" data-action="phone" aria-label={`Chiama ${c.first_name} ${c.last_name}`}>📞</a>
             )}
-            {canWrite ? <button className="btn-sm btn-secondary" onClick={() => onEdit(c)}>Modifica</button> : null}
-            {canManageProjectLinks ? <button className="btn-sm btn-primary" onClick={() => onOpenAssignmentModal(c)}>+ Assegna</button> : null}
+            {canWrite ? <button className="btn-sm btn-secondary" data-action="edit" onClick={() => onEdit(c)}>Modifica</button> : null}
+            {canManageProjectLinks ? <button className="btn-sm btn-primary" data-action="assign" onClick={() => onOpenAssignmentModal(c)}>+ Assegna</button> : null}
             {canWrite && (
-              <button className="btn-sm btn-danger" onClick={() => onDelete(c.id)}>🗑</button>
+              <button className="btn-sm btn-danger is-destructive" data-action="delete" onClick={() => onDelete(c.id)}>Elimina</button>
             )}
           </div>
-        </div>
-      );
-    })}
-  </div>
-);
+        </article>
+  );
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // List View (tabella densa con righe espandibili)
@@ -504,7 +536,7 @@ const ListView = ({
 
           return (
             <React.Fragment key={c.id}>
-              <tr className="collaborator-row">
+              <tr className="collaborator-row" data-entity-id={c.id}>
                 <td>
                   <AvatarInitials name={`${c.first_name} ${c.last_name}`} size={32} />
                 </td>

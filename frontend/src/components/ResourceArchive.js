@@ -10,6 +10,7 @@ import {
   retryAvvisoExtraction,
 } from '../services/apiService';
 import { canPerform } from '../auth/permissions';
+import ResponsiveEntityList from './responsive/ResponsiveEntityList';
 import './ResourceArchive.scss';
 
 const FONDI = [
@@ -445,15 +446,43 @@ export default function ResourceArchive({ currentUser = null, onReviewSuggestion
 
           <div className="resources-list">
             {loading ? <div className="resources-empty">Caricamento archivio...</div> : null}
-            {!loading && filteredAvvisi.map((item) => (
-              <button key={item.id} type="button" className={`resources-list-item ${String(item.id) === String(selectedId) ? 'active' : ''}`} onClick={() => selectAvviso(item.id)}>
-                <div><strong>{item.titolo || `Avviso ${item.codice}`}</strong><span>{item.ente_erogatore} · {item.codice}</span></div>
-                <small className={item.is_active === false ? 'inactive' : ''}>
-                  {item.is_active === false ? 'Disattivato' : item.fondo}
-                </small>
-              </button>
-            ))}
-            {!loading && filteredAvvisi.length === 0 ? <div className="resources-empty">Nessun avviso trovato.</div> : null}
+            {!loading ? (
+              <ResponsiveEntityList
+                listId="notices"
+                items={filteredAvvisi}
+                entityLabel="avvisi"
+                emptyIcon="📜"
+                emptyMessage="Nessun avviso trovato."
+                renderDesktop={(items) => items.map((item) => (
+                  <button key={item.id} type="button" data-entity-id={item.id} className={`resources-list-item ${String(item.id) === String(selectedId) ? 'active' : ''}`} onClick={() => selectAvviso(item.id)}>
+                    <div><strong>{item.titolo || `Avviso ${item.codice}`}</strong><span>{item.ente_erogatore} · {item.codice}</span></div>
+                    <small className={item.is_active === false ? 'inactive' : ''}>
+                      {item.is_active === false ? 'Disattivato' : item.fondo}
+                    </small>
+                  </button>
+                ))}
+                renderCard={(item) => (
+                  <article className={`responsive-card ${String(item.id) === String(selectedId) ? 'active' : ''}`}>
+                    <div className="responsive-card-header">
+                      <h3 className="responsive-card-title">{item.titolo || `Avviso ${item.codice}`}</h3>
+                      <span className={item.is_active === false ? 'resources-status danger' : 'resources-status success'}>
+                        {item.is_active === false ? 'Disattivato' : 'Attivo'}
+                      </span>
+                    </div>
+                    <dl className="responsive-card-fields">
+                      <div className="responsive-card-field"><dt>Codice</dt><dd>{item.codice}</dd></div>
+                      <div className="responsive-card-field"><dt>Fondo</dt><dd>{item.fondo || 'Non indicato'}</dd></div>
+                      <div className="responsive-card-field"><dt>Ente</dt><dd>{item.ente_erogatore || 'Non indicato'}</dd></div>
+                    </dl>
+                    <div className="responsive-card-actions">
+                      <button type="button" className="resources-button primary" data-primary-action onClick={() => selectAvviso(item.id)}>
+                        {String(item.id) === String(selectedId) ? 'Aperto' : 'Apri'}
+                      </button>
+                    </div>
+                  </article>
+                )}
+              />
+            ) : null}
           </div>
         </aside>
 

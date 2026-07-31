@@ -7,6 +7,7 @@
 
 /* RESET CSS - Normalizziamo gli stili di base del browser */
 :root {
+  --breakpoint-mobile-max: #{bp.$mobile-max};
   --font-sans: "Segoe UI", "Inter", "Helvetica Neue", Arial, sans-serif;
   --color-ink-strong: #16324f;
   --color-ink: #23415f;

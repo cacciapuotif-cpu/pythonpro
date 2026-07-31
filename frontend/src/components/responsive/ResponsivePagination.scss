@@ -1,0 +1,36 @@
+@use "../../styles/breakpoints" as bp;
+
+.responsive-pagination {
+  margin-top: 18px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.desktop-pagination {
+  display: flex;
+}
+
+.desktop-pagination button,
+.desktop-pagination select {
+  min-height: 44px;
+}
+
+@include bp.mobile {
+  .mobile-pagination {
+    display: grid;
+    gap: 10px;
+  }
+
+  .mobile-pagination p,
+  .pagination-end {
+    margin: 0;
+    color: var(--color-ink-soft);
+    text-align: center;
+  }
+
+  .load-more-button {
+    width: 100%;
+    min-height: 48px;
+  }
+}

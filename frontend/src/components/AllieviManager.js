@@ -12,6 +12,11 @@ import {
 import AllieviBulkImport from './allievi/AllieviBulkImport';
 import { canPerform } from '../auth/permissions';
 import { formatApiError } from '../lib/errors';
+import ResponsiveEntityList from './responsive/ResponsiveEntityList';
+import ResponsivePagination from './responsive/ResponsivePagination';
+import ResponsiveFilters from './responsive/ResponsiveFilters';
+import useMobileLayout from '../hooks/useMobileLayout';
+import useResponsivePageItems from '../hooks/useResponsivePageItems';
 import './AllieviManager.scss';
 
 const blankToNull = (value) => {
@@ -108,6 +113,7 @@ const sortAllieviBySurname = (items = []) => [...items].sort((left, right) => {
 
 export default function AllieviManager({ currentUser }) {
   const canWrite = canPerform(currentUser, 'WRITE_ALLIEVI');
+  const isMobile = useMobileLayout();
   const [result, setResult] = useState({ items: [], total: 0, pages: 1 });
   const [aziendaOptions, setAziendaOptions] = useState([]);
   const [projectOptions, setProjectOptions] = useState([]);
@@ -159,6 +165,13 @@ export default function AllieviManager({ currentUser }) {
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { loadReferenceData(); }, [loadReferenceData]);
+
+  const visibleItems = useResponsivePageItems({
+    pageItems: result.items,
+    page: filters.page,
+    isMobile,
+    resetKey: `${filters.search}|${filters.occupato}|${filters.limit}`,
+  });
 
   const showToast = (message, type = 'success') => {
     if (type === 'success') setSuccess(message);
@@ -389,9 +402,24 @@ export default function AllieviManager({ currentUser }) {
   };
 
   const allieviOccupatiCount = useMemo(
-    () => result.items.filter((item) => item.occupato).length,
-    [result.items]
+    () => visibleItems.filter((item) => item.occupato).length,
+    [visibleItems]
   );
+
+  const displayDataFor = (allievo) => {
+    const currentCompany = allievo.azienda_cliente
+      || aziendaOptions.find((azienda) => Number(azienda.id) === Number(allievo.azienda_cliente_id));
+    const linkedProjects = sortLinkedProjects(
+      Array.isArray(allievo.projects) && allievo.projects.length > 0
+        ? allievo.projects
+        : (allievo.project_ids || [])
+          .map((projectId) => projectOptions.find(
+            (project) => Number(project.id) === Number(projectId)
+          ))
+          .filter(Boolean)
+    );
+    return { currentCompany, linkedProjects };
+  };
 
   return (
     <div className="allievi-manager">
@@ -437,88 +465,138 @@ export default function AllieviManager({ currentUser }) {
           value={filters.search}
           onChange={(e) => setFilters((prev) => ({ ...prev, search: e.target.value, page: 1 }))}
         />
-        <select
-          value={filters.occupato}
-          onChange={(e) => setFilters((prev) => ({ ...prev, occupato: e.target.value, page: 1 }))}
+        <ResponsiveFilters
+          className="allievi-filter-options"
+          title="Filtri allievi"
+          layerId="student-filters"
+          activeCount={Number(Boolean(filters.occupato))}
+          onReset={() => setFilters((current) => ({ ...current, occupato: '', page: 1 }))}
         >
-          <option value="">Tutti</option>
-          <option value="true">Solo occupati</option>
-          <option value="false">Solo non occupati</option>
-        </select>
+          <select
+            value={filters.occupato}
+            onChange={(e) => setFilters((prev) => ({ ...prev, occupato: e.target.value, page: 1 }))}
+          >
+            <option value="">Tutti</option>
+            <option value="true">Solo occupati</option>
+            <option value="false">Solo non occupati</option>
+          </select>
+        </ResponsiveFilters>
       </div>
 
-      {loading ? (
+      {loading && visibleItems.length === 0 ? (
         <div className="loading-spinner">Caricamento...</div>
       ) : (
-        <div className="allievi-table-wrap">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Allievo</th>
-                <th>Contatti</th>
-                <th>Residenza</th>
-                <th>Azienda</th>
-                <th>Progetti</th>
-                <th>Azioni</th>
-              </tr>
-            </thead>
-            <tbody>
-              {result.items.length === 0 ? (
-                <tr><td colSpan={6} className="empty-cell">Nessun allievo trovato.</td></tr>
-              ) : result.items.map((allievo) => {
-                const currentCompany = allievo.azienda_cliente
-                  || aziendaOptions.find((azienda) => Number(azienda.id) === Number(allievo.azienda_cliente_id));
-                const linkedProjects = sortLinkedProjects(
-                  Array.isArray(allievo.projects) && allievo.projects.length > 0
-                    ? allievo.projects
-                    : (allievo.project_ids || [])
-                      .map((projectId) => projectOptions.find(
-                        (project) => Number(project.id) === Number(projectId)
-                      ))
-                      .filter(Boolean)
-                );
-                return <tr key={allievo.id}>
-                  <td>
-                    <strong>{[allievo.cognome, allievo.nome].filter(Boolean).join(' ')}</strong>
-                    <div className="sub-text">
-                      {[allievo.luogo_nascita, allievo.data_nascita ? new Date(allievo.data_nascita).toLocaleDateString('it-IT') : null].filter(Boolean).join(' · ') || 'Anagrafica base'}
-                    </div>
-                  </td>
-                  <td>
-                    <div>{allievo.telefono || '—'}</div>
-                    {allievo.email && <div className="sub-text">{allievo.email}</div>}
-                  </td>
-                  <td>{[allievo.residenza, allievo.citta, allievo.provincia].filter(Boolean).join(', ') || '—'}</td>
-                  <td>
-                    {currentCompany ? (
-                      <>
-                        <div>{currentCompany.ragione_sociale}</div>
-                        <div className="sub-text">Azienda attuale</div>
-                        {allievo.sede_operativa?.nome && <div className="sub-text">{allievo.sede_operativa.nome}</div>}
-                        {allievo.mansione && <div className="sub-text">{allievo.mansione}</div>}
-                      </>
-                    ) : '—'}
-                  </td>
-                  <td>
-                    {linkedProjects.length > 0
-                      ? linkedProjects.map((project) => (
-                        <div key={project.id} className="sub-text project-line">
-                          <strong>{project.name}</strong>
-                          {' · '}#{project.id} · {projectStatusLabel(project)}
+        <ResponsiveEntityList
+          listId="students"
+          items={visibleItems}
+          entityLabel="allievi"
+          emptyIcon="🎓"
+          emptyMessage="Nessun allievo trovato."
+          renderDesktop={(items) => (
+            <div className="allievi-table-wrap">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Allievo</th>
+                    <th>Contatti</th>
+                    <th>Residenza</th>
+                    <th>Azienda</th>
+                    <th>Progetti</th>
+                    <th>Azioni</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map((allievo) => {
+                    const { currentCompany, linkedProjects } = displayDataFor(allievo);
+                    return <tr key={allievo.id} data-entity-id={allievo.id}>
+                      <td>
+                        <strong>{[allievo.cognome, allievo.nome].filter(Boolean).join(' ')}</strong>
+                        <div className="sub-text">
+                          {[allievo.luogo_nascita, allievo.data_nascita ? new Date(allievo.data_nascita).toLocaleDateString('it-IT') : null].filter(Boolean).join(' · ') || 'Anagrafica base'}
                         </div>
-                      ))
-                      : '—'}
-                  </td>
-                  {canWrite ? <td className="action-cell">
-                    <button className="btn-sm btn-secondary" onClick={() => openEdit(allievo)}>Modifica</button>
-                    <button className="btn-sm btn-danger" onClick={() => handleDelete(allievo)}>Disattiva</button>
-                  </td> : <td className="action-cell">Sola lettura</td>}
-                </tr>;
-              })}
-            </tbody>
-          </table>
-        </div>
+                      </td>
+                      <td>
+                        <div>{allievo.telefono || '—'}</div>
+                        {allievo.email && <div className="sub-text">{allievo.email}</div>}
+                      </td>
+                      <td>{[allievo.residenza, allievo.citta, allievo.provincia].filter(Boolean).join(', ') || '—'}</td>
+                      <td>
+                        {currentCompany ? (
+                          <>
+                            <div>{currentCompany.ragione_sociale}</div>
+                            <div className="sub-text">Azienda attuale</div>
+                            {allievo.sede_operativa?.nome && <div className="sub-text">{allievo.sede_operativa.nome}</div>}
+                            {allievo.mansione && <div className="sub-text">{allievo.mansione}</div>}
+                          </>
+                        ) : '—'}
+                      </td>
+                      <td>
+                        {linkedProjects.length > 0
+                          ? linkedProjects.map((project) => (
+                            <div key={project.id} className="sub-text project-line">
+                              <strong>{project.name}</strong>
+                              {' · '}#{project.id} · {projectStatusLabel(project)}
+                            </div>
+                          ))
+                          : '—'}
+                      </td>
+                      {canWrite ? <td className="action-cell">
+                        <button className="btn-sm btn-secondary" onClick={() => openEdit(allievo)}>Modifica</button>
+                        <button className="btn-sm btn-danger" onClick={() => handleDelete(allievo)}>Disattiva</button>
+                      </td> : <td className="action-cell">Sola lettura</td>}
+                    </tr>;
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+          renderCard={(allievo) => {
+            const { currentCompany, linkedProjects } = displayDataFor(allievo);
+            const fullName = [allievo.cognome, allievo.nome].filter(Boolean).join(' ');
+            return (
+              <article className="responsive-card">
+                <div className="responsive-card-header">
+                  <h3 className="responsive-card-title">{fullName}</h3>
+                  <span className={`state-pill ${allievo.occupato ? 'covered' : 'unassigned'}`}>
+                    {allievo.occupato ? 'Occupato' : 'Non occupato'}
+                  </span>
+                </div>
+                <dl className="responsive-card-fields">
+                  <div className="responsive-card-field">
+                    <dt>Azienda / sede</dt>
+                    <dd>{currentCompany?.ragione_sociale || 'Nessuna azienda'}{allievo.sede_operativa?.nome ? ` · ${allievo.sede_operativa.nome}` : ''}</dd>
+                  </div>
+                  <div className="responsive-card-field">
+                    <dt>Progetti</dt>
+                    <dd>{linkedProjects.length ? `${linkedProjects.length} collegat${linkedProjects.length === 1 ? 'o' : 'i'}` : 'Nessun progetto'}</dd>
+                  </div>
+                  <div className="responsive-card-field">
+                    <dt>Contatto</dt>
+                    <dd>{allievo.telefono || allievo.email || 'Non disponibile'}</dd>
+                  </div>
+                </dl>
+                <div className="responsive-card-actions">
+                  {allievo.telefono ? <a href={`tel:${allievo.telefono}`} data-primary-action>Chiama</a> : null}
+                  {canWrite ? <button className="btn-secondary" data-action="edit" onClick={() => openEdit(allievo)}>Modifica</button> : <span>Sola lettura</span>}
+                  {canWrite ? <button className="btn-danger is-destructive" data-action="deactivate" onClick={() => handleDelete(allievo)}>Disattiva</button> : null}
+                </div>
+              </article>
+            );
+          }}
+        />
       )}
+
+      <ResponsivePagination
+        page={filters.page}
+        pages={result.pages}
+        total={result.total}
+        visibleCount={visibleItems.length}
+        loading={loading}
+        onPageChange={(page) => setFilters((current) => ({ ...current, page }))}
+        pageSize={filters.limit}
+        onPageSizeChange={(limit) => setFilters((current) => ({ ...current, limit, page: 1 }))}
+        entityLabel="allievi"
+      />
 
       {modal && (
         <div className="modal-overlay" onClick={() => setModal(null)}>

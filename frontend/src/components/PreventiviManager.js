@@ -6,6 +6,11 @@ import {
   getProdotti, getAziendeClienti, getListini, getConsulenti,
 } from '../services/apiService';
 import { canPerform } from '../auth/permissions';
+import ResponsiveEntityList from './responsive/ResponsiveEntityList';
+import ResponsivePagination from './responsive/ResponsivePagination';
+import ResponsiveFilters from './responsive/ResponsiveFilters';
+import useMobileLayout from '../hooks/useMobileLayout';
+import useResponsivePageItems from '../hooks/useResponsivePageItems';
 import './PreventiviManager.scss';
 
 const fmt = (n) => new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(n ?? 0);
@@ -39,6 +44,7 @@ const EMPTY_RIGA = {
 
 export default function PreventiviManager({ currentUser }) {
   const canWrite = canPerform(currentUser, 'WRITE_PREVENTIVI');
+  const isMobile = useMobileLayout();
   const [preventivi, setPreventivi] = useState([]);
   const [total, setTotal] = useState(0);
   const [filters, setFilters] = useState({ search: '', stato: '', page: 1, limit: 20 });
@@ -255,6 +261,12 @@ export default function PreventiviManager({ currentUser }) {
   };
 
   const pages = Math.ceil(total / filters.limit) || 1;
+  const visibleItems = useResponsivePageItems({
+    pageItems: preventivi,
+    page: filters.page,
+    isMobile,
+    resetKey: `${filters.search}|${filters.stato}|${filters.limit}`,
+  });
   const f = (key) => ({ value: form[key], onChange: (e) => setForm(ff => ({ ...ff, [key]: e.target.value })) });
   const rf = (key) => ({ value: rigaForm[key], onChange: (e) => setRigaForm(ff => ({ ...ff, [key]: e.target.value })) });
 
@@ -276,18 +288,33 @@ export default function PreventiviManager({ currentUser }) {
         <input className="search-input" placeholder="Cerca numero, oggetto…"
           value={filters.search}
           onChange={e => setFilters(f => ({ ...f, search: e.target.value, page: 1 }))} />
-        <select className="filter-select-sm" value={filters.stato}
-          onChange={e => setFilters(f => ({ ...f, stato: e.target.value, page: 1 }))}>
-          <option value="">Tutti gli stati</option>
-          <option value="bozza">Bozza</option>
-          <option value="inviato">Inviato</option>
-          <option value="accettato">Accettato</option>
-          <option value="rifiutato">Rifiutato</option>
-        </select>
+        <ResponsiveFilters
+          className="preventivi-filter-options"
+          title="Filtri preventivi"
+          layerId="quote-filters"
+          activeCount={Number(Boolean(filters.stato))}
+          onReset={() => setFilters((current) => ({ ...current, stato: '', page: 1 }))}
+        >
+          <select className="filter-select-sm" value={filters.stato}
+            onChange={e => setFilters(f => ({ ...f, stato: e.target.value, page: 1 }))}>
+            <option value="">Tutti gli stati</option>
+            <option value="bozza">Bozza</option>
+            <option value="inviato">Inviato</option>
+            <option value="accettato">Accettato</option>
+            <option value="rifiutato">Rifiutato</option>
+          </select>
+        </ResponsiveFilters>
       </div>
 
       {/* Tabella */}
-      {loading ? <div className="loading-spinner">Caricamento…</div> : (
+      {loading && visibleItems.length === 0 ? <div className="loading-spinner">Caricamento…</div> : (
+        <ResponsiveEntityList
+          listId="quotes"
+          items={visibleItems}
+          entityLabel="preventivi"
+          emptyIcon="📄"
+          emptyMessage="Nessun preventivo trovato."
+          renderDesktop={(items) => (
         <div className="preventivi-table-wrap">
           <table className="preventivi-table">
             <thead>
@@ -302,11 +329,8 @@ export default function PreventiviManager({ currentUser }) {
               </tr>
             </thead>
             <tbody>
-              {preventivi.length === 0 && (
-                <tr><td colSpan={7} className="empty-state">Nessun preventivo trovato.</td></tr>
-              )}
-              {preventivi.map(p => (
-                <tr key={p.id}>
+              {items.map(p => (
+                <tr key={p.id} data-entity-id={p.id}>
                   <td>
                     <button className="link-btn" onClick={() => openDettaglio(p.id)}>{p.numero}</button>
                   </td>
@@ -339,16 +363,54 @@ export default function PreventiviManager({ currentUser }) {
             </tbody>
           </table>
         </div>
+          )}
+          renderCard={(preventivo) => (
+            <article className="responsive-card">
+              <div className="responsive-card-header">
+                <h3 className="responsive-card-title">{preventivo.numero}</h3>
+                <StatoBadge stato={preventivo.stato} />
+              </div>
+              <dl className="responsive-card-fields">
+                <div className="responsive-card-field">
+                  <dt>Cliente</dt>
+                  <dd>{preventivo.azienda_cliente?.ragione_sociale || 'Non indicato'}</dd>
+                </div>
+                <div className="responsive-card-field">
+                  <dt>Oggetto</dt>
+                  <dd>{preventivo.oggetto || 'Non indicato'}</dd>
+                </div>
+                <div className="responsive-card-field">
+                  <dt>Scadenza</dt>
+                  <dd>{fmtDate(preventivo.data_scadenza)}</dd>
+                </div>
+                <div className="responsive-card-field">
+                  <dt>Totale</dt>
+                  <dd><strong>{fmt(preventivo.totale)}</strong></dd>
+                </div>
+              </dl>
+              <div className="responsive-card-actions">
+                <button className="btn-primary" data-primary-action onClick={() => openDettaglio(preventivo.id)}>Dettaglio</button>
+                <button className="btn-secondary" data-action="pdf" onClick={() => handlePDF(preventivo)}>PDF</button>
+                {canWrite ? <button className="btn-secondary" data-action="edit" onClick={() => openEdit(preventivo)}>Modifica</button> : null}
+                {canWrite ? <button className="btn-danger is-destructive" data-action="delete" onClick={() => handleDelete(preventivo)}>Elimina</button> : null}
+              </div>
+            </article>
+          )}
+        />
       )}
 
       {/* Paginazione */}
-      {pages > 1 && (
-        <div className="pagination">
-          <button disabled={filters.page === 1} onClick={() => setFilters(f => ({ ...f, page: f.page - 1 }))}>‹</button>
-          <span>{filters.page} / {pages}</span>
-          <button disabled={filters.page >= pages} onClick={() => setFilters(f => ({ ...f, page: f.page + 1 }))}>›</button>
-        </div>
-      )}
+      <ResponsivePagination
+        page={filters.page}
+        pages={pages}
+        total={total}
+        visibleCount={visibleItems.length}
+        loading={loading}
+        onPageChange={(page) => setFilters((current) => ({ ...current, page }))}
+        pageSize={filters.limit}
+        onPageSizeChange={(limit) => setFilters((current) => ({ ...current, limit, page: 1 }))}
+        entityLabel="preventivi"
+      />
 
       {/* Modal create/edit */}
       {modal && (

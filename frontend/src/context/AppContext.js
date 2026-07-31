@@ -29,8 +29,8 @@ const initialState = {
     loading: false,
     error: null,
     lastFetch: null,
-    filters: { status: 'active' },
-    pagination: { skip: 0, limit: 100 }
+    filters: { isActive: true },
+    pagination: { skip: 0, limit: 200 }
   },
 
   attendances: {
@@ -388,6 +388,19 @@ export const useAppContext = () => {
 // Cache TTL (5 minuti)
 const CACHE_TTL = 5 * 60 * 1000;
 
+export const collectAllPages = async (fetchPage, pagination) => {
+  const pageSize = pagination.limit;
+  let skip = pagination.skip;
+  const items = [];
+  let page;
+  do {
+    page = await fetchPage({ skip, limit: pageSize });
+    items.push(...page);
+    skip += pageSize;
+  } while (page.length === pageSize);
+  return items;
+};
+
 // Provider component
 export const AppProvider = ({ children }) => {
   const [state, dispatch] = useReducer(appReducer, initialState);
@@ -514,7 +527,10 @@ export const AppProvider = ({ children }) => {
           data = await apiService.getCollaborators(entityState.filters, entityState.pagination);
           break;
         case 'projects':
-          data = await apiService.getProjects(entityState.filters, entityState.pagination);
+          data = await collectAllPages(
+            (pagination) => apiService.getProjects(entityState.filters, pagination),
+            entityState.pagination,
+          );
           break;
         case 'attendances':
           data = await apiService.getAttendances(entityState.filters, entityState.pagination);

@@ -77,6 +77,21 @@ const readLayout = (page, mobile) => page.evaluate((isMobile) => {
     })
     .filter((element) => element.left < -1 || element.right > viewportWidth + 1)
     .slice(0, 12);
+  const responsiveLists = Array.from(document.querySelectorAll('[data-responsive-list]'))
+    .filter(visible)
+    .map((list) => {
+      const layouts = Array.from(list.querySelectorAll('[data-responsive-layout]'))
+        .filter(visible)
+        .map((layout) => layout.getAttribute('data-responsive-layout'));
+      const entityIds = Array.from(list.querySelectorAll('[data-entity-id]'))
+        .map((item) => item.getAttribute('data-entity-id'));
+      return {
+        id: list.getAttribute('data-responsive-list'),
+        layouts,
+        entityCount: entityIds.length,
+        duplicateEntityIds: entityIds.filter((id, index) => entityIds.indexOf(id) !== index),
+      };
+    });
 
   return {
     viewportWidth,
@@ -85,6 +100,7 @@ const readLayout = (page, mobile) => page.evaluate((isMobile) => {
     bodyScrollWidth: body.scrollWidth,
     controlsBelowMinimum,
     offenders,
+    responsiveLists,
   };
 }, mobile);
 
@@ -205,15 +221,47 @@ const run = async () => {
         browserDiagnostics.slice(-12).forEach((item) => console.error(`- ${item}`));
         throw error;
       }
+      await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
+      await settleLayout(page);
 
       for (const profile of profiles) {
         await page.setViewportSize({ width: profile.width, height: profile.height });
         await settleLayout(page);
+        let loadMore = null;
+        if (profile.mobile) {
+          const loadMoreButton = page.locator(
+            'main[data-active-section] [data-pagination-layout="mobile"] [data-load-more]',
+          ).first();
+          if (await loadMoreButton.count() && await loadMoreButton.isEnabled()) {
+            const items = page.locator(
+              'main[data-active-section] [data-responsive-layout="mobile"] [data-entity-id]',
+            );
+            const before = await items.count();
+            await loadMoreButton.click();
+            await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
+            await settleLayout(page);
+            const after = await items.count();
+            loadMore = { before, after, advanced: after > before };
+          }
+        }
         const layout = await readLayout(page, profile.mobile);
         const overflow = layout.documentScrollWidth > layout.clientWidth + 1
           || layout.bodyScrollWidth > layout.viewportWidth + 1;
-        const failed = overflow || layout.controlsBelowMinimum.length > 0;
-        profileReports.get(profile.name).sections.push({ id: section.id, failed, ...layout });
+        const invalidResponsiveLists = layout.responsiveLists.filter((list) => (
+          list.layouts.length !== 1
+          || list.layouts[0] !== (profile.mobile ? 'mobile' : 'desktop')
+          || list.duplicateEntityIds.length > 0
+        ));
+        const failed = overflow
+          || layout.controlsBelowMinimum.length > 0
+          || invalidResponsiveLists.length > 0
+          || loadMore?.advanced === false;
+        profileReports.get(profile.name).sections.push({
+          id: section.id,
+          failed,
+          loadMore,
+          ...layout,
+        });
 
         if (failed) {
           const reasons = [];
@@ -226,12 +274,34 @@ const run = async () => {
           if (layout.controlsBelowMinimum.length) {
             reasons.push(`${layout.controlsBelowMinimum.length} controlli sotto 16px`);
           }
+          if (invalidResponsiveLists.length) {
+            reasons.push(`liste responsive non valide: ${JSON.stringify(invalidResponsiveLists)}`);
+          }
+          if (loadMore?.advanced === false) {
+            reasons.push(`Carica altri non ha aggiunto elementi: ${JSON.stringify(loadMore)}`);
+          }
           report.failures.push(`${profile.name}/${section.id}: ${reasons.join(', ')}`);
           await page.screenshot({
             path: path.join(artifactRoot, `${profile.name}-${section.id}-FAIL.png`),
             fullPage: true,
           });
-        } else if (['home', 'calendar'].includes(section.id)) {
+        } else if (
+          ['home', 'calendar'].includes(section.id)
+          || (
+            ['iphone-se', 'desktop-1280'].includes(profile.name)
+            && [
+              'documenti-mancanti',
+              'collaborators',
+              'allievi',
+              'projects',
+              'aziende-clienti',
+              'preventivi',
+              'ordini',
+              'resources',
+              'agents-review',
+            ].includes(section.id)
+          )
+        ) {
           await page.screenshot({
             path: path.join(artifactRoot, `${profile.name}-${section.id}.png`),
             fullPage: true,

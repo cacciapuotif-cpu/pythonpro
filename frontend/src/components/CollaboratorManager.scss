@@ -492,6 +492,44 @@
 }
 
 @include bp.mobile {
+  .collaborator-manager > .manager-header {
+    margin-bottom: 16px;
+    padding: 16px;
+    text-align: left;
+  }
+
+  .collaborator-manager > .manager-header h1 {
+    margin: 0;
+    font-size: 1.4rem;
+  }
+
+  .collaborator-manager > .manager-header > p,
+  .collaborator-manager > .manager-header .role-operations-banner p {
+    display: none;
+  }
+
+  .collaborator-manager > .manager-header .role-operations-banner {
+    margin: 10px 0;
+    padding: 8px 10px;
+    text-align: left;
+  }
+
+  .collaborator-manager > .manager-header .role-operations-eyebrow {
+    margin: 0;
+  }
+
+  .collaborator-manager > .manager-header .header-buttons {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .collaborator-manager > .manager-header .header-buttons button {
+    min-height: 44px;
+    padding: 9px 10px;
+    font-size: 0.9rem;
+  }
+
   .role-operations-banner {
     text-align: center;
   }
@@ -2561,6 +2599,23 @@
   gap: 0.6rem;
   flex-wrap: wrap;
   flex: 1;
+}
+
+.filter-bar-main > .collab-filter-options {
+  display: contents;
+}
+
+@include bp.mobile {
+  .responsive-filters-content.collab-filter-options {
+    display: grid;
+    gap: 14px;
+  }
+
+  .responsive-filters-content.collab-filter-options .filter-select-sm {
+    width: 100%;
+    min-height: 48px;
+    font-size: 1rem;
+  }
 }
 
 .filter-bar-right {

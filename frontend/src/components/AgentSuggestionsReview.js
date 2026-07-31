@@ -13,6 +13,10 @@ import {
 } from '../services/apiService';
 import { canPerform } from '../auth/permissions';
 import useDismissibleLayerHistory from '../hooks/useDismissibleLayerHistory';
+import ResponsiveEntityList from './responsive/ResponsiveEntityList';
+import ResponsivePagination from './responsive/ResponsivePagination';
+import ResponsiveFilters from './responsive/ResponsiveFilters';
+import useMobileLayout from '../hooks/useMobileLayout';
 import './AgentsManager.scss';
 
 const PRIORITY_META = {
@@ -110,6 +114,7 @@ export default function AgentSuggestionsReview({
   onNavigateEntity,
 }) {
   const canReview = canPerform(currentUser, 'REVIEW_AGENTS');
+  const isMobile = useMobileLayout();
   const [suggestions, setSuggestions] = useState([]);
   const [pendingSuggestions, setPendingSuggestions] = useState([]);
   const [runs, setRuns] = useState([]);
@@ -135,6 +140,7 @@ export default function AgentSuggestionsReview({
   const [actionLoading, setActionLoading] = useState('');
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [mobilePage, setMobilePage] = useState(1);
 
   const collaboratorsMap = useMemo(
     () => new Map((collaborators || []).map((item) => [String(item.id), item])),
@@ -204,6 +210,14 @@ export default function AgentSuggestionsReview({
       return true;
     })
   ), [enrichedSuggestions, filters]);
+  const mobilePageSize = 20;
+  const visibleSuggestions = isMobile
+    ? filteredSuggestions.slice(0, mobilePage * mobilePageSize)
+    : filteredSuggestions;
+
+  useEffect(() => {
+    setMobilePage(1);
+  }, [filters]);
 
   const pendingCounters = useMemo(() => {
     const counters = { total: pendingSuggestions.length, critical: 0, high: 0, medium: 0, low: 0 };
@@ -227,7 +241,7 @@ export default function AgentSuggestionsReview({
   };
 
   const toggleSelectAllVisible = () => {
-    const visibleIds = filteredSuggestions.filter((item) => item.status === 'pending').map((item) => item.id);
+    const visibleIds = visibleSuggestions.filter((item) => item.status === 'pending').map((item) => item.id);
     if (visibleIds.length && visibleIds.every((id) => selectedIds.includes(id))) {
       setSelectedIds((current) => current.filter((id) => !visibleIds.includes(id)));
       return;
@@ -347,7 +361,19 @@ export default function AgentSuggestionsReview({
       </section>
 
       <section className="agents-panel">
-        <div className="agents-toolbar">
+        <ResponsiveFilters
+          className="agents-toolbar"
+          title="Filtri proposte agenti"
+          layerId="agent-proposal-filters"
+          activeCount={Object.values(filters).filter(Boolean).length}
+          onReset={() => setFilters({
+            status: '',
+            priority: '',
+            entity_type: '',
+            agent_type: '',
+            suggestion_id: '',
+          })}
+        >
           <label>
             <span>Status</span>
             <select value={filters.status} onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}>
@@ -396,7 +422,7 @@ export default function AgentSuggestionsReview({
               Mostra tutte le proposte
             </button>
           ) : null}
-        </div>
+        </ResponsiveFilters>
       </section>
 
       <section className="agents-panel">
@@ -421,8 +447,15 @@ export default function AgentSuggestionsReview({
           <div className="agents-meta">{filteredSuggestions.length} suggerimenti nei filtri correnti</div>
         </div>
 
+        <ResponsiveEntityList
+          listId="agent-proposals"
+          items={visibleSuggestions}
+          entityLabel="proposte agenti"
+          emptyIcon="🤖"
+          emptyMessage={loading ? 'Caricamento proposte…' : 'Nessun suggerimento disponibile per i filtri correnti.'}
+          renderDesktop={(items) => (
         <div className="agents-list">
-          {filteredSuggestions.map((suggestion) => {
+          {items.map((suggestion) => {
             const entityLink = getEntityLabel(suggestion, collaboratorsMap, projectsMap);
             return (
               <article className="agents-suggestion-card" key={suggestion.id}>
@@ -499,10 +532,46 @@ export default function AgentSuggestionsReview({
             );
           })}
 
-          {!loading && filteredSuggestions.length === 0 ? (
-            <div className="agents-empty-state">Nessun suggerimento disponibile per i filtri correnti.</div>
-          ) : null}
         </div>
+          )}
+          renderCard={(suggestion) => {
+            const entityLink = getEntityLabel(suggestion, collaboratorsMap, projectsMap);
+            return (
+              <article className="responsive-card">
+                <div className="responsive-card-header">
+                  <h3 className="responsive-card-title">{suggestion.title}</h3>
+                  <div style={badgeStyle(suggestion.priority)}>{PRIORITY_META[suggestion.priority]?.label || suggestion.priority}</div>
+                </div>
+                <dl className="responsive-card-fields">
+                  <div className="responsive-card-field"><dt>Entità</dt><dd>{entityLink.text}</dd></div>
+                  <div className="responsive-card-field"><dt>Stato</dt><dd>{suggestion.status}</dd></div>
+                  <div className="responsive-card-field"><dt>Agente</dt><dd>{suggestion.agent_type || 'Non indicato'}</dd></div>
+                  <div className="responsive-card-field"><dt>Creata il</dt><dd>{formatDateTime(suggestion.created_at)}</dd></div>
+                </dl>
+                <div className="responsive-card-actions">
+                  <button
+                    className="btn btn-primary"
+                    type="button"
+                    data-primary-action
+                    disabled={Boolean(actionLoading)}
+                    onClick={() => openDetail(suggestion.id)}
+                  >
+                    {actionLoading === `detail-${suggestion.id}` ? 'Caricamento…' : 'Leggi e revisiona'}
+                  </button>
+                </div>
+              </article>
+            );
+          }}
+        />
+        <ResponsivePagination
+          page={mobilePage}
+          pages={isMobile ? Math.max(1, Math.ceil(filteredSuggestions.length / mobilePageSize)) : 1}
+          total={filteredSuggestions.length}
+          visibleCount={visibleSuggestions.length}
+          loading={loading}
+          onPageChange={setMobilePage}
+          entityLabel="proposte"
+        />
       </section>
 
       {detailSuggestion ? (

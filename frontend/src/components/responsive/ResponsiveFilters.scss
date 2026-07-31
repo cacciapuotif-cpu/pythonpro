@@ -1,0 +1,99 @@
+@use "../../styles/breakpoints" as bp;
+
+.document-filter-controls {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+@include bp.mobile {
+  .responsive-filters-trigger {
+    min-width: 112px;
+    min-height: 44px;
+    padding: 9px 14px;
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    background: #fff;
+    color: var(--color-ink-strong);
+    font-weight: 700;
+  }
+
+  .responsive-filters-overlay {
+    position: fixed;
+    z-index: 1300;
+    inset: 0;
+    display: flex;
+    align-items: flex-end;
+    background: rgb(15 23 42 / 48%);
+  }
+
+  .responsive-filters-sheet {
+    width: 100%;
+    max-height: min(86dvh, 760px);
+    padding-bottom: env(safe-area-inset-bottom);
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    border-radius: 22px 22px 0 0;
+    background: #fff;
+    box-shadow: 0 -18px 50px rgb(15 23 42 / 20%);
+  }
+
+  .responsive-filters-sheet > header,
+  .responsive-filters-sheet > footer {
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .responsive-filters-sheet > header {
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .responsive-filters-sheet > header div {
+    display: grid;
+    gap: 2px;
+  }
+
+  .responsive-filters-sheet > header span {
+    color: var(--color-ink-soft);
+    font-size: 0.85rem;
+  }
+
+  .responsive-filters-sheet > header button {
+    width: 44px;
+    height: 44px;
+    border: 0;
+    border-radius: 50%;
+    background: var(--color-background-muted);
+    font-size: 1.5rem;
+  }
+
+  .responsive-filters-content {
+    min-width: 0;
+    padding: 16px;
+    overflow: auto;
+  }
+
+  .responsive-filters-content.document-filter-controls {
+    display: grid;
+    gap: 14px;
+  }
+
+  .responsive-filters-content.document-filter-controls > * {
+    width: 100%;
+    min-height: 48px;
+    font-size: 1rem;
+  }
+
+  .responsive-filters-sheet > footer {
+    padding-bottom: max(14px, env(safe-area-inset-bottom));
+    border-top: 1px solid var(--color-border);
+  }
+
+  .responsive-filters-sheet > footer button {
+    min-height: 48px;
+    flex: 1;
+  }
+}

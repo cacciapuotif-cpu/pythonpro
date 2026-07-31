@@ -24,6 +24,10 @@
   flex-wrap: wrap;
 }
 
+.preventivi-filters > .preventivi-filter-options {
+  display: contents;
+}
+
 /* ── Table ── */
 .preventivi-table-wrap {
   overflow-x: auto;

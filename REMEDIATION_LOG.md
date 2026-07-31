@@ -4,6 +4,29 @@ Formato: data | finding ID | cosa fatto | file toccati | test/verifiche eseguiti
 
 > AVVISO PERMANENTE: VIETATO push su remote finche history git non ripulita da `.env`/`.env*` in Ondata 2 con procedura dedicata.
 
+## 2026-07-30 | MOB-3 / NEW-046…049 | Liste, card, filtri e paginazione mobile
+
+- Creato un contratto condiviso per gli elenchi: stessa collezione, una sola
+  resa montata (desktop denso oppure card mobile), selettori E2E per lista,
+  layout ed entità.
+- Applicato a nove domini: collaboratori, allievi, progetti, aziende, ordini,
+  preventivi, avvisi, proposte agenti e documenti mancanti.
+- Aggiunti “Carica altri” mobile con append/deduplica e paginazione numerica
+  desktop; proposte agenti a blocchi di 20 su telefono.
+- Filtri secondari spostati in bottom sheet mobile con contatore, azzera,
+  focus trap, Escape e Back; ricerca lasciata sempre accessibile.
+- Correzioni emerse: allievi oltre pagina 1 raggiungibili (`NEW-046`);
+  caricamento progetto completo in batch (`NEW-047`); contratto test backup
+  SQLite corretto (`NEW-049`). `NEW-048` resta aperto per consolidamento cache
+  in MOB-6.
+- Verifiche: test frontend completi e build verdi; test backup mirato 1/1;
+  gate Playwright 4 profili × 21 sezioni + 4 flussi pubblici, zero overflow,
+  nessuna doppia resa o ID duplicato. Suite backend completa rieseguita come
+  gate finale.
+- Evidenze: `audit/MOB3_ELENCHI_REPORT.md` e artefatti locali
+  `frontend/test-results/responsive-layout/`.
+- Runtime frontend ricostruito localmente; nessun push.
+
 ## 2026-07-30 | MOB-2 / NEW-045 | Navigazione mobile e routing canonico
 
 - Introdotti header mobile compatto, bottom navigation per ruolo e menu

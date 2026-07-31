@@ -1,12 +1,40 @@
 # PythonPro — Stato corrente
 
-**Aggiornato:** 2026-07-30 (MOB-2 completato; prossimo MOB-3)
+**Aggiornato:** 2026-07-30 (MOB-3 completato; prossimo MOB-4)
 **Branch:** `claude/platform-audit-compliance-XnH86` (locale, **nessun push**)
 **Percorso:** `/DATA/progetti/pythonpro`
 
 > ⚠️ **Due sessioni hanno lavorato su questo branch il 27/07 in parallelo.**
 > Questo file è scritto a quattro mani: la sezione "RIPARTENZA" qui sotto
 > riguarda l'ondata UX; il resto del file traccia l'altro filone.
+
+## ✅ CHECKPOINT 2026-07-30 — ONDATA MOBILE / MOB-3
+
+MOB-3 è completato e documentato in
+`audit/MOB3_ELENCHI_REPORT.md`.
+
+- Introdotti i componenti condivisi `ResponsiveEntityList`,
+  `ResponsivePagination` e `ResponsiveFilters`: una sola fonte dati e una sola
+  resa montata per breakpoint.
+- Card mobili applicate a collaboratori, allievi, progetti, aziende, ordini,
+  preventivi, avvisi, proposte agenti e documenti mancanti; desktop denso
+  preservato.
+- Ricerca sempre raggiungibile e filtri secondari in bottom sheet mobile con
+  contatore/azzera/Back; Calendario e Collaboratori inclusi.
+- Paginazione numerica desktop e “Carica altri” mobile con deduplica. Le
+  proposte agenti sono limitate a blocchi di 20 su telefono.
+- `NEW-046` e `NEW-047` chiusi; `NEW-048` resta onestamente a MOB-6 per
+  consolidare Context/lista Collaboratori; `NEW-049` chiuso.
+- Frontend completo e build verdi; Playwright reale verde su iPhone SE e
+  desktop 1280/1440/1920, 21 sezioni + 4 flussi pubblici, zero overflow,
+  nessuna doppia resa/ID duplicato.
+- Suite backend completa in riesecuzione finale dopo la correzione del solo
+  contratto test backup SQLite; il singolo test corretto è verde.
+- Runtime frontend va ricostruito un’ultima volta dopo le rifiniture CSS
+  finali MOB-3; nessun push.
+
+**Prossimo:** chiudere suite backend e runtime/gate finale MOB-3, quindi MOB-4
+form, wizard e modali full-screen. MOB-7 e MOB-8 mantengono i gate utente.
 
 ## ✅ CHECKPOINT 2026-07-30 — ONDATA MOBILE / MOB-2
 

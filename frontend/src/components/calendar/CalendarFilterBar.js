@@ -1,8 +1,15 @@
 import React, { useMemo, useState } from 'react';
+import ResponsiveFilters from '../responsive/ResponsiveFilters';
+import useMobileLayout from '../../hooks/useMobileLayout';
 import './CalendarFilterBar.css';
 
 const CalendarFilterBar = ({ filters, projects, collaborators, eventCount, onChange, onReset }) => {
   const [collaboratorSearch, setCollaboratorSearch] = useState('');
+  const isMobile = useMobileLayout();
+  const activeCount = filters.projectIds.length
+    + filters.collaboratorIds.length
+    + Number(filters.includeClosedProjects)
+    + Number(filters.onlyMine);
 
   const visibleProjects = useMemo(
     () => projects.filter((p) => filters.includeClosedProjects || p.is_active),
@@ -34,7 +41,13 @@ const CalendarFilterBar = ({ filters, projects, collaborators, eventCount, onCha
   };
 
   return (
-    <div className="calendar-filter-bar">
+    <ResponsiveFilters
+      className="calendar-filter-bar"
+      title="Filtri calendario"
+      layerId="calendar-filters"
+      activeCount={activeCount}
+      onReset={onReset}
+    >
       <div className="calendar-filter-group">
         <span className="calendar-filter-label">Progetto</span>
         <div className="calendar-filter-checklist">
@@ -93,12 +106,12 @@ const CalendarFilterBar = ({ filters, projects, collaborators, eventCount, onCha
       </div>
 
       <div className="calendar-filter-actions">
-        <button type="button" className="cancel-button" onClick={onReset}>
+        {!isMobile ? <button type="button" className="cancel-button" onClick={onReset}>
           Azzera filtri
-        </button>
+        </button> : null}
         <span className="calendar-filter-count">{eventCount} eventi mostrati</span>
       </div>
-    </div>
+    </ResponsiveFilters>
   );
 };
 

@@ -36,6 +36,7 @@ import ResetPasswordPage, { ForgotPasswordForm } from './components/PasswordReco
 import UserManagement from './components/UserManagement';
 import AreaPersonale from './components/AreaPersonale';
 import MobileNavigation from './components/MobileNavigation';
+import useMobileLayout from './hooks/useMobileLayout';
 import apiService, { healthCheck } from './services/apiService';
 import { http, ensureValidAccessToken } from './lib/http';
 import { formatApiError } from './lib/errors';
@@ -53,22 +54,6 @@ import {
   resolveAppLocation,
 } from './navigation/routes';
 import './App.scss';
-
-const useMobileLayout = () => {
-  const getMatches = () => window.matchMedia
-    ? window.matchMedia('(max-width: 768px)').matches
-    : window.innerWidth <= 768;
-  const [isMobile, setIsMobile] = useState(getMatches);
-
-  useEffect(() => {
-    if (!window.matchMedia) return undefined;
-    const media = window.matchMedia('(max-width: 768px)');
-    const update = (event) => setIsMobile(event.matches);
-    media.addEventListener?.('change', update);
-    return () => media.removeEventListener?.('change', update);
-  }, []);
-  return isMobile;
-};
 
 /**
  * COMPONENTE PRINCIPALE APP

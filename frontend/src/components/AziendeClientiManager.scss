@@ -28,6 +28,23 @@
   flex-wrap: wrap;
 }
 
+.aziende-filters > .aziende-filter-options {
+  display: contents;
+}
+
+@include bp.mobile {
+  .responsive-filters-content.aziende-filter-options {
+    display: grid;
+    gap: 14px;
+  }
+
+  .responsive-filters-content.aziende-filter-options > * {
+    width: 100%;
+    min-height: 48px;
+    font-size: 1rem;
+  }
+}
+
 .filter-input {
   flex: 1;
   min-width: 160px;

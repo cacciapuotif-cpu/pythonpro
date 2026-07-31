@@ -44,6 +44,15 @@
   margin-bottom: 1rem;
 }
 
+.allievi-filter-options {
+  display: flex;
+  flex: 1;
+}
+
+.allievi-filter-options select {
+  width: 100%;
+}
+
 .allievi-filters input,
 .allievi-filters select {
   flex: 1;
@@ -263,6 +272,10 @@
   .modal-footer {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .responsive-filters-content.allievi-filter-options {
+    display: grid;
   }
 
   .modal-overlay {

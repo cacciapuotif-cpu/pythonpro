@@ -991,19 +991,58 @@
 
 @include bp.mobile {
   .projects-ops-summary {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
   }
 
   .project-manager {
     padding: 15px;
   }
 
-  .manager-header {
-    padding: 15px;
+  .project-manager > .manager-header {
+    margin-bottom: 16px;
+    padding: 16px;
+    text-align: left;
   }
 
-  .manager-header h1 {
-    font-size: 1.8em;
+  .project-manager > .manager-header h1 {
+    margin: 0;
+    font-size: 1.4rem;
+  }
+
+  .project-manager > .manager-header > p,
+  .project-manager > .manager-header .project-role-banner p {
+    display: none;
+  }
+
+  .project-manager > .manager-header .project-role-banner {
+    margin: 10px 0;
+    padding: 8px 10px;
+  }
+
+  .project-manager > .manager-header > div:last-child {
+    display: grid !important;
+    grid-template-columns: 1fr;
+    gap: 8px !important;
+  }
+
+  .project-manager > .manager-header button {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .ops-summary-card {
+    min-width: 0;
+    padding: 12px 8px;
+  }
+
+  .ops-summary-card span,
+  .ops-summary-card small {
+    font-size: 0.72rem;
+  }
+
+  .ops-summary-card strong {
+    font-size: 1.35rem;
   }
 
   .form-grid {

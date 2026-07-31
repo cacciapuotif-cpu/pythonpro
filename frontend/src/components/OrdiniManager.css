@@ -22,6 +22,10 @@
   flex-wrap: wrap;
 }
 
+.ordini-filters > .ordini-filter-options {
+  display: contents;
+}
+
 .ordini-table-wrap {
   overflow-x: auto;
   border: 1px solid #e2e8f0;

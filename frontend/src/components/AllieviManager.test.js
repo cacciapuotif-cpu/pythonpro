@@ -87,6 +87,35 @@ test('mostra azienda corrente e tutti i progetti, incluso lo storico', async () 
   expect(screen.getAllByText(/#12 · Cancellato · storico/i).length).toBeGreaterThan(0);
 });
 
+test('su mobile accumula la seconda pagina senza duplicare la prima', async () => {
+  document.documentElement.style.setProperty('--breakpoint-mobile-max', '48rem');
+  const previousMatchMedia = window.matchMedia;
+  window.matchMedia = jest.fn().mockReturnValue({
+    matches: true,
+    addEventListener: jest.fn(),
+    removeEventListener: jest.fn(),
+  });
+  getAllievi
+    .mockResolvedValueOnce({ items: [caruso], total: 2, pages: 2 })
+    .mockResolvedValueOnce({
+      items: [{ ...caruso, id: 5, nome: 'ADA', cognome: 'LOVELACE' }],
+      total: 2,
+      pages: 2,
+    });
+
+  const { unmount } = render(<AllieviManager currentUser={{ role: 'admin' }} />);
+  expect(await screen.findByText('CARUSO GIOVANNI')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Carica altri' }));
+
+  expect(await screen.findByText('LOVELACE ADA')).toBeInTheDocument();
+  expect(screen.getByText('CARUSO GIOVANNI')).toBeInTheDocument();
+  expect(document.querySelectorAll('[data-responsive-list="students"] [data-entity-id]')).toHaveLength(2);
+
+  unmount();
+  window.matchMedia = previousMatchMedia;
+  document.documentElement.style.removeProperty('--breakpoint-mobile-max');
+});
+
 test('cambiare azienda conserva tutti i progetti gia frequentati', async () => {
   render(<AllieviManager currentUser={{ role: 'admin' }} />);
   const editButton = await screen.findByRole('button', { name: 'Modifica' });

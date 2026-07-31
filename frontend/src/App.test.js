@@ -275,6 +275,7 @@ test.each([
 ])('su mobile %s vede le cinque destinazioni previste', async (user, expected) => {
   const desktopWidth = window.innerWidth;
   const desktopMatchMedia = window.matchMedia;
+  document.documentElement.style.setProperty('--breakpoint-mobile-max', '48rem');
   Object.defineProperty(window, 'innerWidth', { configurable: true, value: 375 });
   window.matchMedia = jest.fn().mockImplementation(() => ({
     matches: true,
@@ -293,6 +294,7 @@ test.each([
   expect(document.querySelector('main')).toHaveAttribute('data-active-section', 'home');
 
   unmount();
+  document.documentElement.style.removeProperty('--breakpoint-mobile-max');
   window.matchMedia = desktopMatchMedia;
   Object.defineProperty(window, 'innerWidth', { configurable: true, value: desktopWidth });
 });

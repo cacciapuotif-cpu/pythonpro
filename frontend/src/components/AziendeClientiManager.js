@@ -5,6 +5,11 @@ import {
 } from '../services/apiService';
 import AziendeBulkImport from './aziende/AziendeBulkImport';
 import { canPerform } from '../auth/permissions';
+import ResponsiveEntityList from './responsive/ResponsiveEntityList';
+import ResponsivePagination from './responsive/ResponsivePagination';
+import ResponsiveFilters from './responsive/ResponsiveFilters';
+import useMobileLayout from '../hooks/useMobileLayout';
+import useResponsivePageItems from '../hooks/useResponsivePageItems';
 import './AziendeClientiManager.scss';
 
 const normalizePartitaIva = (value = '') => value.replace(/\s+/g, '').replace(/^IT/i, '');
@@ -137,6 +142,7 @@ const EMPTY_FORM = {
 
 export default function AziendeClientiManager({ currentUser }) {
   const canWrite = canPerform(currentUser, 'WRITE_AZIENDE');
+  const isMobile = useMobileLayout();
   const [result, setResult] = useState({ items: [], total: 0, pages: 1 });
   const [agenzie, setAgenzie] = useState([]);
   const [consulenti, setConsulenti] = useState([]);
@@ -189,6 +195,13 @@ export default function AziendeClientiManager({ currentUser }) {
   }, [filters]);
 
   useEffect(() => { load(); }, [load]);
+
+  const visibleItems = useResponsivePageItems({
+    pageItems: result.items,
+    page: filters.page,
+    isMobile,
+    resetKey: `${filters.search}|${filters.citta}|${filters.agenzia_id}|${filters.consulente_id}|${filters.sort_by}|${filters.order}|${filters.limit}`,
+  });
 
   useEffect(() => {
     setSearchInput(filters.search);
@@ -568,38 +581,58 @@ export default function AziendeClientiManager({ currentUser }) {
           value={searchInput}
           onChange={handleSearchChange}
         />
-        <input
-          className="filter-input"
-          placeholder="Filtra per città…"
-          value={filters.citta}
-          onChange={e => setFilters(f => ({ ...f, citta: e.target.value, page: 1 }))}
-        />
-        <select
-          value={filters.agenzia_id}
-          onChange={e => setFilters(f => ({ ...f, agenzia_id: e.target.value, page: 1 }))}
-          className="filter-select"
+        <ResponsiveFilters
+          className="aziende-filter-options"
+          title="Filtri aziende"
+          layerId="company-filters"
+          activeCount={[filters.citta, filters.agenzia_id, filters.consulente_id].filter(Boolean).length}
+          onReset={() => setFilters((current) => ({
+            ...current,
+            citta: '',
+            agenzia_id: '',
+            consulente_id: '',
+            page: 1,
+          }))}
         >
-          <option value="">Tutte le agenzie</option>
-          {agenzie.map(a => (
-            <option key={a.id} value={a.id}>{a.nome}</option>
-          ))}
-        </select>
-        <select
-          value={filters.consulente_id}
-          onChange={e => setFilters(f => ({ ...f, consulente_id: e.target.value, page: 1 }))}
-          className="filter-select"
-        >
-          <option value="">Tutti i consulenti</option>
-          {consulenti.map(c => (
-            <option key={c.id} value={c.id}>{c.cognome} {c.nome}</option>
-          ))}
-        </select>
+          <input
+            className="filter-input"
+            placeholder="Filtra per città…"
+            value={filters.citta}
+            onChange={e => setFilters(f => ({ ...f, citta: e.target.value, page: 1 }))}
+          />
+          <select
+            value={filters.agenzia_id}
+            onChange={e => setFilters(f => ({ ...f, agenzia_id: e.target.value, page: 1 }))}
+            className="filter-select"
+          >
+            <option value="">Tutte le agenzie</option>
+            {agenzie.map(a => (
+              <option key={a.id} value={a.id}>{a.nome}</option>
+            ))}
+          </select>
+          <select
+            value={filters.consulente_id}
+            onChange={e => setFilters(f => ({ ...f, consulente_id: e.target.value, page: 1 }))}
+            className="filter-select"
+          >
+            <option value="">Tutti i consulenti</option>
+            {consulenti.map(c => (
+              <option key={c.id} value={c.id}>{c.cognome} {c.nome}</option>
+            ))}
+          </select>
+        </ResponsiveFilters>
       </div>
 
-      {loading ? (
+      {loading && visibleItems.length === 0 ? (
         <div className="loading-spinner">Caricamento…</div>
       ) : (
-        <>
+        <ResponsiveEntityList
+          listId="companies"
+          items={visibleItems}
+          entityLabel="aziende"
+          emptyIcon="🏢"
+          emptyMessage="Nessuna azienda trovata."
+          renderDesktop={(items) => (
           <div className="aziende-table-wrap">
             <table className="data-table">
               <thead>
@@ -621,10 +654,7 @@ export default function AziendeClientiManager({ currentUser }) {
                 </tr>
               </thead>
               <tbody>
-                {result.items.length === 0 && (
-                  <tr><td colSpan={10} className="empty-cell">Nessuna azienda trovata.</td></tr>
-                )}
-                {result.items.map(az => {
+                {items.map(az => {
                   const currentFundMembership = Array.isArray(az.fund_memberships)
                     ? az.fund_memberships.find((membership) => !membership.data_fine) || az.fund_memberships[0]
                     : null;
@@ -632,7 +662,7 @@ export default function AziendeClientiManager({ currentUser }) {
                     ? az.linked_projects.map((project) => project.name || project.titolo || project.nome || `Progetto #${project.id}`)
                     : [];
                   return (
-                  <tr key={az.id} className={!az.attivo ? 'row-inactive' : ''}>
+                  <tr key={az.id} data-entity-id={az.id} className={!az.attivo ? 'row-inactive' : ''}>
                     <td>
                       <strong>{az.ragione_sociale}</strong>
                       {az.settore_ateco && <div className="sub-text">ATECO {az.settore_ateco}</div>}
@@ -686,16 +716,61 @@ export default function AziendeClientiManager({ currentUser }) {
               </tbody>
             </table>
           </div>
-
-          {result.pages > 1 && (
-            <div className="pagination">
-              <button disabled={filters.page <= 1} onClick={() => setFilters(f => ({ ...f, page: f.page - 1 }))}>‹</button>
-              <span>Pagina {filters.page} di {result.pages} — {result.total} totali</span>
-              <button disabled={filters.page >= result.pages} onClick={() => setFilters(f => ({ ...f, page: f.page + 1 }))}>›</button>
-            </div>
           )}
-        </>
+          renderCard={(az) => {
+            const currentFund = Array.isArray(az.fund_memberships)
+              ? az.fund_memberships.find((membership) => !membership.data_fine) || az.fund_memberships[0]
+              : null;
+            const projectCount = Array.isArray(az.linked_projects) ? az.linked_projects.length : 0;
+            const contact = [az.referente_nome, az.referente_cognome].filter(Boolean).join(' ');
+            return (
+              <article className="responsive-card">
+                <div className="responsive-card-header">
+                  <h3 className="responsive-card-title">{az.ragione_sociale}</h3>
+                  <span className={`badge ${az.attivo ? 'badge-active' : 'badge-inactive'}`}>
+                    {az.attivo ? 'Attiva' : 'Inattiva'}
+                  </span>
+                </div>
+                <dl className="responsive-card-fields">
+                  <div className="responsive-card-field">
+                    <dt>Sede</dt>
+                    <dd>{[az.citta, az.provincia].filter(Boolean).join(' · ') || 'Non indicata'}</dd>
+                  </div>
+                  <div className="responsive-card-field">
+                    <dt>Fondo attuale</dt>
+                    <dd>{currentFund?.fondo || 'Nessun fondo'}</dd>
+                  </div>
+                  <div className="responsive-card-field">
+                    <dt>Progetti</dt>
+                    <dd>{projectCount ? `${projectCount} collegat${projectCount === 1 ? 'o' : 'i'}` : 'Nessun progetto'}</dd>
+                  </div>
+                  <div className="responsive-card-field">
+                    <dt>Referente</dt>
+                    <dd>{contact || az.referente_email || 'Non indicato'}</dd>
+                  </div>
+                </dl>
+                <div className="responsive-card-actions">
+                  {az.telefono ? <a href={`tel:${az.telefono}`} data-primary-action>Chiama</a> : null}
+                  {canWrite ? <button className="btn-secondary" data-action="edit" onClick={() => openEdit(az)}>Modifica</button> : <span>Sola lettura</span>}
+                  {canWrite && az.attivo ? <button className="btn-danger is-destructive" data-action="deactivate" onClick={() => handleDelete(az)}>Disattiva</button> : null}
+                </div>
+              </article>
+            );
+          }}
+        />
       )}
+
+      <ResponsivePagination
+        page={filters.page}
+        pages={result.pages}
+        total={result.total}
+        visibleCount={visibleItems.length}
+        loading={loading}
+        onPageChange={(page) => setFilters((current) => ({ ...current, page }))}
+        pageSize={filters.limit}
+        onPageSizeChange={(limit) => setFilters((current) => ({ ...current, limit, page: 1 }))}
+        entityLabel="aziende"
+      />
 
       {modal && (
         <div className="modal-overlay aziende-modal-overlay" onClick={() => setModal(null)}>

@@ -1169,3 +1169,65 @@ dedotto dal conteggio.
   `/collaboratori/:id/documenti`; corretti i link di sollecito e proposta
   agente. Gate reale: 21/19/18 sezioni raggiungibili sui tre ruoli, nessuna
   vietata, diagnostica browser/API zero.
+
+## 2026-07-30 | NEW-046 | Gli allievi oltre la prima pagina sono irraggiungibili
+
+- Area: frontend / elenco allievi / paginazione
+- Severità stimata: alta
+- Emerso durante: censimento MOB-3
+- Evidenza: `AllieviManager` richiede 20 record, conserva `data.pages`, ma non
+  renderizza alcun controllo di paginazione o caricamento progressivo.
+- Impatto: dal ventunesimo allievo in poi i record esistono e sono cercabili
+  dal backend, ma non sono raggiungibili scorrendo l'elenco.
+- Correzione prevista: paginazione numerica desktop e “Carica altri” mobile
+  con append/deduplica, reset su ricerca/filtro e test pagina 1→2.
+- Stato: **chiuso il 2026-07-30 con MOB-3**. `AllieviManager` usa ora il
+  componente di paginazione condiviso: numeri/pagina sul desktop e “Carica
+  altri” con append e deduplica su mobile. Ricerca e filtro azzerano la pagina.
+
+## 2026-07-30 | NEW-047 | I filtri progetto operano su un dataset incompleto
+
+- Area: frontend / progetti / correttezza elenco
+- Severità stimata: alta
+- Emerso durante: censimento MOB-3
+- Evidenza: `ProjectManager` offre filtri per completati/in pausa, ma
+  `useProjects` riceveva dal Context `status=active`, parametro peraltro non
+  previsto dall'endpoint, e si arrestava a `limit=100`.
+- Impatto: stati esclusi a monte non possono apparire applicando il filtro UI;
+  oltre 100 progetti l'elenco è inoltre troncato senza avviso.
+- Correzione prevista: fonte server-side completa/paginata per la lista,
+  separata dagli eventuali lookup leggeri; filtri inviati all'API.
+- Stato: **chiuso il 2026-07-30 con MOB-3**. Il Context invia il filtro
+  supportato `isActive`, carica i progetti in batch da 200 fino a esaurimento
+  e consegna a tabella/card la stessa collezione completa. I filtri di stato
+  operano ora sul dataset intero dei progetti non disattivati.
+
+## 2026-07-30 | NEW-048 | La pagina Collaboratori mantiene due fonti elenco
+
+- Area: frontend / collaboratori / consistenza dati
+- Severità stimata: media
+- Emerso durante: censimento MOB-3
+- Evidenza: `CollaboratorManager` carica `useCollaborators()` dal Context,
+  mentre `CollaboratorsTable` esegue anche `getCollaboratorsPaginated()`.
+- Impatto: lista, deep-link e operazioni possono leggere snapshot diversi e
+  il caricamento iniziale duplica traffico/dati.
+- Correzione prevista: eleggere la fonte paginata come fonte della lista e
+  confinare il Context ai lookup/operazioni che lo richiedono, oppure
+  consolidare tutto su una cache paginata unica con invalidazione esplicita.
+- Stato: **aperto, pianificato MOB-3/MOB-6**.
+
+## 2026-07-30 | NEW-049 | Il test backup impone l’estensione PostgreSQL a un backup SQLite
+
+- Area: backend / suite / backup
+- Severità stimata: media
+- Emerso durante: suite completa di regressione MOB-3
+- Evidenza: `TestBackupSystem.test_backup_creation_and_verification` crea
+  esplicitamente un database SQLite, ma asserisce il suffisso
+  `.sql.zip.gpg`; `BackupManager` produce correttamente `.db.zip.gpg`.
+- Impatto: negli ambienti con `gpg` installato la suite fallisce nonostante il
+  backup venga creato, cifrato e verificato; negli ambienti senza `gpg` il
+  difetto resta nascosto perché l’intera classe viene saltata.
+- Correzione: allineare l’asserzione al formato SQLite e mantenere distinta la
+  copertura PostgreSQL.
+- Stato: **chiuso il 2026-07-30**. L’asserzione usa ora `.db.zip.gpg`; prova
+  mirata nel container con `gpg` reale: 1/1 verde.

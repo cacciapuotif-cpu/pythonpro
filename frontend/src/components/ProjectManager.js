@@ -18,6 +18,8 @@ import AssignmentModal from './AssignmentModal';
 import GestioneAssociati from './GestioneAssociati';
 import AlberoAllievi from './AlberoAllievi';
 import { canPerform, normalizeRole } from '../auth/permissions';
+import ResponsiveEntityList from './responsive/ResponsiveEntityList';
+import ResponsiveFilters from './responsive/ResponsiveFilters';
 import './ProjectManager.scss';
 
 const ROLE_EXPERIENCE = {
@@ -1120,7 +1122,13 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
       ) : null}
 
       {/* FILTRI */}
-      <div className="filters-section">
+      <ResponsiveFilters
+        className="filters-section"
+        title="Filtri progetti"
+        layerId="project-filters"
+        activeCount={Number(statusFilter !== 'all' || Boolean(focusedProjectId))}
+        onReset={() => { setStatusFilter('all'); setFocusedProjectId(null); }}
+      >
         <h2>🔍 Filtra per Stato</h2>
         <div className="filter-buttons">
           <button
@@ -1160,26 +1168,24 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
             ⏳ Scadenze 7gg ({projects.filter(isDeadlineWithinSevenDays).length})
           </button>
         </div>
-      </div>
+      </ResponsiveFilters>
 
       {/* LISTA PROGETTI */}
       <div className="projects-list">
         <h2>📋 Progetti ({filteredProjects.length})</h2>
 
-        {filteredProjects.length === 0 ? (
-          <div className="empty-state">
-            <p>📁 Nessun progetto trovato</p>
-            <p>
-              {statusFilter === 'all'
-                ? 'Usa il pulsante "Nuovo Progetto" per crearne uno!'
-                : `Nessun progetto con stato "${getStatusLabel(statusFilter).split(' ')[1]}"`
-              }
-            </p>
-          </div>
-        ) : (
+        <ResponsiveEntityList
+          listId="projects"
+          items={filteredProjects}
+          entityLabel="progetti"
+          emptyIcon="📁"
+          emptyMessage={statusFilter === 'all'
+            ? 'Nessun progetto trovato.'
+            : `Nessun progetto con stato "${getStatusLabel(statusFilter).replace(/^[^\s]+\s/, '')}".`}
+          renderDesktop={(items) => (
           <div className="projects-grid">
-            {filteredProjects.map(project => (
-              <div key={project.id} className={`project-card project-state-${getProjectOperationalState(project)}`}>
+            {items.map(project => (
+              <div key={project.id} data-entity-id={project.id} className={`project-card project-state-${getProjectOperationalState(project)}`}>
                 {/* Header Card */}
                 <div className="card-header">
                   <div className="project-title">
@@ -1448,7 +1454,52 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
               </div>
             ))}
           </div>
-        )}
+          )}
+          renderCard={(project) => {
+            const operationalState = getProjectOperationalState(project);
+            const companyCount = Array.isArray(project.aziende_coinvolte) ? project.aziende_coinvolte.length : 0;
+            const studentCount = Array.isArray(project.allievi_coinvolti) ? project.allievi_coinvolti.length : 0;
+            return (
+              <article className="responsive-card">
+                <div className="responsive-card-header">
+                  <h3 className="responsive-card-title">{project.name}</h3>
+                  <span className="status-badge" style={{ backgroundColor: getStatusColor(project.status) }}>
+                    {getStatusLabel(project.status)}
+                  </span>
+                </div>
+                {operationalState !== 'stable' ? (
+                  <p className={`project-operational-pill ${operationalState}`}>
+                    {operationalState === 'overdue' ? 'Oltre data fine' : 'Richiede attenzione'}
+                  </p>
+                ) : null}
+                <dl className="responsive-card-fields">
+                  <div className="responsive-card-field">
+                    <dt>Avviso / fondo</dt>
+                    <dd>{project.avviso || project.ente_erogatore || 'Non indicato'}</dd>
+                  </div>
+                  <div className="responsive-card-field">
+                    <dt>Scadenza</dt>
+                    <dd>{project.end_date ? new Date(project.end_date).toLocaleDateString('it-IT') : 'Non indicata'}</dd>
+                  </div>
+                  <div className="responsive-card-field">
+                    <dt>Partecipanti</dt>
+                    <dd>{companyCount} aziende · {studentCount} allievi</dd>
+                  </div>
+                </dl>
+                <details className="responsive-card-details">
+                  <summary data-primary-action>Dettaglio</summary>
+                  <p>{project.description || 'Nessuna descrizione.'}</p>
+                  <p><strong>Attuatore:</strong> {implementingEntities.find((entity) => entity.id === project.ente_attuatore_id)?.ragione_sociale || 'Non associato'}</p>
+                  {project.cup ? <p><strong>CUP:</strong> {project.cup}</p> : null}
+                </details>
+                <div className="responsive-card-actions">
+                  {canWriteProjects ? <button className="btn-secondary" data-action="edit" onClick={() => startEdit(project)}>Modifica</button> : <span>Sola lettura</span>}
+                  {canWriteProjects ? <button className="btn-danger is-destructive" data-action="delete" onClick={() => setDeleteConfirm(project.id)}>Elimina</button> : null}
+                </div>
+              </article>
+            );
+          }}
+        />
       </div>
 
       {/* MODAL CONVENZIONE FAPI da toolbar */}
