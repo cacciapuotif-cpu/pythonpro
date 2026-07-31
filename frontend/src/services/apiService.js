@@ -1019,6 +1019,12 @@ export const updateAziendaCliente = (id, data) =>
   http.put(`/aziende-clienti/${id}`, data).then(r => r.data);
 export const deleteAziendaCliente = (id) =>
   http.delete(`/aziende-clienti/${id}`).then(r => r.data);
+export const getAziendaDeletionImpact = (id) =>
+  http.get(`/aziende-clienti/${id}/deletion-impact`).then(r => r.data);
+export const permanentlyDeleteAzienda = (id, confirmationPhrase) =>
+  http.delete(`/aziende-clienti/${id}/permanent`, { data: { confirmation_phrase: confirmationPhrase, linked_records_confirmed: true } }).then(r => r.data);
+export const bulkPermanentlyDeleteAziende = (ids) =>
+  http.post('/aziende-clienti/bulk-permanent', ids).then(r => r.data);
 
 export const getAllievi = (params = {}) =>
   http.get('/allievi/', {
@@ -1230,6 +1236,12 @@ export const downloadDocumentoProgetto = (projectId, documentoId) =>
   http.get(`/projects/${projectId}/documenti/${documentoId}/download`, {
     responseType: 'blob',
   }).then(r => r.data);
+export const getDocumentoProgettoDeletionImpact = (projectId, documentoId) =>
+  http.get(`/projects/${projectId}/documenti/${documentoId}/deletion-impact`).then(r => r.data);
+export const deleteDocumentoProgetto = (projectId, documentoId, fileName, reason) =>
+  http.delete(`/projects/${projectId}/documenti/${documentoId}`, { data: { reason, confirmation_phrase: fileName } }).then(r => r.data);
+export const archiveDocumentoProgetto = (projectId, documentoId, reason) =>
+  http.post(`/projects/${projectId}/documenti/${documentoId}/archive`, { reason }).then(r => r.data);
 
 export const uploadFormulario = (projectId, file) => {
   const fd = new FormData();

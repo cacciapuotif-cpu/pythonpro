@@ -1321,7 +1321,7 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
 
                 {/* Sezione FAPI upload */}
                 {(project.ente_erogatore === 'FAPI' || project.codice_fapi) && (
-                  <FapiUploadSection project={project} onRefresh={refresh} />
+                  <FapiUploadSection project={project} currentUser={currentUser} onRefresh={refresh} />
                 )}
 
                 {(project.codice_fapi || project.ente_erogatore === 'FAPI') && (
@@ -1506,6 +1506,7 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
       {showFapiModal && (
         <FapiUploadSection
           project={null}
+          currentUser={currentUser}
           onRefresh={refresh}
           autoOpenConvenzione
           autoOpenMode="new-piano"

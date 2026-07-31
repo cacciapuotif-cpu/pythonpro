@@ -15,14 +15,25 @@ from sqlalchemy.orm import Session
 
 import models
 from database import get_db
-from auth import get_current_user, User
+from auth import get_current_user, User, normalize_role, UserRole
 import fapi_preview_store as _preview_store
 from services import date_progetto, documento_progetto, match_documento_progetto
 from services.audit_log import write_audit_log
+from services.project_document_deletion import build_document_deletion_impact, permanently_delete_document, archive_document
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/projects", tags=["fapi-convenzione"])
+
+def _require_project_write(current_user: User = Depends(get_current_user)) -> User:
+    if normalize_role(current_user.role) not in {UserRole.ADMIN.value, UserRole.OPERATORE.value}:
+        raise HTTPException(status_code=403, detail="Ruolo non autorizzato")
+    return current_user
+
+def _require_project_admin(current_user: User = Depends(get_current_user)) -> User:
+    if normalize_role(current_user.role) != UserRole.ADMIN.value:
+        raise HTTPException(status_code=403, detail="Solo un amministratore può eliminare definitivamente documenti")
+    return current_user
 
 UPLOAD_DIR = os.path.join(os.getenv("UPLOADS_DIR", "/app/uploads"), "convenzioni")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -744,6 +755,14 @@ def list_documenti_progetto(
             "sha256": row.sha256,
             "caricato_da_user_id": row.caricato_da_user_id,
             "caricato_il": row.caricato_il,
+            "stato": row.stato,
+            "annullato_motivo": row.annullato_motivo,
+            "caricato_da_nome": (
+                f"{row.caricato_da.first_name or ''} {row.caricato_da.last_name or ''}".strip()
+                or row.caricato_da.full_name
+                or row.caricato_da.username
+                if row.caricato_da else "non disponibile"
+            ),
         }
         for row in rows
     ]
@@ -778,3 +797,34 @@ def download_documento_progetto(
         media_type=documento.mime_type or "application/octet-stream",
         filename=documento.file_name or os.path.basename(documento.file_path),
     )
+
+class ProjectDocumentAction(BaseModel):
+    reason: str
+    confirmation_phrase: str | None = None
+
+@router.get("/{project_id}/documenti/{documento_id}/deletion-impact")
+def document_deletion_impact(project_id: int, documento_id: int, db: Session = Depends(get_db), _user: User = Depends(_require_project_admin)):
+    impact = build_document_deletion_impact(db, project_id, documento_id)
+    if impact is None:
+        raise HTTPException(status_code=404, detail="Documento non trovato")
+    return impact
+
+@router.delete("/{project_id}/documenti/{documento_id}")
+def delete_project_document(project_id: int, documento_id: int, body: ProjectDocumentAction, db: Session = Depends(get_db), current_user: User = Depends(_require_project_admin)):
+    impact = build_document_deletion_impact(db, project_id, documento_id)
+    if impact is None:
+        raise HTTPException(status_code=404, detail="Documento non trovato")
+    if impact["blocked"]:
+        raise HTTPException(status_code=409, detail={"message": "Documento archiviabile ma non eliminabile", "impact": impact})
+    if not body.reason.strip() or body.confirmation_phrase != impact["file_name"]:
+        raise HTTPException(status_code=400, detail="Motivo e conferma del nome file obbligatori")
+    return permanently_delete_document(db, project_id, documento_id, user_id=current_user.id, reason=body.reason.strip())
+
+@router.post("/{project_id}/documenti/{documento_id}/archive")
+def archive_project_document(project_id: int, documento_id: int, body: ProjectDocumentAction, db: Session = Depends(get_db), current_user: User = Depends(_require_project_write)):
+    if not body.reason.strip():
+        raise HTTPException(status_code=422, detail="Motivo obbligatorio")
+    result = archive_document(db, project_id, documento_id, user_id=current_user.id, reason=body.reason.strip())
+    if result is None:
+        raise HTTPException(status_code=404, detail="Documento non trovato")
+    return result

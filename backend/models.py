@@ -417,8 +417,12 @@ class ProjectDocumento(Base):
         nullable=False,
         index=True,
     )
+    stato = Column(String(20), nullable=False, default="corrente", server_default="corrente", index=True)
+    annullato_motivo = Column(Text, nullable=True)
+    source_removed = Column(Boolean, nullable=False, default=False, server_default=text("false"))
 
     project = relationship("Project", back_populates="documenti", lazy="select")
+    caricato_da = relationship("User", foreign_keys=[caricato_da_user_id], lazy="select")
 
     __table_args__ = (
         UniqueConstraint(

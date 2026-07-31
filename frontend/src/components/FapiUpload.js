@@ -7,7 +7,8 @@ import {
   uploadAmmissioneFondimpresa, confirmAmmissioneFondimpresa,
   uploadAmmissioneFondimpresaProgetto, confirmAmmissioneFondimpresaProgetto,
   uploadRiepilogoFondimpresa, confirmRiepilogoFondimpresa,
-  getDocumentiProgetto, downloadDocumentoProgetto,
+  getDocumentiProgetto, downloadDocumentoProgetto, getDocumentoProgettoDeletionImpact,
+  deleteDocumentoProgetto, archiveDocumentoProgetto,
 } from '../services/apiService';
 import { formatApiError } from '../lib/errors';
 import useMobileLayout from '../hooks/useMobileLayout';
@@ -245,7 +246,7 @@ function ConfrontoAziende({ aziende }) {
   );
 }
 
-function DocumentiProgetto({ projectId, refreshKey }) {
+function DocumentiProgetto({ projectId, refreshKey, currentUser }) {
   const [documenti, setDocumenti] = useState([]);
   const [errore, setErrore] = useState('');
 
@@ -276,6 +277,22 @@ function DocumentiProgetto({ projectId, refreshKey }) {
     }
   }
 
+  async function elimina(documento) {
+    try {
+      const impact = await getDocumentoProgettoDeletionImpact(projectId, documento.id);
+      if (impact.blocked) {
+        const motivo = window.prompt('Documento non eliminabile. Inserisci il motivo di archiviazione:');
+        if (motivo) { await archiveDocumentoProgetto(projectId, documento.id, motivo); setDocumenti((items) => items.map((item) => item.id === documento.id ? { ...item, stato: 'annullato', annullato_motivo: motivo } : item)); }
+        return;
+      }
+      if (!window.confirm(`Eliminare definitivamente ${documento.file_name}?`)) return;
+      const motivo = window.prompt('Motivo obbligatorio:');
+      if (!motivo) return;
+      await deleteDocumentoProgetto(projectId, documento.id, documento.file_name, motivo);
+      setDocumenti((items) => items.filter((item) => item.id !== documento.id));
+    } catch (err) { setErrore(formatApiError(err)); }
+  }
+
   if (!documenti.length && !errore) return null;
   return (
     <div className="fapi-project-documents">
@@ -287,9 +304,7 @@ function DocumentiProgetto({ projectId, refreshKey }) {
             {documento.tipo_documento.replaceAll('_', ' ')} · v{documento.versione}
             {' · '}
             {documento.file_name}
-            {documento.caricato_da_user_id
-              ? ` · utente #${documento.caricato_da_user_id}`
-              : ' · importato dallo storico'}
+            {` · ${documento.caricato_da_nome || 'non disponibile'} · ${documento.caricato_il ? new Date(documento.caricato_il).toLocaleString('it-IT') : 'data non disponibile'}`}
           </span>
           <button
             className="fapi-btn"
@@ -298,6 +313,12 @@ function DocumentiProgetto({ projectId, refreshKey }) {
           >
             Scarica
           </button>
+          {currentUser?.role === 'admin' && documento.stato !== 'annullato' && (
+            <button className="fapi-btn fapi-btn-danger" type="button" onClick={() => elimina(documento)}>Elimina</button>
+          )}
+          {currentUser?.role === 'operatore' && documento.stato !== 'annullato' && (
+            <button className="fapi-btn" type="button" onClick={() => elimina(documento)}>Archivia</button>
+          )}
         </div>
       ))}
     </div>
@@ -1204,7 +1225,7 @@ function NuovoPianoModal({ onChoose, onClose }) {
 
 // ── FapiUploadSection (componente principale) ────────────────────────────────
 
-export function FapiUploadSection({ project, onRefresh, autoOpenConvenzione, autoOpenMode, onAutoClose }) {
+export function FapiUploadSection({ project, currentUser, onRefresh, autoOpenConvenzione, autoOpenMode, onAutoClose }) {
   // MOB-4: upload/parsing convenzione, formulario, piano sono Livello 3
   // (MOB-0 gate) — su mobile restano lo stato/elenco documenti read-only
   // (DocumentiProgetto) e un messaggio esplicito, nessun upload.
@@ -1286,6 +1307,7 @@ export function FapiUploadSection({ project, onRefresh, autoOpenConvenzione, aut
         <DocumentiProgetto
           projectId={project.id}
           refreshKey={documentRefreshKey}
+          currentUser={currentUser}
         />
       )}
 
