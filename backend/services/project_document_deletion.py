@@ -43,9 +43,18 @@ def permanently_delete_document(db: Session, project_id: int, documento_id: int,
     doc = db.query(models.ProjectDocumento).filter_by(id=documento_id, project_id=project_id).one()
     path = Path(doc.file_path) if doc.file_path else None
     try:
-        if doc.file_path and db.query(models.Project).filter_by(id=project_id).one().convenzione_file_path == doc.file_path:
-            db.query(models.Project).filter_by(id=project_id).update({models.Project.convenzione_file_path: None})
-        write_audit_log(db, user_id=user_id, azione="project_document_hard_delete", risorsa_tipo="project_document", risorsa_id=doc.id, dati_prima=impact, dati_dopo={"deleted": True, "reason": reason})
+        project = db.query(models.Project).filter_by(id=project_id).one()
+        previous = db.query(models.ProjectDocumento).filter(
+            models.ProjectDocumento.project_id == project_id,
+            models.ProjectDocumento.tipo_documento == doc.tipo_documento,
+            models.ProjectDocumento.versione < doc.versione,
+            models.ProjectDocumento.id != doc.id,
+        ).order_by(models.ProjectDocumento.versione.desc()).first()
+        if project.convenzione_file_path == doc.file_path:
+            project.convenzione_file_path = previous.file_path if previous else None
+        if previous:
+            previous.stato = "corrente"
+        write_audit_log(db, user_id=user_id, azione="project_document_hard_delete", risorsa_tipo="project_document", risorsa_id=doc.id, dati_prima=impact, dati_dopo={"deleted": True, "reason": reason, "fonte_rimossa": True, "dati_da_riverificare": impact["derived_data"]})
         db.delete(doc)
         db.commit()
     except Exception:

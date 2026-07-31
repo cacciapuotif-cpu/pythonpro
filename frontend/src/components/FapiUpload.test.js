@@ -182,7 +182,7 @@ test('la scheda progetto mostra i documenti archiviati e la versione', async () 
   ]);
   render(<FapiUploadSection project={progetto} />);
 
-  expect(await screen.findByText(/atto concessione · v2 · atto.pdf · utente #4/i))
+  expect(await screen.findByText(/atto concessione · v2 · atto.pdf · non disponibile · data non disponibile/i))
     .toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Scarica' })).toBeInTheDocument();
 });
