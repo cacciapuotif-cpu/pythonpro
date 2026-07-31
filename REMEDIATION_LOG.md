@@ -986,3 +986,17 @@ frontend **123 passed**; build verde; Alembic head **061**.
   35/35 e smoke B2 mirato verdi.
 - Nessuna migration, deploy o modifica dati. Stop al GATE DATE-1 in attesa di
   conferma utente.
+
+### Addendum confutazione DATE-1
+
+- Gate struttura confermato dall'utente.
+- Confutatore indipendente inizialmente **NO-OK**: durata strutturata invalida
+  degradata a testo applicabile, regressione delle sottocategorie
+  delega/variazioni nel formato richiesto al modello e approvazione di JSONB
+  persistito senza rivalidazione.
+- Correzione RED→GREEN: durata invalida scartata senza suggestion/autofix;
+  applicazione payload invalido atomica con zero regole create; formato prompt
+  completo; ogni approvazione rivalida contratto e metadati correnti.
+- Verifiche: test mirati 4/4, suite Avvisi 38/38, verifica indipendente
+  Avvisi+B2 49/49. Verdetto finale confutatore **OK**, nessun blocker residuo.
+  DATE-2 autorizzato con vincolo fail-closed sulle regole multiple ambigue.

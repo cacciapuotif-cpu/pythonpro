@@ -45,7 +45,7 @@ def build_extraction_prompt(gruppo: str, categorie: list[str], testo: str) -> st
             "Ogni regola di durata deve riportare testo_originale e riferimento_articolo. "
             "Rispondi con: "
             '{"regole": [{"chiave": "snake_case", "sottocategoria": '
-            '"attuazione|rendicontazione", "valore": {"tipo": "..."}, '
+            f'"{"|".join(categorie)}", "valore": {{"tipo": "..."}}, '
             '"unita": null, "testo_originale": "citazione esatta", '
             '"riferimento_articolo": "...", "confidence": 0.0-1.0}]}'
         )

@@ -1,6 +1,6 @@
 # DATE PROGETTO — report di avanzamento
 
-**Stato:** GATE DATE-1 aperto; DATE-2 non iniziato  
+**Stato:** GATE DATE-1 confermato; confutatore OK; DATE-2 autorizzato
 **Data:** 2026-07-31  
 **Branch:** `claude/platform-audit-compliance-XnH86` (locale, nessun push)
 
@@ -96,6 +96,11 @@ Aggancio al modello esistente:
 La correzione umana prima dell'approvazione passa ora dallo stesso schema: non
 può validare un ancoraggio o una forma JSON sconosciuti.
 
+La validazione viene ripetuta anche sul JSONB persistito ad ogni approvazione:
+una proposta alterata fuori dal normale percorso CRUD non può assumere stato
+`validata`. In approvazione vengono inoltre riallineati `tipo_valore` e
+`schema_version` alla forma canonica appena validata.
+
 ## Estrattore
 
 Il prompt del gruppo `gestione` richiede ora il valore strutturato e vieta di
@@ -103,6 +108,10 @@ dedurre l'ancoraggio. Se prorogabilità, tassatività o slittamento non sono
 esplicitati, usa rispettivamente `null`, `null` e `non_specificato`. Le date
 assolute restano nel gruppo dedicato. Il collector conserva il JSON strutturato
 nella proposta e l'applicazione resta subordinata alla revisione umana.
+Una risposta che dichiara `tipo = durata_termine` ma non rispetta il contratto
+viene scartata in fail-closed: non è degradata a testo e non genera autofix.
+Il fallback testuale resta soltanto per le forme legacy sconosciute, marcate
+per revisione accurata.
 
 ## Evidenza RED → GREEN
 
@@ -118,18 +127,26 @@ nella proposta e l'applicazione resta subordinata alla revisione umana.
   ambigua nel nuovo prompt, poi rimossa e riverificata.
 - Smoke B2 mirato: precedenza regola avviso su massimale fondo verde nel
   container runtime.
+- Confutazione indipendente: individuati tre bypass non coperti (degrado a
+  testo della durata invalida, sottocategorie gestione ristrette nel formato
+  di risposta, mancata rivalidazione del JSONB corrente in approvazione).
+  Tutti riprodotti e corretti con nuovi test; suite Avvisi **38/38** verde e
+  verifica indipendente Avvisi+B2 **49/49** verde prima dell'assert finale sul
+  prompt, poi riverificato miratamente.
 
 La suite globale e la migration non sono richieste al gate intermedio e non
 sono dichiarate eseguite. Nessun deploy e nessuna modifica al DB reale.
 
-## GATE DATE-1 — decisione richiesta
+## GATE DATE-1 — confermato
 
-Confermare:
+L'utente ha confermato:
 
 1. il valore JSONB `durata_termine` e i domini sopra;
 2. `null` come stato onesto “non specificato” per `prorogabile`/`tassativo`;
 3. il campo esplicito sullo slittamento, con default `non_specificato`.
 
-Dopo conferma: DATE-2, con motore unico, provenienza e proposta di migration
-Alembic da provare prima su copia. Nessuna migration viene scritta prima del
-gate.
+Il confutatore ha emesso verdetto finale **OK**, senza blocker residui. Ha
+posto una riserva vincolante per DATE-2: più regole validate applicabili allo
+stesso termine devono produrre ambiguità esplicita, mai selezione silenziosa
+della prima regola. La migration DATE-2 sarà esclusivamente Alembic e verrà
+provata prima su copia.

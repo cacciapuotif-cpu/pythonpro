@@ -192,16 +192,17 @@ def review_rule(
         raise ValueError("Azione di revisione non valida")
     if action == "rifiuta" and not (note or "").strip():
         raise ValueError("La motivazione del rifiuto è obbligatoria")
-    if corrected_value is not None:
-        # La correzione umana non è un bypass dello schema. Ricostruiamo il
-        # contratto completo per mantenere anche le invarianti categoria,
-        # tipo termine e riferimento articolo prima di validare la regola.
-        corrected = avvisi_schemas.AvvisoRegolaProposal.model_validate(
+    if corrected_value is not None or action == "approva":
+        # Anche il JSONB già persistito potrebbe essere stato alterato fuori
+        # dal normale create path. Ogni approvazione ricostruisce quindi il
+        # contratto completo: "validata" significa sempre validata adesso,
+        # non soltanto al momento della proposta.
+        validated = avvisi_schemas.AvvisoRegolaProposal.model_validate(
             {
                 "categoria": rule.categoria,
                 "sottocategoria": rule.sottocategoria,
                 "chiave": rule.chiave,
-                "valore": corrected_value,
+                "valore": corrected_value if corrected_value is not None else rule.valore,
                 "unita": rule.unita,
                 "applicabilita": rule.applicabilita or {},
                 "testo_originale": rule.testo_originale,
@@ -213,9 +214,9 @@ def review_rule(
                 "origin_suggestion_id": rule.origin_suggestion_id,
             }
         )
-        rule.valore = corrected.valore.model_dump(mode="json")
+        rule.valore = validated.valore.model_dump(mode="json")
         rule.tipo_valore, rule.schema_version = _rule_value_metadata(
-            corrected.valore
+            validated.valore
         )
     rule.nota_revisione = note
     if action == "approva":

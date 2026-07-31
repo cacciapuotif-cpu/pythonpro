@@ -1,10 +1,10 @@
 # PythonPro — Stato corrente
 
-**Aggiornato:** 2026-07-31 (GATE DATE-1; in attesa conferma struttura)
+**Aggiornato:** 2026-07-31 (GATE DATE-1 confermato; confutatore OK)
 **Branch:** `claude/platform-audit-compliance-XnH86` (locale, **nessun push**)
 **Percorso:** `/DATA/progetti/pythonpro`
 
-## ⏸️ GATE DATE-1 — REGOLE DURATA PROGETTO — 2026-07-31
+## ✅ GATE DATE-1 — REGOLE DURATA PROGETTO — 2026-07-31
 
 Verificato lo stato prima di intervenire: UX-5/migration 064 esiste ma tratta
 anche i termini come campi liberi; PRJ-2 non è iniziato; B2 copre soltanto
@@ -25,9 +25,14 @@ senza date UX-5 qualificate e senza presenze; 0 regole avviso. Nessun termine è
 oggi calcolabile e nessun dato è stato modificato. Report:
 `audit/DATE_PROGETTO_REPORT.md`.
 
-Test RED→GREEN mirati verdi; regressione avvisi 35/35 completata e smoke B2
-verde. Nessun deploy, nessuna migration, nessun cambio DB. **Blocco:** attendere
-conferma utente del GATE DATE-1 prima di DATE-2 e di qualsiasi migration.
+Gate struttura confermato dall'utente. Il confutatore ha trovato tre bypass:
+durata invalida degradata a testo, formato prompt che perdeva
+delega/variazioni e approvazione senza rivalidare il JSONB corrente. Correzioni
+fail-closed applicate; regressione Avvisi 38/38 e verifica indipendente
+Avvisi+B2 49/49 verdi. Verdetto finale confutatore: **OK**, nessun blocker.
+DATE-2 autorizzato; in caso di più regole validate sullo stesso termine il
+motore dovrà fallire con ambiguità esplicita. Nessun deploy, migration o cambio
+DB eseguito in DATE-1.
 
 ## ✅ CONVENZIONE NOMINATIVI — 2026-07-31
 

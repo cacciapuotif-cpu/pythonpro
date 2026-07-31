@@ -50,7 +50,13 @@ def _normalize_rule_value(raw: Any) -> tuple[dict, bool]:
     try:
         validated = _rule_value_adapter.validate_python(raw)
         return validated.model_dump(mode="json"), False
-    except Exception:
+    except Exception as exc:
+        # Una durata relativa dichiara un contratto operativo: degradarla a
+        # testo nasconderebbe un ancoraggio/unità non validi e potrebbe farla
+        # approvare come innocua regola v1. Le forme legacy sconosciute restano
+        # invece consultabili come testo con revisione esplicita.
+        if isinstance(raw, dict) and raw.get("tipo") == "durata_termine":
+            raise ValueError("Regola durata_termine non conforme") from exc
         return {"tipo": "testo", "valore": json.dumps(raw, ensure_ascii=False, default=str)}, True
 
 
@@ -135,7 +141,16 @@ def collect_avviso_extraction_suggestions(
         elementi_scartati = max(0, len(raw_rules) - len(parsed.regole))
         elementi_scartati += max(0, len(raw_deadlines) - len(parsed.scadenze))
         for regola in parsed.regole:
-            valore, valore_sospetto = _normalize_rule_value(regola.valore)
+            try:
+                valore, valore_sospetto = _normalize_rule_value(regola.valore)
+            except ValueError as exc:
+                elementi_scartati += 1
+                logger.warning(
+                    "avviso_extractor: regola %s scartata: %s",
+                    regola.chiave,
+                    exc,
+                )
+                continue
             needs_review = valore_sospetto or regola.confidence < CONFIDENCE_REVIEW_THRESHOLD
             proposal = {
                 "categoria": _categoria_for(gruppo, categorie, regola.sottocategoria),

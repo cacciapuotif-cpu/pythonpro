@@ -214,6 +214,28 @@ def test_human_review_cannot_validate_malformed_duration_value(db_session, user)
     assert rule.valore["ancoraggio"] == "sottoscrizione"
 
 
+def test_human_review_revalidates_persisted_json_before_approval(db_session, user):
+    avviso = make_avviso(db_session)
+    revision = make_revision(db_session, avviso, user)
+    rule = crud_avvisi.create_rule_proposal(db_session, revision.id, duration_rule())
+    malformed = dict(rule.valore)
+    malformed["ancoraggio"] = "pubblicazione"
+    rule.valore = malformed
+    db_session.commit()
+
+    with pytest.raises(ValidationError):
+        crud_avvisi.review_rule(
+            db_session,
+            rule.id,
+            action="approva",
+            reviewer_user_id=user.id,
+        )
+
+    db_session.rollback()
+    db_session.refresh(rule)
+    assert rule.stato == "proposta"
+
+
 @pytest.mark.parametrize(
     "changes",
     [

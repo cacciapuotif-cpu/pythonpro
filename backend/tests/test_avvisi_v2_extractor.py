@@ -4,6 +4,7 @@ from pathlib import Path
 import sys
 
 import pytest
+from pydantic import ValidationError
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -68,6 +69,10 @@ def test_gestione_prompt_requests_structured_duration_rules():
     assert "ancoraggio" in prompt
     assert "giorni_lavorativi" in prompt
     assert "slittamento_giorno_non_lavorativo" in prompt
+    assert (
+        '"sottocategoria": "attuazione|rendicontazione|delega|variazioni"'
+        in prompt
+    )
 
 
 import hashlib
@@ -274,6 +279,67 @@ def test_collector_marks_invalid_rule_value_for_careful_review(db_session, revis
     proposal = regola["auto_fix_payload"]["proposal"]
     assert proposal["needs_careful_review"] is True
     assert proposal["valore"]["tipo"] == "testo"
+
+
+def test_collector_discards_malformed_structured_duration_rule(
+    db_session, revision_with_cleaned_md, monkeypatch
+):
+    def malformed_duration_llm(*, system_prompt, user_prompt, **_kwargs):
+        return {"regole": [{
+            "chiave": "termine_conclusione",
+            "sottocategoria": "attuazione",
+            "valore": {
+                "tipo": "durata_termine",
+                "tipo_termine": "conclusione",
+                "ancoraggio": "pubblicazione",
+                "durata": {"valore": 12, "unita": "mesi"},
+                "prorogabile": True,
+                "tassativo": True,
+            },
+            "testo_originale": "Entro dodici mesi dalla pubblicazione.",
+            "riferimento_articolo": "Art. 8",
+            "confidence": 0.95,
+        }]}
+
+    monkeypatch.setattr(
+        extractor_module, "call_ollama_json", malformed_duration_llm
+    )
+    result = extractor_module.collect_avviso_extraction_suggestions(
+        db_session,
+        entity_type="avviso_revisione",
+        entity_id=revision_with_cleaned_md.id,
+        input_payload={"sezioni": ["gestione"]},
+    )
+
+    assert result["suggestions"] == []
+    assert result["summary"]["elementi_scartati"] == 1
+
+
+def test_apply_rejects_malformed_duration_without_materializing_rule(
+    db_session, user, revision_with_cleaned_md
+):
+    proposal = {
+        "categoria": "attuazione",
+        "chiave": "termine_conclusione",
+        "valore": {
+            "tipo": "durata_termine",
+            "tipo_termine": "conclusione",
+            "ancoraggio": "pubblicazione",
+            "durata": {"valore": 12, "unita": "mesi"},
+            "prorogabile": True,
+            "tassativo": True,
+        },
+        "testo_originale": "Entro dodici mesi dalla pubblicazione.",
+        "riferimento_articolo": "Art. 8",
+    }
+    suggestion = _make_suggestion(
+        db_session, revision_with_cleaned_md, "regola", proposal
+    )
+
+    with pytest.raises(ValidationError):
+        apply_suggestion(db_session, suggestion, user_id=user.id)
+
+    assert db_session.query(models.AvvisoRegola).count() == 0
 
 
 def test_collector_tolerates_llm_failure_per_group(db_session, revision_with_cleaned_md, monkeypatch):
