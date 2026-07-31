@@ -1,8 +1,33 @@
 # PythonPro — Stato corrente
 
-**Aggiornato:** 2026-07-31 (GATE PRJ-5 censimento avvisi; in attesa conferma dati)
+**Aggiornato:** 2026-07-31 (GATE DATE-1; in attesa conferma struttura)
 **Branch:** `claude/platform-audit-compliance-XnH86` (locale, **nessun push**)
 **Percorso:** `/DATA/progetti/pythonpro`
+
+## ⏸️ GATE DATE-1 — REGOLE DURATA PROGETTO — 2026-07-31
+
+Verificato lo stato prima di intervenire: UX-5/migration 064 esiste ma tratta
+anche i termini come campi liberi; PRJ-2 non è iniziato; B2 copre soltanto
+massimali e parametri costo. Backup cifrato fresco verificato:
+`/app/backups/gestionale_backup_pre_date1_20260731_140410.sql.zip.gpg`,
+SHA-256 `a754cd0beebf21c0ad1ad1208cf1af206307cc315340de8de3487bfbe16f1c58`.
+
+DATE-1 implementato senza migration: nuovo valore JSONB versionato
+`durata_termine` su `AvvisoRegola` con tipo termine, ancoraggio, durata
+valore/unità, prorogabilità, tassatività e disciplina dello slittamento nei
+giorni non lavorativi. Categorie coerenti (`attuazione` o
+`rendicontazione`), fonte/articolo obbligatori, correzioni umane validate senza
+bypass. Prompt estrattore aggiornato per proporre la struttura senza inventare
+ancoraggi. I formati v1 restano compatibili.
+
+Censimento live read-only: 2 progetti (#5/#11), entrambi senza avviso/revisione,
+senza date UX-5 qualificate e senza presenze; 0 regole avviso. Nessun termine è
+oggi calcolabile e nessun dato è stato modificato. Report:
+`audit/DATE_PROGETTO_REPORT.md`.
+
+Test RED→GREEN mirati verdi; regressione avvisi 35/35 completata e smoke B2
+verde. Nessun deploy, nessuna migration, nessun cambio DB. **Blocco:** attendere
+conferma utente del GATE DATE-1 prima di DATE-2 e di qualsiasi migration.
 
 ## ✅ CONVENZIONE NOMINATIVI — 2026-07-31
 

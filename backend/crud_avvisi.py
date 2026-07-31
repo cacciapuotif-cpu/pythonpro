@@ -26,6 +26,12 @@ AVVISO_STATE_TRANSITIONS = {
 }
 
 
+def _rule_value_metadata(value) -> tuple[str, int]:
+    if isinstance(value, avvisi_schemas.DeadlineDurationRuleValue):
+        return "durata_termine", 2
+    return "oggetto", 1
+
+
 def _storage_key(value: Optional[str]) -> Optional[str]:
     if value is None:
         return None
@@ -154,6 +160,11 @@ def create_rule_proposal(
         raise ValueError("Revisione avviso non trovata")
     data = payload.model_dump(mode="python")
     data["valore"] = payload.valore.model_dump(mode="json")
+    # Il JSONB esistente è già il contenitore canonico. I metadati rendono il
+    # nuovo formato interrogabile senza cambiare o reinterpretare le regole v1.
+    data["tipo_valore"], data["schema_version"] = _rule_value_metadata(
+        payload.valore
+    )
     rule = models.AvvisoRegola(avviso_revisione_id=revision_id, stato="proposta", **data)
     db.add(rule)
     db.flush()
@@ -182,7 +193,30 @@ def review_rule(
     if action == "rifiuta" and not (note or "").strip():
         raise ValueError("La motivazione del rifiuto è obbligatoria")
     if corrected_value is not None:
-        rule.valore = corrected_value
+        # La correzione umana non è un bypass dello schema. Ricostruiamo il
+        # contratto completo per mantenere anche le invarianti categoria,
+        # tipo termine e riferimento articolo prima di validare la regola.
+        corrected = avvisi_schemas.AvvisoRegolaProposal.model_validate(
+            {
+                "categoria": rule.categoria,
+                "sottocategoria": rule.sottocategoria,
+                "chiave": rule.chiave,
+                "valore": corrected_value,
+                "unita": rule.unita,
+                "applicabilita": rule.applicabilita or {},
+                "testo_originale": rule.testo_originale,
+                "riferimento_articolo": rule.riferimento_articolo,
+                "riferimento_sezione": rule.riferimento_sezione,
+                "riferimento_pagina": rule.riferimento_pagina,
+                "confidence": rule.confidence,
+                "needs_careful_review": rule.needs_careful_review,
+                "origin_suggestion_id": rule.origin_suggestion_id,
+            }
+        )
+        rule.valore = corrected.valore.model_dump(mode="json")
+        rule.tipo_valore, rule.schema_version = _rule_value_metadata(
+            corrected.valore
+        )
     rule.nota_revisione = note
     if action == "approva":
         rule.stato = "validata"

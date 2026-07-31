@@ -968,3 +968,21 @@ frontend **123 passed**; build verde; Alembic head **061**.
 - Nessun push.
 
 ---
+## 2026-07-31 | DATE-1 | Regole durata avviso — GATE aperto
+
+- Verificati STATUS, findings, B2, ultimi 15 commit, schema live 070 e dati
+  reali prima delle modifiche.
+- Backup cifrato fresco verificato:
+  `gestionale_backup_pre_date1_20260731_140410.sql.zip.gpg`, SHA-256
+  `a754cd0beebf21c0ad1ad1208cf1af206307cc315340de8de3487bfbe16f1c58`.
+- UX-5 esistente è incompleto rispetto al nuovo dominio: termini liberi,
+  nessuna sottoscrizione, provenienza, calcolo o proroga. PRJ-2 non iniziato.
+- Esteso il valore JSONB `AvvisoRegola` con `durata_termine` schema v2, domini
+  chiusi e fonti obbligatorie; formati v1 invariati.
+- Estrattore gestione aggiornato per proporre ancoraggio/durata/unità in forma
+  strutturata, senza deduzioni silenziose. Correzione umana sottoposta allo
+  stesso schema per impedire bypass prima della validazione.
+- RED→GREEN documentato in `audit/DATE_PROGETTO_REPORT.md`; regressione avvisi
+  35/35 e smoke B2 mirato verdi.
+- Nessuna migration, deploy o modifica dati. Stop al GATE DATE-1 in attesa di
+  conferma utente.

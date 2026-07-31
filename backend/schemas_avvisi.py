@@ -130,6 +130,36 @@ class DaysRuleValue(_Schema):
     calendario: bool = True
 
 
+class DurationAmount(_Schema):
+    valore: int = Field(gt=0)
+    unita: Literal["giorni", "giorni_lavorativi", "mesi"]
+
+
+class DeadlineDurationRuleValue(_Schema):
+    """Termine relativo derivato da una data di fatto del progetto.
+
+    ``None`` su prorogabile/tassativo significa che il testo non lo specifica:
+    non viene mai trasformato implicitamente in ``False`` dall'estrattore.
+    """
+
+    tipo: Literal["durata_termine"]
+    tipo_termine: Literal["avvio", "conclusione", "rendicontazione"]
+    ancoraggio: Literal[
+        "approvazione",
+        "sottoscrizione",
+        "avvio_piano",
+        "fine_attivita",
+    ]
+    durata: DurationAmount
+    prorogabile: Optional[bool]
+    tassativo: Optional[bool]
+    slittamento_giorno_non_lavorativo: Literal[
+        "primo_giorno_utile",
+        "nessuno",
+        "non_specificato",
+    ] = "non_specificato"
+
+
 class DateRuleValue(_Schema):
     tipo: Literal["data"]
     valore: date
@@ -175,6 +205,7 @@ RuleValue = Annotated[
         NumberRuleValue,
         HoursRuleValue,
         DaysRuleValue,
+        DeadlineDurationRuleValue,
         DateRuleValue,
         BoolRuleValue,
         SetRuleValue,
@@ -308,6 +339,28 @@ class AvvisoRegolaProposal(_Schema):
     confidence: Optional[Decimal] = Field(default=None, ge=0, le=1)
     needs_careful_review: bool = False
     origin_suggestion_id: Optional[int] = None
+
+    @model_validator(mode="after")
+    def validate_duration_rule_domain(self):
+        if not isinstance(self.valore, DeadlineDurationRuleValue):
+            return self
+
+        if not (self.riferimento_articolo or "").strip():
+            raise ValueError(
+                "Il riferimento articolo è obbligatorio per una regola di durata"
+            )
+
+        expected_category = (
+            CategoriaRegola.RENDICONTAZIONE
+            if self.valore.tipo_termine == "rendicontazione"
+            else CategoriaRegola.ATTUAZIONE
+        )
+        if self.categoria != expected_category:
+            raise ValueError(
+                "La categoria non è coerente con il tipo di termine: "
+                f"attesa {expected_category.value}"
+            )
+        return self
 
 
 class AvvisoScadenzaProposal(_Schema):

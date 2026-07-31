@@ -98,6 +98,29 @@ def money_rule(*, suggestion_id=None, confidence="0.91"):
     )
 
 
+def duration_rule():
+    return avvisi_schemas.AvvisoRegolaProposal(
+        categoria="attuazione",
+        sottocategoria="attuazione",
+        chiave="termine_conclusione_da_sottoscrizione",
+        valore={
+            "tipo": "durata_termine",
+            "tipo_termine": "conclusione",
+            "ancoraggio": "sottoscrizione",
+            "durata": {"valore": 12, "unita": "mesi"},
+            "prorogabile": True,
+            "tassativo": True,
+            "slittamento_giorno_non_lavorativo": "non_specificato",
+        },
+        testo_originale=(
+            "Il piano formativo deve concludersi entro dodici mesi dalla data "
+            "di sottoscrizione della convenzione."
+        ),
+        riferimento_articolo="Art. 8",
+        confidence=Decimal("0.94"),
+    )
+
+
 def test_avviso_identity_unique_and_regional_discriminator(db_session):
     make_avviso(db_session)
     with pytest.raises(ValueError, match="stessa identità"):
@@ -149,6 +172,73 @@ def test_rule_json_roundtrip_and_human_validation(db_session, user):
     assert reviewed.validata_da_user_id == user.id
     assert reviewed.validata_il is not None
     assert crud_avvisi.get_validated_rules(db_session, avviso.id)[0].id == rule.id
+
+
+def test_duration_rule_json_roundtrip_uses_versioned_metadata(db_session, user):
+    avviso = make_avviso(db_session)
+    revision = make_revision(db_session, avviso, user)
+
+    rule = crud_avvisi.create_rule_proposal(db_session, revision.id, duration_rule())
+
+    assert rule.valore == {
+        "tipo": "durata_termine",
+        "tipo_termine": "conclusione",
+        "ancoraggio": "sottoscrizione",
+        "durata": {"valore": 12, "unita": "mesi"},
+        "prorogabile": True,
+        "tassativo": True,
+        "slittamento_giorno_non_lavorativo": "non_specificato",
+    }
+    assert rule.tipo_valore == "durata_termine"
+    assert rule.schema_version == 2
+
+
+def test_human_review_cannot_validate_malformed_duration_value(db_session, user):
+    avviso = make_avviso(db_session)
+    revision = make_revision(db_session, avviso, user)
+    rule = crud_avvisi.create_rule_proposal(db_session, revision.id, duration_rule())
+
+    malformed = dict(rule.valore)
+    malformed["ancoraggio"] = "pubblicazione"
+    with pytest.raises(ValidationError):
+        crud_avvisi.review_rule(
+            db_session,
+            rule.id,
+            action="approva",
+            reviewer_user_id=user.id,
+            corrected_value=malformed,
+        )
+
+    db_session.refresh(rule)
+    assert rule.stato == "proposta"
+    assert rule.valore["ancoraggio"] == "sottoscrizione"
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"riferimento_articolo": None},
+        {"categoria": "massimali"},
+        {"valore": {
+            "tipo": "durata_termine",
+            "tipo_termine": "conclusione",
+            "ancoraggio": "pubblicazione",
+            "durata": {"valore": 12, "unita": "mesi"},
+            "prorogabile": True,
+            "tassativo": True,
+        }},
+    ],
+)
+def test_duration_rule_rejects_missing_source_or_invalid_domain(changes):
+    payload = duration_rule().model_dump(mode="python")
+    payload.update(changes)
+
+    with pytest.raises(ValidationError):
+        avvisi_schemas.AvvisoRegolaProposal.model_validate(payload)
+
+
+def test_existing_rule_value_shapes_remain_compatible():
+    assert money_rule().valore.tipo == "denaro"
 
 
 def test_new_revision_does_not_activate_previous_rules(db_session, user):

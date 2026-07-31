@@ -56,6 +56,20 @@ def test_build_extraction_prompt_mentions_categories_and_text():
     assert "JSON" in SYSTEM_PROMPT_ESTRAZIONE
 
 
+def test_gestione_prompt_requests_structured_duration_rules():
+    prompt = build_extraction_prompt(
+        "gestione",
+        ["attuazione", "rendicontazione", "delega", "variazioni"],
+        "# Art. 8\nIl piano si conclude entro dodici mesi dalla sottoscrizione.",
+    )
+
+    assert '"tipo": "durata_termine"' in prompt
+    assert "tipo_termine" in prompt
+    assert "ancoraggio" in prompt
+    assert "giorni_lavorativi" in prompt
+    assert "slittamento_giorno_non_lavorativo" in prompt
+
+
 import hashlib
 import json
 
@@ -197,6 +211,49 @@ def test_collector_builds_suggestions_from_llm(db_session, revision_with_cleaned
     assert result["summary"]["sezioni_complete"] == 5
     assert result["summary"]["categorie_coperte_count"] == 12
     assert result["summary"]["sezioni_mancanti"] == []
+
+
+def test_collector_preserves_structured_duration_rule(
+    db_session, revision_with_cleaned_md, monkeypatch
+):
+    def duration_llm(*, system_prompt, user_prompt, **_kwargs):
+        return {
+            "regole": [{
+                "chiave": "termine_conclusione_da_sottoscrizione",
+                "sottocategoria": "attuazione",
+                "valore": {
+                    "tipo": "durata_termine",
+                    "tipo_termine": "conclusione",
+                    "ancoraggio": "sottoscrizione",
+                    "durata": {"valore": 12, "unita": "mesi"},
+                    "prorogabile": True,
+                    "tassativo": True,
+                    "slittamento_giorno_non_lavorativo": "non_specificato",
+                },
+                "testo_originale": (
+                    "Il piano si conclude entro dodici mesi dalla sottoscrizione."
+                ),
+                "riferimento_articolo": "Art. 8",
+                "confidence": 0.93,
+            }]
+        }
+
+    monkeypatch.setattr(extractor_module, "call_ollama_json", duration_llm)
+    result = extractor_module.collect_avviso_extraction_suggestions(
+        db_session,
+        entity_type="avviso_revisione",
+        entity_id=revision_with_cleaned_md.id,
+        input_payload={"sezioni": ["gestione"]},
+    )
+
+    assert len(result["suggestions"]) == 1
+    proposal = result["suggestions"][0]["auto_fix_payload"]["proposal"]
+    parsed = avvisi_schemas.AvvisoRegolaProposal.model_validate(proposal)
+    assert parsed.categoria == avvisi_schemas.CategoriaRegola.ATTUAZIONE
+    assert parsed.valore.tipo == "durata_termine"
+    assert parsed.valore.ancoraggio == "sottoscrizione"
+    assert parsed.valore.durata.unita == "mesi"
+    assert parsed.needs_careful_review is False
 
 
 def test_collector_marks_invalid_rule_value_for_careful_review(db_session, revision_with_cleaned_md, monkeypatch):
