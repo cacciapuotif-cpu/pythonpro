@@ -278,8 +278,18 @@ const Calendar = memo(({
   const legendEntities = useMemo(() => (
     colorDimension === 'collaborator'
       ? collaborators.filter((c) => filters.collaboratorIds.length === 0 || filters.collaboratorIds.includes(c.id))
-      : projects.filter((p) => filters.projectIds.length === 0 || filters.projectIds.includes(p.id))
-  ), [colorDimension, collaborators, projects, filters.collaboratorIds, filters.projectIds]);
+      : projects.filter((p) => (
+        (filters.includeClosedProjects || p.is_active)
+        && (filters.projectIds.length === 0 || filters.projectIds.includes(p.id))
+      ))
+  ), [
+    colorDimension,
+    collaborators,
+    projects,
+    filters.collaboratorIds,
+    filters.projectIds,
+    filters.includeClosedProjects,
+  ]);
 
   // Eventi calendario memoizzati per performance
   const calendarEvents = useMemo(() => (
