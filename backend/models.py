@@ -386,6 +386,20 @@ class Project(Base):
             return [allievo.id for allievo in self.allievi_coinvolti]
         return []
 
+    @property
+    def aziende_delivery(self):
+        return [
+            {
+                "azienda_id": link.azienda_cliente_id,
+                "ragione_sociale": link.azienda.ragione_sociale if link.azienda else None,
+                "sede_tipo": link.sede_tipo,
+                "sede_ente_location_id": link.sede_ente_location_id,
+                "sede_azienda_operativa_id": link.sede_azienda_operativa_id,
+                "sede_label": link.sede_label,
+            }
+            for link in self.azienda_links
+        ]
+
 
 class ProjectDocumento(Base):
     """Documento amministrativo versionato e immutabile di un progetto."""
@@ -2119,13 +2133,55 @@ class AziendaClienteProjectLink(Base):
     stato = Column(String(30), nullable=True, default='in_attesa')
     note = Column(Text, nullable=True)
 
+    # Sede di erogazione del corso per QUESTA azienda su QUESTO progetto:
+    # o una sede dell'ente attuatore o una sede operativa dell'azienda stessa.
+    # NULL/NULL = sede ancora da definire, ammesso (l'azienda puo' restare
+    # coinvolta senza iscritti, vedi UX-9).
+    sede_tipo = Column(String(10), nullable=True)
+    sede_ente_location_id = Column(
+        Integer,
+        ForeignKey("implementing_entity_locations.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    sede_azienda_operativa_id = Column(
+        Integer,
+        ForeignKey("azienda_cliente_sedi_operative.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
     azienda = relationship("AziendaCliente", back_populates="project_links", lazy="select")
     project = relationship("Project", back_populates="azienda_links", lazy="select")
+    sede_ente_location = relationship("ImplementingEntityLocation", lazy="select")
+    sede_azienda_operativa = relationship("AziendaClienteSedeOperativa", lazy="select")
 
     __table_args__ = (
         UniqueConstraint("azienda_cliente_id", "project_id", name="uq_azienda_cliente_project"),
         Index("idx_azienda_cliente_projects_regime", "regime_aiuto"),
+        CheckConstraint(
+            "sede_tipo IS NULL OR sede_tipo IN ('ente', 'azienda')",
+            name="ck_azienda_cliente_projects_sede_tipo",
+        ),
+        CheckConstraint(
+            "(sede_tipo IS NULL AND sede_ente_location_id IS NULL AND sede_azienda_operativa_id IS NULL) "
+            "OR (sede_tipo = 'ente' AND sede_ente_location_id IS NOT NULL AND sede_azienda_operativa_id IS NULL) "
+            "OR (sede_tipo = 'azienda' AND sede_azienda_operativa_id IS NOT NULL AND sede_ente_location_id IS NULL)",
+            name="ck_azienda_cliente_projects_sede_coerente",
+        ),
     )
+
+    @property
+    def sede_label(self):
+        if self.sede_tipo == "ente" and self.sede_ente_location:
+            loc = self.sede_ente_location
+            indirizzo = loc.indirizzo_completo
+            return f"{loc.denominazione} (sede ente)" + (f" — {indirizzo}" if indirizzo else "")
+        if self.sede_tipo == "azienda" and self.sede_azienda_operativa:
+            s = self.sede_azienda_operativa
+            indirizzo = ", ".join(filter(None, [s.indirizzo, " ".join(filter(None, [s.cap, s.citta]))]))
+            return f"{s.nome} (sede azienda)" + (f" — {indirizzo}" if indirizzo else "")
+        return None
 
 
 class AziendaClienteSedeOperativa(Base):

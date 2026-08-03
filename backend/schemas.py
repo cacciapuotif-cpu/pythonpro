@@ -242,6 +242,39 @@ class AziendaCoinvolta(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class AziendaDeliverySede(BaseModel):
+    """Sede di erogazione del corso scelta per una singola azienda del progetto.
+
+    ``sede_tipo``/``sede_*_id`` sono ``None`` finche' la sede non e' stata
+    ancora indicata: un'azienda puo' restare coinvolta senza sede definita.
+    """
+
+    azienda_id: int
+    ragione_sociale: Optional[str] = None
+    sede_tipo: Optional[Literal['ente', 'azienda']] = None
+    sede_ente_location_id: Optional[int] = None
+    sede_azienda_operativa_id: Optional[int] = None
+    sede_label: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ProjectAziendaSede(BaseModel):
+    """Sede scelta per un'azienda in create/update progetto (UX-9b delivery)."""
+
+    azienda_id: int
+    sede_tipo: Optional[Literal['ente', 'azienda']] = None
+    sede_id: Optional[int] = None
+
+    @model_validator(mode="after")
+    def _sede_id_richiesto_se_tipo(self):
+        if self.sede_tipo and self.sede_id is None:
+            raise ValueError("sede_id obbligatorio quando sede_tipo e' indicato")
+        if self.sede_id is not None and not self.sede_tipo:
+            raise ValueError("sede_tipo obbligatorio quando sede_id e' indicato")
+        return self
+
+
 class AllievoCoinvolto(BaseModel):
     """Allievo associato al progetto, nella forma minima per mostrarlo.
 
@@ -275,6 +308,8 @@ class Project(ProjectBase):
     # dati. Le relazioni sono gia' in selectinload in crud.get_project(s).
     aziende_coinvolte: List[AziendaCoinvolta] = []
     allievi_coinvolti: List[AllievoCoinvolto] = []
+    # UX-9b: sede di erogazione per azienda (ente o azienda), una per link.
+    aziende_delivery: List[AziendaDeliverySede] = []
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True, use_enum_values=True)
 
@@ -1084,6 +1119,9 @@ class ProjectBaseExtended(ProjectBase):
     # None = link non toccati; [] = svuota; lista = sincronizza a quella lista.
     azienda_ids: Optional[List[int]] = None
     allievo_ids: Optional[List[int]] = None
+    # UX-9b: sede per azienda. None = non toccare le sedi gia' impostate;
+    # lista (anche vuota) = applica esattamente queste, azzerando le altre.
+    azienda_sedi: Optional[List[ProjectAziendaSede]] = None
 
 class ProjectCreateExtended(ProjectBaseExtended):
     """Schema creazione progetto con ente"""
@@ -1096,6 +1134,7 @@ class ProjectUpdateExtended(ProjectUpdate):
     # "non passato" (None -> skip) da "[] esplicito" (svuota i link).
     azienda_ids: Optional[List[int]] = None
     allievo_ids: Optional[List[int]] = None
+    azienda_sedi: Optional[List[ProjectAziendaSede]] = None
 
 class ProjectWithEntity(Project):
     """Schema progetto con ente attuatore completo"""

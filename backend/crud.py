@@ -615,11 +615,24 @@ def sync_consultants_from_collaborators(db: Session):
 
     return changed
 
+def _project_azienda_links_option():
+    # Costruita a runtime, non a import-time: farlo a livello di modulo forza
+    # la configurazione di TUTTI i mapper prima che main.py abbia finito di
+    # importare i modelli (es. User), rompendo l'avvio con un
+    # InvalidRequestError su nomi non ancora registrati.
+    return selectinload(models.Project.azienda_links).options(
+        joinedload(models.AziendaClienteProjectLink.azienda),
+        joinedload(models.AziendaClienteProjectLink.sede_ente_location),
+        joinedload(models.AziendaClienteProjectLink.sede_azienda_operativa),
+    )
+
+
 def get_project(db: Session, project_id: int):
     return db.query(models.Project).options(
         joinedload(models.Project.avviso_rel),
         selectinload(models.Project.aziende_coinvolte),
         selectinload(models.Project.allievi_coinvolti),
+        _project_azienda_links_option(),
     ).filter(models.Project.id == project_id).first()
 
 def get_projects(db: Session, skip: int = 0, limit: int = 100, is_active: Optional[bool] = True):
@@ -627,6 +640,7 @@ def get_projects(db: Session, skip: int = 0, limit: int = 100, is_active: Option
         joinedload(models.Project.avviso_rel),
         selectinload(models.Project.aziende_coinvolte),
         selectinload(models.Project.allievi_coinvolti),
+        _project_azienda_links_option(),
     )
     if is_active is not None:
         query = query.filter(models.Project.is_active == is_active)
@@ -640,10 +654,66 @@ def get_projects_count(db: Session, is_active: Optional[bool] = True):
     return query.scalar()
 
 
+def _apply_azienda_sede(
+    db: Session,
+    db_project: models.Project,
+    link: "models.AziendaClienteProjectLink",
+    azienda_id: int,
+    sede: "schemas.ProjectAziendaSede",
+):
+    """Valida e applica la sede (ente o azienda) scelta per l'azienda sul link.
+
+    La sede aziendale deve appartenere alla STESSA azienda del link; la sede
+    ente deve appartenere all'ente attuatore corrente del progetto. Sono gli
+    unici due luoghi ammessi per erogare il corso (UX-9b).
+    """
+    if sede.sede_tipo is None:
+        link.sede_tipo = None
+        link.sede_ente_location_id = None
+        link.sede_azienda_operativa_id = None
+        return
+
+    if sede.sede_tipo == "azienda":
+        sede_row = db.query(models.AziendaClienteSedeOperativa).filter(
+            models.AziendaClienteSedeOperativa.id == sede.sede_id,
+            models.AziendaClienteSedeOperativa.azienda_cliente_id == azienda_id,
+        ).first()
+        if not sede_row:
+            raise ValueError(
+                f"Sede operativa {sede.sede_id} non trovata per l'azienda {azienda_id}"
+            )
+        link.sede_tipo = "azienda"
+        link.sede_azienda_operativa_id = sede_row.id
+        link.sede_ente_location_id = None
+        return
+
+    if sede.sede_tipo == "ente":
+        if not db_project.ente_attuatore_id:
+            raise ValueError(
+                "Il progetto non ha un ente attuatore: impossibile scegliere una sua sede"
+            )
+        sede_row = db.query(models.ImplementingEntityLocation).filter(
+            models.ImplementingEntityLocation.id == sede.sede_id,
+            models.ImplementingEntityLocation.ente_id == db_project.ente_attuatore_id,
+            models.ImplementingEntityLocation.is_active.is_(True),
+        ).first()
+        if not sede_row:
+            raise ValueError(
+                f"Sede ente {sede.sede_id} non trovata o non attiva per l'ente attuatore del progetto"
+            )
+        link.sede_tipo = "ente"
+        link.sede_ente_location_id = sede_row.id
+        link.sede_azienda_operativa_id = None
+        return
+
+    raise ValueError(f"sede_tipo non valido: {sede.sede_tipo}")
+
+
 def _sync_project_azienda_links(
     db: Session,
     db_project: models.Project,
     azienda_ids: List[int],
+    azienda_sedi: Optional[List["schemas.ProjectAziendaSede"]] = None,
 ):
     unique_azienda_ids = []
     seen_ids = set()
@@ -653,6 +723,15 @@ def _sync_project_azienda_links(
             continue
         seen_ids.add(normalized_id)
         unique_azienda_ids.append(normalized_id)
+
+    sede_by_azienda = {}
+    for sede in azienda_sedi or []:
+        azienda_id = int(sede.azienda_id)
+        if azienda_id not in unique_azienda_ids:
+            raise ValueError(
+                f"Sede indicata per l'azienda {azienda_id}, non tra le aziende coinvolte nel progetto"
+            )
+        sede_by_azienda[azienda_id] = sede
 
     if unique_azienda_ids:
         existing_aziende = db.query(models.AziendaCliente.id).filter(
@@ -678,11 +757,16 @@ def _sync_project_azienda_links(
             db.delete(link)
 
     for azienda_id in unique_azienda_ids:
-        if azienda_id not in current_links:
-            db.add(models.AziendaClienteProjectLink(
+        link = current_links.get(azienda_id)
+        if link is None:
+            link = models.AziendaClienteProjectLink(
                 azienda_cliente_id=azienda_id,
                 project_id=db_project.id,
-            ))
+            )
+            db.add(link)
+            current_links[azienda_id] = link
+        if azienda_id in sede_by_azienda:
+            _apply_azienda_sede(db, db_project, link, azienda_id, sede_by_azienda[azienda_id])
 
 
 def _project_allievo_ids(db: Session, project_id: int) -> List[int]:
@@ -886,6 +970,7 @@ def create_project(db: Session, project: schemas.ProjectCreateExtended):
     payload = project.dict()
     azienda_ids = payload.pop("azienda_ids", [])
     allievo_ids = payload.pop("allievo_ids", [])
+    azienda_sedi = payload.pop("azienda_sedi", None)
     payload = _resolve_project_financial_refs(db, payload)
     date_progetto.valida_date_progetto(
         payload, richiedi_date_nuovo_attivo=True
@@ -897,7 +982,10 @@ def create_project(db: Session, project: schemas.ProjectCreateExtended):
     # legge lo stato che la richiesta sta costruendo e non quello di partenza.
     _sync_project_allievi(db, db_project, allievo_ids)
     db.flush()
-    _sync_project_azienda_links(db, db_project, azienda_ids)
+    _sync_project_azienda_links(
+        db, db_project, azienda_ids,
+        azienda_sedi=[schemas.ProjectAziendaSede(**s) for s in (azienda_sedi or [])],
+    )
 
     return db_project
 
@@ -907,6 +995,7 @@ def update_project(db: Session, project_id: int, project: schemas.ProjectUpdateE
         update_data = project.dict(exclude_unset=True)
         azienda_ids = update_data.pop("azienda_ids", None)
         allievo_ids = update_data.pop("allievo_ids", None)
+        azienda_sedi = update_data.pop("azienda_sedi", None)
         update_data = _resolve_project_financial_refs(db, update_data, current_project=db_project)
         date_progetto.valida_date_progetto(
             date_progetto.snapshot_date_progetto(db_project, update_data)
@@ -923,7 +1012,10 @@ def update_project(db: Session, project_id: int, project: schemas.ProjectUpdateE
             _sync_project_allievi(db, db_project, allievo_ids)
             db.flush()
         if azienda_ids is not None:
-            _sync_project_azienda_links(db, db_project, azienda_ids)
+            _sync_project_azienda_links(
+                db, db_project, azienda_ids,
+                azienda_sedi=[schemas.ProjectAziendaSede(**s) for s in (azienda_sedi or [])],
+            )
         db.commit()
         db.refresh(db_project)
     return db_project

@@ -460,6 +460,34 @@
   color: #7b4150;
 }
 
+.azienda-sede-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.azienda-sede-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: #faf6f8;
+  border: 1px solid rgba(24, 52, 79, 0.08);
+}
+
+.azienda-sede-row strong {
+  min-width: 180px;
+}
+
+.azienda-sede-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex: 1;
+}
+
 .project-delivery-card {
   padding: 18px;
   border-radius: 18px;
