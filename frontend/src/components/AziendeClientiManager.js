@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   getAziendeClienti, createAziendaCliente, updateAziendaCliente, deleteAziendaCliente,
-  getConsulenti, getAgenzie, getAziendaCliente, getProjects, bulkImportAziendeClienti,
-  getAziendaDeletionImpact, permanentlyDeleteAzienda
+  getConsulenti, getAgenzie, getAziendaCliente, getProjects,
+  getAziendaDeletionImpact, permanentlyDeleteAzienda, getAziendaFieldSpec, exportAziendeExcel
 } from '../services/apiService';
 import AziendeBulkImport from './aziende/AziendeBulkImport';
+import AziendaDetail from './aziende/AziendaDetail';
 import { canPerform } from '../auth/permissions';
 import ResponsiveEntityList from './responsive/ResponsiveEntityList';
 import ResponsivePagination from './responsive/ResponsivePagination';
@@ -64,9 +65,12 @@ const sedeOperativaLabel = (sede = {}) => {
 
 const mapAziendaToForm = (az = {}) => ({
   ragione_sociale: az.ragione_sociale || '',
+  natura_giuridica: az.natura_giuridica || '',
   partita_iva: az.partita_iva || '',
   codice_fiscale: az.codice_fiscale || '',
   settore_ateco: az.settore_ateco || '',
+  settore_codice: az.settore_codice || '',
+  settore_descrizione: az.settore_descrizione || '',
   attivita_erogate: az.attivita_erogate || '',
   indirizzo: az.indirizzo || '',
   citta: az.citta || '',
@@ -101,6 +105,11 @@ const mapAziendaToForm = (az = {}) => ({
   referente_facebook: az.referente_facebook || '',
   referente_instagram: az.referente_instagram || '',
   referente_tiktok: az.referente_tiktok || '',
+  matricola_inps: az.matricola_inps || '',
+  anno_adesione: az.anno_adesione || '',
+  regime_aiuto_default: az.regime_aiuto_default || 'non_definito',
+  num_dipendenti: az.num_dipendenti ?? '',
+  ccnl_prevalente: az.ccnl_prevalente || '',
   agenzia_id: az.agenzia_id || '',
   consulente_id: az.consulente_id || '',
   note: az.note || '',
@@ -110,11 +119,29 @@ const mapAziendaToForm = (az = {}) => ({
     ? az.sedi_operative.map((sede) => ({
         id: sede.id,
         nome: sede.nome || '',
+        tipo: sede.tipo || 'operativa',
         indirizzo: sede.indirizzo || '',
         citta: sede.citta || '',
         cap: sede.cap || '',
         provincia: sede.provincia || '',
+        email: sede.email || '',
+        telefono: sede.telefono || '',
+        is_principale: Boolean(sede.is_principale),
         note: sede.note || '',
+      }))
+    : [],
+  conti_correnti: Array.isArray(az.conti_correnti)
+    ? az.conti_correnti.map((account) => ({
+        id: account.id,
+        banca: account.banca || '',
+        agenzia: account.agenzia || '',
+        iban: '',
+        iban_masked: account.iban_masked || '',
+        bic_swift: account.bic_swift || '',
+        intestatario: account.intestatario || '',
+        is_predefinito: Boolean(account.is_predefinito),
+        is_active: account.is_active !== false,
+        note: account.note || '',
       }))
     : [],
   fund_memberships: Array.isArray(az.fund_memberships)
@@ -129,7 +156,7 @@ const mapAziendaToForm = (az = {}) => ({
 });
 
 const EMPTY_FORM = {
-  ragione_sociale: '', partita_iva: '', codice_fiscale: '', settore_ateco: '', attivita_erogate: '',
+  ragione_sociale: '', natura_giuridica: '', partita_iva: '', codice_fiscale: '', settore_ateco: '', settore_codice: '', settore_descrizione: '', attivita_erogate: '',
   indirizzo: '', citta: '', cap: '', provincia: '',
   email: '', pec: '', telefono: '', sito_web: '', linkedin_url: '', facebook_url: '', instagram_url: '',
   legale_rappresentante_nome: '', legale_rappresentante_cognome: '', legale_rappresentante_codice_fiscale: '',
@@ -138,8 +165,9 @@ const EMPTY_FORM = {
   referente_nome: '', referente_cognome: '', referente_ruolo: '', referente_email: '', referente_telefono: '', referente_indirizzo: '',
   referente_luogo_nascita: '', referente_data_nascita: '',
   referente_linkedin: '', referente_facebook: '', referente_instagram: '', referente_tiktok: '',
+  matricola_inps: '', anno_adesione: '', regime_aiuto_default: 'non_definito', num_dipendenti: '', ccnl_prevalente: '',
   agenzia_id: '', consulente_id: '', note: '', attivo: true,
-  project_ids: [], sedi_operative: [], fund_memberships: []
+  project_ids: [], sedi_operative: [], fund_memberships: [], conti_correnti: []
 };
 
 export default function AziendeClientiManager({ currentUser }) {
@@ -153,6 +181,8 @@ export default function AziendeClientiManager({ currentUser }) {
   const [searchInput, setSearchInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [fieldSpec, setFieldSpec] = useState(null);
+  const [detail, setDetail] = useState(null);
   const [success, setSuccess] = useState(null);
   const [modal, setModal] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -161,7 +191,6 @@ export default function AziendeClientiManager({ currentUser }) {
   const [projectOptions, setProjectOptions] = useState([]);
   const [projectToAdd, setProjectToAdd] = useState('');
   const [showBulkImport, setShowBulkImport] = useState(false);
-  const [bulkImporting, setBulkImporting] = useState(false);
   const [deletion, setDeletion] = useState(null);
   const searchTimer = useRef(null);
 
@@ -216,6 +245,10 @@ export default function AziendeClientiManager({ currentUser }) {
   }, [loadCommercialOptions]);
 
   useEffect(() => {
+    getAziendaFieldSpec().then(setFieldSpec).catch(() => setError('Specifica campi azienda non disponibile'));
+  }, []);
+
+  useEffect(() => {
     if (modal) {
       loadCommercialOptions();
     }
@@ -257,6 +290,30 @@ export default function AziendeClientiManager({ currentUser }) {
     setFormErrors({});
   };
 
+  const openDetail = async (az) => {
+    try {
+      setDetail(await getAziendaCliente(az.id));
+    } catch {
+      showToast('Scheda azienda non disponibile', 'error');
+    }
+  };
+
+  const handleExport = async () => {
+    try {
+      const blob = await exportAziendeExcel();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'aziende_clienti_export.xlsx';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (requestError) {
+      showToast(requestError?.response?.data?.detail || 'Export aziende non riuscito', 'error');
+    }
+  };
+
   const validateForm = () => {
     const errs = {};
     if (!form.ragione_sociale.trim() || form.ragione_sociale.trim().length < 2)
@@ -284,6 +341,15 @@ export default function AziendeClientiManager({ currentUser }) {
       if (!sede.nome?.trim()) errs[`sede_${index}_nome`] = 'Il nome della sede operativa è obbligatorio';
       if (sede.cap && !/^\d{5}$/.test(sede.cap)) errs[`sede_${index}_cap`] = 'CAP: 5 cifre';
       if (sede.provincia && !/^[A-Za-z]{2}$/.test(sede.provincia)) errs[`sede_${index}_provincia`] = 'Sigla 2 lettere (es: NA)';
+    });
+    const primarySites = form.sedi_operative.filter((site) => site?.is_principale).length;
+    if (primarySites > 1) errs.sedi_operative = 'Può esistere una sola sede principale';
+    const defaultAccounts = form.conti_correnti.filter((account) => account?.is_predefinito && account?.is_active).length;
+    if (defaultAccounts > 1) errs.conti_correnti = 'Può esistere un solo conto predefinito attivo';
+    form.conti_correnti.forEach((account, index) => {
+      if (!account?.id && !account?.iban?.trim()) errs[`conto_${index}_iban`] = 'IBAN obbligatorio per un nuovo conto';
+      if (!account?.intestatario?.trim()) errs[`conto_${index}_intestatario`] = 'Intestatario obbligatorio';
+      if (account?.bic_swift && !/^[A-Za-z0-9]{8}([A-Za-z0-9]{3})?$/.test(account.bic_swift)) errs[`conto_${index}_bic`] = 'BIC/SWIFT: 8 o 11 caratteri';
     });
     const openMemberships = form.fund_memberships.filter((membership) => membership && !membership.data_fine).length;
     if (openMemberships > 1)
@@ -315,7 +381,10 @@ export default function AziendeClientiManager({ currentUser }) {
       ragione_sociale: form.ragione_sociale.trim(),
       partita_iva: normalizePartitaIva(form.partita_iva),
       codice_fiscale: blankToNull(form.codice_fiscale),
+      natura_giuridica: blankToNull(form.natura_giuridica),
       settore_ateco: blankToNull(form.settore_ateco),
+      settore_codice: blankToNull(form.settore_codice),
+      settore_descrizione: blankToNull(form.settore_descrizione),
       attivita_erogate: blankToNull(form.attivita_erogate),
       indirizzo: blankToNull(form.indirizzo),
       citta: blankToNull(form.citta),
@@ -349,20 +418,40 @@ export default function AziendeClientiManager({ currentUser }) {
       referente_facebook: blankToNull(form.referente_facebook),
       referente_instagram: blankToNull(form.referente_instagram),
       referente_tiktok: blankToNull(form.referente_tiktok),
+      matricola_inps: blankToNull(form.matricola_inps),
+      anno_adesione: blankToNull(form.anno_adesione),
+      regime_aiuto_default: form.regime_aiuto_default || 'non_definito',
+      num_dipendenti: form.num_dipendenti === '' ? null : Number(form.num_dipendenti),
+      ccnl_prevalente: blankToNull(form.ccnl_prevalente),
       provincia: form.provincia ? form.provincia.toUpperCase() : null,
       note: blankToNull(form.note),
       project_ids: Array.isArray(form.project_ids) ? form.project_ids : [],
       sedi_operative: (form.sedi_operative || [])
-        .filter((sede) => sede && [sede.nome, sede.indirizzo, sede.citta, sede.cap, sede.provincia, sede.note].some((value) => value && `${value}`.trim()))
+        .filter((sede) => sede && [sede.nome, sede.indirizzo, sede.citta, sede.cap, sede.provincia, sede.email, sede.telefono, sede.note].some((value) => value && `${value}`.trim()))
         .map((sede) => ({
           ...(sede.id ? { id: sede.id } : {}),
           nome: sede.nome.trim(),
+          tipo: sede.tipo || 'operativa',
           indirizzo: blankToNull(sede.indirizzo),
           citta: blankToNull(sede.citta),
           cap: blankToNull(sede.cap),
           provincia: sede.provincia ? sede.provincia.toUpperCase() : null,
+          email: blankToNull(sede.email),
+          telefono: blankToNull(sede.telefono),
+          is_principale: Boolean(sede.is_principale),
           note: blankToNull(sede.note),
         })),
+      conti_correnti: (form.conti_correnti || []).map((account) => ({
+        ...(account.id ? { id: account.id } : {}),
+        banca: blankToNull(account.banca),
+        agenzia: blankToNull(account.agenzia),
+        iban: blankToNull(account.iban),
+        bic_swift: blankToNull(account.bic_swift),
+        intestatario: account.intestatario.trim(),
+        is_predefinito: Boolean(account.is_predefinito),
+        is_active: Boolean(account.is_active),
+        note: blankToNull(account.note),
+      })),
       fund_memberships: (form.fund_memberships || [])
         .filter((membership) => membership && (membership.fondo || membership.data_inizio || membership.data_fine || membership.note))
         .map((membership) => ({
@@ -444,28 +533,6 @@ export default function AziendeClientiManager({ currentUser }) {
     }
   };
 
-  const handleBulkImport = async (rows) => {
-    setBulkImporting(true);
-    try {
-      const result = await bulkImportAziendeClienti(rows);
-      await load();
-      if (result.success_count > 0) {
-        showToast(`Importazione completata: ${result.success_count} aziende su ${result.total}`);
-      }
-      if (result.error_count > 0) {
-        const details = result.errors.slice(0, 5).map((item) => `• ${item.name}: ${item.error}`).join('\n');
-        showToast(`${result.error_count} aziende non importate:\n${details}${result.errors.length > 5 ? '\n… altri errori' : ''}`, 'error');
-      }
-      if (result.error_count === 0) {
-        setShowBulkImport(false);
-      }
-    } catch (e) {
-      showToast(e?.response?.data?.detail || 'Errore durante l’importazione massiva', 'error');
-    } finally {
-      setBulkImporting(false);
-    }
-  };
-
   const field = (key) => ({
     value: form[key],
     onChange: (e) => setForm(f => ({ ...f, [key]: e.target.value })),
@@ -515,9 +582,29 @@ export default function AziendeClientiManager({ currentUser }) {
       ...prev,
       sedi_operative: [
         ...prev.sedi_operative,
-        { nome: '', indirizzo: '', citta: '', cap: '', provincia: '', note: '' },
+        { nome: '', tipo: 'operativa', indirizzo: '', citta: '', cap: '', provincia: '', email: '', telefono: '', is_principale: false, note: '' },
       ],
     }));
+  };
+
+  const handleBankAccountChange = (index, fieldName, value) => {
+    setForm((prev) => ({
+      ...prev,
+      conti_correnti: prev.conti_correnti.map((account, accountIndex) => (
+        accountIndex === index ? { ...account, [fieldName]: value } : account
+      )),
+    }));
+  };
+
+  const addBankAccountRow = () => {
+    setForm((prev) => ({
+      ...prev,
+      conti_correnti: [...prev.conti_correnti, { banca: '', agenzia: '', iban: '', iban_masked: '', bic_swift: '', intestatario: '', is_predefinito: false, is_active: true, note: '' }],
+    }));
+  };
+
+  const removeBankAccountRow = (index) => {
+    setForm((prev) => ({ ...prev, conti_correnti: prev.conti_correnti.filter((_, accountIndex) => accountIndex !== index) }));
   };
 
   const removeSedeOperativaRow = (index) => {
@@ -589,8 +676,9 @@ export default function AziendeClientiManager({ currentUser }) {
           <h2>Aziende Clienti</h2>
           <span className="count-badge">{result.total} aziende</span>
         </div>
-        {canWrite ? <div style={{ display: 'flex', gap: '12px' }}>
-          <button className="btn-secondary" onClick={() => setShowBulkImport((prev) => !prev)} disabled={bulkImporting}>
+        {canWrite ? <div className="aziende-header-actions">
+          {currentUser?.role === 'admin' && <button className="btn-secondary" onClick={handleExport}>Esporta Excel</button>}
+          <button className="btn-secondary" onClick={() => setShowBulkImport((prev) => !prev)}>
             {showBulkImport ? 'Chiudi Import Excel' : 'Importa Excel'}
           </button>
           <button className="btn-primary" onClick={openCreate}>+ Nuova Azienda</button>
@@ -599,9 +687,8 @@ export default function AziendeClientiManager({ currentUser }) {
 
       {showBulkImport && (
         <AziendeBulkImport
-          onImport={handleBulkImport}
+          onImported={async () => { await load(); }}
           onClose={() => setShowBulkImport(false)}
-          isLoading={bulkImporting}
         />
       )}
 
@@ -768,16 +855,17 @@ export default function AziendeClientiManager({ currentUser }) {
                         {az.attivo ? 'Attiva' : 'Inattiva'}
                       </span>
                     </td>
-                    {canWrite ? <td className="action-cell">
+                    <td className="action-cell">
                       <details className="row-action-menu">
                         <summary>Azioni</summary>
                         <div className="row-action-menu-items">
-                          <button className="btn-sm btn-secondary" onClick={() => openEdit(az)}>Modifica</button>
-                          {az.attivo && <button className="btn-sm btn-danger" onClick={() => handleDelete(az)}>Disattiva</button>}
-                          {canHardDelete && <button className="btn-sm btn-danger is-destructive" onClick={() => handlePermanentDelete(az)}>Elimina definitivamente</button>}
+                          <button className="btn-sm btn-secondary" onClick={() => openDetail(az)}>Apri scheda</button>
+                          {canWrite && <button className="btn-sm btn-secondary" onClick={() => openEdit(az)}>Modifica</button>}
+                          {canWrite && az.attivo && <button className="btn-sm btn-danger" onClick={() => handleDelete(az)}>Disattiva</button>}
+                          {canWrite && canHardDelete && <button className="btn-sm btn-danger is-destructive" onClick={() => handlePermanentDelete(az)}>Elimina definitivamente</button>}
                         </div>
                       </details>
-                    </td> : <td className="action-cell">Sola lettura</td>}
+                    </td>
                   </tr>
                 )})}
               </tbody>
@@ -818,11 +906,12 @@ export default function AziendeClientiManager({ currentUser }) {
                 </dl>
                 <div className="responsive-card-actions">
                   {az.telefono ? <a href={`tel:${az.telefono}`} data-primary-action>Chiama</a> : null}
-                  {canWrite ? <details className="row-action-menu"><summary>Azioni</summary><div className="row-action-menu-items">
+                  <button className="btn-secondary" data-action="view" onClick={() => openDetail(az)}>Apri scheda</button>
+                  {canWrite ? <details className="row-action-menu"><summary>Altre azioni</summary><div className="row-action-menu-items">
                     <button className="btn-secondary" data-action="edit" onClick={() => openEdit(az)}>Modifica</button>
                     {az.attivo ? <button className="btn-danger is-destructive" data-action="deactivate" onClick={() => handleDelete(az)}>Disattiva</button> : null}
                     {canHardDelete ? <button className="btn-danger is-destructive" data-action="hard-delete" onClick={() => handlePermanentDelete(az)}>Elimina definitivamente</button> : null}
-                  </div></details> : <span>Sola lettura</span>}
+                  </div></details> : null}
                 </div>
               </article>
             );
@@ -841,6 +930,16 @@ export default function AziendeClientiManager({ currentUser }) {
         onPageSizeChange={(limit) => setFilters((current) => ({ ...current, limit, page: 1 }))}
         entityLabel="aziende"
       />
+
+      {detail && fieldSpec && (
+        <AziendaDetail
+          azienda={detail}
+          spec={fieldSpec}
+          currentUser={currentUser}
+          onClose={() => setDetail(null)}
+          onEdit={canWrite ? (azienda) => { setDetail(null); openEdit(azienda); } : null}
+        />
+      )}
 
       {modal && (
         <div className="modal-overlay aziende-modal-overlay" onClick={() => setModal(null)}>
@@ -879,6 +978,10 @@ export default function AziendeClientiManager({ currentUser }) {
                       <input {...field('ragione_sociale')} placeholder="Ragione sociale" />
                       {formErrors.ragione_sociale && <span className="field-error">{formErrors.ragione_sociale}</span>}
                     </div>
+                    <div className="form-group">
+                      <label>Natura giuridica</label>
+                      <input {...field('natura_giuridica')} placeholder="S.r.l., S.p.A., cooperativa…" />
+                    </div>
                     <div className={`form-group ${formErrors.partita_iva ? 'has-error' : ''}`}>
                       <label>Partita IVA *</label>
                       <input {...field('partita_iva')} placeholder="11 cifre" maxLength={11} />
@@ -891,6 +994,14 @@ export default function AziendeClientiManager({ currentUser }) {
                     <div className="form-group">
                       <label>Settore ATECO</label>
                       <input {...field('settore_ateco')} placeholder="es. 85.59" maxLength={10} />
+                    </div>
+                    <div className="form-group">
+                      <label>Codice settore</label>
+                      <input {...field('settore_codice')} placeholder="Codice interno o classificazione" />
+                    </div>
+                    <div className="form-group aziende-col-span-2">
+                      <label>Descrizione settore</label>
+                      <input {...field('settore_descrizione')} placeholder="Descrizione estesa del settore" />
                     </div>
                     <div className="form-group aziende-col-span-2">
                       <label>Attività / servizi erogati</label>
@@ -932,6 +1043,7 @@ export default function AziendeClientiManager({ currentUser }) {
                           Aggiungi una o più sedi operative distinte dalla sede legale. Gli allievi occupati potranno essere associati a una di queste sedi.
                         </small>
                       </div>
+                      {formErrors.sedi_operative && <span className="field-error aziende-col-span-2">{formErrors.sedi_operative}</span>}
 
                       {form.sedi_operative.map((sede, index) => (
                         <div key={sede.id || `sede-${index}`} className="aziende-col-span-2" style={{ border: '1px solid #e5e7eb', borderRadius: '12px', padding: '16px', marginBottom: '12px' }}>
@@ -944,6 +1056,14 @@ export default function AziendeClientiManager({ currentUser }) {
                                 placeholder="Es. Sede Napoli Centro"
                               />
                               {formErrors[`sede_${index}_nome`] && <span className="field-error">{formErrors[`sede_${index}_nome`]}</span>}
+                            </div>
+                            <div className="form-group">
+                              <label>Tipo sede</label>
+                              <select value={sede.tipo || 'operativa'} onChange={(e) => handleSedeOperativaChange(index, 'tipo', e.target.value)}>
+                                <option value="operativa">Operativa</option>
+                                <option value="amministrativa">Amministrativa</option>
+                                <option value="accreditata">Accreditata</option>
+                              </select>
                             </div>
                             <div className="form-group aziende-col-span-2">
                               <label>Indirizzo</label>
@@ -981,6 +1101,20 @@ export default function AziendeClientiManager({ currentUser }) {
                                 style={{ textTransform: 'uppercase' }}
                               />
                               {formErrors[`sede_${index}_provincia`] && <span className="field-error">{formErrors[`sede_${index}_provincia`]}</span>}
+                            </div>
+                            <div className="form-group">
+                              <label>Email sede</label>
+                              <input type="email" value={sede.email || ''} onChange={(e) => handleSedeOperativaChange(index, 'email', e.target.value)} placeholder="sede@azienda.it" />
+                            </div>
+                            <div className="form-group">
+                              <label>Telefono sede</label>
+                              <input value={sede.telefono || ''} onChange={(e) => handleSedeOperativaChange(index, 'telefono', e.target.value)} placeholder="081 000 0000" />
+                            </div>
+                            <div className="form-group form-check aziende-form-check">
+                              <label>
+                                <input type="checkbox" checked={Boolean(sede.is_principale)} onChange={(e) => handleSedeOperativaChange(index, 'is_principale', e.target.checked)} />
+                                {' '}Sede principale
+                              </label>
                             </div>
                             <div className="form-group aziende-col-span-2">
                               <label>Note</label>
@@ -1100,6 +1234,36 @@ export default function AziendeClientiManager({ currentUser }) {
                 </div>
 
                 <fieldset className="form-section">
+                  <legend>Dati contrattuali</legend>
+                  <div className="aziende-form-grid aziende-form-grid-primary">
+                    <div className="form-group">
+                      <label>CCNL prevalente</label>
+                      <input {...field('ccnl_prevalente')} placeholder="Es. Commercio, Metalmeccanico…" />
+                    </div>
+                    <div className="form-group">
+                      <label>Numero dipendenti</label>
+                      <input {...field('num_dipendenti')} type="number" min="0" inputMode="numeric" />
+                    </div>
+                    <div className="form-group">
+                      <label>Matricola INPS</label>
+                      <input {...field('matricola_inps')} />
+                    </div>
+                    <div className="form-group">
+                      <label>Anno prima adesione</label>
+                      <input {...field('anno_adesione')} inputMode="numeric" maxLength={4} placeholder="AAAA" />
+                    </div>
+                    <div className="form-group">
+                      <label>Regime aiuti predefinito</label>
+                      <select {...field('regime_aiuto_default')}>
+                        <option value="non_definito">Non definito</option>
+                        <option value="de_minimis">De minimis</option>
+                        <option value="esenzione">Esenzione</option>
+                      </select>
+                    </div>
+                  </div>
+                </fieldset>
+
+                <fieldset className="form-section">
                   <legend>Legale rappresentante</legend>
                   <div className="aziende-form-grid aziende-form-grid-primary">
                     <div className="form-group">
@@ -1142,6 +1306,62 @@ export default function AziendeClientiManager({ currentUser }) {
                     <div className="form-group">
                       <label>TikTok legale rappresentante</label>
                       <input {...field('legale_rappresentante_tiktok')} placeholder="https://tiktok.com/@..." />
+                    </div>
+                  </div>
+                </fieldset>
+
+                <fieldset className="form-section">
+                  <legend>Dati bancari</legend>
+                  <div className="aziende-form-grid">
+                    <div className="form-group aziende-col-span-2">
+                      <small className="help-text">L’IBAN resta mascherato nella scheda; l’IBAN completo è visibile soltanto agli amministratori.</small>
+                      {formErrors.conti_correnti && <span className="field-error">{formErrors.conti_correnti}</span>}
+                    </div>
+                    {form.conti_correnti.map((account, index) => (
+                      <div key={account.id || `account-${index}`} className="aziende-col-span-2 azienda-related-form-card">
+                        <div className="aziende-form-grid">
+                          <div className="form-group">
+                            <label>Banca</label>
+                            <input value={account.banca || ''} onChange={(e) => handleBankAccountChange(index, 'banca', e.target.value)} />
+                          </div>
+                          <div className="form-group">
+                            <label>Agenzia / filiale</label>
+                            <input value={account.agenzia || ''} onChange={(e) => handleBankAccountChange(index, 'agenzia', e.target.value)} />
+                          </div>
+                          <div className={`form-group aziende-col-span-2 ${formErrors[`conto_${index}_iban`] ? 'has-error' : ''}`}>
+                            <label>{account.id ? 'Nuovo IBAN (lascia vuoto per non modificarlo)' : 'IBAN *'}</label>
+                            <input value={account.iban || ''} onChange={(e) => handleBankAccountChange(index, 'iban', e.target.value)} placeholder={account.iban_masked || 'IT00…'} autoComplete="off" />
+                            {account.iban_masked && <small className="help-text">Attuale: {account.iban_masked}</small>}
+                            {formErrors[`conto_${index}_iban`] && <span className="field-error">{formErrors[`conto_${index}_iban`]}</span>}
+                          </div>
+                          <div className={`form-group ${formErrors[`conto_${index}_bic`] ? 'has-error' : ''}`}>
+                            <label>BIC / SWIFT</label>
+                            <input value={account.bic_swift || ''} onChange={(e) => handleBankAccountChange(index, 'bic_swift', e.target.value.toUpperCase())} />
+                            {formErrors[`conto_${index}_bic`] && <span className="field-error">{formErrors[`conto_${index}_bic`]}</span>}
+                          </div>
+                          <div className={`form-group ${formErrors[`conto_${index}_intestatario`] ? 'has-error' : ''}`}>
+                            <label>Intestatario *</label>
+                            <input value={account.intestatario || ''} onChange={(e) => handleBankAccountChange(index, 'intestatario', e.target.value)} />
+                            {formErrors[`conto_${index}_intestatario`] && <span className="field-error">{formErrors[`conto_${index}_intestatario`]}</span>}
+                          </div>
+                          <div className="form-group form-check aziende-form-check">
+                            <label><input type="checkbox" checked={Boolean(account.is_predefinito)} onChange={(e) => handleBankAccountChange(index, 'is_predefinito', e.target.checked)} /> Conto predefinito</label>
+                          </div>
+                          <div className="form-group form-check aziende-form-check">
+                            <label><input type="checkbox" checked={Boolean(account.is_active)} onChange={(e) => handleBankAccountChange(index, 'is_active', e.target.checked)} /> Conto attivo</label>
+                          </div>
+                          <div className="form-group aziende-col-span-2">
+                            <label>Note conto</label>
+                            <input value={account.note || ''} onChange={(e) => handleBankAccountChange(index, 'note', e.target.value)} />
+                          </div>
+                          <div className="form-group aziende-col-span-2">
+                            <button type="button" className="btn-sm btn-danger" onClick={() => removeBankAccountRow(index)}>Rimuovi conto</button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    <div className="form-group aziende-col-span-2">
+                      <button type="button" className="btn-sm btn-secondary" onClick={addBankAccountRow}>+ Aggiungi conto corrente</button>
                     </div>
                   </div>
                 </fieldset>

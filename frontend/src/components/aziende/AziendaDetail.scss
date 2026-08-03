@@ -1,0 +1,75 @@
+@use "../../styles/breakpoints" as bp;
+
+.azienda-detail-overlay { padding: 20px; }
+
+.azienda-detail {
+  width: min(1080px, 100%);
+  max-height: calc(100vh - 40px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #f7f9fc;
+  border-radius: 20px;
+  box-shadow: 0 24px 70px rgba(20, 35, 65, .24);
+}
+
+.azienda-detail-header,
+.azienda-detail-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 22px;
+  background: #fff;
+}
+
+.azienda-detail-header { border-bottom: 1px solid #e5eaf3; }
+.azienda-detail-footer { justify-content: flex-end; border-top: 1px solid #e5eaf3; }
+.azienda-detail-header h2 { margin: 2px 0; overflow-wrap: anywhere; }
+.azienda-detail-header p { margin: 0; color: #5b6478; }
+.azienda-detail-eyebrow { color: #4361ee; font-size: .75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+.azienda-detail-close { min-width: 44px; min-height: 44px; border: 0; background: transparent; font-size: 2rem; cursor: pointer; }
+.azienda-detail-body { padding: 18px 22px; overflow-y: auto; overflow-x: hidden; }
+
+.azienda-detail-section {
+  margin-bottom: 14px;
+  border: 1px solid #dfe5ef;
+  border-radius: 14px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.azienda-detail-section > summary {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  padding: 10px 16px;
+  cursor: pointer;
+  color: #24324a;
+  font-weight: 700;
+  background: #f8fbff;
+}
+
+.azienda-detail-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; margin: 0; }
+.azienda-detail-field { min-width: 0; padding: 14px 16px; border-top: 1px solid #edf1f7; }
+.azienda-detail-field.is-wide { grid-column: span 3; }
+.azienda-detail-field dt { margin-bottom: 5px; color: #657089; font-size: .78rem; font-weight: 700; line-height: 1.35; }
+.azienda-detail-field dd { margin: 0; color: #1e293b; line-height: 1.5; overflow-wrap: anywhere; word-break: break-word; }
+.azienda-detail-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 14px; }
+.azienda-detail-card { min-width: 0; padding: 14px; border: 1px solid #e5eaf3; border-radius: 12px; }
+.azienda-detail-card h3 { margin: 0 0 5px; overflow-wrap: anywhere; }
+.azienda-detail-card p { margin: 6px 0 0; color: #4d596f; overflow-wrap: anywhere; }
+.azienda-detail-badge { display: inline-block; padding: 3px 8px; border-radius: 999px; background: #e8efff; color: #304db5; font-size: .75rem; }
+.azienda-detail-iban { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.azienda-detail-empty, .azienda-detail-notes { margin: 0; padding: 16px; color: #667085; overflow-wrap: anywhere; }
+.azienda-detail-list { margin: 0; padding: 14px 36px; }
+
+@include bp.mobile {
+  .azienda-detail-overlay { padding: 0; }
+  .azienda-detail { width: 100%; min-height: 100dvh; max-height: 100dvh; border-radius: 0; }
+  .azienda-detail-header, .azienda-detail-footer { padding: 14px 16px; }
+  .azienda-detail-body { padding: 12px; }
+  .azienda-detail-grid, .azienda-detail-cards { grid-template-columns: 1fr; }
+  .azienda-detail-field.is-wide { grid-column: span 1; }
+  .azienda-detail-footer button, .azienda-detail-card button { min-height: 44px; }
+}

@@ -15,6 +15,12 @@
   gap: 0.75rem;
 }
 
+.aziende-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
 .aziende-header h2 {
   margin: 0 0 0.25rem;
   font-size: 1.4rem;
@@ -298,6 +304,56 @@
   gap: 0.8rem 1rem;
 }
 
+.aziende-form-grid .form-group {
+  min-width: 0;
+}
+
+.aziende-form-grid .form-group label {
+  display: block;
+  width: 100%;
+  margin-bottom: 0.35rem;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.aziende-form-grid .form-group input:not([type="checkbox"]),
+.aziende-form-grid .form-group select,
+.aziende-form-grid .form-group textarea {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.azienda-related-form-card {
+  padding: 16px;
+  margin-bottom: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.azienda-import-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.azienda-import-summary > div {
+  display: flex;
+  flex-direction: column;
+  padding: 14px;
+  border: 1px solid #dfe5ef;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.azienda-import-summary strong { font-size: 1.45rem; }
+.import-warning { padding: 12px; border-left: 4px solid #d97706; background: #fff7ed; }
+
 .aziende-form-grid-primary {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
@@ -436,5 +492,21 @@
 
   .aziende-col-span-2 {
     grid-column: span 1;
+  }
+
+  .aziende-header-actions,
+  .aziende-header-actions button,
+  .azienda-import-summary {
+    width: 100%;
+  }
+
+  .azienda-import-summary { grid-template-columns: 1fr; }
+
+  .aziende-modal-box button,
+  .aziende-modal-box input,
+  .aziende-modal-box select,
+  .bulk-import-container button,
+  .bulk-import-container .file-label {
+    min-height: 44px;
   }
 }

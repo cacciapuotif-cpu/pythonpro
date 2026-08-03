@@ -1029,6 +1029,24 @@ export const permanentlyDeleteAzienda = (id, confirmationPhrase) =>
   http.delete(`/aziende-clienti/${id}/permanent`, { data: { confirmation_phrase: confirmationPhrase, linked_records_confirmed: true } }).then(r => r.data);
 export const bulkPermanentlyDeleteAziende = (ids) =>
   http.post('/aziende-clienti/bulk-permanent', ids).then(r => r.data);
+export const getAziendaFieldSpec = () =>
+  http.get('/aziende-clienti/field-spec').then(r => r.data);
+export const downloadAziendaImportTemplate = () =>
+  http.get('/aziende-clienti/import-template.xlsx', { responseType: 'blob' }).then(r => r.data);
+export const previewAziendaImport = (file) => {
+  const data = new FormData();
+  data.append('file', file);
+  return http.post('/aziende-clienti/import-preview', data, { headers: { 'Content-Type': 'multipart/form-data' } }).then(r => r.data);
+};
+export const executeAziendaImport = (file) => {
+  const data = new FormData();
+  data.append('file', file);
+  return http.post('/aziende-clienti/import-execute', data, { headers: { 'Content-Type': 'multipart/form-data' } }).then(r => r.data);
+};
+export const exportAziendeExcel = () =>
+  http.get('/aziende-clienti/export.xlsx', { responseType: 'blob' }).then(r => r.data);
+export const revealAziendaIban = (aziendaId, accountId) =>
+  http.get(`/aziende-clienti/${aziendaId}/conti-correnti/${accountId}/iban`).then(r => r.data);
 
 export const getAllievi = (params = {}) =>
   http.get('/allievi/', {
