@@ -1998,6 +1998,13 @@ class AziendaCliente(Base):
         cascade="all, delete-orphan",
         order_by="AziendaClienteFundMembership.data_inizio.desc()",
     )
+    conti_correnti = relationship(
+        "AziendaClienteBankAccount",
+        back_populates="azienda",
+        lazy="select",
+        cascade="all, delete-orphan",
+        order_by="AziendaClienteBankAccount.id.asc()",
+    )
 
     @validates('partita_iva')
     def validate_partita_iva(self, key, piva):
@@ -2241,10 +2248,14 @@ class AziendaClienteSedeOperativa(Base):
     id = Column(Integer, primary_key=True, index=True)
     azienda_cliente_id = Column(Integer, ForeignKey("aziende_clienti.id", ondelete="CASCADE"), nullable=False, index=True)
     nome = Column(String(150), nullable=False)
+    tipo = Column(String(30), nullable=False, default="operativa", server_default="operativa")
     indirizzo = Column(String(255), nullable=True)
     citta = Column(String(100), nullable=True, index=True)
     cap = Column(String(5), nullable=True)
     provincia = Column(String(2), nullable=True)
+    email = Column(String(100), nullable=True)
+    telefono = Column(String(30), nullable=True)
+    is_principale = Column(Boolean, nullable=False, default=False, server_default=text("false"))
     note = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
@@ -2273,6 +2284,20 @@ class AziendaClienteSedeOperativa(Base):
                 raise ValueError("Provincia deve essere la sigla di 2 lettere")
             return prov_clean
         return prov
+
+    @validates("tipo")
+    def validate_tipo(self, key, value):
+        normalized = (value or "operativa").strip().lower()
+        if normalized not in {"operativa", "amministrativa", "accreditata"}:
+            raise ValueError("Tipo sede non valido")
+        return normalized
+
+    @validates("email")
+    def validate_email(self, key, value):
+        normalized = (value or "").strip().lower()
+        if normalized and not re.match(r"^[^@]+@[^@]+\.[^@]+$", normalized):
+            raise ValueError("Email sede non valida")
+        return normalized or None
 
     __table_args__ = (
         UniqueConstraint("azienda_cliente_id", "nome", name="uq_azienda_sede_operativa_nome"),
@@ -2307,6 +2332,59 @@ class AziendaClienteFundMembership(Base):
 
     __table_args__ = (
         Index("idx_azienda_fund_period", "azienda_cliente_id", "data_inizio", "data_fine"),
+    )
+
+
+class AziendaClienteBankAccount(Base):
+    """Conto aziendale; l'IBAN integrale è esposto solo ai ruoli autorizzati."""
+
+    __tablename__ = "azienda_cliente_bank_accounts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    azienda_cliente_id = Column(
+        Integer,
+        ForeignKey("aziende_clienti.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    banca = Column(String(200), nullable=True)
+    agenzia = Column(String(200), nullable=True)
+    iban = Column(String(34), nullable=False)
+    bic_swift = Column(String(11), nullable=True)
+    intestatario = Column(String(200), nullable=False)
+    is_predefinito = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    is_active = Column(Boolean, nullable=False, default=True, server_default=text("true"), index=True)
+    note = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    azienda = relationship("AziendaCliente", back_populates="conti_correnti")
+
+    @validates("iban")
+    def validate_iban(self, key, value):
+        clean = re.sub(r"\s+", "", value or "").upper()
+        if not re.fullmatch(r"[A-Z]{2}\d{2}[A-Z0-9]{11,30}", clean):
+            raise ValueError("IBAN non valido")
+        rearranged = clean[4:] + clean[:4]
+        numeric = "".join(str(ord(ch) - 55) if ch.isalpha() else ch for ch in rearranged)
+        if int(numeric) % 97 != 1:
+            raise ValueError("IBAN non valido (checksum)")
+        return clean
+
+    @hybrid_property
+    def iban_masked(self):
+        clean = re.sub(r"\s+", "", self.iban or "").upper()
+        return clean if len(clean) <= 4 else f"{clean[:2]}••••••••••••••••••••{clean[-4:]}"
+
+    __table_args__ = (
+        UniqueConstraint("azienda_cliente_id", "iban", name="uq_azienda_cliente_bank_account_iban"),
+        Index(
+            "uq_azienda_cliente_one_active_default_account",
+            "azienda_cliente_id",
+            unique=True,
+            postgresql_where=text("is_predefinito AND is_active"),
+            sqlite_where=text("is_predefinito = 1 AND is_active = 1"),
+        ),
     )
 
 

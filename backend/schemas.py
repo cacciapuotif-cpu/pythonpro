@@ -1551,13 +1551,24 @@ class ConsulenteWithAgenzia(Consulente):
 
 # ── AziendaCliente ───────────────────────────
 
+class AziendaLinkedProject(BaseModel):
+    id: int
+    name: str
+    status: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
 class AziendaClienteSedeOperativaWrite(BaseModel):
     id: Optional[int] = None
     nome: str = Field(..., min_length=1, max_length=150)
+    tipo: Literal["operativa", "amministrativa", "accreditata"] = "operativa"
     indirizzo: Optional[str] = Field(None, max_length=255)
     citta: Optional[str] = Field(None, max_length=100)
     cap: Optional[str] = Field(None, pattern=r"^\d{5}$")
     provincia: Optional[str] = Field(None, min_length=2, max_length=2)
+    email: Optional[EmailStr] = None
+    telefono: Optional[str] = Field(None, max_length=30)
+    is_principale: bool = False
     note: Optional[str] = None
 
     @field_validator("provincia", mode="before")
@@ -1597,11 +1608,55 @@ class AziendaClienteFundMembership(AziendaClienteFundMembershipWrite):
     model_config = ConfigDict(from_attributes=True)
 
 
+class AziendaClienteBankAccountWrite(BaseModel):
+    id: Optional[int] = None
+    banca: Optional[str] = Field(None, max_length=200)
+    agenzia: Optional[str] = Field(None, max_length=200)
+    iban: Optional[str] = None
+    bic_swift: Optional[str] = Field(None, min_length=8, max_length=11)
+    intestatario: str = Field(..., min_length=1, max_length=200)
+    is_predefinito: bool = False
+    is_active: bool = True
+    note: Optional[str] = None
+
+    @field_validator("iban")
+    @classmethod
+    def validate_iban_value(cls, value):
+        return validate_iban(value)
+
+    @field_validator("bic_swift")
+    @classmethod
+    def normalize_bic(cls, value):
+        if not value:
+            return None
+        clean = value.replace(" ", "").upper()
+        if len(clean) not in {8, 11} or not clean.isalnum():
+            raise ValueError("BIC/SWIFT deve contenere 8 o 11 caratteri alfanumerici")
+        return clean
+
+
+class AziendaClienteBankAccount(AziendaClienteBankAccountWrite):
+    id: int
+    azienda_cliente_id: int
+    iban_masked: str
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @field_serializer("iban")
+    def serialize_iban_as_hidden(self, _value):
+        return None
+
+
 class AziendaClienteBase(BaseModel):
     ragione_sociale: str = Field(..., min_length=2, max_length=200)
+    natura_giuridica: Optional[str] = None
     partita_iva: Optional[str] = None
     codice_fiscale: Optional[str] = None
     settore_ateco: Optional[str] = None
+    settore_codice: Optional[str] = None
+    settore_descrizione: Optional[str] = None
     attivita_erogate: Optional[str] = None
     indirizzo: Optional[str] = None
     citta: Optional[str] = None
@@ -1636,6 +1691,11 @@ class AziendaClienteBase(BaseModel):
     referente_facebook: Optional[str] = None
     referente_instagram: Optional[str] = None
     referente_tiktok: Optional[str] = None
+    matricola_inps: Optional[str] = None
+    anno_adesione: Optional[str] = None
+    regime_aiuto_default: Optional[Literal["non_definito", "de_minimis", "esenzione"]] = None
+    num_dipendenti: Optional[int] = Field(None, ge=0)
+    ccnl_prevalente: Optional[str] = None
     agenzia_id: Optional[int] = None
     consulente_id: Optional[int] = None
     note: Optional[str] = None
@@ -1660,13 +1720,17 @@ class AziendaClienteCreate(AziendaClienteBase):
     project_ids: List[int] = Field(default_factory=list)
     sedi_operative: List[AziendaClienteSedeOperativaWrite] = Field(default_factory=list)
     fund_memberships: List[AziendaClienteFundMembershipWrite] = Field(default_factory=list)
+    conti_correnti: List[AziendaClienteBankAccountWrite] = Field(default_factory=list)
 
 
 class AziendaClienteUpdate(BaseModel):
     ragione_sociale: Optional[str] = Field(None, min_length=2, max_length=200)
+    natura_giuridica: Optional[str] = None
     partita_iva: Optional[str] = None
     codice_fiscale: Optional[str] = None
     settore_ateco: Optional[str] = None
+    settore_codice: Optional[str] = None
+    settore_descrizione: Optional[str] = None
     attivita_erogate: Optional[str] = None
     indirizzo: Optional[str] = None
     citta: Optional[str] = None
@@ -1701,6 +1765,11 @@ class AziendaClienteUpdate(BaseModel):
     referente_facebook: Optional[str] = None
     referente_instagram: Optional[str] = None
     referente_tiktok: Optional[str] = None
+    matricola_inps: Optional[str] = None
+    anno_adesione: Optional[str] = None
+    regime_aiuto_default: Optional[Literal["non_definito", "de_minimis", "esenzione"]] = None
+    num_dipendenti: Optional[int] = Field(None, ge=0)
+    ccnl_prevalente: Optional[str] = None
     agenzia_id: Optional[int] = None
     consulente_id: Optional[int] = None
     note: Optional[str] = None
@@ -1708,6 +1777,7 @@ class AziendaClienteUpdate(BaseModel):
     project_ids: Optional[List[int]] = None
     sedi_operative: Optional[List[AziendaClienteSedeOperativaWrite]] = None
     fund_memberships: Optional[List[AziendaClienteFundMembershipWrite]] = None
+    conti_correnti: Optional[List[AziendaClienteBankAccountWrite]] = None
 
     @field_validator("partita_iva", mode="before")
     @classmethod
@@ -1732,6 +1802,8 @@ class AziendaCliente(AziendaClienteBase):
     allievo_ids: List[int] = Field(default_factory=list)
     sedi_operative: List[AziendaClienteSedeOperativa] = Field(default_factory=list)
     fund_memberships: List[AziendaClienteFundMembership] = Field(default_factory=list)
+    conti_correnti: List[AziendaClienteBankAccount] = Field(default_factory=list)
+    linked_projects: List[AziendaLinkedProject] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 

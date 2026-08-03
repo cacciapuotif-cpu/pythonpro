@@ -3487,6 +3487,7 @@ def get_aziende_clienti(db: Session, search: str = None, citta: str = None,
     q = db.query(models.AziendaCliente).options(
         selectinload(models.AziendaCliente.linked_projects),
         selectinload(models.AziendaCliente.fund_memberships),
+        selectinload(models.AziendaCliente.conti_correnti),
         selectinload(models.AziendaCliente.sedi_operative),
         selectinload(models.AziendaCliente.allievi).selectinload(models.Allievo.projects),
         selectinload(models.AziendaCliente.allievi).joinedload(models.Allievo.sede_operativa),
@@ -3518,6 +3519,7 @@ def get_azienda_cliente(db: Session, azienda_id: int):
     return db.query(models.AziendaCliente).options(
         selectinload(models.AziendaCliente.linked_projects),
         selectinload(models.AziendaCliente.fund_memberships),
+        selectinload(models.AziendaCliente.conti_correnti),
         selectinload(models.AziendaCliente.sedi_operative),
         selectinload(models.AziendaCliente.allievi).selectinload(models.Allievo.projects),
         selectinload(models.AziendaCliente.allievi).joinedload(models.Allievo.sede_operativa),
@@ -3627,17 +3629,22 @@ def _sync_azienda_cliente_sedi_operative(
 ):
     normalized_items = []
     seen_names = set()
+    primary_count = 0
 
     for item in sedi_operative or []:
         row = dict(item)
         nome = _normalize_optional_text(row.get("nome"))
+        tipo = _normalize_optional_text(row.get("tipo")) or "operativa"
         indirizzo = _normalize_optional_text(row.get("indirizzo"))
         citta = _normalize_optional_text(row.get("citta"))
         cap = _normalize_optional_text(row.get("cap"))
         provincia = _normalize_optional_text(row.get("provincia"))
+        email = _normalize_optional_text(row.get("email"))
+        telefono = _normalize_optional_text(row.get("telefono"))
+        is_principale = bool(row.get("is_principale", False))
         note = _normalize_optional_text(row.get("note"))
 
-        if not any([nome, indirizzo, citta, cap, provincia, note]):
+        if not any([nome, indirizzo, citta, cap, provincia, email, telefono, note]):
             continue
         if not nome:
             raise ValueError("Ogni sede operativa richiede almeno un nome identificativo")
@@ -3646,39 +3653,61 @@ def _sync_azienda_cliente_sedi_operative(
         if normalized_name in seen_names:
             raise ValueError(f"Sede operativa duplicata: {nome}")
         seen_names.add(normalized_name)
+        primary_count += int(is_principale)
 
         normalized_items.append({
             "id": row.get("id"),
             "nome": nome,
+            "tipo": tipo,
             "indirizzo": indirizzo,
             "citta": citta,
             "cap": cap,
             "provincia": provincia.upper() if provincia else None,
+            "email": email.lower() if email else None,
+            "telefono": telefono,
+            "is_principale": is_principale,
             "note": note,
         })
 
+    if primary_count > 1:
+        raise ValueError("Può esistere una sola sede operativa principale")
+
     existing_by_id = {sede.id: sede for sede in list(db_obj.sedi_operative)}
+    existing_by_name = {sede.nome.casefold(): sede for sede in list(db_obj.sedi_operative)}
+    if primary_count:
+        for existing_sede in existing_by_id.values():
+            existing_sede.is_principale = False
+        db.flush()
     retained_ids = set()
 
     for item in normalized_items:
-        sede_id = item.get("id")
+        matched_by_name = existing_by_name.get(item["nome"].casefold())
+        sede_id = item.get("id") or (matched_by_name.id if matched_by_name else None)
         if sede_id and sede_id in existing_by_id:
             db_sede = existing_by_id[sede_id]
             db_sede.nome = item["nome"]
+            db_sede.tipo = item["tipo"]
             db_sede.indirizzo = item["indirizzo"]
             db_sede.citta = item["citta"]
             db_sede.cap = item["cap"]
             db_sede.provincia = item["provincia"]
+            db_sede.email = item["email"]
+            db_sede.telefono = item["telefono"]
+            db_sede.is_principale = item["is_principale"]
             db_sede.note = item["note"]
             retained_ids.add(sede_id)
         else:
             db.add(models.AziendaClienteSedeOperativa(
                 azienda_cliente_id=db_obj.id,
                 nome=item["nome"],
+                tipo=item["tipo"],
                 indirizzo=item["indirizzo"],
                 citta=item["citta"],
                 cap=item["cap"],
                 provincia=item["provincia"],
+                email=item["email"],
+                telefono=item["telefono"],
+                is_principale=item["is_principale"],
                 note=item["note"],
             ))
 
@@ -3687,6 +3716,74 @@ def _sync_azienda_cliente_sedi_operative(
             for allievo in list(sede.allievi):
                 allievo.azienda_sede_operativa_id = None
             db.delete(sede)
+
+
+def _sync_azienda_cliente_bank_accounts(
+    db: Session,
+    db_obj: models.AziendaCliente,
+    accounts: List[Dict[str, Any]],
+):
+    normalized_items = []
+    active_defaults = 0
+    seen_ibans = set()
+    existing_by_id = {account.id: account for account in list(db_obj.conti_correnti)}
+    existing_by_iban = {account.iban: account for account in list(db_obj.conti_correnti)}
+
+    for item in accounts or []:
+        row = dict(item)
+        account_id = row.get("id")
+        iban = _normalize_optional_text(row.get("iban"))
+        if not iban and account_id in existing_by_id:
+            iban = existing_by_id[account_id].iban
+        if not iban:
+            raise ValueError("Ogni nuovo conto corrente richiede l'IBAN")
+        iban = re.sub(r"\s+", "", iban).upper()
+        if not account_id and iban in existing_by_iban:
+            account_id = existing_by_iban[iban].id
+        if iban in seen_ibans:
+            raise ValueError(f"Conto corrente duplicato: {iban}")
+        seen_ibans.add(iban)
+
+        intestatario = _normalize_optional_text(row.get("intestatario"))
+        if not intestatario:
+            raise ValueError("Ogni conto corrente richiede l'intestatario")
+        is_predefinito = bool(row.get("is_predefinito", False))
+        is_active = bool(row.get("is_active", True))
+        active_defaults += int(is_predefinito and is_active)
+        normalized_items.append({
+            "id": account_id,
+            "banca": _normalize_optional_text(row.get("banca")),
+            "agenzia": _normalize_optional_text(row.get("agenzia")),
+            "iban": iban,
+            "bic_swift": (_normalize_optional_text(row.get("bic_swift")) or "").upper() or None,
+            "intestatario": intestatario,
+            "is_predefinito": is_predefinito,
+            "is_active": is_active,
+            "note": _normalize_optional_text(row.get("note")),
+        })
+
+    if active_defaults > 1:
+        raise ValueError("Può esistere un solo conto corrente predefinito attivo")
+
+    if active_defaults:
+        for existing_account in existing_by_id.values():
+            existing_account.is_predefinito = False
+        db.flush()
+
+    retained_ids = set()
+    for item in normalized_items:
+        account_id = item.pop("id")
+        if account_id and account_id in existing_by_id:
+            account = existing_by_id[account_id]
+            for key, value in item.items():
+                setattr(account, key, value)
+            retained_ids.add(account_id)
+        else:
+            db.add(models.AziendaClienteBankAccount(azienda_cliente_id=db_obj.id, **item))
+
+    for account_id, account in existing_by_id.items():
+        if account_id not in retained_ids:
+            db.delete(account)
 
 
 def _validate_allievo_sede_operativa(
@@ -3714,12 +3811,14 @@ def create_azienda_cliente(db: Session, azienda: schemas.AziendaClienteCreate):
     project_ids = payload.pop("project_ids", [])
     sedi_operative = payload.pop("sedi_operative", [])
     fund_memberships = payload.pop("fund_memberships", [])
+    conti_correnti = payload.pop("conti_correnti", [])
     db_obj = models.AziendaCliente(**payload)
     db.add(db_obj)
     db.flush()
     _sync_azienda_cliente_project_links(db, db_obj, project_ids)
     _sync_azienda_cliente_sedi_operative(db, db_obj, sedi_operative)
     _sync_azienda_cliente_fund_memberships(db, db_obj, fund_memberships)
+    _sync_azienda_cliente_bank_accounts(db, db_obj, conti_correnti)
     db.commit()
     db.refresh(db_obj)
     return db_obj
@@ -3733,6 +3832,7 @@ def update_azienda_cliente(db: Session, azienda_id: int, azienda: schemas.Aziend
     project_ids = data.pop("project_ids", None)
     sedi_operative = data.pop("sedi_operative", None)
     fund_memberships = data.pop("fund_memberships", None)
+    conti_correnti = data.pop("conti_correnti", None)
     for k, v in data.items():
         setattr(db_obj, k, v)
     if project_ids is not None:
@@ -3741,6 +3841,8 @@ def update_azienda_cliente(db: Session, azienda_id: int, azienda: schemas.Aziend
         _sync_azienda_cliente_sedi_operative(db, db_obj, sedi_operative)
     if fund_memberships is not None:
         _sync_azienda_cliente_fund_memberships(db, db_obj, fund_memberships)
+    if conti_correnti is not None:
+        _sync_azienda_cliente_bank_accounts(db, db_obj, conti_correnti)
     db.commit()
     db.refresh(db_obj)
     return db_obj
