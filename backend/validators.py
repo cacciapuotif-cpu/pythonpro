@@ -243,6 +243,7 @@ class EnhancedAttendanceCreate(BaseModel):
     collaborator_id: int = Field(..., gt=0)
     project_id: int = Field(..., gt=0)
     assignment_id: Optional[int] = Field(None, gt=0)
+    delivery_sede_id: Optional[int] = Field(None, gt=0)
     date: datetime
     start_time: datetime
     end_time: datetime

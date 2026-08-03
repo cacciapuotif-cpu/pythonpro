@@ -622,8 +622,10 @@ def _project_azienda_links_option():
     # InvalidRequestError su nomi non ancora registrati.
     return selectinload(models.Project.azienda_links).options(
         joinedload(models.AziendaClienteProjectLink.azienda),
-        joinedload(models.AziendaClienteProjectLink.sede_ente_location),
-        joinedload(models.AziendaClienteProjectLink.sede_azienda_operativa),
+        selectinload(models.AziendaClienteProjectLink.delivery_sedi).options(
+            joinedload(models.AziendaClienteProjectDeliverySede.sede_ente_location),
+            joinedload(models.AziendaClienteProjectDeliverySede.sede_azienda_operativa),
+        ),
     )
 
 
@@ -661,18 +663,12 @@ def _apply_azienda_sede(
     azienda_id: int,
     sede: "schemas.ProjectAziendaSede",
 ):
-    """Valida e applica la sede (ente o azienda) scelta per l'azienda sul link.
+    """Valida e costruisce una sede (ente o azienda) per il link.
 
     La sede aziendale deve appartenere alla STESSA azienda del link; la sede
     ente deve appartenere all'ente attuatore corrente del progetto. Sono gli
     unici due luoghi ammessi per erogare il corso (UX-9b).
     """
-    if sede.sede_tipo is None:
-        link.sede_tipo = None
-        link.sede_ente_location_id = None
-        link.sede_azienda_operativa_id = None
-        return
-
     if sede.sede_tipo == "azienda":
         sede_row = db.query(models.AziendaClienteSedeOperativa).filter(
             models.AziendaClienteSedeOperativa.id == sede.sede_id,
@@ -682,10 +678,10 @@ def _apply_azienda_sede(
             raise ValueError(
                 f"Sede operativa {sede.sede_id} non trovata per l'azienda {azienda_id}"
             )
-        link.sede_tipo = "azienda"
-        link.sede_azienda_operativa_id = sede_row.id
-        link.sede_ente_location_id = None
-        return
+        return models.AziendaClienteProjectDeliverySede(
+            sede_tipo="azienda",
+            sede_azienda_operativa_id=sede_row.id,
+        )
 
     if sede.sede_tipo == "ente":
         if not db_project.ente_attuatore_id:
@@ -701,10 +697,10 @@ def _apply_azienda_sede(
             raise ValueError(
                 f"Sede ente {sede.sede_id} non trovata o non attiva per l'ente attuatore del progetto"
             )
-        link.sede_tipo = "ente"
-        link.sede_ente_location_id = sede_row.id
-        link.sede_azienda_operativa_id = None
-        return
+        return models.AziendaClienteProjectDeliverySede(
+            sede_tipo="ente",
+            sede_ente_location_id=sede_row.id,
+        )
 
     raise ValueError(f"sede_tipo non valido: {sede.sede_tipo}")
 
@@ -724,14 +720,19 @@ def _sync_project_azienda_links(
         seen_ids.add(normalized_id)
         unique_azienda_ids.append(normalized_id)
 
-    sede_by_azienda = {}
+    sedi_by_azienda = {azienda_id: [] for azienda_id in unique_azienda_ids}
+    duplicate_keys = set()
     for sede in azienda_sedi or []:
         azienda_id = int(sede.azienda_id)
         if azienda_id not in unique_azienda_ids:
             raise ValueError(
                 f"Sede indicata per l'azienda {azienda_id}, non tra le aziende coinvolte nel progetto"
             )
-        sede_by_azienda[azienda_id] = sede
+        key = (azienda_id, sede.sede_tipo, int(sede.sede_id))
+        if key in duplicate_keys:
+            raise ValueError("La stessa sede non puo' essere assegnata due volte alla stessa azienda")
+        duplicate_keys.add(key)
+        sedi_by_azienda[azienda_id].append(sede)
 
     if unique_azienda_ids:
         existing_aziende = db.query(models.AziendaCliente.id).filter(
@@ -765,8 +766,11 @@ def _sync_project_azienda_links(
             )
             db.add(link)
             current_links[azienda_id] = link
-        if azienda_id in sede_by_azienda:
-            _apply_azienda_sede(db, db_project, link, azienda_id, sede_by_azienda[azienda_id])
+        if azienda_sedi is not None:
+            link.delivery_sedi = [
+                _apply_azienda_sede(db, db_project, link, azienda_id, sede)
+                for sede in sedi_by_azienda[azienda_id]
+            ]
 
 
 def _project_allievo_ids(db: Session, project_id: int) -> List[int]:
@@ -984,7 +988,7 @@ def create_project(db: Session, project: schemas.ProjectCreateExtended):
     db.flush()
     _sync_project_azienda_links(
         db, db_project, azienda_ids,
-        azienda_sedi=[schemas.ProjectAziendaSede(**s) for s in (azienda_sedi or [])],
+        azienda_sedi=[schemas.ProjectAziendaSede(**s) for s in azienda_sedi] if azienda_sedi is not None else [],
     )
 
     return db_project
@@ -1014,7 +1018,7 @@ def update_project(db: Session, project_id: int, project: schemas.ProjectUpdateE
         if azienda_ids is not None:
             _sync_project_azienda_links(
                 db, db_project, azienda_ids,
-                azienda_sedi=[schemas.ProjectAziendaSede(**s) for s in (azienda_sedi or [])],
+                azienda_sedi=[schemas.ProjectAziendaSede(**s) for s in azienda_sedi] if azienda_sedi is not None else None,
             )
         db.commit()
         db.refresh(db_project)

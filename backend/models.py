@@ -392,10 +392,7 @@ class Project(Base):
             {
                 "azienda_id": link.azienda_cliente_id,
                 "ragione_sociale": link.azienda.ragione_sociale if link.azienda else None,
-                "sede_tipo": link.sede_tipo,
-                "sede_ente_location_id": link.sede_ente_location_id,
-                "sede_azienda_operativa_id": link.sede_azienda_operativa_id,
-                "sede_label": link.sede_label,
+                "sedi": [sede.as_delivery_dict() for sede in link.delivery_sedi],
             }
             for link in self.azienda_links
         ]
@@ -782,6 +779,14 @@ class Attendance(Base):
     collaborator_id = Column(Integer, ForeignKey("collaborators.id", ondelete="CASCADE"), nullable=False, index=True)
     project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
     assignment_id = Column(Integer, ForeignKey("assignments.id", ondelete="SET NULL"), nullable=True, index=True)
+    delivery_sede_id = Column(
+        Integer,
+        ForeignKey("project_azienda_delivery_sedi.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    # Snapshot leggibile: resta disponibile anche se il collegamento viene rimosso.
+    delivery_sede_label = Column(String(500), nullable=True)
 
     # Informazioni temporali con indici per query di range
     date = Column(DateTime, nullable=False, index=True)
@@ -801,6 +806,7 @@ class Attendance(Base):
     collaborator = relationship("Collaborator", back_populates="attendances")
     project = relationship("Project", back_populates="attendances")
     assignment = relationship("Assignment", backref="attendances")
+    delivery_sede = relationship("AziendaClienteProjectDeliverySede", lazy="select")
 
     # Validazioni
     @validates('hours')
@@ -2133,41 +2139,71 @@ class AziendaClienteProjectLink(Base):
     stato = Column(String(30), nullable=True, default='in_attesa')
     note = Column(Text, nullable=True)
 
-    # Sede di erogazione del corso per QUESTA azienda su QUESTO progetto:
-    # o una sede dell'ente attuatore o una sede operativa dell'azienda stessa.
-    # NULL/NULL = sede ancora da definire, ammesso (l'azienda puo' restare
-    # coinvolta senza iscritti, vedi UX-9).
-    sede_tipo = Column(String(10), nullable=True)
+    azienda = relationship("AziendaCliente", back_populates="project_links", lazy="select")
+    project = relationship("Project", back_populates="azienda_links", lazy="select")
+    delivery_sedi = relationship(
+        "AziendaClienteProjectDeliverySede",
+        back_populates="azienda_project_link",
+        lazy="select",
+        cascade="all, delete-orphan",
+        order_by="AziendaClienteProjectDeliverySede.id",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("azienda_cliente_id", "project_id", name="uq_azienda_cliente_project"),
+        Index("idx_azienda_cliente_projects_regime", "regime_aiuto"),
+    )
+
+
+class AziendaClienteProjectDeliverySede(Base):
+    """Una delle sedi di erogazione di un'azienda in uno specifico progetto."""
+
+    __tablename__ = "project_azienda_delivery_sedi"
+
+    id = Column(Integer, primary_key=True, index=True)
+    azienda_project_link_id = Column(
+        Integer,
+        ForeignKey("azienda_cliente_projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    sede_tipo = Column(String(10), nullable=False)
     sede_ente_location_id = Column(
         Integer,
-        ForeignKey("implementing_entity_locations.id", ondelete="SET NULL"),
+        ForeignKey("implementing_entity_locations.id", ondelete="RESTRICT"),
         nullable=True,
         index=True,
     )
     sede_azienda_operativa_id = Column(
         Integer,
-        ForeignKey("azienda_cliente_sedi_operative.id", ondelete="SET NULL"),
+        ForeignKey("azienda_cliente_sedi_operative.id", ondelete="RESTRICT"),
         nullable=True,
         index=True,
     )
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
-    azienda = relationship("AziendaCliente", back_populates="project_links", lazy="select")
-    project = relationship("Project", back_populates="azienda_links", lazy="select")
+    azienda_project_link = relationship("AziendaClienteProjectLink", back_populates="delivery_sedi")
     sede_ente_location = relationship("ImplementingEntityLocation", lazy="select")
     sede_azienda_operativa = relationship("AziendaClienteSedeOperativa", lazy="select")
 
     __table_args__ = (
-        UniqueConstraint("azienda_cliente_id", "project_id", name="uq_azienda_cliente_project"),
-        Index("idx_azienda_cliente_projects_regime", "regime_aiuto"),
+        CheckConstraint("sede_tipo IN ('ente', 'azienda')", name="ck_project_azienda_delivery_sedi_tipo"),
         CheckConstraint(
-            "sede_tipo IS NULL OR sede_tipo IN ('ente', 'azienda')",
-            name="ck_azienda_cliente_projects_sede_tipo",
-        ),
-        CheckConstraint(
-            "(sede_tipo IS NULL AND sede_ente_location_id IS NULL AND sede_azienda_operativa_id IS NULL) "
-            "OR (sede_tipo = 'ente' AND sede_ente_location_id IS NOT NULL AND sede_azienda_operativa_id IS NULL) "
+            "(sede_tipo = 'ente' AND sede_ente_location_id IS NOT NULL AND sede_azienda_operativa_id IS NULL) "
             "OR (sede_tipo = 'azienda' AND sede_azienda_operativa_id IS NOT NULL AND sede_ente_location_id IS NULL)",
-            name="ck_azienda_cliente_projects_sede_coerente",
+            name="ck_project_azienda_delivery_sedi_coerente",
+        ),
+        Index(
+            "uq_project_azienda_delivery_sedi_ente",
+            "azienda_project_link_id", "sede_ente_location_id",
+            unique=True,
+            postgresql_where=text("sede_tipo = 'ente'"),
+        ),
+        Index(
+            "uq_project_azienda_delivery_sedi_azienda",
+            "azienda_project_link_id", "sede_azienda_operativa_id",
+            unique=True,
+            postgresql_where=text("sede_tipo = 'azienda'"),
         ),
     )
 
@@ -2182,6 +2218,21 @@ class AziendaClienteProjectLink(Base):
             indirizzo = ", ".join(filter(None, [s.indirizzo, " ".join(filter(None, [s.cap, s.citta]))]))
             return f"{s.nome} (sede azienda)" + (f" — {indirizzo}" if indirizzo else "")
         return None
+
+    def as_delivery_dict(self):
+        location = self.sede_ente_location if self.sede_tipo == "ente" else self.sede_azienda_operativa
+        return {
+            "id": self.id,
+            "sede_tipo": self.sede_tipo,
+            "sede_ente_location_id": self.sede_ente_location_id,
+            "sede_azienda_operativa_id": self.sede_azienda_operativa_id,
+            "sede_label": self.sede_label,
+            "denominazione": getattr(location, "denominazione", None) or getattr(location, "nome", None),
+            "indirizzo": getattr(location, "indirizzo", None),
+            "comune": getattr(location, "citta", None),
+            "provincia": getattr(location, "provincia", None),
+            "cap": getattr(location, "cap", None),
+        }
 
 
 class AziendaClienteSedeOperativa(Base):
@@ -2886,6 +2937,7 @@ class TimesheetRiga(Base):
     end_time = Column(DateTime, nullable=False)
     hours = Column(Numeric(6, 2), nullable=False)
     notes = Column(Text, nullable=True)
+    delivery_sede_label = Column(String(500), nullable=True)
 
     timesheet = relationship("TimesheetGenerato", back_populates="righe")
 

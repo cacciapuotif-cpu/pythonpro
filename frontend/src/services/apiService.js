@@ -1019,6 +1019,8 @@ export const createAziendaCliente = (data) =>
   http.post('/aziende-clienti/', data).then(r => r.data);
 export const updateAziendaCliente = (id, data) =>
   http.put(`/aziende-clienti/${id}`, data).then(r => r.data);
+export const createAziendaSedeOperativa = (id, data) =>
+  http.post(`/aziende-clienti/${id}/sedi-operative`, data).then(r => r.data);
 export const deleteAziendaCliente = (id) =>
   http.delete(`/aziende-clienti/${id}`).then(r => r.data);
 export const getAziendaDeletionImpact = (id) =>

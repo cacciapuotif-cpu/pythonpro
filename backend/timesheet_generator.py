@@ -184,7 +184,7 @@ class TimesheetGenerator:
         story.append(Paragraph("Dettaglio Presenze", self.styles['TSValue']))
         story.append(Spacer(1, 0.2*cm))
 
-        presence_header = ["Data", "Ora Inizio", "Ora Fine", "Ore", "Note", "Firma"]
+        presence_header = ["Data", "Ora Inizio", "Ora Fine", "Ore", "Sede / Note", "Firma"]
         presence_rows = [presence_header]
 
         for p in sorted(presenze, key=lambda x: x['date']):
@@ -196,7 +196,7 @@ class TimesheetGenerator:
                 start_str,
                 end_str,
                 "{:.1f}h".format(float(p['hours'])),
-                p.get('notes') or "",
+                " — ".join(filter(None, [p.get('delivery_sede_label'), p.get('notes')])) or "",
                 "",
             ])
 

@@ -105,15 +105,16 @@ def scenario(db_session):
     db_session.flush()
 
     sede_azienda1 = models.AziendaClienteSedeOperativa(azienda_cliente_id=azienda1.id, nome="Alpha - stabilimento")
+    sede_azienda1_bis = models.AziendaClienteSedeOperativa(azienda_cliente_id=azienda1.id, nome="Alpha - aula 2")
     sede_azienda2 = models.AziendaClienteSedeOperativa(azienda_cliente_id=azienda2.id, nome="Beta - filiale")
-    db_session.add_all([sede_azienda1, sede_azienda2])
+    db_session.add_all([sede_azienda1, sede_azienda1_bis, sede_azienda2])
     db_session.commit()
 
     return {
         "ente": ente, "altro_ente": altro_ente,
         "sede_ente": sede_ente, "sede_altro_ente": sede_altro_ente, "sede_ente_inattiva": sede_ente_inattiva,
         "azienda1": azienda1, "azienda2": azienda2,
-        "sede_azienda1": sede_azienda1, "sede_azienda2": sede_azienda2,
+        "sede_azienda1": sede_azienda1, "sede_azienda1_bis": sede_azienda1_bis, "sede_azienda2": sede_azienda2,
     }
 
 
@@ -143,10 +144,10 @@ def test_sede_azienda_propria_accettata(client, scenario):
     body = resp.json()
     delivery = body["aziende_delivery"]
     assert len(delivery) == 1
-    assert delivery[0]["sede_tipo"] == "azienda"
-    assert delivery[0]["sede_azienda_operativa_id"] == scenario["sede_azienda1"].id
-    assert delivery[0]["sede_ente_location_id"] is None
-    assert "Alpha" in delivery[0]["sede_label"]
+    assert delivery[0]["sedi"][0]["sede_tipo"] == "azienda"
+    assert delivery[0]["sedi"][0]["sede_azienda_operativa_id"] == scenario["sede_azienda1"].id
+    assert delivery[0]["sedi"][0]["sede_ente_location_id"] is None
+    assert "Alpha" in delivery[0]["sedi"][0]["sede_label"]
 
 
 def test_sede_ente_attuatore_accettata(client, scenario):
@@ -162,8 +163,8 @@ def test_sede_ente_attuatore_accettata(client, scenario):
     )
     assert resp.status_code == 200, resp.text
     delivery = resp.json()["aziende_delivery"]
-    assert delivery[0]["sede_tipo"] == "ente"
-    assert delivery[0]["sede_ente_location_id"] == scenario["sede_ente"].id
+    assert delivery[0]["sedi"][0]["sede_tipo"] == "ente"
+    assert delivery[0]["sedi"][0]["sede_ente_location_id"] == scenario["sede_ente"].id
 
 
 def test_sede_azienda_di_unaltra_azienda_rifiutata(client, scenario):
@@ -247,7 +248,7 @@ def test_azienda_senza_sede_resta_ammessa(client, scenario):
     )
     assert resp.status_code == 200, resp.text
     delivery = resp.json()["aziende_delivery"]
-    assert delivery[0]["sede_tipo"] is None
+    assert delivery[0]["sedi"] == []
 
 
 def test_due_aziende_sedi_indipendenti(client, scenario):
@@ -263,10 +264,25 @@ def test_due_aziende_sedi_indipendenti(client, scenario):
     )
     assert resp.status_code == 200, resp.text
     by_azienda = {item["azienda_id"]: item for item in resp.json()["aziende_delivery"]}
-    assert by_azienda[scenario["azienda1"].id]["sede_tipo"] == "azienda"
-    assert by_azienda[scenario["azienda1"].id]["sede_azienda_operativa_id"] == scenario["sede_azienda1"].id
-    assert by_azienda[scenario["azienda2"].id]["sede_tipo"] == "ente"
-    assert by_azienda[scenario["azienda2"].id]["sede_ente_location_id"] == scenario["sede_ente"].id
+    assert by_azienda[scenario["azienda1"].id]["sedi"][0]["sede_tipo"] == "azienda"
+    assert by_azienda[scenario["azienda1"].id]["sedi"][0]["sede_azienda_operativa_id"] == scenario["sede_azienda1"].id
+    assert by_azienda[scenario["azienda2"].id]["sedi"][0]["sede_tipo"] == "ente"
+    assert by_azienda[scenario["azienda2"].id]["sedi"][0]["sede_ente_location_id"] == scenario["sede_ente"].id
+
+
+def test_stessa_azienda_supporta_due_sedi(client, scenario):
+    resp = _crea_progetto(
+        client,
+        ente_attuatore_id=scenario["ente"].id,
+        azienda_ids=[scenario["azienda1"].id],
+        azienda_sedi=[
+            {"azienda_id": scenario["azienda1"].id, "sede_tipo": "azienda", "sede_id": scenario["sede_azienda1"].id},
+            {"azienda_id": scenario["azienda1"].id, "sede_tipo": "azienda", "sede_id": scenario["sede_azienda1_bis"].id},
+            {"azienda_id": scenario["azienda1"].id, "sede_tipo": "ente", "sede_id": scenario["sede_ente"].id},
+        ],
+    )
+    assert resp.status_code == 200, resp.text
+    assert len(resp.json()["aziende_delivery"][0]["sedi"]) == 3
 
 
 def test_update_cambia_sede_esistente(client, scenario):
@@ -296,8 +312,8 @@ def test_update_cambia_sede_esistente(client, scenario):
     )
     assert aggiornato.status_code == 200, aggiornato.text
     delivery = aggiornato.json()["aziende_delivery"]
-    assert delivery[0]["sede_tipo"] == "ente"
-    assert delivery[0]["sede_ente_location_id"] == scenario["sede_ente"].id
+    assert delivery[0]["sedi"][0]["sede_tipo"] == "ente"
+    assert delivery[0]["sedi"][0]["sede_ente_location_id"] == scenario["sede_ente"].id
 
 
 def test_update_senza_azienda_sedi_non_tocca_sede_esistente(client, scenario):
@@ -320,8 +336,8 @@ def test_update_senza_azienda_sedi_non_tocca_sede_esistente(client, scenario):
     )
     assert aggiornato.status_code == 200, aggiornato.text
     delivery = aggiornato.json()["aziende_delivery"]
-    assert delivery[0]["sede_tipo"] == "azienda"
-    assert delivery[0]["sede_azienda_operativa_id"] == scenario["sede_azienda1"].id
+    assert delivery[0]["sedi"][0]["sede_tipo"] == "azienda"
+    assert delivery[0]["sedi"][0]["sede_azienda_operativa_id"] == scenario["sede_azienda1"].id
 
 
 def test_rimuovere_azienda_rimuove_anche_la_sua_sede(client, scenario):
@@ -344,3 +360,21 @@ def test_rimuovere_azienda_rimuove_anche_la_sua_sede(client, scenario):
     delivery = aggiornato.json()["aziende_delivery"]
     assert len(delivery) == 1
     assert delivery[0]["azienda_id"] == scenario["azienda1"].id
+
+
+def test_creazione_sede_azienda_al_volo_resta_in_anagrafica(client, db_session, scenario):
+    response = client.post(
+        f"/api/v1/aziende-clienti/{scenario['azienda1'].id}/sedi-operative",
+        json={
+            "nome": "Alpha - aula creata dal Delivery",
+            "indirizzo": "Via Verdi 10",
+            "citta": "Napoli",
+            "provincia": "NA",
+            "cap": "80100",
+        },
+    )
+    assert response.status_code == 201, response.text
+    sede_id = response.json()["id"]
+    persisted = db_session.query(models.AziendaClienteSedeOperativa).filter_by(id=sede_id).one()
+    assert persisted.azienda_cliente_id == scenario["azienda1"].id
+    assert persisted.nome == "Alpha - aula creata dal Delivery"

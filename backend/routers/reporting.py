@@ -66,7 +66,7 @@ def _generate_timesheet_export_file(filters: TimesheetExportFilters, export_id: 
     try:
         with open(file_path, "w", newline="", encoding="utf-8") as csvfile:
             writer = csv.writer(csvfile)
-            writer.writerow(["attendance_id", "date", "collaborator", "project", "start_time", "end_time", "hours", "notes"])
+            writer.writerow(["attendance_id", "date", "collaborator", "project", "delivery_site", "start_time", "end_time", "hours", "notes"])
 
             skip = 0
             page_size = 1000
@@ -92,6 +92,7 @@ def _generate_timesheet_export_file(filters: TimesheetExportFilters, export_id: 
                         attendance.date.isoformat() if attendance.date else "",
                         f"{collaborator.first_name} {collaborator.last_name}" if collaborator else "",
                         project.name if project else "",
+                        attendance.delivery_sede_label or "",
                         attendance.start_time.isoformat() if attendance.start_time else "",
                         attendance.end_time.isoformat() if attendance.end_time else "",
                         float(attendance.hours or 0.0),
@@ -228,6 +229,7 @@ def get_timesheet_report(
                     "id": progetto.id if progetto else None,
                     "nome": progetto.name if progetto else "N/A"
                 },
+                "sede_erogazione": attendance.delivery_sede_label,
                 "note": attendance.notes
             }
 

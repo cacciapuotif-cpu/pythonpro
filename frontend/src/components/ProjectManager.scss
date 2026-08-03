@@ -460,32 +460,178 @@
   color: #7b4150;
 }
 
-.azienda-sede-list {
+.delivery-company-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 14px;
+  margin-top: 10px;
 }
 
-.azienda-sede-row {
+.delivery-company {
+  overflow: hidden;
+  border-radius: 14px;
+  border: 1px solid rgba(24, 52, 79, 0.12);
+  background: #fff;
+}
+
+.delivery-company > header {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
-  border-radius: 12px;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
   background: #faf6f8;
-  border: 1px solid rgba(24, 52, 79, 0.08);
 }
 
-.azienda-sede-row strong {
-  min-width: 180px;
+.delivery-company > header span,
+.delivery-students span {
+  color: var(--color-ink-soft);
+  font-size: 0.82rem;
 }
 
-.azienda-sede-fields {
+.delivery-sites {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px 14px 34px;
+}
+
+.delivery-site {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-left: 3px solid #ec8290;
+  background: #fcfafb;
+}
+
+.delivery-site > div {
+  min-width: 0;
+}
+
+.delivery-site strong,
+.delivery-site small {
+  display: block;
+}
+
+.delivery-site small {
+  margin-top: 3px;
+  color: var(--color-ink-soft);
+}
+
+.delivery-site-type {
+  display: inline-block;
+  margin: 0 7px 4px 0;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #e9f3ff;
+  color: #1d5e91;
+  font-size: 0.72rem;
+}
+
+.delivery-site-type.azienda {
+  background: #edf7ed;
+  color: #2d6c32;
+}
+
+.delivery-remove,
+.delivery-add-row button,
+.delivery-create-actions button,
+.delivery-inline-form button {
+  min-height: 44px;
+  border: 1px solid rgba(24, 52, 79, 0.16);
+  border-radius: 9px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.delivery-remove {
+  color: var(--color-danger);
+}
+
+.delivery-missing {
+  margin: 0;
+  color: var(--color-danger);
+}
+
+.delivery-add-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.delivery-add-row select,
+.delivery-inline-form input {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+}
+
+.delivery-create-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  flex: 1;
+}
+
+.delivery-inline-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+  padding: 12px;
+  border-radius: 10px;
+  background: #f6f8fb;
+}
+
+.delivery-inline-form > strong,
+.delivery-inline-form > div {
+  grid-column: 1 / -1;
+}
+
+.delivery-inline-form > div {
+  display: flex;
+  gap: 8px;
+}
+
+.delivery-students {
+  margin-left: 54px;
+  padding: 0 16px 14px;
+}
+
+.delivery-students p {
+  margin: 3px 0 0;
+}
+
+@media (max-width: 768px) {
+  .delivery-company > header,
+  .delivery-site {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .delivery-sites {
+    padding-left: 16px;
+  }
+
+  .delivery-add-row,
+  .delivery-inline-form {
+    grid-template-columns: 1fr;
+  }
+
+  .delivery-add-row button,
+  .delivery-remove,
+  .delivery-create-actions button,
+  .delivery-inline-form button {
+    width: 100%;
+  }
+
+  .delivery-create-actions,
+  .delivery-inline-form > div {
+    flex-direction: column;
+  }
+
+  .delivery-students {
+    margin-left: 16px;
+  }
 }
 
 .project-delivery-card {

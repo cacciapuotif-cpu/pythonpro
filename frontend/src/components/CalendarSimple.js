@@ -79,7 +79,7 @@ const CalendarSimple = () => {
 
     return {
       id: attendance.id,
-      title: `${collaborator?.first_name || 'N/A'} ${collaborator?.last_name || ''} - ${project?.name || 'Progetto N/A'}`,
+      title: `${collaborator?.first_name || 'N/A'} ${collaborator?.last_name || ''} - ${project?.name || 'Progetto N/A'}${attendance.delivery_sede_label ? ` · ${attendance.delivery_sede_label}` : ''}`,
       start: new Date(attendance.start_time),
       end: new Date(attendance.end_time),
       resource: {

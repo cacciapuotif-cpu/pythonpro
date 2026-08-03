@@ -46,6 +46,7 @@ const AttendanceModal = ({
     collaborator_id: '',
     project_id: '',
     assignment_id: '',
+    delivery_sede_id: '',
     date: '',
     start_time: '',
     end_time: '',
@@ -79,6 +80,7 @@ const AttendanceModal = ({
           collaborator_id: attendance.collaborator_id,
           project_id: attendance.project_id,
           assignment_id: attendance.assignment_id || '',
+          delivery_sede_id: attendance.delivery_sede_id || '',
           date: moment(attendance.date).format('YYYY-MM-DD'),
           start_time: moment(attendance.start_time).format('HH:mm'),
           end_time: moment(attendance.end_time).format('HH:mm'),
@@ -107,6 +109,7 @@ const AttendanceModal = ({
           collaborator_id: '',
           project_id: '',
           assignment_id: '',
+          delivery_sede_id: '',
           date: startTime.format('YYYY-MM-DD'),
           start_time: startTimeFormatted,
           end_time: endTimeFormatted,
@@ -120,6 +123,7 @@ const AttendanceModal = ({
           collaborator_id: '',
           project_id: '',
           assignment_id: '',
+          delivery_sede_id: '',
           date: now.format('YYYY-MM-DD'),
           start_time: '09:00',  // Default 9:00
           end_time: '17:00',    // Default 17:00
@@ -166,6 +170,22 @@ const AttendanceModal = ({
       setFilteredAssignments([]);
     }
   }, [formData.collaborator_id, formData.project_id, assignments]);
+
+  const selectedProject = projects.find((project) => Number(project.id) === Number(formData.project_id));
+  const deliverySites = (selectedProject?.aziende_delivery || []).flatMap((azienda) =>
+    (azienda.sedi || []).map((sede) => ({ ...sede, azienda: azienda.ragione_sociale }))
+  );
+
+  useEffect(() => {
+    if (!formData.project_id) return;
+    setFormData((previous) => {
+      const stillValid = deliverySites.some((site) => String(site.id) === String(previous.delivery_sede_id));
+      if (stillValid) return previous;
+      return { ...previous, delivery_sede_id: deliverySites.length === 1 ? String(deliverySites[0].id) : '' };
+    });
+  // L'identita' delle sedi cambia quando cambia il progetto caricato.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.project_id, selectedProject]);
 
   // ==========================================
   // FUNZIONI DI UTILITÀ
@@ -246,6 +266,9 @@ const AttendanceModal = ({
 
     if (!formData.project_id) {
       newErrors.project_id = 'Seleziona un progetto';
+    }
+    if (deliverySites.length > 1 && !formData.delivery_sede_id) {
+      newErrors.delivery_sede_id = 'Seleziona la sede di erogazione';
     }
 
     // assignment_id è opzionale - la presenza può essere registrata anche senza mansione specifica
@@ -359,6 +382,7 @@ const AttendanceModal = ({
         collaborator_id: parseInt(formData.collaborator_id),
         project_id: parseInt(formData.project_id),
         assignment_id: formData.assignment_id ? parseInt(formData.assignment_id) : null,
+        delivery_sede_id: formData.delivery_sede_id ? parseInt(formData.delivery_sede_id) : null,
         date: `${formData.date}T00:00:00`,  // Formato datetime completo
         start_time: `${formData.date}T${formData.start_time}:00`,  // Combina data e ora in formato ISO
         end_time: `${formData.date}T${formData.end_time}:00`,
@@ -427,6 +451,7 @@ const AttendanceModal = ({
       collaborator_id: '',
       project_id: '',
       assignment_id: '',
+      delivery_sede_id: '',
       date: '',
       start_time: '',
       end_time: '',
@@ -525,6 +550,31 @@ const AttendanceModal = ({
                 <span className="field-error">{errors.project_id}</span>
               )}
             </div>
+
+            {formData.project_id && (
+              <div className="form-group">
+                <label htmlFor="delivery_sede_id">
+                  Sede di erogazione {deliverySites.length > 1 && <span className="required">*</span>}
+                </label>
+                <select
+                  id="delivery_sede_id"
+                  name="delivery_sede_id"
+                  value={formData.delivery_sede_id}
+                  onChange={handleInputChange}
+                  className={errors.delivery_sede_id ? 'error' : ''}
+                  disabled={loading || readOnly || deliverySites.length <= 1}
+                >
+                  <option value="">{deliverySites.length ? 'Seleziona sede...' : 'Nessuna sede configurata nel Delivery'}</option>
+                  {deliverySites.map((site) => (
+                    <option key={site.id} value={site.id}>
+                      {site.azienda} — {site.sede_label || site.denominazione}
+                    </option>
+                  ))}
+                </select>
+                {errors.delivery_sede_id && <span className="field-error">{errors.delivery_sede_id}</span>}
+                {deliverySites.length === 1 && <small className="field-help">Unica sede del progetto selezionata automaticamente.</small>}
+              </div>
+            )}
 
             {/* SELEZIONE MANSIONE */}
             <div className="form-group">

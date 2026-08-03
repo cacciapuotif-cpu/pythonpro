@@ -8,6 +8,7 @@ from typing import List, Optional
 import logging
 from auth import User, get_current_user, normalize_role, UserRole
 from services.azienda_deletion import build_azienda_deletion_impact, permanently_delete_azienda
+from services.delivery_locations import create_azienda_sede_operativa
 
 import crud
 import schemas
@@ -108,6 +109,26 @@ def get_azienda_cliente(azienda_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                             detail="Azienda cliente non trovata")
     return db_obj
+
+
+@router.post(
+    "/{azienda_id}/sedi-operative",
+    response_model=schemas.AziendaClienteSedeOperativa,
+    status_code=status.HTTP_201_CREATED,
+)
+def add_azienda_sede_operativa(
+    azienda_id: int,
+    sede: schemas.AziendaClienteSedeOperativaWrite,
+    db: Session = Depends(get_db),
+    _user: User = Depends(_require_write),
+):
+    """Crea una sede riusabile nell'anagrafica dell'azienda."""
+    try:
+        return create_azienda_sede_operativa(db, azienda_id, sede)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
 
 
 @router.put("/{azienda_id}", response_model=schemas.AziendaCliente)

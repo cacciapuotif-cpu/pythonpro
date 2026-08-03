@@ -17,6 +17,7 @@ from auth import User, get_current_user
 from database import get_db
 from error_handler import BusinessLogicError, SafeTransaction, retry_on_db_error
 from validators import EnhancedAttendanceCreate
+from services.delivery_locations import resolve_attendance_delivery_sede
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/attendances", tags=["Attendances"])
@@ -100,7 +101,11 @@ def create_attendance(
                 raise BusinessLogicError("Progetto non trovato")
 
             _validate_ore_voce(db, assignment_id=attendance.assignment_id, hours=attendance.hours)
-            attendance_data = schemas.AttendanceCreate(**attendance.dict())
+            delivery_sede = resolve_attendance_delivery_sede(db, project.id, attendance.delivery_sede_id)
+            payload = attendance.dict()
+            payload["delivery_sede_id"] = delivery_sede.id if delivery_sede else None
+            payload["delivery_sede_label"] = delivery_sede.sede_label if delivery_sede else None
+            attendance_data = schemas.AttendanceCreate(**payload)
             result = crud.create_attendance(db=db, attendance=attendance_data)
             transaction.commit()
 
@@ -246,6 +251,10 @@ def update_attendance(
         assignment_id = attendance.assignment_id if attendance.assignment_id is not None else existing.assignment_id
         hours = attendance.hours if attendance.hours is not None else existing.hours
         _validate_ore_voce(db, assignment_id=assignment_id, hours=hours, exclude_attendance_id=attendance_id)
+        if "delivery_sede_id" in attendance.model_fields_set:
+            delivery_sede = resolve_attendance_delivery_sede(db, existing.project_id, attendance.delivery_sede_id)
+            attendance.delivery_sede_id = delivery_sede.id if delivery_sede else None
+            attendance.delivery_sede_label = delivery_sede.sede_label if delivery_sede else None
         db_attendance = crud.update_attendance(db, attendance_id, attendance)
         if db_attendance is None:
             raise HTTPException(status_code=404, detail="Presenza non trovata")

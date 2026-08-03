@@ -303,7 +303,7 @@ const Calendar = memo(({
 
       return {
         id: attendance.id,
-        title: `${collaboratorName} - ${projectName}`,
+        title: `${collaboratorName} - ${projectName}${attendance.delivery_sede_label ? ` · ${attendance.delivery_sede_label}` : ''}`,
         start: new Date(attendance.start_time),
         end: new Date(attendance.end_time),
         resource: attendance,

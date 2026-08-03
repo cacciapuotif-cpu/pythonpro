@@ -242,19 +242,27 @@ class AziendaCoinvolta(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class AziendaDeliverySede(BaseModel):
-    """Sede di erogazione del corso scelta per una singola azienda del progetto.
-
-    ``sede_tipo``/``sede_*_id`` sono ``None`` finche' la sede non e' stata
-    ancora indicata: un'azienda puo' restare coinvolta senza sede definita.
-    """
-
-    azienda_id: int
-    ragione_sociale: Optional[str] = None
-    sede_tipo: Optional[Literal['ente', 'azienda']] = None
+class DeliverySede(BaseModel):
+    id: int
+    sede_tipo: Literal['ente', 'azienda']
     sede_ente_location_id: Optional[int] = None
     sede_azienda_operativa_id: Optional[int] = None
     sede_label: Optional[str] = None
+    denominazione: Optional[str] = None
+    indirizzo: Optional[str] = None
+    comune: Optional[str] = None
+    provincia: Optional[str] = None
+    cap: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AziendaDeliverySede(BaseModel):
+    """Azienda del progetto e tutte le sedi presso cui viene erogato il corso."""
+
+    azienda_id: int
+    ragione_sociale: Optional[str] = None
+    sedi: List[DeliverySede] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -263,16 +271,8 @@ class ProjectAziendaSede(BaseModel):
     """Sede scelta per un'azienda in create/update progetto (UX-9b delivery)."""
 
     azienda_id: int
-    sede_tipo: Optional[Literal['ente', 'azienda']] = None
-    sede_id: Optional[int] = None
-
-    @model_validator(mode="after")
-    def _sede_id_richiesto_se_tipo(self):
-        if self.sede_tipo and self.sede_id is None:
-            raise ValueError("sede_id obbligatorio quando sede_tipo e' indicato")
-        if self.sede_id is not None and not self.sede_tipo:
-            raise ValueError("sede_tipo obbligatorio quando sede_id e' indicato")
-        return self
+    sede_tipo: Literal['ente', 'azienda']
+    sede_id: int
 
 
 class AllievoCoinvolto(BaseModel):
@@ -308,7 +308,7 @@ class Project(ProjectBase):
     # dati. Le relazioni sono gia' in selectinload in crud.get_project(s).
     aziende_coinvolte: List[AziendaCoinvolta] = []
     allievi_coinvolti: List[AllievoCoinvolto] = []
-    # UX-9b: sede di erogazione per azienda (ente o azienda), una per link.
+    # Sedi di erogazione per azienda (ente o azienda), N per link.
     aziende_delivery: List[AziendaDeliverySede] = []
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True, use_enum_values=True)
@@ -638,6 +638,7 @@ class AttendanceBase(BaseModel):
     collaborator_id: int
     project_id: int
     assignment_id: Optional[int] = None
+    delivery_sede_id: Optional[int] = None
     date: datetime = Field(...)
     start_time: datetime = Field(...)
     end_time: datetime = Field(...)
@@ -645,10 +646,12 @@ class AttendanceBase(BaseModel):
     notes: Optional[str] = Field(None)
 
 class AttendanceCreate(AttendanceBase):
-    pass
+    delivery_sede_label: Optional[str] = None
 
 class AttendanceUpdate(BaseModel):
     assignment_id: Optional[int] = None
+    delivery_sede_id: Optional[int] = None
+    delivery_sede_label: Optional[str] = None
     date: Optional[datetime] = None
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
@@ -659,6 +662,7 @@ class Attendance(AttendanceBase):
     id: int
     created_at: datetime
     updated_at: Optional[datetime] = None
+    delivery_sede_label: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True, use_enum_values=True)
 

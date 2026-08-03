@@ -17,6 +17,7 @@ import { PianoTemplateWizardButton } from './PianoTemplateWizard';
 import AssignmentModal from './AssignmentModal';
 import GestioneAssociati from './GestioneAssociati';
 import AlberoAllievi from './AlberoAllievi';
+import ProjectDeliverySites from './ProjectDeliverySites';
 import { canPerform, normalizeRole } from '../auth/permissions';
 import ResponsiveEntityList from './responsive/ResponsiveEntityList';
 import ResponsiveFilters from './responsive/ResponsiveFilters';
@@ -59,8 +60,8 @@ const PROJECT_FORM_STEPS = [
   {
     id: 'delivery',
     title: 'Delivery',
-    description: 'Sede operativa, ente attuatore, aziende e allievi coinvolti.',
-    fields: ['sede_aziendale_comune', 'sede_aziendale_via', 'sede_aziendale_numero_civico', 'ente_attuatore_id', 'azienda_ids', 'allievo_ids'],
+    description: 'Ente attuatore, aziende, sedi di erogazione e allievi coinvolti.',
+    fields: ['ente_attuatore_id', 'azienda_ids', 'azienda_sedi', 'allievo_ids'],
   },
 ];
 
@@ -236,8 +237,7 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
     avviso_id: '',
     azienda_ids: [],
     allievo_ids: [],
-    // UX-9b: sede di erogazione del corso per azienda coinvolta, per id azienda.
-    // { [azienda_id]: { sede_tipo: 'ente'|'azienda', sede_id } }
+    // { [azienda_id]: [{ sede_tipo: 'ente'|'azienda', sede_id }, ...] }
     azienda_sedi: {},
     ente_attuatore_id: null // NUOVO: FK verso ente attuatore
   });
@@ -357,10 +357,18 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
   const handleInputChange = (e) => {
     const { name, value } = e.target;
 
-    setFormData(prev => ({
-      ...prev,
-      [name]: value,
-    }));
+    setFormData(prev => {
+      if (name === 'ente_attuatore_id' && String(prev.ente_attuatore_id || '') !== String(value || '')) {
+        const nextSedi = Object.fromEntries(
+          Object.entries(prev.azienda_sedi).map(([aziendaId, sedi]) => [
+            aziendaId,
+            (sedi || []).filter((sede) => sede.sede_tipo !== 'ente'),
+          ])
+        );
+        return { ...prev, [name]: value, azienda_sedi: nextSedi };
+      }
+      return { ...prev, [name]: value };
+    });
   };
 
   // UX-9: l'albero emette la coppia coerente (aziende, allievi) in un colpo
@@ -375,20 +383,6 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
         if (prev.azienda_sedi[id]) nextSedi[id] = prev.azienda_sedi[id];
       });
       return { ...prev, azienda_ids, allievo_ids, azienda_sedi: nextSedi };
-    });
-  };
-
-  // UX-9b: sede scelta per una singola azienda coinvolta nel progetto: o una
-  // sede dell'ente attuatore o una sede operativa dell'azienda stessa.
-  const handleSedeAziendaChange = (aziendaId, sede_tipo, sede_id) => {
-    setFormData((prev) => {
-      const nextSedi = { ...prev.azienda_sedi };
-      if (!sede_tipo || !sede_id) {
-        delete nextSedi[aziendaId];
-      } else {
-        nextSedi[aziendaId] = { sede_tipo, sede_id };
-      }
-      return { ...prev, azienda_sedi: nextSedi };
     });
   };
 
@@ -458,14 +452,13 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
         ente_attuatore_id: formData.ente_attuatore_id ? parseInt(formData.ente_attuatore_id, 10) : null,
         azienda_ids: Array.isArray(formData.azienda_ids) ? formData.azienda_ids.map((id) => parseInt(id, 10)) : [],
         allievo_ids: Array.isArray(formData.allievo_ids) ? formData.allievo_ids.map((id) => parseInt(id, 10)) : [],
-        azienda_sedi: (Array.isArray(formData.azienda_ids) ? formData.azienda_ids : []).map((id) => {
-          const sede = formData.azienda_sedi[id];
-          return {
+        azienda_sedi: (Array.isArray(formData.azienda_ids) ? formData.azienda_ids : []).flatMap((id) =>
+          (formData.azienda_sedi[id] || []).map((sede) => ({
             azienda_id: parseInt(id, 10),
-            sede_tipo: sede ? sede.sede_tipo : null,
-            sede_id: sede ? parseInt(sede.sede_id, 10) : null,
-          };
-        }),
+            sede_tipo: sede.sede_tipo,
+            sede_id: parseInt(sede.sede_id, 10),
+          }))
+        ),
         start_date: formData.start_date ? `${formData.start_date}T00:00:00Z` : null,
         end_date: formData.end_date ? `${formData.end_date}T23:59:59Z` : null,
         ente_erogatore: formData.ente_erogatore || null,
@@ -547,12 +540,10 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
       allievo_ids: Array.isArray(project.allievo_ids) ? project.allievo_ids.map((id) => Number(id)) : [],
       azienda_sedi: Array.isArray(project.aziende_delivery)
         ? project.aziende_delivery.reduce((acc, item) => {
-          if (item.sede_tipo) {
-            acc[item.azienda_id] = {
-              sede_tipo: item.sede_tipo,
-              sede_id: item.sede_tipo === 'ente' ? item.sede_ente_location_id : item.sede_azienda_operativa_id,
-            };
-          }
+          acc[item.azienda_id] = (item.sedi || []).map((sede) => ({
+            sede_tipo: sede.sede_tipo,
+            sede_id: sede.sede_tipo === 'ente' ? sede.sede_ente_location_id : sede.sede_azienda_operativa_id,
+          }));
           return acc;
         }, {})
         : {},
@@ -684,14 +675,12 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
     formData.avviso_id,
     formData.cup,
     formData.atto_approvazione,
-    formData.sede_aziendale_comune,
-    formData.sede_aziendale_via,
-    formData.sede_aziendale_numero_civico,
     formData.ente_attuatore_id,
     formData.azienda_ids.length > 0 ? 'aziende' : '',
+    Object.values(formData.azienda_sedi).some((sedi) => sedi?.length) ? 'sedi' : '',
     formData.allievo_ids.length > 0 ? 'allievi' : '',
   ].filter((value) => `${value ?? ''}`.trim() !== '').length;
-  const completionPercentage = Math.round((completedFields / 12) * 100);
+  const completionPercentage = Math.round((completedFields / 10) * 100);
   const currentStep = PROJECT_FORM_STEPS[activeStepIndex];
   const selectedEntity = implementingEntities.find((entity) => String(entity.id) === String(formData.ente_attuatore_id));
   const selectedAziende = formData.azienda_ids
@@ -700,6 +689,7 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
   const selectedAllievi = formData.allievo_ids
     .map((allievoId) => allievoOptions.find((allievo) => Number(allievo.id) === Number(allievoId)))
     .filter(Boolean);
+  const aziendeSenzaSede = selectedAziende.filter((azienda) => !(formData.azienda_sedi[azienda.id] || []).length);
   const showCreateAction = canWriteProjects;
 
   const goToStep = (index) => {
@@ -857,6 +847,11 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
                   <li className={formData.azienda_ids.length > 0 ? 'done' : ''}>
                     Aziende coinvolte {formData.azienda_ids.length > 0 ? 'associate' : 'non associate'}
                   </li>
+                  <li className={selectedAziende.length > 0 && aziendeSenzaSede.length === 0 ? 'done' : ''}>
+                    {aziendeSenzaSede.length > 0
+                      ? `Sede di erogazione mancante per: ${aziendeSenzaSede.map((azienda) => azienda.ragione_sociale).join(', ')}`
+                      : selectedAziende.length > 0 ? 'Sedi di erogazione indicate' : 'Sedi di erogazione non verificabili'}
+                  </li>
                   <li className={formData.allievo_ids.length > 0 ? 'done' : ''}>
                     Allievi coinvolti {formData.allievo_ids.length > 0 ? 'associati' : 'non associati'}
                   </li>
@@ -986,50 +981,6 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
                 {currentStep.id === 'delivery' && (
                   <div className="wizard-documents-grid">
                     <div className="form-grid">
-                      <div className="form-group full-width">
-                        <small className="field-hint">
-                          I tre campi sotto compaiono solo nei contratti dei
-                          collaboratori (placeholder <code>progetto_sede_aziendale_*</code>)
-                          e sono indipendenti dalla sede del corso indicata piu'
-                          sotto per ciascuna azienda.
-                        </small>
-                      </div>
-                      <div className="form-group">
-                        <label htmlFor="sede_aziendale_comune">Sede nei contratti - Comune</label>
-                        <input
-                          type="text"
-                          id="sede_aziendale_comune"
-                          name="sede_aziendale_comune"
-                          value={formData.sede_aziendale_comune}
-                          onChange={handleInputChange}
-                          placeholder="Es: Napoli"
-                        />
-                      </div>
-
-                      <div className="form-group">
-                        <label htmlFor="sede_aziendale_via">Sede nei contratti - Via</label>
-                        <input
-                          type="text"
-                          id="sede_aziendale_via"
-                          name="sede_aziendale_via"
-                          value={formData.sede_aziendale_via}
-                          onChange={handleInputChange}
-                          placeholder="Es: Via Roma"
-                        />
-                      </div>
-
-                      <div className="form-group">
-                        <label htmlFor="sede_aziendale_numero_civico">Sede nei contratti - Numero Civico</label>
-                        <input
-                          type="text"
-                          id="sede_aziendale_numero_civico"
-                          name="sede_aziendale_numero_civico"
-                          value={formData.sede_aziendale_numero_civico}
-                          onChange={handleInputChange}
-                          placeholder="Es: 25"
-                        />
-                      </div>
-
                       <div className="form-group">
                         <label htmlFor="ente_attuatore_id">Ente Attuatore</label>
                         <select
@@ -1073,53 +1024,18 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
                         <div className="form-group full-width">
                           <label>Sede di erogazione per azienda</label>
                           <small className="field-hint">
-                            Il corso si svolge presso una sede: o quella dell'ente
-                            attuatore, o una sede operativa dell'azienda stessa.
-                            Ogni azienda coinvolta ha la propria, indipendente dalle
-                            altre.
+                            Ogni azienda puo' avere una o piu' sedi del proprio
+                            anagrafico oppure dell'ente attuatore. Le sedi nuove
+                            restano disponibili per i progetti successivi.
                           </small>
-                          <div className="azienda-sede-list">
-                            {selectedAziende.map((azienda) => {
-                              const sedeCorrente = formData.azienda_sedi[azienda.id] || { sede_tipo: '', sede_id: '' };
-                              const sediEnte = selectedEntity?.sedi?.filter((sede) => sede.is_active) || [];
-                              const sediAzienda = azienda.sedi_operative || [];
-                              return (
-                                <div key={azienda.id} className="azienda-sede-row">
-                                  <strong>{azienda.ragione_sociale}</strong>
-                                  <div className="azienda-sede-fields">
-                                    <select
-                                      aria-label={`Tipo sede per ${azienda.ragione_sociale}`}
-                                      value={sedeCorrente.sede_tipo}
-                                      onChange={(e) => handleSedeAziendaChange(azienda.id, e.target.value || null, '')}
-                                    >
-                                      <option value="">Sede da definire</option>
-                                      <option value="ente" disabled={sediEnte.length === 0}>
-                                        Sede dell'ente attuatore{sediEnte.length === 0 ? ' (nessuna disponibile)' : ''}
-                                      </option>
-                                      <option value="azienda" disabled={sediAzienda.length === 0}>
-                                        Sede dell'azienda{sediAzienda.length === 0 ? ' (nessuna disponibile)' : ''}
-                                      </option>
-                                    </select>
-                                    {sedeCorrente.sede_tipo && (
-                                      <select
-                                        aria-label={`Sede per ${azienda.ragione_sociale}`}
-                                        value={sedeCorrente.sede_id}
-                                        onChange={(e) => handleSedeAziendaChange(azienda.id, sedeCorrente.sede_tipo, e.target.value)}
-                                      >
-                                        <option value="">Seleziona sede</option>
-                                        {(sedeCorrente.sede_tipo === 'ente' ? sediEnte : sediAzienda).map((sede) => (
-                                          <option key={sede.id} value={sede.id}>
-                                            {sede.denominazione || sede.nome}
-                                            {sede.citta ? ` — ${sede.citta}` : ''}
-                                          </option>
-                                        ))}
-                                      </select>
-                                    )}
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
+                          <ProjectDeliverySites
+                            aziende={selectedAziende}
+                            ente={selectedEntity}
+                            allievi={selectedAllievi}
+                            value={formData.azienda_sedi}
+                            onChange={(azienda_sedi) => setFormData((previous) => ({ ...previous, azienda_sedi }))}
+                            onError={showError}
+                          />
                         </div>
                       )}
 
@@ -1133,26 +1049,10 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
                           <strong>{selectedEntity ? selectedEntity.ragione_sociale : 'Non selezionato'}</strong>
                         </div>
                         <div>
-                          <span>Sede nei contratti collaboratori</span>
-                          <strong>
-                            {[formData.sede_aziendale_via, formData.sede_aziendale_numero_civico, formData.sede_aziendale_comune]
-                              .filter(Boolean)
-                              .join(', ') || 'Non impostata'}
-                          </strong>
-                        </div>
-                        <div>
                           <span>Aziende coinvolte</span>
                           <strong>
                             {selectedAziende.length > 0
-                              ? selectedAziende.map((azienda) => {
-                                const sede = formData.azienda_sedi[azienda.id];
-                                const sedeLabel = !sede
-                                  ? 'sede da definire'
-                                  : sede.sede_tipo === 'ente'
-                                    ? (selectedEntity?.sedi || []).find((s) => String(s.id) === String(sede.sede_id))?.denominazione
-                                    : (azienda.sedi_operative || []).find((s) => String(s.id) === String(sede.sede_id))?.nome;
-                                return `${azienda.ragione_sociale} (${sedeLabel || 'sede da definire'})`;
-                              }).join(', ')
+                              ? selectedAziende.map((azienda) => `${azienda.ragione_sociale} (${(formData.azienda_sedi[azienda.id] || []).length} sedi)`).join(', ')
                               : 'Non impostate'}
                           </strong>
                         </div>
@@ -1388,7 +1288,7 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
                       <span className="label">🏭 Sedi corso:</span>
                       <span>
                         {project.aziende_delivery
-                          .map((item) => `${item.ragione_sociale}: ${item.sede_label || 'sede da definire'}`)
+                          .map((item) => `${item.ragione_sociale}: ${(item.sedi || []).map((sede) => sede.sede_label).join(', ') || 'sede da definire'}`)
                           .join(' · ')}
                       </span>
                     </div>

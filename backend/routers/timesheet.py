@@ -80,6 +80,7 @@ def _build_timesheet_pdf(db: Session, assignment, presenze=None) -> bytes:
             'end_time': p.end_time,
             'hours': p.hours,
             'notes': p.notes,
+            'delivery_sede_label': p.delivery_sede_label,
         }
         for p in presenze
     ]
@@ -206,6 +207,7 @@ def genera_timesheet(
                 end_time=p.end_time,
                 hours=p.hours,
                 notes=p.notes,
+                delivery_sede_label=p.delivery_sede_label,
             )
             for p in presenze
         ])
