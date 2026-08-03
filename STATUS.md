@@ -1360,3 +1360,35 @@ Riprendi PythonPro da `/DATA/progetti/pythonpro`. Leggi prima `STATUS.md`, la se
 - Decisioni/verifiche dettagliate: `REMEDIATION_LOG.md`.
 - Findings: `audit/FINDINGS_NUOVI.md`.
 - Analisi guida: `audit/ANALISI_ARCHITETTURA_2026-07-17.md`.
+
+## 2026-08-03 — Sede di erogazione per azienda: CHIUSA
+
+- Causa della UI vecchia provata: lavoro 071 non committato e non distribuito;
+  un rebuild successivo aveva pubblicato accidentalmente il dirty worktree,
+  mentre una scheda browser continuava a usare il bundle precedente. Un solo
+  componente Delivery (`ProjectManager`) serve sia Nuovo sia Modifica.
+- Lavoro preesistente salvato in `7d5f8e1`; modello corretto e UI multi-sede in
+  `3ddded2`; collaudo UI `c173eeb`; fix PostgreSQL emerso dal collaudo reale in
+  `45cc01b`. Nessun push.
+- Migration 072: tabella `project_azienda_delivery_sedi` N-per-link, vincoli
+  azienda/ente, migrazione automatica valori 071, FK rendicontazione su
+  presenze e snapshot sede sui timesheet. Provata su clone 071, poi applicata
+  al DB reale. Backup: `database_backups/pre_072_20260803_115846.dump`, SHA-256
+  `59e76914be0bc53c0cd5ee2ac5d016d43e95976481a4cf0b318eebdf6042e5e0`.
+- Campi piatti `sede_aziendale_*` eliminati dal passo Delivery ma conservati
+  per i placeholder dei contratti. Unico record reale valorizzato: progetto #5
+  `poppi`; non riconducibile con certezza perché le aziende collegate non hanno
+  sedi censite, quindi conservato e segnalato, non migrato arbitrariamente.
+- UI: azienda → sedi → allievi; più sedi, optgroup azienda/ente con indirizzo,
+  aggiunta/rimozione, creazione sede anagrafica al volo, checkpoint aziende
+  senza sede, touch target 44px e nessun overflow a 375px.
+- Downstream: presenza seleziona la sede (auto se unica, obbligatoria se più di
+  una); calendario, report timesheet JSON/CSV, PDF e snapshot riportano la
+  sede. Non esiste un generatore attestati nel runtime; il portale espone solo
+  il flag/link. Regole avviso validate su sede/accreditamento nel DB reale: 0.
+- Progetto reale #11 MAXI COMMUNICATION: otto casi su otto PASS con browser
+  admin e nuovo context pulito. Evidenze in
+  `test-results/delivery-sites-real/` (ignorate da Git).
+- Gate: test dominio 15/15, frontend 329/329, build production verde; suite
+  backend completa **1018 passed, 6 skipped, 0 failed**.
+- Stato finale: **SEDE DI EROGAZIONE PER AZIENDA FUNZIONANTE DALL'INTERFACCIA: SÌ**.

@@ -1000,3 +1000,65 @@ frontend **123 passed**; build verde; Alembic head **061**.
 - Verifiche: test mirati 4/4, suite Avvisi 38/38, verifica indipendente
   Avvisi+B2 49/49. Verdetto finale confutatore **OK**, nessun blocker residuo.
   DATE-2 autorizzato con vincolo fail-closed sulle regole multiple ambigue.
+
+---
+
+## 2026-08-03 — Delivery: sede di erogazione per azienda
+
+**Discrepanza e messa in sicurezza**
+
+- Un solo componente implementa Delivery: `frontend/src/components/ProjectManager.js`,
+  raggiunto da `/projects` e condiviso da Nuovo/Modifica. Le modifiche 071 erano
+  interamente nel worktree; commit immediato `7d5f8e1`.
+- Bundle live iniziale `main.df234cc7.js`: conteneva i marker nuovi solo perché
+  un deploy estraneo aveva inglobato il dirty worktree. Il browser utente aveva
+  ancora il bundle precedente. DB reale già a 071, ma il modello era monovalore.
+
+**Correzione**
+
+- Migration 072 crea `project_azienda_delivery_sedi`, migra le eventuali scelte
+  071 e rimuove le tre colonne singole dal link. Indici parziali impediscono
+  duplicati; FK e validazione applicativa rifiutano sedi di altre aziende/enti.
+- UI condivisa multi-sede con gerarchia azienda → sedi → allievi, optgroup con
+  indirizzo, creazione anagrafica sede azienda/ente, rimozione e checkpoint.
+- Presenze/timesheet/calendario: FK sede e label snapshot; selezione sede nel
+  registro, JSON/CSV/PDF e calendario. Nessun generatore attestati effettivo da
+  correggere. Zero regole avviso validate relative a sede/accreditamento.
+- Record flat legacy: solo progetto #5 `poppi` (`eeeee 33, NAPOLI`), aziende
+  senza sedi censite; dati conservati per contratti e dichiarati non migrabili
+  con certezza.
+
+**Migration e backup**
+
+- Clone PostgreSQL da DB 071: upgrade a 072 riuscito; vecchie colonne link 0,
+  colonne presenza 2, snapshot timesheet 1. Poi upgrade DB reale riuscito.
+- Backup pre-072: `database_backups/pre_072_20260803_115846.dump`, 467 KiB,
+  SHA-256 `59e76914be0bc53c0cd5ee2ac5d016d43e95976481a4cf0b318eebdf6042e5e0`.
+
+**Collaudo reale progetto #11 — MAXI COMMUNICATION**
+
+1. PASS — 5 aziende, 5 aree sede, 0 campi piatti nel Delivery.
+2. PASS — Power Impianti → sede aziendale “Napoli”, salva/riapri persistente.
+3. PASS — Maximercato → “Next Group srl - Sede legale” dell'ente.
+4. PASS — seconda sede sulla stessa Power Impianti; entrambe persistite.
+5. PASS — “Aula Delivery UI 1785753389697” creata al volo per Martinelli,
+   presente in anagrafica e assegnata.
+6. PASS — sede Power assegnata a Maximercato rifiutata HTTP 400 con messaggio
+   `Sede operativa 1 non trovata per l'azienda 12`.
+7. PASS — rimozione Martinelli elimina insieme i link sede; associazione poi
+   ripristinata per non alterare il progetto finale.
+8. PASS — nuovo browser context, cache vuota, viewport 375px: UI nuova presente,
+   nessun overflow orizzontale.
+
+Il primo giro reale ha scoperto un `UniqueViolation` PostgreSQL non riprodotto
+da SQLite quando si manteneva una sede e se ne aggiungeva un'altra. Fix
+`45cc01b`: riuso delle righe invariate prima del flush; regressione dedicata e
+secondo giro reale 8/8 PASS. Screenshot/report in
+`test-results/delivery-sites-real/`.
+
+Commit: `7d5f8e1`, `3ddded2`, `c173eeb`, `45cc01b`. Frontend 329/329,
+test dominio 15/15, build production verde. Suite backend completa:
+**1018 passed, 6 skipped, 0 failed** (gli skip sono gate opzionali/PG-only già
+tracciati; 33 warning di deprecazione, nessun errore).
+
+**SEDE DI EROGAZIONE PER AZIENDA FUNZIONANTE DALL'INTERFACCIA: SÌ**
