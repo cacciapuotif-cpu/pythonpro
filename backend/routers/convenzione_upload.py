@@ -282,9 +282,12 @@ def _archivia_documento(
     )
     db.add(documento)
     db.flush()
-    # Compatibilità con i generatori e le schermate legacy: punta all'ultima
-    # versione, mentre lo storico resta in project_documents.
-    project.convenzione_file_path = file_path
+    # Compatibilità con i generatori e le schermate legacy: il campo si chiama
+    # *convenzione*_file_path e deve puntare soltanto a un documento primario.
+    # Formulario e piano hanno il proprio record versionato: sovrascrivere qui
+    # faceva apparire una falsa "Convenzione caricata" nel frontend.
+    if tipo_documento in {"convenzione", "atto_concessione", "delibera"}:
+        project.convenzione_file_path = file_path
     write_audit_log(
         db,
         user_id=current_user.id,

@@ -443,7 +443,7 @@ class ProjectDocumento(Base):
             name="uq_project_documento_versione",
         ),
         CheckConstraint(
-            "tipo_documento IN ('convenzione','atto_concessione','delibera')",
+            "tipo_documento IN ('convenzione','atto_concessione','delibera','formulario','piano_finanziario')",
             name="ck_project_documento_tipo",
         ),
         CheckConstraint("versione > 0", name="ck_project_documento_versione"),

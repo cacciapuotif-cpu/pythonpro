@@ -15,6 +15,7 @@ from auth import get_current_user
 from database import Base, get_db
 from main import app
 import models
+from routers.convenzione_upload import _archivia_documento
 
 
 @pytest.fixture
@@ -176,6 +177,7 @@ def test_delivery_bloccata_senza_convenzione(client, scenario):
     )
     assert context.status_code == 200, context.text
     assert context.json()["blocked_reason"] == "Collega prima la convenzione al progetto"
+    assert context.json()["ente_attuatore"]["id"] == scenario["ente"].id
 
     listing = client.get(
         f"/api/v1/projects/{scenario['no_convention'].id}/delivery-companies"
@@ -282,3 +284,26 @@ def test_scala_500_aziende_payload_dipende_solo_dal_perimetro(client, db_session
     assert len(after.json()["items"]) == 20
     assert after.json()["total"] == 20
     assert len(after.content) == before_payload_size
+
+
+def test_formulario_non_sovrascrive_il_path_della_convenzione(db_session, scenario, tmp_path):
+    project = scenario["project"]
+    project.convenzione_file_path = "/uploads/convenzione-vera.pdf"
+    formulario = tmp_path / "formulario.pdf"
+    formulario.write_bytes(b"formulario")
+
+    _archivia_documento(
+        db_session,
+        project=project,
+        preview={"original_filename": "formulario.pdf", "mime_type": "application/pdf"},
+        file_path=str(formulario),
+        tipo_documento="formulario",
+        current_user=type("TestUser", (), {"id": None})(),
+    )
+
+    assert project.convenzione_file_path == "/uploads/convenzione-vera.pdf"
+    documento = db_session.query(models.ProjectDocumento).filter(
+        models.ProjectDocumento.project_id == project.id,
+        models.ProjectDocumento.tipo_documento == "formulario",
+    ).one()
+    assert documento.file_path == str(formulario)

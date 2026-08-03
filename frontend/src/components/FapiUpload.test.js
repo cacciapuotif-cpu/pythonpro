@@ -187,6 +187,23 @@ test('la scheda progetto mostra i documenti archiviati e la versione', async () 
   expect(screen.getByRole('button', { name: 'Scarica' })).toBeInTheDocument();
 });
 
+test('un formulario non viene etichettato come convenzione caricata', async () => {
+  getDocumentiProgetto.mockResolvedValue([
+    {
+      id: 10,
+      tipo_documento: 'formulario',
+      versione: 1,
+      stato: 'corrente',
+      file_name: 'formulario.pdf',
+    },
+  ]);
+  render(<FapiUploadSection project={{ ...progetto, convenzione_file_path: '/uploads/formulario.pdf' }} />);
+
+  expect(await screen.findByText(/formulario · v1/i)).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: '📄 Carica Convenzione' })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: '✅ Convenzione' })).not.toBeInTheDocument();
+});
+
 test('dentro un progetto usa il percorso di associazione, non quello di creazione', async () => {
   render(<FapiUploadSection project={progetto} />);
   fireEvent.click(screen.getByRole('button', { name: /Convenzione/i }));

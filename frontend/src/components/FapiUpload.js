@@ -246,7 +246,7 @@ function ConfrontoAziende({ aziende }) {
   );
 }
 
-function DocumentiProgetto({ projectId, refreshKey, currentUser }) {
+function DocumentiProgetto({ projectId, refreshKey, currentUser, onLoaded }) {
   const [documenti, setDocumenti] = useState([]);
   const [errore, setErrore] = useState('');
 
@@ -255,13 +255,17 @@ function DocumentiProgetto({ projectId, refreshKey, currentUser }) {
     if (!projectId) return undefined;
     getDocumentiProgetto(projectId)
       .then(rows => {
-        if (mounted) setDocumenti(rows || []);
+        if (mounted) {
+          const nextRows = rows || [];
+          setDocumenti(nextRows);
+          onLoaded?.(nextRows);
+        }
       })
       .catch(err => {
         if (mounted) setErrore(formatApiError(err));
       });
     return () => { mounted = false; };
-  }, [projectId, refreshKey]);
+  }, [projectId, refreshKey, onLoaded]);
 
   async function scarica(documento) {
     try {
@@ -1232,12 +1236,21 @@ export function FapiUploadSection({ project, currentUser, onRefresh, autoOpenCon
   const isMobile = useMobileLayout();
   const [modal, setModal] = useState(!isMobile && autoOpenConvenzione ? (autoOpenMode || 'new-piano') : null);
   const [documentRefreshKey, setDocumentRefreshKey] = useState(0);
+  const [projectDocuments, setProjectDocuments] = useState([]);
 
   const isFapi = project?.ente_erogatore === 'FAPI' || project?.codice_fapi;
   const isFondimpresa = project?.ente_erogatore === 'Fondimpresa';
   const isFormazienda = project?.ente_erogatore === 'Formazienda';
   const unsupportedEnte = project && !isFapi && !isFondimpresa && !isFormazienda;
-  const hasPrimaryDocument = Boolean(project?.convenzione_file_path);
+  const hasVersionedConvention = projectDocuments.some(
+    (documento) => documento.tipo_documento === 'convenzione' && documento.stato !== 'annullato',
+  );
+  // Per FAPI il tipo versionato e' la fonte attendibile. Il vecchio path puo'
+  // essere stato valorizzato da release precedenti anche caricando un
+  // formulario, ed e' precisamente il falso positivo corretto qui.
+  const hasPrimaryDocument = isFapi
+    ? hasVersionedConvention
+    : Boolean(project?.convenzione_file_path);
 
   const primaryLabel = isFapi
     ? (hasPrimaryDocument ? '✅ Convenzione' : '📄 Carica Convenzione')
@@ -1308,6 +1321,7 @@ export function FapiUploadSection({ project, currentUser, onRefresh, autoOpenCon
           projectId={project.id}
           refreshKey={documentRefreshKey}
           currentUser={currentUser}
+          onLoaded={setProjectDocuments}
         />
       )}
 

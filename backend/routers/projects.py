@@ -115,7 +115,10 @@ def read_project_delivery_context(
         "project_id": project.id,
         "has_convenzione": has_convenzione,
         "blocked_reason": blocked_reason,
-        "ente_attuatore": project.ente_attuatore if blocked_reason is None else None,
+        # L'ente gia' identificato sul progetto resta visibile in sola lettura
+        # anche quando manca la convenzione corrente. Il blocco impedisce
+        # comunque aziende/allievi e salvataggio: non e' un fallback manuale.
+        "ente_attuatore": project.ente_attuatore,
     }
 
 
