@@ -2,6 +2,28 @@
 
 Formato: data | finding ID | cosa fatto | file toccati | test/verifiche eseguiti
 
+## 2026-08-03 | PRJ-DELIVERY-ENTITY-FOLLOWUP | Ente visibile e tipo documento corretto
+
+- Causa Home/Delivery: Home leggeva `Project.ente_attuatore_id`, mentre il
+  context Delivery ometteva l'ente se non trovava una convenzione versionata.
+  Il context ora restituisce sempre l'ente del progetto in sola lettura e
+  mantiene separato l'eventuale blocco `Collega prima la convenzione al progetto`.
+- Causa falso stato convenzione: l'archiviazione condivisa sovrascriveva
+  `convenzione_file_path` anche per `formulario` e `piano_finanziario`; FAPI
+  interpretava il path come prova della convenzione. Ora il path viene scritto
+  solo per documenti primari e la UI verifica il `ProjectDocumento` corrente
+  di tipo `convenzione`.
+- Test mirati backend 9/9 e frontend 15/15; suite complete backend **1034
+  passed, 8 skipped**, frontend **45 suite, 336 test**; build e immagini Docker
+  verdi. Commit locale `3b79724`; nessun push.
+- Deploy reale: backend/frontend healthy, bundle `main.4c6bd77a.js`. Context
+  autenticato #11 HTTP 200: `Next Group srl`, ente read-only. Al momento della
+  verifica il DB contiene il formulario del 31 luglio e una convenzione vera
+  caricata alle 16:38 del 3 agosto; `has_convenzione=true` e nessun blocco.
+- `Aula Delivery UI 1785753389697` e' stata creata dal collaudo reale precedente
+  (`frontend/e2e/delivery-sites-real.js`, caso 5, nome con `Date.now()`), non
+  dalla convenzione. Nessuna rimozione/rinomina senza autorizzazione utente.
+
 ## 2026-08-03 | PRJ-DELIVERY-SCOPE | Ente e aziende derivati dal progetto
 
 - Ricognizione completata prima del codice: nessuna FK convenzione dedicata;
