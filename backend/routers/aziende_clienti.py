@@ -1,16 +1,21 @@
 """Router per gestione aziende clienti."""
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Request, status, Query, UploadFile
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
 import logging
 from auth import User, get_current_user, normalize_role, UserRole
 from services.azienda_deletion import build_azienda_deletion_impact, permanently_delete_azienda
 from services.delivery_locations import create_azienda_sede_operativa
+from services.azienda_excel import build_workbook, import_workbook, preview_workbook
+from services.azienda_field_spec import public_spec
+from services.audit_log import write_audit_log
 
 import crud
+import models
 import schemas
 from database import get_db
 
@@ -32,6 +37,85 @@ def _require_admin(current_user: User = Depends(get_current_user)) -> User:
     return current_user
 
 SORT_FIELDS = {"ragione_sociale", "citta", "created_at", "partita_iva"}
+
+
+@router.get("/field-spec")
+def get_azienda_field_spec(_user: User = Depends(get_current_user)):
+    """Unica fonte di etichette, gruppi e regole usata anche da Excel."""
+    return public_spec()
+
+
+@router.get("/import-template.xlsx")
+def download_azienda_import_template(_user: User = Depends(_require_write)):
+    workbook = build_workbook(include_example=True)
+    return StreamingResponse(
+        workbook,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="template_aziende_clienti.xlsx"'},
+    )
+
+
+async def _read_excel_upload(file: UploadFile) -> bytes:
+    name = (file.filename or "").lower()
+    if not name.endswith((".xlsx", ".xlsm")):
+        raise HTTPException(status_code=400, detail="Carica un file Excel .xlsx")
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Il file Excel è vuoto")
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Il file supera il limite di 10 MB")
+    return content
+
+
+@router.post("/import-preview")
+async def preview_azienda_import(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    _user: User = Depends(_require_write),
+):
+    try:
+        return preview_workbook(await _read_excel_upload(file), db)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Preview import aziende fallita")
+        raise HTTPException(status_code=400, detail=f"File Excel non leggibile: {exc}")
+
+
+@router.post("/import-execute")
+async def execute_azienda_import(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    _user: User = Depends(_require_write),
+):
+    try:
+        return import_workbook(await _read_excel_upload(file), db)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Import aziende fallito")
+        raise HTTPException(status_code=400, detail=f"Importazione non completata: {exc}")
+
+
+@router.get("/export.xlsx")
+def export_aziende_excel(
+    db: Session = Depends(get_db),
+    _user: User = Depends(_require_admin),
+):
+    """Export round-trip. L'IBAN integrale è limitato agli amministratori."""
+    companies = db.query(models.AziendaCliente).options(
+        joinedload(models.AziendaCliente.agenzia),
+        joinedload(models.AziendaCliente.consulente),
+        selectinload(models.AziendaCliente.sedi_operative),
+        selectinload(models.AziendaCliente.conti_correnti),
+        selectinload(models.AziendaCliente.fund_memberships),
+    ).order_by(models.AziendaCliente.ragione_sociale).all()
+    workbook = build_workbook(companies, include_example=True, reveal_sensitive=True)
+    return StreamingResponse(
+        workbook,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="aziende_clienti_export.xlsx"'},
+    )
 
 
 @router.post("/", response_model=schemas.AziendaCliente, status_code=status.HTTP_201_CREATED)
@@ -109,6 +193,37 @@ def get_azienda_cliente(azienda_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                             detail="Azienda cliente non trovata")
     return db_obj
+
+
+@router.get("/{azienda_id}/conti-correnti/{account_id}/iban")
+def reveal_azienda_account_iban(
+    azienda_id: int,
+    account_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    account = db.query(models.AziendaClienteBankAccount).filter(
+        models.AziendaClienteBankAccount.id == account_id,
+        models.AziendaClienteBankAccount.azienda_cliente_id == azienda_id,
+    ).first()
+    if not account:
+        raise HTTPException(status_code=404, detail="Conto corrente non trovato")
+    allowed = normalize_role(current_user.role) in {UserRole.ADMIN.value, UserRole.OPERATORE.value}
+    write_audit_log(
+        db,
+        user_id=current_user.id,
+        azione="iban_reveal",
+        risorsa_tipo="azienda_cliente_bank_account",
+        risorsa_id=account.id,
+        dati_dopo={"authorized": allowed, "azienda_cliente_id": azienda_id},
+        ip_address=request.client.host if request.client else None,
+        esito="success" if allowed else "denied",
+    )
+    db.commit()
+    if not allowed:
+        raise HTTPException(status_code=403, detail="Ruolo non autorizzato a visualizzare l'IBAN")
+    return {"id": account.id, "iban": account.iban}
 
 
 @router.post(
@@ -220,22 +335,13 @@ def bulk_import_aziende_clienti(
 
     for index, azienda_data in enumerate(aziende):
         try:
-            if azienda_data.partita_iva:
-                piva_conflict = crud.find_partita_iva_conflict(
-                    db,
-                    azienda_data.partita_iva,
-                    entity_type="azienda_cliente",
-                )
-                if piva_conflict:
-                    error_count += 1
-                    errors.append({
-                        "index": index + 1,
-                        "name": azienda_data.ragione_sociale,
-                        "error": piva_conflict["message"],
-                    })
-                    continue
-
-            result = crud.create_azienda_cliente(db, azienda_data)
+            existing = db.query(models.AziendaCliente).filter(
+                models.AziendaCliente.partita_iva == azienda_data.partita_iva
+            ).first() if azienda_data.partita_iva else None
+            result = (
+                crud.update_azienda_cliente(db, existing.id, schemas.AziendaClienteUpdate(**azienda_data.model_dump()))
+                if existing else crud.create_azienda_cliente(db, azienda_data)
+            )
             created_ids.append(result.id)
             success_count += 1
         except Exception as exc:
