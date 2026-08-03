@@ -285,6 +285,30 @@ def test_stessa_azienda_supporta_due_sedi(client, scenario):
     assert len(resp.json()["aziende_delivery"][0]["sedi"]) == 3
 
 
+def test_update_mantiene_sede_esistente_e_ne_aggiunge_una(client, scenario):
+    creato = _crea_progetto(
+        client,
+        ente_attuatore_id=scenario["ente"].id,
+        azienda_ids=[scenario["azienda1"].id],
+        azienda_sedi=[
+            {"azienda_id": scenario["azienda1"].id, "sede_tipo": "azienda", "sede_id": scenario["sede_azienda1"].id},
+        ],
+    )
+    assert creato.status_code == 200, creato.text
+    aggiornato = client.put(
+        f"/api/v1/projects/{creato.json()['id']}",
+        json={
+            "azienda_ids": [scenario["azienda1"].id],
+            "azienda_sedi": [
+                {"azienda_id": scenario["azienda1"].id, "sede_tipo": "azienda", "sede_id": scenario["sede_azienda1"].id},
+                {"azienda_id": scenario["azienda1"].id, "sede_tipo": "ente", "sede_id": scenario["sede_ente"].id},
+            ],
+        },
+    )
+    assert aggiornato.status_code == 200, aggiornato.text
+    assert len(aggiornato.json()["aziende_delivery"][0]["sedi"]) == 2
+
+
 def test_update_cambia_sede_esistente(client, scenario):
     creato = _crea_progetto(
         client,

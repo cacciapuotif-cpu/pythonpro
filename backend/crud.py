@@ -767,10 +767,25 @@ def _sync_project_azienda_links(
             db.add(link)
             current_links[azienda_id] = link
         if azienda_sedi is not None:
-            link.delivery_sedi = [
-                _apply_azienda_sede(db, db_project, link, azienda_id, sede)
-                for sede in sedi_by_azienda[azienda_id]
-            ]
+            # Riusa le righe invariate. Sostituire sempre l'intera collezione
+            # con oggetti nuovi fa eseguire gli INSERT prima dei DELETE nel
+            # flush e viola gli indici univoci quando una sede viene mantenuta
+            # mentre se ne aggiunge un'altra (caso reale UI).
+            existing_by_key = {
+                (
+                    item.sede_tipo,
+                    item.sede_ente_location_id if item.sede_tipo == "ente" else item.sede_azienda_operativa_id,
+                ): item
+                for item in link.delivery_sedi
+            }
+            next_rows = []
+            for sede in sedi_by_azienda[azienda_id]:
+                key = (sede.sede_tipo, int(sede.sede_id))
+                next_rows.append(
+                    existing_by_key.get(key)
+                    or _apply_azienda_sede(db, db_project, link, azienda_id, sede)
+                )
+            link.delivery_sedi = next_rows
 
 
 def _project_allievo_ids(db: Session, project_id: int) -> List[int]:
