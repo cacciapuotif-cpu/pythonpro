@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { canPerform } from '../auth/permissions';
 import { formatPersonName } from '../utils/personName';
-import { getDocumentiRichiesti } from '../services/apiService';
+import { getDocumentiRichiesti, sendDocumentReminders } from '../services/apiService';
 import ResponsiveEntityList from './responsive/ResponsiveEntityList';
 import ResponsiveFilters from './responsive/ResponsiveFilters';
 
@@ -169,26 +169,6 @@ const buildCollaboratorUrgency = (documenti) => {
   };
 };
 
-const buildMailBody = (collaboratoreNome, docs, uploadUrl) => {
-  const lines = docs.map((doc) => {
-    const status = buildDocumentStatus(doc);
-    return `- ${doc.tipo_documento} | Stato: ${status.label} | Scadenza: ${formatDate(doc.data_scadenza)}`;
-  });
-
-  return [
-    `Gentile ${collaboratoreNome},`,
-    '',
-    'risultano ancora mancanti o da aggiornare i seguenti documenti:',
-    ...lines,
-    '',
-    `Area caricamento documenti: ${uploadUrl}`,
-    '',
-    'Ti chiediamo di completare l\'invio quanto prima.',
-    '',
-    'Grazie.',
-  ].join('\n');
-};
-
 const escapeCsv = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
 
 export default function DocumentiMancanti({ currentUser, initialFilters = {} }) {
@@ -196,6 +176,8 @@ export default function DocumentiMancanti({ currentUser, initialFilters = {} }) 
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [reminderMessage, setReminderMessage] = useState('');
+  const [sendingReminder, setSendingReminder] = useState('');
   const [tipoFilter, setTipoFilter] = useState('');
   const [scadenzaFilter, setScadenzaFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState(initialFilters.status || 'all');
@@ -333,28 +315,66 @@ export default function DocumentiMancanti({ currentUser, initialFilters = {} }) 
     };
   }, [filteredDocuments, groupedCollaborators]);
 
-  const openMailto = (collaboratore) => {
-    const subject = encodeURIComponent('Sollecito caricamento documenti');
-    const body = encodeURIComponent(
-      buildMailBody(
-        collaboratore.nome,
-        collaboratore.documenti,
-        `${window.location.origin}/collaborators/${collaboratore.collaboratore_id}/documents`,
-      ),
-    );
-    const recipient = collaboratore.email || '';
-    window.open(`mailto:${recipient}?subject=${subject}&body=${body}`, '_blank');
+  const remindableDocumentIds = (documentsToSend) => documentsToSend
+    .filter((document) => ['richiesto', 'scaduto'].includes(document.stato))
+    .map((document) => document.id);
+
+  const sendReminder = async (collaboratore) => {
+    const documentIds = remindableDocumentIds(collaboratore.documenti);
+    if (!collaboratore.email) {
+      setError('Il collaboratore non ha un indirizzo email disponibile.');
+      return;
+    }
+    if (!documentIds.length) {
+      setError('Non ci sono documenti richiesti o scaduti da sollecitare.');
+      return;
+    }
+
+    setError('');
+    setReminderMessage('');
+    setSendingReminder(`collaborator-${collaboratore.collaboratore_id}`);
+    try {
+      const result = await sendDocumentReminders(documentIds);
+      if (result.sent_count === 1 && result.failed_count === 0) {
+        setReminderMessage(`Sollecito inviato a ${collaboratore.nome}.`);
+      } else {
+        setError(result.results?.[0]?.detail || 'Invio sollecito non riuscito.');
+      }
+    } catch (err) {
+      setError(err?.response?.data?.detail || 'Invio sollecito non riuscito.');
+    } finally {
+      setSendingReminder('');
+    }
   };
 
-  const handleBulkSollecito = () => {
-    const recipients = groupedCollaborators.map((item) => item.email).filter(Boolean);
-    const body = encodeURIComponent([
-      'Elenco collaboratori con documenti mancanti/scaduti:',
-      '',
-      ...groupedCollaborators.map((item) => `${item.nome}: ${item.documenti.map((doc) => doc.tipo_documento).join(', ')}`),
-    ].join('\n'));
-    const subject = encodeURIComponent('Sollecito documenti mancanti');
-    window.open(`mailto:${recipients.join(',')}?subject=${subject}&body=${body}`, '_blank');
+  const handleBulkSollecito = async () => {
+    const documentIds = remindableDocumentIds(
+      groupedCollaborators
+        .filter((item) => item.email)
+        .flatMap((item) => item.documenti),
+    );
+    if (!documentIds.length) {
+      setError('Non ci sono documenti richiesti o scaduti con email disponibile.');
+      return;
+    }
+
+    setError('');
+    setReminderMessage('');
+    setSendingReminder('bulk');
+    try {
+      const result = await sendDocumentReminders(documentIds);
+      if (result.sent_count > 0) {
+        setReminderMessage(
+          `${result.sent_count} solleciti inviati${result.failed_count ? `, ${result.failed_count} non riusciti` : ''}.`,
+        );
+      } else {
+        setError('Nessun sollecito inviato. Verifica la configurazione email.');
+      }
+    } catch (err) {
+      setError(err?.response?.data?.detail || 'Invio solleciti non riuscito.');
+    } finally {
+      setSendingReminder('');
+    }
   };
 
   const exportCsv = () => {
@@ -424,10 +444,10 @@ export default function DocumentiMancanti({ currentUser, initialFilters = {} }) 
             {canSendReminders ? <button
               type="button"
               style={{ ...primaryButtonStyle, opacity: groupedCollaborators.length ? 1 : 0.55 }}
-              disabled={groupedCollaborators.length === 0}
+              disabled={groupedCollaborators.length === 0 || Boolean(sendingReminder)}
               onClick={handleBulkSollecito}
             >
-              Invia sollecito bulk
+              {sendingReminder === 'bulk' ? 'Invio in corso…' : 'Invia sollecito bulk'}
             </button> : null}
           </ResponsiveFilters>
         </div>
@@ -502,6 +522,11 @@ export default function DocumentiMancanti({ currentUser, initialFilters = {} }) 
         {error ? (
           <div style={{ marginBottom: '1rem', padding: '0.95rem 1rem', borderRadius: '14px', background: '#fee2e2', color: '#991b1b', fontWeight: 600 }}>
             {error}
+          </div>
+        ) : null}
+        {reminderMessage ? (
+          <div role="status" style={{ marginBottom: '1rem', padding: '0.95rem 1rem', borderRadius: '14px', background: '#dcfce7', color: '#166534', fontWeight: 600 }}>
+            {reminderMessage}
           </div>
         ) : null}
 
@@ -585,9 +610,10 @@ export default function DocumentiMancanti({ currentUser, initialFilters = {} }) 
                     {canSendReminders ? <button
                       type="button"
                       style={{ ...primaryButtonStyle, opacity: item.email ? 1 : 0.55 }}
-                      onClick={() => openMailto(item)}
+                      disabled={!item.email || Boolean(sendingReminder)}
+                      onClick={() => sendReminder(item)}
                     >
-                      Invia sollecito
+                      {sendingReminder === `collaborator-${item.collaboratore_id}` ? 'Invio in corso…' : 'Invia sollecito'}
                     </button> : <span>Sola lettura</span>}
                   </td>
                 </tr>
@@ -631,8 +657,8 @@ export default function DocumentiMancanti({ currentUser, initialFilters = {} }) 
                 </details>
                 <div className="responsive-card-actions">
                   {canSendReminders ? (
-                    <button type="button" style={{ ...primaryButtonStyle, opacity: item.email ? 1 : 0.55 }} data-primary-action onClick={() => openMailto(item)}>
-                      Invia sollecito
+                    <button type="button" style={{ ...primaryButtonStyle, opacity: item.email ? 1 : 0.55 }} data-primary-action disabled={!item.email || Boolean(sendingReminder)} onClick={() => sendReminder(item)}>
+                      {sendingReminder === `collaborator-${item.collaboratore_id}` ? 'Invio in corso…' : 'Invia sollecito'}
                     </button>
                   ) : <span>Sola lettura</span>}
                 </div>

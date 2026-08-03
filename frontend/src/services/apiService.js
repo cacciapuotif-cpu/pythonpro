@@ -786,6 +786,8 @@ export const updateDocumentoRichiesto = (docId, data) =>
   http.put(`/documenti-richiesti/${docId}`, data).then(r => r.data);
 export const deleteDocumentoRichiesto = (docId) =>
   http.delete(`/documenti-richiesti/${docId}`).then(r => r.data);
+export const sendDocumentReminders = (documentoIds) =>
+  http.post('/documenti-richiesti/sollecita', { documento_ids: documentoIds }).then(r => r.data);
 export const getDocumentiCollaboratore = (collaboratoreId, params = {}) =>
   http.get(`/collaborators/${collaboratoreId}/documenti`, { params }).then(r => r.data);
 export const getDocumentiMancantiCollaboratore = (collaboratoreId) =>

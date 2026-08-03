@@ -3,12 +3,16 @@ import logging
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
-from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session, joinedload
 
 import crud
+import models
+from auth import User, UserRole, get_current_user, normalize_role
 from database import get_db
 from file_upload import delete_file, save_uploaded_file
+from services.audit_log import write_audit_log
+from services.document_reminders import REMINDABLE_STATES, send_document_reminders
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Documenti Richiesti"])
@@ -77,6 +81,19 @@ class DocumentoReviewPayload(BaseModel):
     note: Optional[str] = None
 
 
+class DocumentoReminderPayload(BaseModel):
+    documento_ids: List[int] = Field(min_length=1, max_length=500)
+
+
+def _require_document_write(current_user: User = Depends(get_current_user)) -> User:
+    if normalize_role(current_user.role) not in {
+        UserRole.ADMIN.value,
+        UserRole.OPERATORE.value,
+    }:
+        raise HTTPException(status_code=403, detail="Ruolo non autorizzato all'invio dei solleciti")
+    return current_user
+
+
 @router.get("/api/v1/documenti-richiesti/")
 def list_documenti_richiesti(
     skip: int = Query(0, ge=0),
@@ -92,6 +109,58 @@ def list_documenti_richiesti(
         collaboratore_id=collaboratore_id,
         stato=stato,
     )
+
+
+@router.post("/api/v1/documenti-richiesti/sollecita")
+def send_documenti_reminder(
+    payload: DocumentoReminderPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_require_document_write),
+):
+    document_ids = list(dict.fromkeys(payload.documento_ids))
+    documents = db.query(models.DocumentoRichiesto).options(
+        joinedload(models.DocumentoRichiesto.collaboratore)
+    ).filter(models.DocumentoRichiesto.id.in_(document_ids)).all()
+
+    found_ids = {document.id for document in documents}
+    missing_ids = [document_id for document_id in document_ids if document_id not in found_ids]
+    if missing_ids:
+        raise HTTPException(status_code=404, detail="Uno o più documenti richiesti non esistono")
+
+    non_remindable = [
+        document.id for document in documents if document.stato not in REMINDABLE_STATES
+    ]
+    if non_remindable:
+        raise HTTPException(
+            status_code=400,
+            detail="Il sollecito è consentito solo per documenti richiesti o scaduti",
+        )
+
+    try:
+        result = send_document_reminders(documents)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+    for reminder_result in result["results"]:
+        collaborator_document_ids = [
+            document.id
+            for document in documents
+            if document.collaboratore_id == reminder_result["collaboratore_id"]
+        ]
+        write_audit_log(
+            db,
+            user_id=current_user.id,
+            azione="documenti_sollecito_email",
+            risorsa_tipo="collaboratore",
+            risorsa_id=reminder_result["collaboratore_id"],
+            dati_dopo={
+                "documento_ids": collaborator_document_ids,
+                "sent": reminder_result["sent"],
+            },
+            esito="success" if reminder_result["sent"] else "failed",
+        )
+    db.commit()
+    return result
 
 
 @router.get("/api/v1/documenti-richiesti/{doc_id}")

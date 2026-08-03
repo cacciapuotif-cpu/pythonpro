@@ -9,8 +9,6 @@ ti ricordiamo che risultano ancora mancanti o da aggiornare i seguenti documenti
 Puoi caricare i documenti richiesti utilizzando il seguente link:
 {{ link_upload }}
 
-Per supporto:
-Email: amministrazione@example.com
-Telefono: +39 000 000 0000
+Per assistenza, rispondi direttamente a questa email.
 
 Nota privacy: questo messaggio contiene informazioni riservate destinate esclusivamente al destinatario. Se hai ricevuto questa email per errore, elimina il messaggio e avvisa il mittente.
