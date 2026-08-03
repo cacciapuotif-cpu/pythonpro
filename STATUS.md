@@ -1392,3 +1392,37 @@ Riprendi PythonPro da `/DATA/progetti/pythonpro`. Leggi prima `STATUS.md`, la se
 - Gate: test dominio 15/15, frontend 329/329, build production verde; suite
   backend completa **1018 passed, 6 skipped, 0 failed**.
 - Stato finale: **SEDE DI EROGAZIONE PER AZIENDA FUNZIONANTE DALL'INTERFACCIA: SÌ**.
+
+## 2026-08-03 — Scheda, template e modello azienda: CHIUSO
+
+- Specifica canonica unica `backend/services/azienda_field_spec.py` (versione
+  `2026-08-03.1`): 50 campi azienda e fogli relazionali `Sedi`, `Conti`,
+  `Fondi`. Scheda, template, importatore ed export consumano la stessa
+  specifica; test permanente anti-divergenza incluso.
+- Migration 073 applicata al DB reale dopo upgrade/downgrade/upgrade su clone:
+  completa le sedi operative e crea i conti correnti azienda. Backup
+  `database_backups/pre_073_azienda_alignment_20260803.dump`, SHA-256
+  `b4019362fa4f5c7117a78e117862f2b75c49b1c57b550eedebccbef776da772a`.
+- Nuovo Excel: `Istruzioni`, `Aziende` (50 colonne), `Sedi` (11), `Conti`
+  (9), `Fondi` (5), oltre al foglio nascosto `Valori`; intestazioni,
+  istruzioni, esempio e dropdown. Il formato legacy a cella pipe resta
+  accettato con avviso di deprecazione.
+- Import guidato con anteprima create/update/scarti, errori italiani per
+  foglio-riga-colonna, nessun nome segnaposto, report CSV; upsert su Partita
+  IVA e sincronizzazione idempotente delle entità collegate. Export completo
+  e reimportabile.
+- Scheda read-only separata dalla modifica, sezioni logiche, valori vuoti `—`,
+  sedi/conti/fondi/progetti, IBAN mascherato e reveal auditato per ruoli
+  autorizzati. Nessuna relazione documenti specifica azienda esiste nel
+  modello: la sezione lo dichiara esplicitamente. Mobile 375 px senza overflow,
+  sezioni collassabili e touch target almeno 44 px.
+- Collaudo live admin: template UI scaricato; due aziende e tre sedi importate;
+  reimport 0 create/2 update/0 scarti; scheda leggibile con tre sedi; export UI
+  reimportabile 0 create/15 update/0 scarti; viewport 375/375 e zero target
+  sotto 44 px. Evidenze ignorate da Git in
+  `test-results/azienda-alignment-real/`.
+- Suite: frontend **44/44 suite, 333/333 test**; backend **1020 passed,
+  8 skipped, 0 failed**; migration, build production e deploy reali verdi.
+- Commit locali: `36baaa1`, `6612171`, `f4bb158`, `52904eb`. Nessun push.
+
+**SCHEDA, TEMPLATE E MODELLO ALLINEATI: SÌ**

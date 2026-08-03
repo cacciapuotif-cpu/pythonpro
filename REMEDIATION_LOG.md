@@ -1062,3 +1062,122 @@ test dominio 15/15, build production verde. Suite backend completa:
 tracciati; 33 warning di deprecazione, nessun errore).
 
 **SEDE DI EROGAZIONE PER AZIENDA FUNZIONANTE DALL'INTERFACCIA: SÌ**
+
+---
+
+## 2026-08-03 — Allineamento scheda azienda / Excel / modello
+
+### Diff a tre vie: stato iniziale e stato finale
+
+La verifica iniziale ha confermato la causa: modello, form e template erano
+tre definizioni indipendenti. Il modello conteneva circa 50 campi, il template
+solo 15 colonne; CCNL, dipendenti, INPS, regime aiuti, legale rappresentante,
+referente, agenzia/consulente e social non erano importabili. Le sedi erano
+entità nel DB ma compresse in una cella pipe; i conti correnti azienda non
+esistevano; la “scheda” apriva direttamente il form di modifica.
+
+Tabella aggiornata dopo la remediation (`Sì` = coperto e derivato dalla
+specifica canonica; `N/A` = esclusione intenzionale):
+
+| Campo tecnico | Modello dati | Scheda/form | Excel import/export | Esito |
+|---|---:|---:|---:|---|
+| `ragione_sociale` | Sì | Sì | Sì, Aziende | Obbligatorio; niente placeholder |
+| `natura_giuridica` | Sì | Sì | Sì, Aziende | Allineato |
+| `partita_iva` | Sì | Sì | Sì, Aziende | Obbligatorio e chiave upsert |
+| `codice_fiscale` | Sì | Sì | Sì, Aziende | Allineato |
+| `settore_ateco` | Sì | Sì | Sì, Aziende | Allineato |
+| `settore_codice` | Sì | Sì | Sì, Aziende | Prima assente nel template |
+| `settore_descrizione` | Sì | Sì | Sì, Aziende | Prima assente nel template |
+| `attivita_erogate` | Sì | Sì | Sì, Aziende | Allineato |
+| `indirizzo`, `citta`, `cap`, `provincia` | Sì, tutti | Sì, tutti | Sì, Aziende | Sede legale; provincia validata |
+| `email`, `pec`, `telefono`, `sito_web` | Sì, tutti | Sì, tutti | Sì, Aziende | Allineati |
+| `linkedin_url`, `facebook_url`, `instagram_url` | Sì, tutti | Sì, tutti | Sì, Aziende | Social prima assenti nel template |
+| `ccnl_prevalente` | Sì | Sì | Sì, Aziende | Gap noto chiuso |
+| `num_dipendenti` | Sì | Sì | Sì, Aziende | Intero non negativo |
+| `matricola_inps` | Sì | Sì | Sì, Aziende | Gap noto chiuso |
+| `anno_adesione` | Sì | Sì | Sì, Aziende | Anno validato |
+| `regime_aiuto_default` | Sì | Sì | Sì, Aziende | Dropdown valori chiusi |
+| `legale_rappresentante_nome`, `..._cognome` | Sì, entrambi | Sì, entrambi | Sì, Aziende | Prima assenti nel template |
+| `legale_rappresentante_codice_fiscale` | Sì | Sì | Sì, Aziende | Validazione CF |
+| `legale_rappresentante_email`, `..._telefono`, `..._indirizzo` | Sì, tutti | Sì, tutti | Sì, Aziende | Allineati |
+| `legale_rappresentante_linkedin`, `..._facebook`, `..._instagram`, `..._tiktok` | Sì, tutti | Sì, tutti | Sì, Aziende | Social importabili |
+| `referente_nome`, `..._cognome`, `..._ruolo` | Sì, tutti | Sì, tutti | Sì, Aziende | Referente PRJ-4 allineato |
+| `referente_email`, `..._telefono`, `..._indirizzo` | Sì, tutti | Sì, tutti | Sì, Aziende | Allineati |
+| `referente_luogo_nascita`, `..._data_nascita` | Sì, entrambi | Sì, entrambi | Sì, Aziende | Data ISO validata |
+| `referente_linkedin`, `..._facebook`, `..._instagram`, `..._tiktok` | Sì, tutti | Sì, tutti | Sì, Aziende | Social importabili |
+| `agenzia_id` | Sì | Sì | Sì, nome in Aziende | Resolver anagrafica agenzia |
+| `consulente_id` | Sì | Sì | Sì, nome in Aziende | Agente/consulente PRJ-4 |
+| `note` | Sì | Sì | Sì, Aziende | Allineato |
+| `attivo` | Sì | Sì | Sì, Aziende | Booleano con dropdown |
+| Sede: `partita_iva`, `nome`, `tipo` | Sì, entità | Sì | Sì, foglio Sedi | Una riga per sede; chiavi obbligatorie |
+| Sede: `indirizzo`, `citta`, `provincia`, `cap` | Sì, tutti | Sì, tutti | Sì, foglio Sedi | Provincia con dropdown |
+| Sede: `email`, `telefono`, `is_principale`, `note` | Sì, tutti | Sì, tutti | Sì, foglio Sedi | Migration 073 completa il modello |
+| Conto: `partita_iva`, `banca`, `agenzia`, `iban` | Sì, entità | Sì | Sì, foglio Conti | Entità nuova; IBAN validato |
+| Conto: `bic_swift`, `intestatario`, `is_predefinito`, `is_active`, `note` | Sì, tutti | Sì, tutti | Sì, foglio Conti | IBAN mascherato negli elenchi |
+| Fondo: `partita_iva`, `fondo`, `data_inizio`, `data_fine`, `note` | Sì, entità | Sì | Sì, foglio Fondi | Adesioni ora round-trip |
+| Progetti collegati | Sì, link N:N | Sì, sola lettura | N/A | Non modificati dall'import anagrafico |
+| Documenti specifici azienda | No | Sezione esplicita “non disponibili” | N/A | Relazione assente: non inventata |
+
+### Fonte unica e flusso Excel
+
+- `backend/services/azienda_field_spec.py`, versione `2026-08-03.1`, definisce
+  nome tecnico, etichetta, tipo, obbligatorietà, validazione, importabilità,
+  gruppo, valori chiusi, sensibilità e resolver.
+- L'API espone la specifica alla scheda; generatore template, parser,
+  validatore ed export la consumano direttamente. Il test
+  `backend/tests/test_azienda_excel_alignment.py` fallisce se intestazioni,
+  modello e specifica divergono.
+- Workbook: `Valori` nascosto, `Istruzioni`, `Aziende` (50 colonne), `Sedi`
+  (11), `Conti` (9), `Fondi` (5). Ogni foglio dati ha intestazione, riga
+  formato/obbligatorietà ed esempio giallo riconoscibile; dropdown per domini
+  chiusi. Il parser legacy delle 15 colonne e delle sedi pipe resta disponibile
+  con warning di formato superato.
+- Import: anteprima, errori italiani foglio/riga/colonna, esecuzione parziale,
+  report CSV, upsert PIVA e riuso idempotente di sedi/conti. Una ragione sociale
+  mancante scarta la riga: non vengono più creati nomi `Azienda <PIVA>`.
+
+### Modello, migration e sicurezza
+
+- Migration 073 provata su clone PostgreSQL con ciclo
+  upgrade 072→073, downgrade 073→072, upgrade 072→073; quindi applicata al DB
+  reale. Aggiunge metadati/contatti/principale alle sedi e la tabella conti
+  correnti azienda.
+- Backup pre-migration:
+  `database_backups/pre_073_azienda_alignment_20260803.dump` (472 KiB),
+  SHA-256 `b4019362fa4f5c7117a78e117862f2b75c49b1c57b550eedebccbef776da772a`.
+- IBAN restituito mascherato nella scheda; endpoint di reveal limitato ad
+  admin/operatore e auditato. Export completo limitato ad admin perché deve
+  restare reimportabile.
+
+### Collaudo reale admin
+
+1. **PASS** — template scaricato dalla UI: fogli `Istruzioni`, `Aziende`,
+   `Sedi`, `Conti`, `Fondi` (+ `Valori` nascosto), 50/11/9/5 colonne.
+2. **PASS** — due aziende, una con tre sedi: anteprima valida e prima
+   importazione 2 create, 0 update, 0 scarti.
+3. **PASS** — reimport dello stesso file: 0 create, 2 update, 0 scarti.
+4. **PASS** — scheda ALFA read-only leggibile, dati nei gruppi corretti, tre
+   sedi, IBAN mascherato `IT••••••••••••••••••••3456` e reveal admin
+   `IT60X0542811101000000123456`.
+5. **PASS** — export scaricato dalla UI e inviato senza modifiche in anteprima:
+   0 create, 15 update, 0 scarti, 15 righe valide.
+6. **PASS** — viewport 375 px: `documentWidth=375`, nessuno scroll orizzontale,
+   zero pulsanti sotto 44 px; sezioni a colonna singola.
+
+Evidenze: `test-results/azienda-alignment-real/report.json`, template/export
+scaricati e screenshot desktop/mobile (directory ignorata da Git). Bundle live
+`main.305932b5.js`; frontend e backend reali healthy; migration reale `073`.
+
+### Verifiche e commit
+
+- Frontend: **44 suite, 333 test passati**; build production e immagine Docker
+  verdi.
+- Backend canonico da `backend/` con configurazione coverage esplicita:
+  `pytest -q tests --cov-config=pyproject.toml` → **1020 passati, 8 skip,
+  0 falliti**, coverage generata, exit 0. Il generico `pytest` dalla root non è
+  la suite canonica perché raccoglie anche `scripts/stress_test.py`, tool
+  operativo con firme non-pytest.
+- Commit atomici locali: `36baaa1`, `6612171`, `f4bb158`, `52904eb`.
+  Nessun push.
+
+**SCHEDA, TEMPLATE E MODELLO ALLINEATI: SÌ**
