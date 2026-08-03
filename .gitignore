@@ -52,6 +52,7 @@ pip-delete-this-directory.txt
 gestionale.db
 *.sql
 db_backups/
+database_backups/
 
 # === IDEs e Editor ===
 # VS Code

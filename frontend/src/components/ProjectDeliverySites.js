@@ -50,8 +50,7 @@ const ProjectDeliverySites = ({ aziende, ente, allievi, value, onChange, onError
     setSiteForm(emptyForm);
   };
 
-  const saveNewSite = async (event) => {
-    event.preventDefault();
+  const saveNewSite = async () => {
     setSaving(true);
     try {
       let created;
@@ -154,7 +153,7 @@ const ProjectDeliverySites = ({ aziende, ente, allievi, value, onChange, onError
               </div>
 
               {newSite?.aziendaId === azienda.id && (
-                <form className="delivery-inline-form" onSubmit={saveNewSite}>
+                <div className="delivery-inline-form">
                   <strong>Nuova sede {newSite.tipo === 'ente' ? "dell'ente attuatore" : "dell'azienda"}</strong>
                   <input required value={siteForm.denominazione} onChange={(e) => setSiteForm({ ...siteForm, denominazione: e.target.value })} placeholder="Denominazione" />
                   <input required value={siteForm.indirizzo} onChange={(e) => setSiteForm({ ...siteForm, indirizzo: e.target.value })} placeholder="Indirizzo" />
@@ -162,10 +161,10 @@ const ProjectDeliverySites = ({ aziende, ente, allievi, value, onChange, onError
                   <input required maxLength="2" value={siteForm.provincia} onChange={(e) => setSiteForm({ ...siteForm, provincia: e.target.value.toUpperCase() })} placeholder="Provincia" />
                   <input required inputMode="numeric" pattern="[0-9]{5}" value={siteForm.cap} onChange={(e) => setSiteForm({ ...siteForm, cap: e.target.value })} placeholder="CAP" />
                   <div>
-                    <button type="submit" disabled={saving}>{saving ? 'Salvataggio...' : 'Crea e assegna'}</button>
+                    <button type="button" onClick={saveNewSite} disabled={saving}>{saving ? 'Salvataggio...' : 'Crea e assegna'}</button>
                     <button type="button" onClick={() => setNewSite(null)}>Annulla</button>
                   </div>
-                </form>
+                </div>
               )}
             </div>
 
