@@ -2,6 +2,27 @@
 
 Formato: data | finding ID | cosa fatto | file toccati | test/verifiche eseguiti
 
+## 2026-08-03 | PRJ-DELIVERY-SCOPE | Ente e aziende derivati dal progetto
+
+- Ricognizione completata prima del codice: nessuna FK convenzione dedicata;
+  `ProjectDocumento` e `AziendaClienteProjectLink` sono le strutture esistenti,
+  quindi nessuna migration.
+- Aggiunti context Delivery, elenco aziende server-side per progetto con
+  ricerca/paginazione e endpoint allievi on-demand. Ente read-only e guardie
+  422 backend su convenzione assente/ente incoerente.
+- Sostituito il preload globale aziende/allievi con typeahead debounced ed
+  espansione esplicita della singola azienda.
+- Nuovi test: 8 backend, incluso scenario 500/20, e 2 frontend; nessun test
+  esistente modificato. Suite: backend 1028 passed/8 skipped; frontend 335/335;
+  build verde.
+- Confutatore: chiamate senza project_id/altro progetto, tentativo PUT ostile,
+  ispezione payload/residui e mutazione temporanea del filtro. Il test e'
+  fallito con l'azienda fuori perimetro ed e' tornato verde dopo il ripristino.
+- Deploy reale: backend/frontend healthy, bundle `main.eb02665b.js`. Progetti
+  reali #5/#11 senza convenzione corrente: blocco 422 corretto; #11 contiene
+  oggi soltanto un documento `formulario`. Nessuna modifica ai dati reali.
+- Commit locale `bc2ed37`; nessun push.
+
 ## 2026-07-31 | UX-NOMINATIVI | Formato e ordinamento uniforme
 
 - Aggiunta utility frontend `formatPersonName`/`comparePeople` e applicata a
