@@ -467,6 +467,18 @@
   margin-top: 10px;
 }
 
+.delivery-blocked {
+  padding: 16px;
+  border: 1px solid #c43b4d;
+  border-radius: 12px;
+  background: #fff3f5;
+  color: #762332;
+}
+
+.delivery-blocked p {
+  margin: 6px 0 0;
+}
+
 .delivery-company {
   overflow: hidden;
   border-radius: 14px;

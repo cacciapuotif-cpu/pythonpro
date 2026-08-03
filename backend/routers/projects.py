@@ -3,8 +3,9 @@ Router per gestione progetti
 Gestisce CRUD progetti e associazioni con collaboratori
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from sqlalchemy import or_
+from sqlalchemy.orm import Session, selectinload
 from typing import List, Optional
 import logging
 import re
@@ -65,6 +66,146 @@ def read_project(
     if db_project is None:
         raise HTTPException(status_code=404, detail="Progetto non trovato")
     return db_project
+
+
+def _delivery_project_or_422(project_id: int, db: Session) -> models.Project:
+    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+    if project is None:
+        raise HTTPException(status_code=404, detail="Progetto non trovato")
+    if not crud.project_has_current_convenzione(db, project_id):
+        raise HTTPException(
+            status_code=422,
+            detail="Collega prima la convenzione al progetto",
+        )
+    if project.ente_attuatore_id is None:
+        raise HTTPException(
+            status_code=422,
+            detail="La convenzione collegata non identifica un ente attuatore",
+        )
+    return project
+
+
+@router.get(
+    "/{project_id}/delivery-context",
+    response_model=schemas.ProjectDeliveryContext,
+    response_model_by_alias=False,
+)
+def read_project_delivery_context(
+    project_id: int,
+    db: Session = Depends(get_db),
+):
+    """Ente derivato e stato bloccante della convenzione per lo Step Delivery."""
+    project = db.query(models.Project).options(
+        selectinload(models.Project.ente_attuatore).selectinload(
+            models.ImplementingEntity.sedi
+        )
+    ).filter(models.Project.id == project_id).first()
+    if project is None:
+        raise HTTPException(status_code=404, detail="Progetto non trovato")
+
+    has_convenzione = crud.project_has_current_convenzione(db, project_id)
+    if not has_convenzione:
+        blocked_reason = "Collega prima la convenzione al progetto"
+    elif project.ente_attuatore_id is None:
+        blocked_reason = "La convenzione collegata non identifica un ente attuatore"
+    else:
+        blocked_reason = None
+
+    return {
+        "project_id": project.id,
+        "has_convenzione": has_convenzione,
+        "blocked_reason": blocked_reason,
+        "ente_attuatore": project.ente_attuatore if blocked_reason is None else None,
+    }
+
+
+@router.get(
+    "/{project_id}/delivery-companies",
+    response_model=schemas.ProjectDeliveryCompanyPage,
+    response_model_by_alias=False,
+)
+def read_project_delivery_companies(
+    project_id: int,
+    q: Optional[str] = Query(default=None, max_length=200),
+    limit: int = Query(default=20, ge=1, le=50),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+):
+    """Aziende del solo perimetro progetto; mai catalogo globale o allievi."""
+    _delivery_project_or_422(project_id, db)
+    query = db.query(models.AziendaCliente).join(
+        models.AziendaClienteProjectLink,
+        models.AziendaClienteProjectLink.azienda_cliente_id == models.AziendaCliente.id,
+    ).options(
+        selectinload(models.AziendaCliente.sedi_operative)
+    ).filter(
+        models.AziendaClienteProjectLink.project_id == project_id,
+        models.AziendaCliente.attivo.is_(True),
+    )
+
+    normalized_q = (q or "").strip()
+    if normalized_q:
+        pattern = f"%{normalized_q}%"
+        query = query.filter(or_(
+            models.AziendaCliente.ragione_sociale.ilike(pattern),
+            models.AziendaCliente.partita_iva.ilike(pattern),
+        ))
+
+    total = query.count()
+    items = query.order_by(
+        models.AziendaCliente.ragione_sociale.asc(),
+        models.AziendaCliente.id.asc(),
+    ).offset(offset).limit(limit).all()
+    return {
+        "items": items,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "has_more": offset + len(items) < total,
+    }
+
+
+@router.get(
+    "/{project_id}/delivery-companies/{azienda_id}/students",
+    response_model=schemas.ProjectDeliveryStudentPage,
+    response_model_by_alias=False,
+)
+def read_project_delivery_company_students(
+    project_id: int,
+    azienda_id: int,
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+):
+    """Allievi caricati soltanto on-demand per un'azienda nel perimetro."""
+    _delivery_project_or_422(project_id, db)
+    in_perimeter = db.query(models.AziendaClienteProjectLink.id).filter(
+        models.AziendaClienteProjectLink.project_id == project_id,
+        models.AziendaClienteProjectLink.azienda_cliente_id == azienda_id,
+    ).first()
+    if in_perimeter is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Azienda non presente nel perimetro del progetto",
+        )
+
+    query = db.query(models.Allievo).filter(
+        models.Allievo.azienda_cliente_id == azienda_id,
+        models.Allievo.attivo.is_(True),
+    )
+    total = query.count()
+    items = query.order_by(
+        models.Allievo.cognome.asc(),
+        models.Allievo.nome.asc(),
+        models.Allievo.id.asc(),
+    ).offset(offset).limit(limit).all()
+    return {
+        "items": items,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "has_more": offset + len(items) < total,
+    }
 
 
 @router.get(
@@ -276,6 +417,9 @@ def update_project(
         # un blocco forzabile si usa l'endpoint esplicito, che pretende motivo.
         db.rollback()
         raise HTTPException(status_code=409, detail=exc.as_detail())
+    except crud.DeliveryValidationError as exc:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc))
     except ValueError as exc:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(exc))

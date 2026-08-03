@@ -1912,6 +1912,60 @@ class AllievoOut(AllievoBase):
 Allievo = AllievoOut  # alias usato dal router allievi.py
 
 
+# Payload dedicati al passo Delivery. Sono volutamente minimali: l'elenco
+# aziende non espone allievi ne' conteggi derivati da join sugli allievi.
+class ProjectDeliveryEntitySummary(BaseModel):
+    id: int
+    ragione_sociale: str
+    partita_iva: Optional[str] = None
+    citta: Optional[str] = None
+    sedi: List[ImplementingEntityLocation] = Field(default_factory=list)
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ProjectDeliveryContext(BaseModel):
+    project_id: int
+    has_convenzione: bool
+    blocked_reason: Optional[str] = None
+    ente_attuatore: Optional[ProjectDeliveryEntitySummary] = None
+
+
+class ProjectDeliveryCompanySummary(BaseModel):
+    id: int
+    ragione_sociale: str
+    partita_iva: Optional[str] = None
+    sedi_operative: List[AziendaClienteSedeOperativa] = Field(default_factory=list)
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ProjectDeliveryCompanyPage(BaseModel):
+    items: List[ProjectDeliveryCompanySummary]
+    total: int
+    limit: int
+    offset: int
+    has_more: bool
+
+
+class ProjectDeliveryStudentSummary(BaseModel):
+    id: int
+    nome: str
+    cognome: str
+    codice_fiscale: Optional[str] = None
+    azienda_cliente_id: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ProjectDeliveryStudentPage(BaseModel):
+    items: List[ProjectDeliveryStudentSummary]
+    total: int
+    limit: int
+    offset: int
+    has_more: bool
+
+
 # ─────────────────────────────────────────────
 # BLOCCO 3 — CATALOGO + LISTINI
 # ─────────────────────────────────────────────

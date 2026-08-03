@@ -9,14 +9,14 @@
  * - Gestire stati e date dei progetti
  */
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useProjects, useImplementingEntities, useCollaborators, useNotifications } from '../hooks/useEntity';
-import { getAziendeClienti, caricaTuttiGliAllievi, getProjectBeneficiari, getProjectModuliFormativi, updateProjectBeneficiarioRegime } from '../services/apiService';
+import { getProjectDeliveryContext, getProjectBeneficiari, getProjectModuliFormativi, updateProjectBeneficiarioRegime } from '../services/apiService';
 import { FapiUploadSection } from './FapiUpload';
 import { PianoTemplateWizardButton } from './PianoTemplateWizard';
 import AssignmentModal from './AssignmentModal';
 import GestioneAssociati from './GestioneAssociati';
-import AlberoAllievi from './AlberoAllievi';
+import ProjectDeliveryCompanyPicker from './ProjectDeliveryCompanyPicker';
 import ProjectDeliverySites from './ProjectDeliverySites';
 import { canPerform, normalizeRole } from '../auth/permissions';
 import ResponsiveEntityList from './responsive/ResponsiveEntityList';
@@ -243,8 +243,8 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
   });
   const [aziendaOptions, setAziendaOptions] = useState([]);
   const [allievoOptions, setAllievoOptions] = useState([]);
-  // UX-9: l'albero ha bisogno di tutti gli allievi, e deve dire se non li ha.
-  const [allieviTroncati, setAllieviTroncati] = useState(false);
+  const [deliveryContext, setDeliveryContext] = useState(null);
+  const [deliveryContextLoading, setDeliveryContextLoading] = useState(false);
 
   // Stati locali dell'interfaccia
   const [editingId, setEditingId] = useState(null); // ID del progetto in modifica
@@ -319,33 +319,61 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
   };
 
   useEffect(() => {
+    if (!showForm) return undefined;
+    if (!editingId) {
+      setDeliveryContext({
+        project_id: null,
+        has_convenzione: false,
+        blocked_reason: 'Collega prima la convenzione al progetto',
+        ente_attuatore: null,
+      });
+      return undefined;
+    }
+
     let cancelled = false;
+    setDeliveryContextLoading(true);
+    getProjectDeliveryContext(editingId)
+      .then((context) => {
+        if (cancelled) return;
+        setDeliveryContext(context);
+        setFormData((previous) => ({
+          ...previous,
+          ente_attuatore_id: context?.ente_attuatore?.id || null,
+        }));
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setDeliveryContext({
+          project_id: editingId,
+          has_convenzione: false,
+          blocked_reason: error?.response?.data?.detail || 'Impossibile verificare la convenzione del progetto',
+          ente_attuatore: null,
+        });
+      })
+      .finally(() => {
+        if (!cancelled) setDeliveryContextLoading(false);
+      });
 
-    const loadFormOptions = async () => {
-      try {
-        const [aziendeData, allieviData] = await Promise.all([
-          getAziendeClienti({ limit: 100, page: 1 }),
-          caricaTuttiGliAllievi(),
-        ]);
-        if (!cancelled) {
-          setAziendaOptions(Array.isArray(aziendeData?.items) ? aziendeData.items : (Array.isArray(aziendeData) ? aziendeData : []));
-          setAllievoOptions(allieviData.items);
-          setAllieviTroncati(allieviData.troncato);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setAziendaOptions([]);
-          setAllievoOptions([]);
-          setAllieviTroncati(false);
-        }
-      }
-    };
+    return () => { cancelled = true; };
+  }, [editingId, showForm]);
 
-    loadFormOptions();
-    return () => {
-      cancelled = true;
-    };
+  const handleCompaniesLoaded = useCallback((items) => {
+    setAziendaOptions((current) => {
+      const merged = new Map(current.map((item) => [Number(item.id), item]));
+      (items || []).forEach((item) => merged.set(Number(item.id), item));
+      return Array.from(merged.values());
+    });
   }, []);
+
+  const handleStudentsLoaded = useCallback((items) => {
+    setAllievoOptions((current) => {
+      const merged = new Map(current.map((item) => [Number(item.id), item]));
+      (items || []).forEach((item) => merged.set(Number(item.id), item));
+      return Array.from(merged.values());
+    });
+  }, []);
+
+  const handleDeliveryError = useCallback((message) => showError(message), [showError]);
 
   // ==========================================
   // GESTIONE FORM
@@ -356,19 +384,7 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
    */
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-
-    setFormData(prev => {
-      if (name === 'ente_attuatore_id' && String(prev.ente_attuatore_id || '') !== String(value || '')) {
-        const nextSedi = Object.fromEntries(
-          Object.entries(prev.azienda_sedi).map(([aziendaId, sedi]) => [
-            aziendaId,
-            (sedi || []).filter((sede) => sede.sede_tipo !== 'ente'),
-          ])
-        );
-        return { ...prev, [name]: value, azienda_sedi: nextSedi };
-      }
-      return { ...prev, [name]: value };
-    });
+    setFormData(prev => ({ ...prev, [name]: value }));
   };
 
   // UX-9: l'albero emette la coppia coerente (aziende, allievi) in un colpo
@@ -444,12 +460,16 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
       showError(errors.join(', '));
       return;
     }
+    if (editingId && deliveryContext?.blocked_reason) {
+      showError(deliveryContext.blocked_reason);
+      return;
+    }
 
     try {
       // Prepara i dati (converte date vuote in null e formatta quelle presenti)
       const projectData = {
         ...formData,
-        ente_attuatore_id: formData.ente_attuatore_id ? parseInt(formData.ente_attuatore_id, 10) : null,
+        ente_attuatore_id: editingId ? (deliveryContext?.ente_attuatore?.id || null) : null,
         azienda_ids: Array.isArray(formData.azienda_ids) ? formData.azienda_ids.map((id) => parseInt(id, 10)) : [],
         allievo_ids: Array.isArray(formData.allievo_ids) ? formData.allievo_ids.map((id) => parseInt(id, 10)) : [],
         azienda_sedi: (Array.isArray(formData.azienda_ids) ? formData.azienda_ids : []).flatMap((id) =>
@@ -512,6 +532,9 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
     setEditingId(null);
     setShowForm(false);
     setActiveStepIndex(0);
+    setAziendaOptions([]);
+    setAllievoOptions([]);
+    setDeliveryContext(null);
   };
 
   // ==========================================
@@ -522,6 +545,9 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
    * AVVIA MODIFICA PROGETTO
    */
   const startEdit = (project) => {
+    setAziendaOptions(Array.isArray(project.aziende_coinvolte) ? project.aziende_coinvolte : []);
+    setAllievoOptions(Array.isArray(project.allievi_coinvolti) ? project.allievi_coinvolti : []);
+    setDeliveryContext(null);
     setFormData({
       name: project.name,
       description: project.description || '',
@@ -682,7 +708,7 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
   ].filter((value) => `${value ?? ''}`.trim() !== '').length;
   const completionPercentage = Math.round((completedFields / 10) * 100);
   const currentStep = PROJECT_FORM_STEPS[activeStepIndex];
-  const selectedEntity = implementingEntities.find((entity) => String(entity.id) === String(formData.ente_attuatore_id));
+  const selectedEntity = deliveryContext?.ente_attuatore || null;
   const selectedAziende = formData.azienda_ids
     .map((aziendaId) => aziendaOptions.find((azienda) => Number(azienda.id) === Number(aziendaId)))
     .filter(Boolean);
@@ -981,46 +1007,46 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
                 {currentStep.id === 'delivery' && (
                   <div className="wizard-documents-grid">
                     <div className="form-grid">
-                      <div className="form-group">
-                        <label htmlFor="ente_attuatore_id">Ente Attuatore</label>
-                        <select
-                          id="ente_attuatore_id"
-                          name="ente_attuatore_id"
-                          value={formData.ente_attuatore_id || ''}
-                          onChange={handleInputChange}
-                        >
-                          <option value="">Seleziona Ente Attuatore</option>
-                          {implementingEntities.map(entity => (
-                            <option key={entity.id} value={entity.id}>
-                              {entity.ragione_sociale} - {entity.citta}
-                            </option>
-                          ))}
-                        </select>
-                        <small className="field-hint">
-                          Seleziona l'ente che attua il progetto.
-                        </small>
-                      </div>
-
                       <div className="form-group full-width">
-                        <label>Aziende e allievi coinvolti</label>
-                        <small className="field-hint">
-                          Gli allievi stanno sotto la loro azienda. Spuntare l'azienda
-                          prende tutti i suoi; spuntare un allievo associa anche la sua
-                          azienda, perche' un iscritto senza la sua azienda sul progetto
-                          non esiste. Un'azienda puo' invece restare coinvolta senza
-                          iscritti.
-                        </small>
-                        <AlberoAllievi
-                          aziende={aziendaOptions}
-                          allievi={allievoOptions}
-                          aziendeSelezionate={formData.azienda_ids}
-                          allieviSelezionati={formData.allievo_ids}
-                          onChange={handleAlberoChange}
-                          troncato={allieviTroncati}
+                        <label htmlFor="ente_attuatore_delivery">Ente Attuatore</label>
+                        <input
+                          id="ente_attuatore_delivery"
+                          type="text"
+                          readOnly
+                          value={deliveryContextLoading
+                            ? 'Verifica convenzione in corso…'
+                            : selectedEntity?.ragione_sociale || 'Non disponibile'}
                         />
+                        <small className="field-hint">
+                          Valore derivato dalla convenzione collegata al progetto; non è modificabile dalla Delivery.
+                        </small>
                       </div>
 
-                      {selectedAziende.length > 0 && (
+                      {deliveryContext?.blocked_reason ? (
+                        <div className="form-group full-width delivery-blocked" role="alert">
+                          <strong>{deliveryContext.blocked_reason}</strong>
+                          <p>La selezione di ente, aziende e allievi resta bloccata finché il progetto non ha una convenzione collegata.</p>
+                        </div>
+                      ) : (
+                        <div className="form-group full-width">
+                          <label>Aziende e allievi coinvolti</label>
+                          <small className="field-hint">
+                            La ricerca usa soltanto le aziende comprese nella convenzione del progetto.
+                            Gli allievi vengono caricati quando apri la singola azienda.
+                          </small>
+                          <ProjectDeliveryCompanyPicker
+                            projectId={editingId}
+                            aziendeSelezionate={formData.azienda_ids}
+                            allieviSelezionati={formData.allievo_ids}
+                            onChange={handleAlberoChange}
+                            onCompaniesLoaded={handleCompaniesLoaded}
+                            onStudentsLoaded={handleStudentsLoaded}
+                            onError={handleDeliveryError}
+                          />
+                        </div>
+                      )}
+
+                      {!deliveryContext?.blocked_reason && selectedAziende.length > 0 && (
                         <div className="form-group full-width">
                           <label>Sede di erogazione per azienda</label>
                           <small className="field-hint">
@@ -1031,7 +1057,6 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
                           <ProjectDeliverySites
                             aziende={selectedAziende}
                             ente={selectedEntity}
-                            allievi={selectedAllievi}
                             value={formData.azienda_sedi}
                             onChange={(azienda_sedi) => setFormData((previous) => ({ ...previous, azienda_sedi }))}
                             onError={showError}
@@ -1046,7 +1071,7 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
                       <div className="project-delivery-list">
                         <div>
                           <span>Ente attuatore</span>
-                          <strong>{selectedEntity ? selectedEntity.ragione_sociale : 'Non selezionato'}</strong>
+                          <strong>{selectedEntity ? `${selectedEntity.ragione_sociale} (da convenzione)` : 'Non disponibile'}</strong>
                         </div>
                         <div>
                           <span>Aziende coinvolte</span>
@@ -1105,7 +1130,7 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
                     <button
                       type="submit"
                       className="submit-button"
-                      disabled={loading}
+                      disabled={loading || Boolean(editingId && deliveryContext?.blocked_reason)}
                     >
                       {loading ? '⏳ Salvando...' : (editingId ? '✏️ Aggiorna' : '➕ Crea Progetto')}
                     </button>

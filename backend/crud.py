@@ -705,6 +705,70 @@ def _apply_azienda_sede(
     raise ValueError(f"sede_tipo non valido: {sede.sede_tipo}")
 
 
+class DeliveryValidationError(ValueError):
+    """Errore di dominio del passo Delivery, esposto dal router come HTTP 422."""
+
+
+def project_has_current_convenzione(db: Session, project_id: int) -> bool:
+    """La convenzione collegata e' il documento corrente, non il vecchio path libero."""
+    return db.query(models.ProjectDocumento.id).filter(
+        models.ProjectDocumento.project_id == project_id,
+        models.ProjectDocumento.tipo_documento == "convenzione",
+        models.ProjectDocumento.stato == "corrente",
+        models.ProjectDocumento.source_removed.is_(False),
+    ).first() is not None
+
+
+def _validate_delivery_update(
+    db: Session,
+    db_project: models.Project,
+    update_data: Dict[str, Any],
+) -> None:
+    """Impone il perimetro derivato da convenzione prima di qualunque sync.
+
+    ``azienda_cliente_projects`` e' il perimetro materializzato dalla conferma
+    della convenzione. Delivery puo' mantenere o ridurre quel perimetro, ma non
+    introdurre aziende prese dal catalogo globale.
+    """
+    delivery_fields = {"ente_attuatore_id", "azienda_ids", "allievo_ids", "azienda_sedi"}
+    if not delivery_fields.intersection(update_data):
+        return
+
+    if not project_has_current_convenzione(db, db_project.id):
+        # Le vecchie integrazioni potevano aggiornare soltanto aziende/sedi e
+        # omettere del tutto l'ente. Il wizard nuovo invia sempre l'ente
+        # derivato: quel contratto completo e' quello su cui imponiamo il
+        # blocco, senza spezzare update legacy estranei al nuovo Step Delivery.
+        if "ente_attuatore_id" in update_data:
+            raise DeliveryValidationError("Collega prima la convenzione al progetto")
+        return
+
+    derived_ente_id = db_project.ente_attuatore_id
+    if derived_ente_id is None:
+        raise DeliveryValidationError(
+            "La convenzione collegata non identifica un ente attuatore"
+        )
+
+    submitted_ente_id = update_data.get("ente_attuatore_id")
+    if "ente_attuatore_id" in update_data and submitted_ente_id != derived_ente_id:
+        raise DeliveryValidationError(
+            "Ente attuatore non coerente con la convenzione collegata al progetto"
+        )
+
+    if "azienda_ids" in update_data:
+        requested_ids = {int(item) for item in (update_data.get("azienda_ids") or [])}
+        perimeter_rows = db.query(models.AziendaClienteProjectLink.azienda_cliente_id).filter(
+            models.AziendaClienteProjectLink.project_id == db_project.id
+        ).all()
+        perimeter_ids = {row[0] for row in perimeter_rows}
+        outside_ids = sorted(requested_ids - perimeter_ids)
+        if outside_ids:
+            raise DeliveryValidationError(
+                "Aziende fuori dal perimetro della convenzione: "
+                + ", ".join(str(item) for item in outside_ids)
+            )
+
+
 def _sync_project_azienda_links(
     db: Session,
     db_project: models.Project,
@@ -1012,6 +1076,7 @@ def update_project(db: Session, project_id: int, project: schemas.ProjectUpdateE
     db_project = db.query(models.Project).filter(models.Project.id == project_id).first()
     if db_project:
         update_data = project.dict(exclude_unset=True)
+        _validate_delivery_update(db, db_project, update_data)
         azienda_ids = update_data.pop("azienda_ids", None)
         allievo_ids = update_data.pop("allievo_ids", None)
         azienda_sedi = update_data.pop("azienda_sedi", None)

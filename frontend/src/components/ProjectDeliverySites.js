@@ -11,7 +11,7 @@ const siteAddress = (site) => [
 
 const siteName = (site) => site.denominazione || site.nome || 'Sede';
 
-const ProjectDeliverySites = ({ aziende, ente, allievi, value, onChange, onError }) => {
+const ProjectDeliverySites = ({ aziende, ente, value, onChange, onError }) => {
   const [pending, setPending] = useState({});
   const [newSite, setNewSite] = useState(null);
   const [siteForm, setSiteForm] = useState(emptyForm);
@@ -102,7 +102,6 @@ const ProjectDeliverySites = ({ aziende, ente, allievi, value, onChange, onError
       {aziende.map((azienda) => {
         const ownSites = companySites(azienda);
         const selectedSites = value[azienda.id] || [];
-        const companyStudents = allievi.filter((item) => Number(item.azienda_cliente_id) === Number(azienda.id));
         return (
           <section className="delivery-company" key={azienda.id}>
             <header>
@@ -166,11 +165,6 @@ const ProjectDeliverySites = ({ aziende, ente, allievi, value, onChange, onError
                   </div>
                 </div>
               )}
-            </div>
-
-            <div className="delivery-students">
-              <span>Allievi</span>
-              <p>{companyStudents.length ? companyStudents.map((item) => `${item.nome} ${item.cognome}`).join(', ') : 'Nessun allievo selezionato'}</p>
             </div>
           </section>
         );

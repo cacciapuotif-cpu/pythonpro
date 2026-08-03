@@ -1011,6 +1011,23 @@ export const getAziendeClienti = (params = {}) =>
       limit: params.limit ? Math.min(Number(params.limit) || 0, 100) || undefined : params.limit,
     },
   }).then(r => r.data);
+export const getProjectDeliveryContext = (projectId) =>
+  http.get(`/projects/${projectId}/delivery-context`).then(r => r.data);
+export const getProjectDeliveryCompanies = (projectId, params = {}) =>
+  http.get(`/projects/${projectId}/delivery-companies`, {
+    params: {
+      q: params.q || undefined,
+      limit: Math.min(Number(params.limit) || 20, 50),
+      offset: Math.max(Number(params.offset) || 0, 0),
+    },
+  }).then(r => r.data);
+export const getProjectDeliveryCompanyStudents = (projectId, aziendaId, params = {}) =>
+  http.get(`/projects/${projectId}/delivery-companies/${aziendaId}/students`, {
+    params: {
+      limit: Math.min(Number(params.limit) || 50, 100),
+      offset: Math.max(Number(params.offset) || 0, 0),
+    },
+  }).then(r => r.data);
 export const getAziendaCliente = (id) =>
   http.get(`/aziende-clienti/${id}`).then(r => r.data);
 export const searchAziendeClienti = (q, limit = 10) =>

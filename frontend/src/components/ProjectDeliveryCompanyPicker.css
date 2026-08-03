@@ -1,0 +1,108 @@
+.delivery-picker {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.delivery-picker-search {
+  display: grid;
+  gap: 6px;
+  font-weight: 700;
+}
+
+.delivery-picker-search input {
+  width: 100%;
+  min-height: 44px;
+}
+
+.delivery-picker-result,
+.delivery-picker-empty {
+  margin: 0;
+  color: #526274;
+}
+
+.delivery-picker-companies {
+  display: grid;
+  gap: 10px;
+}
+
+.delivery-picker-company {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(24, 52, 79, 0.16);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.delivery-picker-company-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.delivery-picker-company-row > label,
+.delivery-picker-students label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 44px;
+}
+
+.delivery-picker-company-row label span {
+  display: grid;
+  min-width: 0;
+}
+
+.delivery-picker-company-row small {
+  overflow-wrap: anywhere;
+  color: #617184;
+  font-weight: 400;
+}
+
+.delivery-picker-company-row input,
+.delivery-picker-students input {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+}
+
+.delivery-picker-expand,
+.delivery-picker-more {
+  min-height: 44px;
+  border: 1px solid rgba(24, 52, 79, 0.2);
+  border-radius: 9px;
+  background: #f7f9fb;
+  color: #18344f;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.delivery-picker-students {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0 0 32px;
+  padding: 8px 0 0 14px;
+  border-left: 2px solid #dfe7ef;
+}
+
+.delivery-picker-students p {
+  margin: 8px 0;
+}
+
+@media (max-width: 600px) {
+  .delivery-picker-company-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .delivery-picker-expand,
+  .delivery-picker-more {
+    width: 100%;
+  }
+
+  .delivery-picker-students {
+    margin-left: 10px;
+  }
+}
