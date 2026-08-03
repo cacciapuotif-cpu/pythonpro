@@ -20,9 +20,12 @@ Formato: data | finding ID | cosa fatto | file toccati | test/verifiche eseguiti
   autenticato #11 HTTP 200: `Next Group srl`, ente read-only. Al momento della
   verifica il DB contiene il formulario del 31 luglio e una convenzione vera
   caricata alle 16:38 del 3 agosto; `has_convenzione=true` e nessun blocco.
-- `Aula Delivery UI 1785753389697` e' stata creata dal collaudo reale precedente
-  (`frontend/e2e/delivery-sites-real.js`, caso 5, nome con `Date.now()`), non
-  dalla convenzione. Nessuna rimozione/rinomina senza autorizzazione utente.
+- `Aula Delivery UI 1785753389697` era stata creata dal collaudo reale
+  precedente (`frontend/e2e/delivery-sites-real.js`, caso 5, nome con
+  `Date.now()`), non dalla convenzione. Dopo autorizzazione utente e' stata
+  rinominata tramite API in `Martinelli Carmela - Sede AZ11-008` (azienda 11,
+  sede 8), preservando indirizzo e associazione; verifica progetto #11 mostra
+  lo stesso nome nel Delivery.
 
 ## 2026-08-03 | PRJ-DELIVERY-SCOPE | Ente e aziende derivati dal progetto
 
