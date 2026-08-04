@@ -229,6 +229,207 @@ def _parse_imprese_beneficiarie(sezione2: str, warnings: list[str]) -> list[dict
     return imprese
 
 
+_RE_PROGETTO_TITOLO = re.compile(r"Titolo\s+(.+?)\s*\nTipologia formativa")
+_RE_PROGETTO_TEMATICA = re.compile(r"Tematica\s+(.+)")
+_RE_PROGETTO_ORE = re.compile(r"n\.\s*ore di formazione\s*\n(\d+(?:[.,]\d+)?)\s*ore")
+_RE_PROGETTO_EDIZIONI = re.compile(r"n\.\s*edizioni\s+(\d+)")
+_RE_SOGGETTO_EROGATORE = re.compile(r"Soggetto Erogatore\s+Ragione sociale:\s*(.+)")
+_RE_REGIONI = re.compile(r"Regioni:\s*(.+)")
+_RE_PROVINCE = re.compile(r"Province:\s*(.+)")
+_RE_MODALITA_RIGHE = re.compile(
+    r"(Aula|Training on the job)\s+(\d+(?:[.,]\d+)?)\s+(\d+(?:[.,]\d+)?)\s*%",
+)
+_RE_COSTO_PROGETTO = re.compile(
+    r"Costo del progetto.*?\n(?:.*\n)*?(\d+)\s+(\d+)\s+([\d.,]+)\s*€\s*\n"
+    r"Totale\s+(\d+)\s+\d+\s+([\d.,]+)\s*€",
+)
+
+_RE_CRONO_DURATA = re.compile(r"Durata in giorni del\s+(\d+)\s*\nPiano Formativo")
+_RE_CRONO_ATTIVITA = re.compile(
+    r"(Avvio Piano Formativo|Gestione Piano Formativo|Chiusura Piano Formativo|"
+    r"Presentazione Rendicontazione)\s+(\d{2})\s+(\d{4})",
+)
+_RE_MACROVOCE_TOTALE = re.compile(
+    r"Totale Macrovoce ([ABCD])\.\s+([\d.,]+)\s*€\s+(\d+(?:[.,]\d+)?)\s*%",
+)
+_RE_MACROVOCE_LIMITE = {
+    "A": re.compile(r"Macrovoce A\..*?max\s*(\d+)%", re.DOTALL),
+    "C": re.compile(r"Macrovoce C\..*?max\s*(\d+)%", re.DOTALL),
+}
+_RE_FINANZIAMENTO_TOTALE_PROGETTI = re.compile(r"TOTALE\s+([\d.,]+)\s*€")
+_RE_DESTINATARI_TOTALE = re.compile(r"4\.3\..*?TOTALE\s+(\d+)", re.DOTALL)
+_RE_COSTO_COMPLESSIVO = re.compile(r"Costo complessivo del Piano Formativo\s+([\d.,]+)\s*€")
+_RE_QUOTA_PUBBLICA = re.compile(r"Quota finanziamento pubblico\s+([\d.,]+)\s*€")
+_RE_QUOTA_PRIVATA = re.compile(r"Quota cofinanziamento privato\s+([\d.,]+)\s*€")
+_RE_RIEPILOGO_IMPRESA_RIGA = re.compile(
+    r"([A-Z0-9À-Ü][A-Z0-9À-Ü .&'\-]+?)\s+([A-Z0-9]{11,16})\s+(Micro|Piccola|Media|Grande)\s+"
+    r"([\d.,]+)\s*€\s+([\d.,]+)\s*€",
+)
+_RE_TOTALE_PREVENTIVO = re.compile(r"Totale preventivo\s+([\d.,]+)\s*€")
+_RE_CONTRIBUTO_RICHIESTO = re.compile(r"Contributo richiesto\s+([\d.,]+)\s*€")
+_RE_COFINANZIAMENTO_FINALE = re.compile(r"Cofinanziamento\s+([\d.,]+)\s*€\s*Data")
+
+
+def _quadra(a: float | None, b: float | None, tolleranza: float = 0.5) -> bool:
+    if a is None or b is None:
+        return False
+    return abs(a - b) <= tolleranza
+
+
+def _parse_progetti_formativi(sezione3: str, warnings: list[str]) -> list[dict[str, Any]]:
+    marcatori = [m.start() for m in re.finditer(r"Progetto Formativo n\.", sezione3)]
+    blocchi = [
+        sezione3[inizio: (marcatori[i + 1] if i + 1 < len(marcatori) else len(sezione3))]
+        for i, inizio in enumerate(marcatori)
+    ]
+
+    progetti = []
+    for blocco in blocchi:
+        numero_match = re.search(r"Progetto Formativo n\.\s*\n?(\d+)", blocco)
+        m_titolo = _RE_PROGETTO_TITOLO.search(blocco)
+        m_ore = _RE_PROGETTO_ORE.search(blocco)
+        m_edizioni = _RE_PROGETTO_EDIZIONI.search(blocco)
+        m_erogatore = _RE_SOGGETTO_EROGATORE.search(blocco)
+        m_regioni = _RE_REGIONI.search(blocco)
+        m_province = _RE_PROVINCE.search(blocco)
+        m_tematica = _RE_PROGETTO_TEMATICA.search(blocco)
+
+        modalita_attuazione = [
+            {
+                "tipo": "aula" if riga[0] == "Aula" else "training_on_job",
+                "ore": float(riga[1].replace(",", ".")),
+                "percentuale": float(riga[2].replace(",", ".")),
+            }
+            for riga in _RE_MODALITA_RIGHE.findall(blocco)
+        ]
+
+        m_costo = _RE_COSTO_PROGETTO.search(blocco)
+        if m_costo:
+            edizioni_riga = int(m_costo.group(1))
+            partecipanti_minimo = int(m_costo.group(2))
+            finanziamento_edizione = float(m_costo.group(3).replace(".", "").replace(",", "."))
+            totale = float(m_costo.group(5).replace(".", "").replace(",", "."))
+            costo = {
+                "costo_numero_edizioni": edizioni_riga,
+                "costo_partecipanti_minimo": partecipanti_minimo,
+                "costo_finanziamento_per_edizione": finanziamento_edizione,
+                "costo_totale": totale,
+                "quadratura_costo_ok": _quadra(edizioni_riga * finanziamento_edizione, totale),
+            }
+        else:
+            warnings.append("Costo del progetto non trovato o non quadrato (Sezione 3)")
+            costo = {
+                "costo_numero_edizioni": None, "costo_partecipanti_minimo": None,
+                "costo_finanziamento_per_edizione": None, "costo_totale": None,
+                "quadratura_costo_ok": False,
+            }
+
+        progetti.append({
+            "numero": numero_match.group(1) if numero_match else None,
+            "titolo": m_titolo.group(1).strip() if m_titolo else None,
+            "tematica": m_tematica.group(1).strip() if m_tematica else None,
+            "ore_formazione": float(m_ore.group(1).replace(",", ".")) if m_ore else None,
+            "edizioni": int(m_edizioni.group(1)) if m_edizioni else None,
+            "soggetto_erogatore": m_erogatore.group(1).strip() if m_erogatore else None,
+            "regioni": [r.strip() for r in m_regioni.group(1).split(",")] if m_regioni else [],
+            "province": [p.strip() for p in m_province.group(1).split(",")] if m_province else [],
+            "modalita_attuazione": modalita_attuazione,
+            **costo,
+        })
+
+    if not progetti:
+        warnings.append("Nessun progetto formativo trovato in Sezione 3")
+    return progetti
+
+
+def _parse_riepilogo(sezione4: str, warnings: list[str]) -> dict[str, Any]:
+    m = _RE_FINANZIAMENTO_TOTALE_PROGETTI.search(sezione4)
+    finanziamento_totale = _clean_importo(m.group(1)) if m else None
+
+    m = _RE_DESTINATARI_TOTALE.search(sezione4)
+    destinatari_totale = int(m.group(1)) if m else None
+
+    m = _RE_COSTO_COMPLESSIVO.search(sezione4)
+    costo_complessivo = _clean_importo(m.group(1)) if m else None
+    m = _RE_QUOTA_PUBBLICA.search(sezione4)
+    quota_pubblica = _clean_importo(m.group(1)) if m else None
+    m = _RE_QUOTA_PRIVATA.search(sezione4)
+    quota_privata = _clean_importo(m.group(1)) if m else None
+
+    cronoprogramma = {"durata_giorni": None, "attivita": []}
+    m = _RE_CRONO_DURATA.search(sezione4)
+    if m:
+        cronoprogramma["durata_giorni"] = int(m.group(1))
+    cronoprogramma["attivita"] = [
+        {"nome": nome, "mese": int(mese), "anno": int(anno)}
+        for nome, mese, anno in _RE_CRONO_ATTIVITA.findall(sezione4)
+    ]
+    if not cronoprogramma["attivita"]:
+        warnings.append("Cronoprogramma non trovato in Sezione 4.5")
+
+    macrovoci = []
+    for codice, importo_raw, pct_raw in _RE_MACROVOCE_TOTALE.findall(sezione4):
+        limite = None
+        pattern_limite = _RE_MACROVOCE_LIMITE.get(codice)
+        if pattern_limite:
+            m_limite = pattern_limite.search(sezione4)
+            limite = int(m_limite.group(1)) if m_limite else None
+        macrovoci.append({
+            "codice": codice,
+            "importo": _clean_importo(importo_raw),
+            "percentuale": _clean_pct(pct_raw),
+            "limite_max_pct": limite,
+        })
+    # ``findall`` puo' incontrare piu' occorrenze dello stesso codice se il
+    # documento ripete la riga "Totale Macrovoce X." su piu' righe di
+    # rendering: dedup per codice tenendo l'ultima (quella con percentuale
+    # valorizzata), che nel campione e' sempre quella corretta.
+    macrovoci_per_codice: dict[str, dict[str, Any]] = {}
+    for voce in macrovoci:
+        macrovoci_per_codice[voce["codice"]] = voce
+    macrovoci = [macrovoci_per_codice[c] for c in ("A", "B", "C", "D") if c in macrovoci_per_codice]
+
+    m = _RE_TOTALE_PREVENTIVO.search(sezione4)
+    totale_preventivo = _clean_importo(m.group(1)) if m else None
+    m = _RE_CONTRIBUTO_RICHIESTO.search(sezione4)
+    contributo_richiesto = _clean_importo(m.group(1)) if m else None
+    m = _RE_COFINANZIAMENTO_FINALE.search(sezione4)
+    cofinanziamento = _clean_importo(m.group(1)) if m else None
+
+    somma_macrovoci = sum(v["importo"] for v in macrovoci if v["importo"] is not None) or None
+    quadratura_macrovoci_ok = _quadra(somma_macrovoci, totale_preventivo)
+    if not quadratura_macrovoci_ok:
+        warnings.append(
+            f"Le macrovoci (totale {somma_macrovoci}) non quadrano col preventivo totale ({totale_preventivo})"
+        )
+
+    somma_per_impresa = sum(
+        _clean_importo(riga[3]) or 0
+        for riga in _RE_RIEPILOGO_IMPRESA_RIGA.findall(sezione4)
+    ) or None
+    quadratura_finanziamento_per_impresa_ok = _quadra(somma_per_impresa, costo_complessivo)
+    if not quadratura_finanziamento_per_impresa_ok:
+        warnings.append(
+            f"La somma dei finanziamenti per impresa ({somma_per_impresa}) non coincide "
+            f"col costo complessivo ({costo_complessivo})"
+        )
+
+    return {
+        "finanziamento_totale": finanziamento_totale,
+        "destinatari_totale": destinatari_totale,
+        "costo_complessivo": costo_complessivo,
+        "quota_pubblica": quota_pubblica,
+        "quota_privata": quota_privata,
+        "cronoprogramma": cronoprogramma,
+        "macrovoci": macrovoci,
+        "totale_preventivo": totale_preventivo,
+        "contributo_richiesto": contributo_richiesto,
+        "cofinanziamento": cofinanziamento,
+        "quadratura_macrovoci_ok": quadratura_macrovoci_ok,
+        "quadratura_finanziamento_per_impresa_ok": quadratura_finanziamento_per_impresa_ok,
+    }
+
+
 def parse_formulario(pdf_path: str) -> dict[str, Any]:
     warnings: list[str] = []
     try:
@@ -301,8 +502,13 @@ def parse_formulario(pdf_path: str) -> dict[str, Any]:
     soggetti_partner: list[dict[str, Any]] = []
 
     idx_sezione3 = full_text.find("Sezione 3.")
+    idx_sezione4 = full_text.find("Sezione 4.")
     sezione2 = full_text[idx_sezione2:idx_sezione3] if idx_sezione2 != -1 and idx_sezione3 != -1 else ""
+    sezione3 = full_text[idx_sezione3:idx_sezione4] if idx_sezione3 != -1 and idx_sezione4 != -1 else ""
+    sezione4 = full_text[idx_sezione4:] if idx_sezione4 != -1 else ""
     imprese_beneficiarie = _parse_imprese_beneficiarie(sezione2, warnings)
+    progetti_formativi = _parse_progetti_formativi(sezione3, warnings)
+    riepilogo = _parse_riepilogo(sezione4, warnings)
 
     return {
         "piano": piano,
@@ -310,7 +516,7 @@ def parse_formulario(pdf_path: str) -> dict[str, Any]:
         "soggetto_delegato": soggetto_delegato,
         "soggetti_partner": soggetti_partner,
         "imprese_beneficiarie": imprese_beneficiarie,
-        "progetti_formativi": [],
-        "riepilogo": {},
+        "progetti_formativi": progetti_formativi,
+        "riepilogo": riepilogo,
         "warnings": warnings,
     }

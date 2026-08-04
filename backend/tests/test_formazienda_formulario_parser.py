@@ -67,3 +67,41 @@ def test_campi_vuoti_non_fanno_fallire_il_parser():
     assert paki["telefono"] is None
     assert paki["ccnl"] is None
     assert paki["welfare"] is None
+
+
+def test_progetto_formativo_ore_edizioni_e_modalita():
+    progetti = parse_formulario(str(CAMPIONE))["progetti_formativi"]
+    assert len(progetti) == 1
+    progetto = progetti[0]
+    assert progetto["titolo"] == "OPERATORE SEGRETARIALE"
+    assert progetto["ore_formazione"] == 24.0
+    assert progetto["edizioni"] == 14
+    assert progetto["modalita_attuazione"] == [
+        {"tipo": "aula", "ore": 14.0, "percentuale": 58.33},
+        {"tipo": "training_on_job", "ore": 10.0, "percentuale": 41.67},
+    ]
+
+
+def test_quadratura_costo_progetto():
+    progetto = parse_formulario(str(CAMPIONE))["progetti_formativi"][0]
+    # 14 edizioni x 3.960,00 = 55.440,00 = totale dichiarato
+    assert progetto["quadratura_costo_ok"] is True
+
+
+def test_macrovoci_e_quadratura():
+    riepilogo = parse_formulario(str(CAMPIONE))["riepilogo"]
+    macrovoci = {m["codice"]: m for m in riepilogo["macrovoci"]}
+    assert macrovoci["A"]["importo"] == 11088.0
+    assert macrovoci["A"]["limite_max_pct"] == 20
+    assert macrovoci["C"]["limite_max_pct"] == 30
+    assert riepilogo["quadratura_macrovoci_ok"] is True
+    assert riepilogo["quadratura_finanziamento_per_impresa_ok"] is True
+
+
+def test_cronoprogramma_mese_anno_senza_giorno():
+    cronoprogramma = parse_formulario(str(CAMPIONE))["riepilogo"]["cronoprogramma"]
+    assert cronoprogramma["durata_giorni"] == 180
+    avvio = next(a for a in cronoprogramma["attivita"] if a["nome"] == "Avvio Piano Formativo")
+    assert avvio == {"nome": "Avvio Piano Formativo", "mese": 5, "anno": 2026}
+    # Nessun giorno inventato: la chiave "giorno" non deve esistere.
+    assert "giorno" not in avvio
