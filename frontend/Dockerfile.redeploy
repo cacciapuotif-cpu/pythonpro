@@ -8,7 +8,7 @@ ARG APP_BUILD_DATE=unknown
 
 USER root
 RUN rm -rf -- /usr/share/nginx/html/*
-COPY build /usr/share/nginx/html
+COPY frontend/build /usr/share/nginx/html
 RUN chown -R nginx:nginx /usr/share/nginx/html
 
 LABEL org.opencontainers.image.revision="${APP_COMMIT}" \

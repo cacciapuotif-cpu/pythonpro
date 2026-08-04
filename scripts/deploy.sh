@@ -129,12 +129,13 @@ build_from_pinned_images() {
     REACT_APP_BUILD_DATE="${DEPLOY_BUILD_DATE}" \
     npm run build
   )
+  rm -- "${RELEASE_DIR}/frontend/node_modules"
   docker build --pull=false \
     --build-arg "BASE_IMAGE=pythonpro-frontend:rollback-${DEPLOY_STAMP}" \
     --build-arg "APP_COMMIT=${DEPLOY_COMMIT}" \
     --build-arg "APP_BUILD_DATE=${DEPLOY_BUILD_DATE}" \
     -f "${RELEASE_DIR}/frontend/Dockerfile.redeploy" \
-    -t pythonpro-frontend:latest "${RELEASE_DIR}/frontend"
+    -t pythonpro-frontend:latest "${RELEASE_DIR}"
 }
 
 cleanup() {
@@ -262,7 +263,8 @@ fi
 
 PRE_DB_REVISION="$(docker exec pythonpro_backend alembic current 2>/dev/null | awk '/^[0-9]+/{print $1; exit}')"
 OLD_AGENT_FLAGS="$(docker exec pythonpro_backend sh -c 'printf "%s|%s|%s|%s" "$AGENTS_ENABLED" "$AGENT_EMAIL_INTAKE_ENABLED" "$AGENT_DATA_RETENTION_ENABLED" "$ENABLE_WHATSAPP"')"
-if docker inspect pythonpro_backend --format '{{range .Mounts}}{{.Type}} {{.Destination}}\n{{end}}' | grep -q '^bind /app$'; then
+APP_MOUNT_TYPE="$(docker inspect pythonpro_backend --format '{{range .Mounts}}{{if eq .Destination "/app"}}{{.Type}}{{end}}{{end}}')"
+if [[ "${APP_MOUNT_TYPE}" == "bind" ]]; then
   OLD_RUNTIME_MODE="bind"
 fi
 
