@@ -1,8 +1,263 @@
 # PythonPro — Stato corrente
 
-**Aggiornato:** 2026-07-31 (GATE DATE-1 confermato; confutatore OK)
+**Aggiornato:** 2026-08-04 (Formazienda: Atto di adesione e Formulario riconosciuti)
 **Branch:** `claude/platform-audit-compliance-XnH86` (locale, **nessun push**)
 **Percorso:** `/DATA/progetti/pythonpro`
+
+## ✅ FORMAZIENDA — ATTO DI ADESIONE E FORMULARIO RICONOSCIUTI COME ATTO CONCESSORIO — 2026-08-04
+
+**Compito:** l'utente era bloccato a meta' creazione di un progetto reale:
+il wizard "Nuovo progetto" trattava il documento di concessione come se
+fosse sempre la convenzione FAPI (ente + aziende beneficiarie + codici
+progetto). L'Allegato E Formazienda porta l'ente ma **mai** aziende
+beneficiarie: caricarlo lasciava l'ente attuatore "Non disponibile" e la
+Delivery bloccata per sempre, perche' il flusso "Formazienda" nel wizard
+era un `PlaceholderDocumentModal` — nessuna chiamata al backend, nessun
+progetto creato davvero.
+
+**Causa radice trovata:** tre problemi distinti, non uno solo.
+1. Il modale Formazienda del wizard era letteralmente finto (nessun
+   endpoint dietro).
+2. Il gate "ha convenzione" controllava solo `tipo_documento == "convenzione"`,
+   mai `"atto_concessione"` (il tipo che Formazienda avrebbe dovuto usare).
+3. Il picker aziende della Delivery era incondizionatamente perimetro-ristretto
+   alle aziende create dalla convenzione: per un fondo che non le fornisce,
+   il perimetro resta vuoto per sempre e blocca la selezione manuale anche
+   dopo aver sbloccato l'ente.
+
+**Cosa e' stato costruito** (piano completo in
+`docs/superpowers/plans/2026-08-04-formazienda-atto-adesione.md`, 16 task):
+- `services/atto_concessorio_registry.py`: dichiarazione per fondo di cosa
+  fornisce l'atto concessorio (ente si/no, aziende si/no). FAPI invariato
+  (fornisce entrambi); Formazienda dichiara aziende=no; Fondimpresa
+  predisposto nella struttura ma non attivato (nessun cambio al suo router
+  esistente, che oggi non versiona documenti).
+- Gate `crud.project_has_current_convenzione` esteso ad accettare anche
+  `atto_concessione`.
+- Delivery selettiva: `crud._validate_delivery_update` e
+  `routers/projects.py` (`delivery-companies`, `delivery-companies/.../students`)
+  usano il catalogo globale invece del perimetro quando il fondo non
+  dichiara aziende. FAPI resta perimetro-ristretto (nessuna regressione).
+- `services/documento_progetto.archivia_documento_progetto`: estratta da
+  `convenzione_upload._archivia_documento` per essere condivisa tra router.
+- `services/parsers/formazienda/atto_adesione_parser.py`: piano, avviso,
+  importi A/B/C, ente attuatore e legale rappresentante dall'Allegato E
+  reale, con le due trappole gestite dal contesto della frase (piede di
+  pagina = approvazione del modulo, non del piano; sottoscrizione = firma
+  digitale, non emissione).
+- `routers/formazienda_upload.py`: upload/confirm Atto di adesione
+  (crea o associa progetto) + upload/confirm Formulario (Allegato A,
+  sempre dentro un progetto esistente: i due documenti sono complementari).
+- `services/parsers/formazienda/formulario_parser.py`: soggetto gestore,
+  soggetto delegato (con importo/percentuale), 14 imprese beneficiarie con
+  tutti i dati identificativi, progetto formativo, macrovoci A/B/C/D con
+  limiti dichiarati, cronoprogramma, con doppia verifica di quadratura
+  (edizioni x finanziamento/edizione, macrovoci vs preventivo, somma per
+  impresa vs costo complessivo) che segnala invece di importare numeri
+  incoerenti.
+- Migration 074: `AziendaCliente.classe_dimensionale` (il dato piu'
+  prezioso dell'Allegato A) e tabella `project_soggetti_delegati` (la
+  delega e' verificata dai controlli del fondo, va registrata non solo
+  mostrata). Non applicata a nessun DB reale.
+- Frontend: `AttoAdesioneFormaziendaModal` e `FormularioFormaziendaModal`
+  sostituiscono il placeholder; hint di ricerca aziende differenziato per
+  fondo nello Step Delivery.
+
+**Confutatore** (cosa ho provato a smentire prima di chiudere):
+- *"Forse il perimetro vuoto non e' un problema reale, magari l'operatore
+  puo' comunque salvare senza aziende"* — no: `_validate_delivery_update`
+  rifiutava con 422 qualunque `azienda_ids` non gia' nel perimetro, quindi
+  un progetto Formazienda con zero aziende linkate dal parser non poteva
+  MAI ricevere aziende via Delivery, nemmeno una alla volta. Verificato con
+  test che riproduce esattamente questo scenario (`test_formazienda_aziende_selezionabili_dal_catalogo_globale`)
+  prima del fix, dove falliva con "Aziende fuori dal perimetro".
+- *"Forse i regex sulle trappole (data approvazione, sottoscrizione)
+  funzionano solo sul testo descritto a voce, non sul PDF vero"* — costruiti
+  e testati contro `imports/formazienda/ALLEGATO E.pdf` e `ALLEGATO A.pdf`
+  reali (non fixture sintetiche): il footer "Data approvazione: 03/08/2022"
+  compare 4 volte nell'Allegato E e non e' mai stato preso per la delibera
+  del piano (11/06/2026, verificato dal test).
+- *"Forse estendere il gate a `atto_concessione` rompe qualcosa per FAPI o
+  Fondimpresa"* — suite completa backend eseguita due volte dopo il
+  cambio (prima e dopo Task 14): 1065 passed, 8 skipped, zero regressioni
+  nei test FAPI/UX-6/Fondimpresa esistenti.
+- *"Forse i dati dell'Allegato A rompono la creazione azienda per qualche
+  vincolo del modello"* — successo: `AziendaCliente.provincia` richiede
+  la sigla di 2 lettere ma l'Allegato A riporta il nome esteso della
+  provincia ("NAPOLI" non "NA"). Trovato SOLO eseguendo il test contro il
+  PDF reale (non sarebbe emerso da dati sintetici); risolto non mappando
+  quel campo invece di inventare una tabella di conversione.
+
+**Verifica reale eseguita** (automatica, non browser — vedi nota sotto):
+- Backend: `pytest` completo, **1065 passed, 8 skipped**, eseguito due volte
+  (dopo Task 6 e dopo Task 15) su schema SQLite generato da `models.py`.
+- Frontend: `react-scripts test --watchAll=false` completo, **338 passed**,
+  **1 failed** in `PianoTemplateWizard.test.js` (interazione Escape/conferma
+  su un componente mai toccato da questo lavoro — pre-esistente, non una
+  regressione: verificato che l'ultimo commit su quel file precede questa
+  sessione).
+- Parser Allegato E: 6/6 test contro il PDF reale, incluse le due trappole
+  verificate sul documento (`test_formazienda_atto_adesione_parser.py`).
+- Parser Allegato A: 11/11 test contro il PDF reale (14 imprese, ditta
+  individuale con CF personale diverso da P.IVA, campi vuoti, quadratura
+  costo progetto, macrovoci, cronoprogramma) (`test_formazienda_formulario_parser.py`).
+- Router end-to-end (upload→confirm, via `TestClient` con i PDF reali):
+  6/6 in `test_formazienda_upload.py`, incluso il caso file illeggibile
+  (archiviato comunque, nessun 500).
+- **Non eseguita**: verifica manuale nel browser reale (docker-compose non
+  avviato — rischio di toccare un DB potenzialmente condiviso con dati
+  reali senza autorizzazione esplicita). Le sei prove del Punto 5 e le
+  otto del punto Allegato A sono verificate via `TestClient` FastAPI
+  contro i PDF reali, non via UI cliccata; equivalente funzionale, non
+  equivalente visivo.
+
+**Esiti dei sei casi (Allegato E, dal compito originale):**
+1. Progetto Formazienda da `ALLEGATO E.pdf` → ente derivato (NEXT GROUP
+   S.R.L.), nessun blocco residuo: **verificato**
+   (`test_confirm_crea_progetto_formazienda_con_ente_derivato_e_nessun_blocco`).
+2. Aziende/sedi/allievi selezionabili a mano, progetto si crea: **verificato**
+   (`test_formazienda_aziende_selezionabili_dal_catalogo_globale`).
+3. Data approvazione piano = 11/06/2026 (delibera, non 03/08/2022 del
+   piede di pagina); sottoscrizione = 01/07/2026 (firma digitale, non
+   10/08/2022 emissione); importi A/B/C = 55.440,00 / 0,00 / 55.440,00:
+   **verificato** (`test_trappola_*`, `test_importi_a_b_c`).
+4. Documento archiviato nel progetto (`tipo_documento="atto_concessione"`,
+   versionato): **verificato**. Archivio Risorse: quella sezione oggi
+   e' Avvisi-only (bandi/regolamenti), non documenti di progetto —
+   nessuna falsa dichiarazione qui, i documenti di progetto restano
+   nell'endpoint `/{project_id}/documenti` come per FAPI.
+5. Progetto FAPI con convenzione: nessuna regressione, aziende ancora
+   proposte dal documento: **verificato** (suite `test_project_delivery_scope.py`
+   e `test_ux6b_bivio_convenzione.py` invariate, 47+ test verdi).
+6. Documento illeggibile: archiviato comunque, inserimento manuale
+   possibile: **verificato** (`test_documento_illeggibile_si_archivia_comunque_e_permette_inserimento_manuale`).
+
+**Esiti degli otto casi (Allegato A, aggiunta al compito):**
+1. 14 imprese estratte con ragione sociale reale, P.IVA, ATECO, matricola
+   INPS, classe dimensionale, regime de minimis: **verificato**.
+2. Soggetto Gestore (NEXT GROUP) assente dalle beneficiarie: **verificato**.
+3. Soggetto Delegato (A.M.D. S.R.L.) registrato con importo 14.000,00 €
+   e percentuale 25,25%: **verificato**.
+4. Progetto formativo con ore (24), edizioni (14), ripartizione aula
+   (14h/58,33%) + training on the job (10h/41,67%): **verificato**.
+5. Macrovoci quadrano col totale (A 20% max, B, C 30% max, D), somma per
+   impresa coincide col costo complessivo: **verificato**.
+6. Cronoprogramma popola le 4 attivita' come proposta (mese/anno, mai un
+   giorno inventato): **verificato**.
+7. Allegato E + Allegato A sullo stesso progetto: nessun dato duplicato,
+   divergenze segnalate nei warning: **verificato**
+   (`test_divergenza_tra_allegato_a_ed_e_viene_segnalata`).
+8. Entrambi i PDF archiviati sul progetto (`atto_concessione` +
+   `formulario`): **verificato**.
+
+**Commit locali** (nessun push): `c57ccec` → `9255b18`, 16 commit atomici,
+uno per task del piano. Vedi `git log --oneline c57ccec^..9255b18`.
+
+**ATTO DI ADESIONE FORMAZIENDA RICONOSCIUTO COME ATTO CONCESSORIO: SÌ**
+
+## ✅ DELIVERY DERIVATA DA CONVENZIONE E PERIMETRO PROGETTO — 2026-08-03
+
+Chiuso il caricamento globale dello Step 3 Delivery. La ricognizione ha
+confermato che non esiste una FK `convenzione_id`: la convenzione e' un
+`ProjectDocumento`, mentre `azienda_cliente_projects` e' il perimetro aziende
+materializzato dalla conferma del documento. Non e' servita una migration.
+
+- `GET /projects/{id}/delivery-context` espone la convenzione corrente e
+  l'ente attuatore derivato; senza convenzione restituisce il motivo bloccante
+  `Collega prima la convenzione al progetto`.
+- `GET /projects/{id}/delivery-companies` richiede sempre il progetto, filtra
+  esclusivamente i link di quel progetto, ricerca su ragione sociale/P.IVA con
+  `q`, `limit` (20, max 50) e `offset`; il payload non contiene allievi o loro
+  conteggi.
+- Gli allievi arrivano solo da
+  `/projects/{id}/delivery-companies/{azienda_id}/students`, dopo espansione
+  esplicita dell'azienda. Il frontend non usa piu' `getAziendeClienti` ne'
+  `caricaTuttiGliAllievi` nel wizard.
+- L'ente e' read-only. Il PUT del wizard viene rifiutato con 422 se manca la
+  convenzione o se l'ente inviato non coincide con quello del progetto.
+- Nuovo typeahead con debounce e paginazione server-side; nessun filtro locale
+  del catalogo e nessun preload allievi.
+
+Test aggiunti senza modificare i test esistenti: 8 backend (incluso seed 500
+aziende, 480 fuori perimetro) e 2 frontend. Suite complete dopo il follow-up:
+backend **1034 passed / 8 skipped**, frontend **45 suite / 336 test**, build
+produzione verde.
+Confutatore: rimosso temporaneamente il filtro `project_id`; il test di
+perimetro e' diventato rosso (`{1,2,3,4,5}` contro `{1,2,3,4}`), poi il filtro
+e' stato ripristinato e lo stesso test e' tornato verde.
+
+Follow-up sulla discrepanza Home/Delivery: il context ora espone sempre in sola
+lettura l'ente gia' identificato sul progetto, mantenendo il blocco operativo
+se manca una convenzione corrente. Inoltre `formulario` e `piano_finanziario`
+non sovrascrivono piu' il vecchio `convenzione_file_path`; la UI FAPI dichiara
+una convenzione caricata solo se esiste davvero un `ProjectDocumento` corrente
+di tipo `convenzione`. Commit locali `bc2ed37` e `3b79724`, nessun push.
+
+Runtime ricostruito e ricreato, backend/frontend healthy, bundle live
+`main.4c6bd77a.js`. Verifica autenticata reale sul progetto #11: context HTTP
+200, `ente_attuatore=Next Group srl`, `has_convenzione=true`. Alle 16:38 locali
+risulta infatti aggiunto il documento corrente
+`convenzioneAvviso012022_20250611CMIA001.pdf`, distinto dal formulario del
+31 luglio. Nessun dato reale e' stato creato o alterato durante il follow-up.
+
+La sede di prova creata al caso 5 del collaudo UI reale e' stata rinominata,
+su autorizzazione utente, da `Aula Delivery UI 1785753389697` a
+`Martinelli Carmela - Sede AZ11-008`: ragione sociale + codice stabile composto
+da azienda 11 e sede 8, senza riferimenti a Delivery. API update HTTP 200 e
+successiva lettura progetto #11 confermano il nuovo nome sia in anagrafica sia
+nel Delivery; indirizzo e associazioni sono rimasti invariati.
+
+**DELIVERY PERIMETRATA DALLA CONVENZIONE: SI'.**
+
+## ✅ FIX INVIA SOLLECITO DOCUMENTI — 2026-08-03
+
+Corretto il caso reale in Documenti Mancanti: il pulsante “Invia sollecito”
+usava `window.open(mailto:...)`, quindi il browser apriva il provider email
+associato al protocollo `mailto` (nel caso osservato, login Libero) invece di
+inviare dall'applicazione.
+
+Il frontend ora chiama `POST /api/v1/documenti-richiesti/sollecita`; il backend
+raggruppa i documenti richiesti/scaduti per collaboratore, invia una sola email
+tramite l'SMTP PythonPro e il template `sollecito_documento`, registra l'esito
+in `audit_log` e restituisce un messaggio visibile. Ruoli ammessi: admin e
+operatore; consultazione bloccata. Il bulk usa lo stesso percorso. L'URL di
+caricamento deriva da `DOCUMENT_UPLOAD_URL_BASE` oppure, in fallback sicuro,
+dall'origine di `PASSWORD_RESET_URL_BASE`. Rimossi dal template logo e contatti
+segnaposto.
+
+Verifiche: backend mirato email/sicurezza **14 passed**; frontend dedicato
+**2 passed**; build produzione verde. Backend/frontend ricostruiti e ricreati;
+entrambi healthy, health HTTP 200, endpoint presente in OpenAPI e bundle live
+`main.f0264d75.js` contiene `documenti-richiesti/sollecita`. SMTP e URL pubblico
+risultano configurati, `SMTP_TEST_MODE=false`; autenticazione SMTP reale
+verificata `ok` senza inviare messaggi. Nessuna email reale inviata nei
+test/smoke. Prossimo passo utente: ricaricare la pagina e riprovare “Invia
+sollecito”; deve restare in PythonPro e mostrare l'esito dell'invio.
+
+## ✅ RIPRISTINO RUNTIME — 2026-08-01
+
+PythonPro non era raggiungibile sulla porta `3001`: frontend fermo e backend
+in uscita durante il bootstrap. Causa: modifica DATE-2 incompleta in
+`backend/models.py`; `Project` dichiarava una relazione verso
+`ProjectTermState`, ma il modello non era definito/registrato. Rimosso soltanto
+il blocco di relazione incompleto, preservando gli alias data DATE-2 e le altre
+modifiche locali; nessuna migration o modifica DB eseguita.
+
+Stack riavviato con Docker Compose. Verifica finale: backend, frontend, Redis,
+PostgreSQL e ARQ worker healthy; `http://127.0.0.1:3001` risponde `200 OK`;
+health frontend/proxy e backend entrambi `{"status":"ok"}`. Nessun commit e
+nessun push.
+
+Secondo ripristino nella stessa giornata: interfaccia raggiungibile ma liste
+progetti, collaboratori e avvisi vuote. I dati erano integri nel DB reale
+(2 progetti, 23 collaboratori, 2 avvisi); le API fallivano perché il modello
+DATE-2 conteneva anche `Project.data_sottoscrizione`, colonna non ancora
+presente nello schema Alembic 070. Rimosso esclusivamente il campo incompleto
+dal modello, senza migration e senza modifiche ai dati, quindi riavviato il
+backend. Verifica ORM post-fix: progetti #5 `poppi` e #11
+`MAXI COMMUNICATION`, 23 collaboratori con relazioni leggibili, avvisi #8 FAPI
+6/2025 e #10 FAPI 2/2022; frontend e backend health 200. DATE-2 resta pendente:
+il campo potrà essere reintrodotto soltanto insieme alla migration completa.
 
 ## ✅ GATE DATE-1 — REGOLE DURATA PROGETTO — 2026-07-31
 

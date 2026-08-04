@@ -2,6 +2,52 @@
 
 Formato: data | finding ID | cosa fatto | file toccati | test/verifiche eseguiti
 
+## 2026-08-04 | FORMAZIENDA-ATTO-CONCESSORIO | Atto di adesione e Formulario riconosciuti come atto concessorio
+
+- Root cause: il wizard "Nuovo progetto" presumeva che l'atto concessorio
+  contenesse sempre ente + aziende beneficiarie (vero per la convenzione
+  FAPI). Per Formazienda l'Allegato E porta solo l'ente: il modale del
+  wizard per Formazienda (`atto-formazienda`) era un
+  `PlaceholderDocumentModal` che non chiamava nessun backend, e anche
+  sistemando quello il gate `project_has_current_convenzione` controllava
+  solo `tipo_documento == "convenzione"` e il picker aziende della Delivery
+  era incondizionatamente perimetro-ristretto — un progetto Formazienda
+  restava bloccato su tre fronti indipendenti, non uno.
+- Fix: registro dichiarativo per fondo (`services/atto_concessorio_registry.py`)
+  che dice cosa fornisce l'atto concessorio di ciascun fondo; gate esteso
+  ad accettare `atto_concessione` oltre a `convenzione`; Delivery sceglie
+  tra perimetro (FAPI) e catalogo globale (Formazienda) in base alla
+  dichiarazione, invece di assumere sempre il perimetro. Due nuovi parser
+  (`services/parsers/formazienda/atto_adesione_parser.py`,
+  `formulario_parser.py`) e un nuovo router
+  (`routers/formazienda_upload.py`) sostituiscono il placeholder con un
+  flusso reale di upload/confirm per entrambi i documenti (Allegato E +
+  Allegato A, complementari). Migration 074 aggiunge
+  `AziendaCliente.classe_dimensionale` e la tabella
+  `project_soggetti_delegati`.
+- File toccati: `backend/services/atto_concessorio_registry.py` (nuovo),
+  `backend/crud.py`, `backend/routers/projects.py`,
+  `backend/services/documento_progetto.py`,
+  `backend/routers/convenzione_upload.py`,
+  `backend/services/parsers/formazienda/` (nuovo, 2 parser),
+  `backend/routers/formazienda_upload.py` (nuovo),
+  `backend/models.py`, `backend/alembic/versions/074_formazienda_classe_dimensionale_e_delega.py` (nuovo),
+  `frontend/src/services/apiService.js`, `frontend/src/components/FapiUpload.js`,
+  `frontend/src/components/ProjectManager.js`.
+- Test/verifiche eseguite: suite backend completa 1065 passed / 8 skipped
+  (eseguita due volte, nessuna regressione FAPI/Fondimpresa/UX-6); suite
+  frontend 338 passed / 1 failed pre-esistente e non correlato
+  (`PianoTemplateWizard.test.js`, file mai toccato in questo lavoro);
+  parser Allegato E 6/6 e parser Allegato A 11/11 contro i PDF reali
+  (`imports/formazienda/ALLEGATO E.pdf`, `ALLEGATO A.pdf`); router
+  end-to-end 6/6 via `TestClient` con i PDF reali. Verifica manuale
+  browser NON eseguita (docker-compose non avviato, evitato senza
+  autorizzazione esplicita per rischio DB condiviso). Migration 074 non
+  applicata a nessun DB reale. Nessun push: 16 commit locali
+  `c57ccec`..`9255b18` su `claude/platform-audit-compliance-XnH86`.
+  Dettaglio completo in `STATUS.md` (sezione FORMAZIENDA — 2026-08-04) e
+  piano in `docs/superpowers/plans/2026-08-04-formazienda-atto-adesione.md`.
+
 ## 2026-08-03 | PRJ-DELIVERY-ENTITY-FOLLOWUP | Ente visibile e tipo documento corretto
 
 - Causa Home/Delivery: Home leggeva `Project.ente_attuatore_id`, mentre il
