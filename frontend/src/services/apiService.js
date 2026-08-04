@@ -1337,5 +1337,33 @@ export const uploadRiepilogoFondimpresa = (projectId, file) => {
 export const confirmRiepilogoFondimpresa = (projectId, previewToken) =>
   http.post(`/projects/${projectId}/fondimpresa/confirm-riepilogo`, { preview_token: previewToken }).then(r => r.data);
 
+// ── Formazienda document upload ───────────────────────────────────────────
+export const uploadAttoAdesioneFormazienda = (file) => {
+  const fd = new FormData();
+  fd.append('file', file);
+  return http.post('/projects/formazienda/upload-atto-adesione', fd, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }).then(r => r.data);
+};
+export const confirmAttoAdesioneFormazienda = (previewToken, options = {}) =>
+  http.post('/projects/formazienda/confirm-atto-adesione', {
+    preview_token: previewToken,
+    ...options,
+  }).then(r => r.data);
+
+// UX-6: dalla scheda di un progetto l'atto si ALLEGA al progetto aperto.
+export const uploadAttoAdesioneFormaziendaProgetto = (projectId, file) => {
+  const fd = new FormData();
+  fd.append('file', file);
+  return http.post(`/projects/${projectId}/formazienda/upload-atto-adesione`, fd, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }).then(r => r.data);
+};
+export const confirmAttoAdesioneFormaziendaProgetto = (projectId, previewToken, campiDaApplicare = []) =>
+  http.post(`/projects/${projectId}/formazienda/confirm-atto-adesione`, {
+    preview_token: previewToken,
+    campi_da_applicare: campiDaApplicare,
+  }).then(r => r.data);
+
 export { apiService };
 export default apiService;

@@ -18,6 +18,9 @@ import {
   confirmConvenzioneProgetto,
   uploadAmmissioneFondimpresa,
   uploadAmmissioneFondimpresaProgetto,
+  uploadAttoAdesioneFormazienda,
+  confirmAttoAdesioneFormazienda,
+  uploadAttoAdesioneFormaziendaProgetto,
   getDocumentiProgetto,
 } from '../services/apiService';
 
@@ -36,6 +39,10 @@ jest.mock('../services/apiService', () => ({
   confirmAmmissioneFondimpresaProgetto: jest.fn(),
   uploadRiepilogoFondimpresa: jest.fn(),
   confirmRiepilogoFondimpresa: jest.fn(),
+  uploadAttoAdesioneFormazienda: jest.fn(),
+  confirmAttoAdesioneFormazienda: jest.fn(),
+  uploadAttoAdesioneFormaziendaProgetto: jest.fn(),
+  confirmAttoAdesioneFormaziendaProgetto: jest.fn(),
   getDocumentiProgetto: jest.fn(),
   downloadDocumentoProgetto: jest.fn(),
 }));
@@ -302,6 +309,49 @@ test('anche Fondimpresa allega al progetto invece di crearne uno nuovo', async (
     expect(uploadAmmissioneFondimpresaProgetto).toHaveBeenCalledWith(7, expect.any(File))
   );
   expect(uploadAmmissioneFondimpresa).not.toHaveBeenCalled();
+});
+
+test('carica atto adesione Formazienda e crea il progetto senza passare dal placeholder', async () => {
+  uploadAttoAdesioneFormazienda.mockResolvedValue({
+    preview_token: 'tok-formazienda',
+    piano: { titolo: 'WHITE FORM', id_piano_esterno: '222-S2621', avviso: '2/2022' },
+    ente_attuatore: { ragione_sociale: 'NEXT GROUP S.R.L.', partita_iva: '06615351217', exists_in_db: false },
+    aziende_beneficiarie: [],
+    warnings: [],
+  });
+  confirmAttoAdesioneFormazienda.mockResolvedValue({ project_id: 42 });
+
+  render(<FapiUploadSection project={null} autoOpenConvenzione autoOpenMode="atto-formazienda" />);
+  await selezionaFile();
+
+  await waitFor(() => expect(uploadAttoAdesioneFormazienda).toHaveBeenCalledWith(expect.any(File)));
+  expect(await screen.findByText('WHITE FORM')).toBeInTheDocument();
+  expect(await screen.findByText('NEXT GROUP S.R.L.')).toBeInTheDocument();
+  expect(screen.queryByText(/flusso backend specifico non ancora disponibile/i)).not.toBeInTheDocument();
+
+  await cliccaEAttendi(await screen.findByRole('button', { name: /Conferma e Crea Progetto/i }));
+  expect(confirmAttoAdesioneFormazienda).toHaveBeenCalledWith('tok-formazienda', expect.any(Object));
+  expect(await screen.findByText(/Progetto Formazienda creato/i)).toBeInTheDocument();
+});
+
+test('dentro un progetto Formazienda l atto si allega, non crea un gemello', async () => {
+  uploadAttoAdesioneFormaziendaProgetto.mockResolvedValue({
+    preview_token: 'tok-formazienda-progetto',
+    project_id: 7,
+    diff: [],
+    piano: { titolo: 'WHITE FORM' },
+    ente_attuatore: {},
+    aziende_beneficiarie: [],
+    warnings: [],
+  });
+  render(<FapiUploadSection project={{ id: 7, ente_erogatore: 'Formazienda' }} />);
+  fireEvent.click(screen.getByRole('button', { name: /Atto adesione/i }));
+  await selezionaFile();
+
+  await waitFor(() =>
+    expect(uploadAttoAdesioneFormaziendaProgetto).toHaveBeenCalledWith(7, expect.any(File))
+  );
+  expect(uploadAttoAdesioneFormazienda).not.toHaveBeenCalled();
 });
 
 test('con match globale propone tre azioni e associa e la predefinita', async () => {

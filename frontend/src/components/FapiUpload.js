@@ -7,6 +7,8 @@ import {
   uploadAmmissioneFondimpresa, confirmAmmissioneFondimpresa,
   uploadAmmissioneFondimpresaProgetto, confirmAmmissioneFondimpresaProgetto,
   uploadRiepilogoFondimpresa, confirmRiepilogoFondimpresa,
+  uploadAttoAdesioneFormazienda, confirmAttoAdesioneFormazienda,
+  uploadAttoAdesioneFormaziendaProgetto, confirmAttoAdesioneFormaziendaProgetto,
   getDocumentiProgetto, downloadDocumentoProgetto, getDocumentoProgettoDeletionImpact,
   deleteDocumentoProgetto, archiveDocumentoProgetto,
 } from '../services/apiService';
@@ -1173,6 +1175,125 @@ function RiepilogoFondimpresaModal({ projectId, onClose, onSuccess }) {
   );
 }
 
+// ── Modal Atto di adesione Formazienda ───────────────────────────────────────
+
+function AttoAdesioneFormaziendaModal({ projectId, onClose, onSuccess }) {
+  const {
+    associa, step, preview, error, campiScelti, handleFile, handleConfirm, toggleCampo,
+  } = useDocumentoProgetto({
+    projectId,
+    upload: uploadAttoAdesioneFormazienda,
+    uploadProgetto: uploadAttoAdesioneFormaziendaProgetto,
+    conferma: confirmAttoAdesioneFormazienda,
+    confermaProgetto: confirmAttoAdesioneFormaziendaProgetto,
+  });
+  const [dataAvvioPiano, setDataAvvioPiano] = useState('');
+
+  async function creaProgetto() {
+    await handleConfirm(onSuccess, {
+      createPayload: { data_avvio_piano: dataAvvioPiano || undefined },
+    });
+  }
+
+  return (
+    <div className="fapi-modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="fapi-modal">
+        <h3>
+          {associa ? '📄 Allega Atto di adesione al progetto' : '📄 Carica Atto di adesione (Formazienda)'}
+        </h3>
+        {associa && <NotaAssociazione />}
+        {error && <div className="fapi-error">⚠️ {error}</div>}
+        {step === 'pick' && (
+          <DropZone accept=".pdf" onFile={handleFile} label="Trascina o clicca per selezionare l'Atto di adesione PDF" />
+        )}
+        {step === 'uploading' && (
+          <div style={{ textAlign: 'center', padding: '2rem', fontSize: 13 }}>⏳ Parsing del PDF…</div>
+        )}
+        {(step === 'preview' || step === 'confirming') && preview && (
+          <div className="fapi-preview">
+            {preview.warnings?.map((w, i) => <div key={i} className="fapi-warning">⚠️ {w}</div>)}
+            {associa && (
+              <DiffProgetto diff={preview.diff} campiScelti={campiScelti} onToggle={toggleCampo} />
+            )}
+            <div className="fapi-preview-section">
+              <strong>Piano Formazienda</strong>
+              <table>
+                <tbody>
+                  <tr><td>ID Piano</td><td>{preview.piano?.id_piano_esterno || '—'}</td></tr>
+                  <tr><td>Titolo</td><td>{preview.piano?.titolo || '—'}</td></tr>
+                  <tr><td>Avviso</td><td>{preview.piano?.avviso || '—'}</td></tr>
+                  <tr><td>Delibera (approvazione piano)</td><td>{preview.piano?.delibera_data || '—'}</td></tr>
+                  <tr><td>Sottoscrizione</td><td>{preview.piano?.data_sottoscrizione || '—'}</td></tr>
+                  <tr><td>A - Quota pubblica</td><td>{formatEuro(preview.piano?.quota_pubblica)}</td></tr>
+                  <tr><td>B - Cofinanziamento</td><td>{formatEuro(preview.piano?.cofinanziamento)}</td></tr>
+                  <tr><td>C - Autofinanziamento</td><td>{formatEuro(preview.piano?.autofinanziamento)}</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div className="fapi-preview-section">
+              <strong>Ente Attuatore</strong>
+              <table>
+                <tbody>
+                  <tr>
+                    <td>{preview.ente_attuatore?.ragione_sociale || '—'}</td>
+                    <td>P.IVA {preview.ente_attuatore?.partita_iva || '—'}</td>
+                    <td>
+                      {preview.ente_attuatore?.exists_in_db
+                        ? <span className="badge-exists">Nel sistema</span>
+                        : <span className="badge-new">Nuovo</span>}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div className="fapi-domain-note">
+              L'Atto di adesione non elenca aziende beneficiarie: aziende, sedi e
+              allievi restano da selezionare a mano nello Step Delivery del progetto.
+            </div>
+            {!associa && (
+              <div className="fapi-preview-section fapi-confirm-metadata">
+                <strong>Date amministrative</strong>
+                <label>
+                  Data avvio piano
+                  <input
+                    aria-label="Data avvio piano"
+                    type="date"
+                    value={dataAvvioPiano}
+                    onChange={event => setDataAvvioPiano(event.target.value)}
+                  />
+                </label>
+              </div>
+            )}
+          </div>
+        )}
+        {step === 'done' && preview?._result && (
+          <div className="fapi-success">
+            {associa ? (
+              <EsitoAssociazione result={preview._result} />
+            ) : (
+              <>✅ Progetto Formazienda creato — ID: <strong>{preview._result.project_id}</strong></>
+            )}
+          </div>
+        )}
+        <div className="fapi-modal-footer">
+          <button className="fapi-btn" onClick={onClose}>{step === 'done' ? 'Chiudi' : 'Annulla'}</button>
+          {step === 'preview' && (
+            <button
+              className="fapi-btn primary"
+              onClick={associa ? () => handleConfirm(onSuccess) : creaProgetto}
+            >
+              {associa ? '✅ Allega al progetto' : '✅ Conferma e Crea Progetto'}
+            </button>
+          )}
+          {step === 'confirming' && (
+            <button className="fapi-btn primary" disabled>⏳ Operazione in corso…</button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function NuovoPianoModal({ onChoose, onClose }) {
   const cards = [
     {
@@ -1359,13 +1480,14 @@ export function FapiUploadSection({ project, currentUser, onRefresh, autoOpenCon
         />
       )}
       {!isMobile && modal === 'atto-formazienda' && (
-        <PlaceholderDocumentModal
-          title="🏢 Carica Atto adesione Formazienda"
-          label="Trascina o clicca per selezionare l'atto adesione PDF"
-          confirmLabel="✅ Conferma documento"
-          doneMessage="✅ Documento acquisito in anteprima. Prosegui con il wizard/manuale operativo."
+        <AttoAdesioneFormaziendaModal
+          projectId={project?.id}
           onClose={() => { setModal(null); onAutoClose && onAutoClose(); }}
-          onSuccess={() => { setModal(null); onAutoClose && onAutoClose(); onRefresh && onRefresh(); }}
+          onSuccess={() => {
+            setDocumentRefreshKey(value => value + 1);
+            onAutoClose && onAutoClose();
+            onRefresh && onRefresh();
+          }}
         />
       )}
       {!isMobile && modal === 'altro-ente' && (
