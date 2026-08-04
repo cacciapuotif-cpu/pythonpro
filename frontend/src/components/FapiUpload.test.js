@@ -21,6 +21,7 @@ import {
   uploadAttoAdesioneFormazienda,
   confirmAttoAdesioneFormazienda,
   uploadAttoAdesioneFormaziendaProgetto,
+  uploadFormularioFormazienda,
   getDocumentiProgetto,
 } from '../services/apiService';
 
@@ -43,6 +44,8 @@ jest.mock('../services/apiService', () => ({
   confirmAttoAdesioneFormazienda: jest.fn(),
   uploadAttoAdesioneFormaziendaProgetto: jest.fn(),
   confirmAttoAdesioneFormaziendaProgetto: jest.fn(),
+  uploadFormularioFormazienda: jest.fn(),
+  confirmFormularioFormazienda: jest.fn(),
   getDocumentiProgetto: jest.fn(),
   downloadDocumentoProgetto: jest.fn(),
 }));
@@ -352,6 +355,28 @@ test('dentro un progetto Formazienda l atto si allega, non crea un gemello', asy
     expect(uploadAttoAdesioneFormaziendaProgetto).toHaveBeenCalledWith(7, expect.any(File))
   );
   expect(uploadAttoAdesioneFormazienda).not.toHaveBeenCalled();
+});
+
+test('carica formulario Formazienda e mostra imprese, delega e macrovoci', async () => {
+  uploadFormularioFormazienda.mockResolvedValue({
+    preview_token: 'tok-formulario',
+    project_id: 7,
+    imprese_beneficiarie: [
+      { ragione_sociale: 'PAKI UNITED FOREVER S.R.L.S.', partita_iva: '08951911216', matricola_inps: '5138462742', codice_ateco: '38.21.40', classe_dimensionale: 'micro', regime_aiuti: 'de_minimis' },
+    ],
+    soggetto_delegato: { ragione_sociale: 'A.M.D. S.R.L.', importo: 14000, percentuale: 25.25 },
+    progetti_formativi: [{ titolo: 'OPERATORE SEGRETARIALE', ore_formazione: 24, edizioni: 14, modalita_attuazione: [{ tipo: 'aula', ore: 14, percentuale: 58.33 }], quadratura_costo_ok: true }],
+    riepilogo: { macrovoci: [{ codice: 'A', importo: 11088, percentuale: 20, limite_max_pct: 20 }] },
+    warnings: [],
+  });
+  render(<FapiUploadSection project={{ id: 7, ente_erogatore: 'Formazienda' }} />);
+  fireEvent.click(screen.getByRole('button', { name: /Carica Formulario/i }));
+  await selezionaFile();
+
+  await waitFor(() => expect(uploadFormularioFormazienda).toHaveBeenCalledWith(7, expect.any(File)));
+  expect(await screen.findByText('PAKI UNITED FOREVER S.R.L.S.')).toBeInTheDocument();
+  expect(screen.getByText('A.M.D. S.R.L.')).toBeInTheDocument();
+  expect(screen.getByText(/OPERATORE SEGRETARIALE/i)).toBeInTheDocument();
 });
 
 test('con match globale propone tre azioni e associa e la predefinita', async () => {

@@ -9,6 +9,7 @@ import {
   uploadRiepilogoFondimpresa, confirmRiepilogoFondimpresa,
   uploadAttoAdesioneFormazienda, confirmAttoAdesioneFormazienda,
   uploadAttoAdesioneFormaziendaProgetto, confirmAttoAdesioneFormaziendaProgetto,
+  uploadFormularioFormazienda, confirmFormularioFormazienda,
   getDocumentiProgetto, downloadDocumentoProgetto, getDocumentoProgettoDeletionImpact,
   deleteDocumentoProgetto, archiveDocumentoProgetto,
 } from '../services/apiService';
@@ -1294,6 +1295,154 @@ function AttoAdesioneFormaziendaModal({ projectId, onClose, onSuccess }) {
   );
 }
 
+// ── Modal Formulario di candidatura Formazienda (Allegato A) ─────────────────
+
+function FormularioFormaziendaModal({ projectId, onClose, onSuccess }) {
+  const [step, setStep] = useState('pick');
+  const [preview, setPreview] = useState(null);
+  const [error, setError] = useState('');
+
+  async function handleFile(file) {
+    setStep('uploading');
+    setError('');
+    try {
+      const data = await uploadFormularioFormazienda(projectId, file);
+      setPreview(data);
+      setStep('preview');
+    } catch (err) {
+      setError(formatApiError(err));
+      setStep('pick');
+    }
+  }
+
+  async function handleConfirm() {
+    setStep('confirming');
+    try {
+      const result = await confirmFormularioFormazienda(projectId, preview.preview_token);
+      setPreview(prev => ({ ...prev, _result: result }));
+      setStep('done');
+      onSuccess && onSuccess(result);
+    } catch (err) {
+      setError(formatApiError(err));
+      setStep('preview');
+    }
+  }
+
+  const imprese = preview?.imprese_beneficiarie || [];
+  const delegato = preview?.soggetto_delegato;
+  const progetti = preview?.progetti_formativi || [];
+  const macrovoci = preview?.riepilogo?.macrovoci || [];
+
+  return (
+    <div className="fapi-modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="fapi-modal">
+        <h3>📋 Carica Formulario di candidatura (Allegato A) — Progetto #{projectId}</h3>
+
+        {error && <div className="fapi-error">⚠️ {error}</div>}
+
+        {step === 'pick' && (
+          <DropZone accept=".pdf" onFile={handleFile} label="Trascina o clicca per selezionare il formulario PDF" />
+        )}
+
+        {step === 'uploading' && (
+          <div style={{ textAlign: 'center', padding: '2rem', fontSize: 13 }}>⏳ Parsing del PDF…</div>
+        )}
+
+        {(step === 'preview' || step === 'confirming') && preview && (
+          <div className="fapi-preview">
+            {preview.warnings?.map((w, i) => <div key={i} className="fapi-warning">⚠️ {w}</div>)}
+
+            <div className="fapi-preview-section">
+              <strong>Imprese beneficiarie ({imprese.length})</strong>
+              <table>
+                <thead>
+                  <tr><th>Ragione Sociale</th><th>P.IVA</th><th>Matricola INPS</th><th>ATECO</th><th>Classe</th><th>Regime</th></tr>
+                </thead>
+                <tbody>
+                  {imprese.map((imp, i) => (
+                    <tr key={i}>
+                      <td>{imp.ragione_sociale}</td>
+                      <td>{imp.partita_iva || '—'}</td>
+                      <td>{imp.matricola_inps || '—'}</td>
+                      <td>{imp.codice_ateco || '—'}</td>
+                      <td>{imp.classe_dimensionale || '—'}</td>
+                      <td>{imp.regime_aiuti || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {delegato?.ragione_sociale && (
+              <div className="fapi-preview-section">
+                <strong>Soggetto delegato</strong>
+                <table>
+                  <tbody>
+                    <tr><td>{delegato.ragione_sociale}</td><td>{formatEuro(delegato.importo)}</td><td>{delegato.percentuale != null ? `${delegato.percentuale} %` : '—'}</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {progetti.map((prog, i) => (
+              <div className="fapi-preview-section" key={i}>
+                <strong>Progetto formativo — {prog.titolo || '—'}</strong>
+                <table>
+                  <tbody>
+                    <tr><td>Ore</td><td>{prog.ore_formazione ?? '—'}</td></tr>
+                    <tr><td>Edizioni</td><td>{prog.edizioni ?? '—'}</td></tr>
+                    <tr><td>Modalità</td><td>{(prog.modalita_attuazione || []).map(m => `${m.tipo} ${m.ore}h (${m.percentuale}%)`).join(' · ') || '—'}</td></tr>
+                    <tr><td>Quadratura costo</td><td>{prog.quadratura_costo_ok ? '✅' : '⚠️'}</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            ))}
+
+            {macrovoci.length > 0 && (
+              <div className="fapi-preview-section">
+                <strong>Macrovoci piano finanziario</strong>
+                <table>
+                  <thead><tr><th>Macrovoce</th><th>Importo</th><th>%</th><th>Limite</th></tr></thead>
+                  <tbody>
+                    {macrovoci.map((m, i) => (
+                      <tr key={i}>
+                        <td>{m.codice}</td>
+                        <td>{formatEuro(m.importo)}</td>
+                        <td>{m.percentuale != null ? `${m.percentuale} %` : '—'}</td>
+                        <td>{m.limite_max_pct != null ? `max ${m.limite_max_pct}%` : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {step === 'done' && preview?._result && (
+          <div className="fapi-success">
+            ✅ Formulario salvato — aziende create: <strong>{preview._result.aziende_create}</strong>,
+            associate: <strong>{preview._result.aziende_associate}</strong><br />
+            Soggetto delegato registrato: {preview._result.soggetto_delegato_registrato ? 'sì' : 'no'}<br />
+            Moduli creati: <strong>{preview._result.moduli_creati}</strong> ·
+            Voci piano create: <strong>{preview._result.voci_piano_create}</strong>
+          </div>
+        )}
+
+        <div className="fapi-modal-footer">
+          <button className="fapi-btn" onClick={onClose}>{step === 'done' ? 'Chiudi' : 'Annulla'}</button>
+          {step === 'preview' && (
+            <button className="fapi-btn primary" onClick={handleConfirm}>✅ Conferma e Salva</button>
+          )}
+          {step === 'confirming' && (
+            <button className="fapi-btn primary" disabled>⏳ Salvataggio…</button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function NuovoPianoModal({ onChoose, onClose }) {
   const cards = [
     {
@@ -1421,6 +1570,9 @@ export function FapiUploadSection({ project, currentUser, onRefresh, autoOpenCon
             <button className="fapi-btn primary" onClick={() => setModal('atto-formazienda')}>
               {primaryLabel}
             </button>
+            <button className="fapi-btn" onClick={() => setModal('formulario-formazienda')}>
+              📋 Carica Formulario (Allegato A)
+            </button>
             <button className="fapi-btn" onClick={() => setModal('piano-formazienda')}>
               💰 Carica Piano Fin.
             </button>
@@ -1488,6 +1640,13 @@ export function FapiUploadSection({ project, currentUser, onRefresh, autoOpenCon
             onAutoClose && onAutoClose();
             onRefresh && onRefresh();
           }}
+        />
+      )}
+      {!isMobile && modal === 'formulario-formazienda' && project && (
+        <FormularioFormaziendaModal
+          projectId={project.id}
+          onClose={() => setModal(null)}
+          onSuccess={() => { setDocumentRefreshKey(value => value + 1); onRefresh && onRefresh(); }}
         />
       )}
       {!isMobile && modal === 'altro-ente' && (

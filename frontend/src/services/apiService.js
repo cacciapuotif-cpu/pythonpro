@@ -1365,5 +1365,15 @@ export const confirmAttoAdesioneFormaziendaProgetto = (projectId, previewToken, 
     campi_da_applicare: campiDaApplicare,
   }).then(r => r.data);
 
+export const uploadFormularioFormazienda = (projectId, file) => {
+  const fd = new FormData();
+  fd.append('file', file);
+  return http.post(`/projects/${projectId}/formazienda/upload-formulario`, fd, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }).then(r => r.data);
+};
+export const confirmFormularioFormazienda = (projectId, previewToken) =>
+  http.post(`/projects/${projectId}/formazienda/confirm-formulario`, { preview_token: previewToken }).then(r => r.data);
+
 export { apiService };
 export default apiService;
