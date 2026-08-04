@@ -107,6 +107,7 @@ from routers.convenzione_upload import router as convenzione_upload_router
 from routers.formulario_upload import router as formulario_upload_router
 from routers.piano_finanziario_upload import router as piano_finanziario_upload_router
 from routers.fondimpresa_upload import router as fondimpresa_upload_router
+from routers.formazienda_upload import router as formazienda_upload_router
 from routers import (
     auth,
     collaborators,
@@ -315,6 +316,7 @@ include_protected_router(convenzione_upload_router)
 include_protected_router(formulario_upload_router)
 include_protected_router(piano_finanziario_upload_router)
 include_protected_router(fondimpresa_upload_router)
+include_protected_router(formazienda_upload_router)
 
 # Webhook WhatsApp Meta deve restare raggiungibile dal provider esterno.
 app.include_router(whatsapp.router)
