@@ -13,9 +13,16 @@ validato da un operatore non viene ribaltato da un parser.
 
 from __future__ import annotations
 
+import hashlib
+import logging
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Iterable, Optional
+
+import models
+from services.audit_log import write_audit_log
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -223,3 +230,68 @@ def documento_riconosciuto(piano: dict[str, Any]) -> bool:
     produzione.
     """
     return bool((piano.get("codice_fapi") or "").strip() or (piano.get("titolo") or "").strip())
+
+
+def archivia_documento_progetto(
+    db,
+    *,
+    project,
+    preview: dict,
+    file_path: str,
+    tipo_documento: str,
+    current_user,
+):
+    """Versiona e archivia un documento di progetto, per qualunque fondo.
+
+    Estratta da ``convenzione_upload._archivia_documento`` cosi' che
+    ``formazienda_upload.py`` e i futuri router per-fondo condividano la
+    stessa regola di versionamento invece di duplicarla.
+    """
+    from sqlalchemy import func
+
+    versione = (
+        db.query(func.max(models.ProjectDocumento.versione))
+        .filter(
+            models.ProjectDocumento.project_id == project.id,
+            models.ProjectDocumento.tipo_documento == tipo_documento,
+        )
+        .scalar()
+        or 0
+    ) + 1
+    digest = None
+    try:
+        with open(file_path, "rb") as stream:
+            digest = hashlib.sha256(stream.read()).hexdigest()
+    except OSError:
+        logger.warning("Impossibile calcolare SHA-256 del documento %s", file_path)
+
+    documento = models.ProjectDocumento(
+        project_id=project.id,
+        tipo_documento=tipo_documento,
+        versione=versione,
+        file_path=file_path,
+        file_name=preview.get("original_filename"),
+        mime_type=preview.get("mime_type") or "application/pdf",
+        sha256=digest,
+        caricato_da_user_id=current_user.id,
+    )
+    db.add(documento)
+    db.flush()
+    # Compatibilita' con generatori e schermate legacy: il campo si chiama
+    # *convenzione*_file_path e deve puntare soltanto a un documento primario.
+    if tipo_documento in {"convenzione", "atto_concessione", "delibera"}:
+        project.convenzione_file_path = file_path
+    write_audit_log(
+        db,
+        user_id=current_user.id,
+        azione="documento_progetto_caricato",
+        risorsa_tipo="project_document",
+        risorsa_id=documento.id,
+        dati_dopo={
+            "project_id": project.id,
+            "tipo_documento": tipo_documento,
+            "versione": versione,
+            "sha256": digest,
+        },
+    )
+    return documento

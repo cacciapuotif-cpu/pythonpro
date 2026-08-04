@@ -3,14 +3,12 @@ import os
 import uuid
 import shutil
 import logging
-import hashlib
 from datetime import datetime, date
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 import models
@@ -245,63 +243,10 @@ def _confronto_aziende(db: Session, project_id: int, aziende: list[dict]) -> lis
     return result
 
 
-def _archivia_documento(
-    db: Session,
-    *,
-    project: models.Project,
-    preview: dict,
-    file_path: str,
-    tipo_documento: str,
-    current_user: User,
-) -> models.ProjectDocumento:
-    versione = (
-        db.query(func.max(models.ProjectDocumento.versione))
-        .filter(
-            models.ProjectDocumento.project_id == project.id,
-            models.ProjectDocumento.tipo_documento == tipo_documento,
-        )
-        .scalar()
-        or 0
-    ) + 1
-    digest = None
-    try:
-        with open(file_path, "rb") as stream:
-            digest = hashlib.sha256(stream.read()).hexdigest()
-    except OSError:
-        logger.warning("Impossibile calcolare SHA-256 del documento %s", file_path)
-
-    documento = models.ProjectDocumento(
-        project_id=project.id,
-        tipo_documento=tipo_documento,
-        versione=versione,
-        file_path=file_path,
-        file_name=preview.get("original_filename"),
-        mime_type=preview.get("mime_type") or "application/pdf",
-        sha256=digest,
-        caricato_da_user_id=current_user.id,
-    )
-    db.add(documento)
-    db.flush()
-    # Compatibilità con i generatori e le schermate legacy: il campo si chiama
-    # *convenzione*_file_path e deve puntare soltanto a un documento primario.
-    # Formulario e piano hanno il proprio record versionato: sovrascrivere qui
-    # faceva apparire una falsa "Convenzione caricata" nel frontend.
-    if tipo_documento in {"convenzione", "atto_concessione", "delibera"}:
-        project.convenzione_file_path = file_path
-    write_audit_log(
-        db,
-        user_id=current_user.id,
-        azione="documento_progetto_caricato",
-        risorsa_tipo="project_document",
-        risorsa_id=documento.id,
-        dati_dopo={
-            "project_id": project.id,
-            "tipo_documento": tipo_documento,
-            "versione": versione,
-            "sha256": digest,
-        },
-    )
-    return documento
+# Estratta in services/documento_progetto.py cosi' formazienda_upload.py e i
+# futuri router per-fondo la condividono invece di duplicarla. Il nome resta
+# qui per compatibilita' con i test che la importano da questo modulo.
+from services.documento_progetto import archivia_documento_progetto as _archivia_documento
 
 
 def _suggerisci_documenti(

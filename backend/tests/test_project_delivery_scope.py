@@ -147,6 +147,12 @@ def scenario(db_session):
     }
 
 
+def test_archivia_documento_progetto_e_importabile_da_documento_progetto_service():
+    from services.documento_progetto import archivia_documento_progetto
+    from routers.convenzione_upload import _archivia_documento
+    assert archivia_documento_progetto is _archivia_documento
+
+
 def test_atto_concessione_soddisfa_il_gate_al_pari_della_convenzione(client, db_session):
     ente = models.ImplementingEntity(ragione_sociale="Ente Formazienda", partita_iva="80000000009")
     db_session.add(ente)
