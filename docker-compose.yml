@@ -85,6 +85,9 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      args:
+        APP_COMMIT: ${APP_COMMIT:-unknown}
+        APP_BUILD_DATE: ${APP_BUILD_DATE:-unknown}
     working_dir: /app
     environment:
       # Database
@@ -222,6 +225,9 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      args:
+        APP_COMMIT: ${APP_COMMIT:-unknown}
+        APP_BUILD_DATE: ${APP_BUILD_DATE:-unknown}
     working_dir: /app
     entrypoint: ["arq"]
     command: ["arq_worker.WorkerSettings"]
@@ -322,6 +328,9 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      args:
+        APP_COMMIT: ${APP_COMMIT:-unknown}
+        APP_BUILD_DATE: ${APP_BUILD_DATE:-unknown}
     working_dir: /app
     entrypoint: ["python", "run_backup.py", "schedule"]
     environment:
@@ -365,6 +374,9 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      args:
+        APP_COMMIT: ${APP_COMMIT:-unknown}
+        APP_BUILD_DATE: ${APP_BUILD_DATE:-unknown}
     working_dir: /app
     entrypoint: ["python", "jobs/check_scadenze.py", "schedule"]
     command: ["--time", "${CHECK_SCADENZE_TIME:-08:00}"]
@@ -415,6 +427,8 @@ services:
       dockerfile: Dockerfile
       args:
         REACT_APP_API_URL: ${REACT_APP_API_URL:-}
+        APP_COMMIT: ${APP_COMMIT:-unknown}
+        APP_BUILD_DATE: ${APP_BUILD_DATE:-unknown}
     container_name: pythonpro_frontend
     depends_on:
       backend:

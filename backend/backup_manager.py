@@ -306,7 +306,11 @@ class BackupManager:
             f"--host={host}",
             f"--port={port}",
             f"--username={user}",
-            f"--dbname={database}",
+            # Il dump e' creato con --clean --create: collegarsi al database
+            # target impedirebbe il DROP DATABASE durante un rollback.
+            # La connessione al database di manutenzione rende il restore
+            # realmente eseguibile dopo aver fermato i servizi applicativi.
+            "--dbname=postgres",
             "--no-password",
             f"--file={sql_file}"
         ]

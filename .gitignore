@@ -108,6 +108,7 @@ coverage.xml
 .pytest_cache/
 nosetests.xml
 test-results/
+artifacts/deployments/
 
 # === Type Checking ===
 .mypy_cache/

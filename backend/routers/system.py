@@ -27,7 +27,12 @@ def read_root():
 @router.get("/health")
 def health_check():
     """Health check superficiale - NO dipendenze DB/Redis"""
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "commit": os.getenv("APP_COMMIT", "unknown"),
+        "build_date": os.getenv("APP_BUILD_DATE", "unknown"),
+        "runtime_source": "image",
+    }
 
 
 def check_db_health():

@@ -108,7 +108,11 @@ def test_health_check_public(client):
     response = client.get("/health")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert payload["runtime_source"] == "image"
+    assert "commit" in payload
+    assert "build_date" in payload
 
 
 def test_login_success_returns_access_and_refresh_tokens(client, admin_user):

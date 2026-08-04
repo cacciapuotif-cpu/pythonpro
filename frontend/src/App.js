@@ -55,6 +55,9 @@ import {
 } from './navigation/routes';
 import './App.scss';
 
+const RUNTIME_COMMIT = process.env.REACT_APP_GIT_COMMIT || 'unknown';
+const RUNTIME_BUILD_DATE = process.env.REACT_APP_BUILD_DATE || 'unknown';
+
 /**
  * COMPONENTE PRINCIPALE APP
  */
@@ -766,6 +769,13 @@ function AppContent() {
         <div className="footer-content">
           <p>
             © 2024 Gestionale Collaboratori e Progetti
+          </p>
+          <p
+            className="runtime-version"
+            data-runtime-commit={RUNTIME_COMMIT}
+            title={`Commit ${RUNTIME_COMMIT} · build ${RUNTIME_BUILD_DATE}`}
+          >
+            Versione {RUNTIME_COMMIT === 'unknown' ? 'non disponibile' : RUNTIME_COMMIT.slice(0, 12)}
           </p>
         </div>
       </footer>

@@ -35,15 +35,22 @@ RUN pip install --no-cache-dir --upgrade pip==26.1.2 setuptools wheel==0.46.2 &&
 # --- STAGE 2: Runtime (immagine finale) ---
 FROM python:3.11-slim
 
+ARG APP_COMMIT=unknown
+ARG APP_BUILD_DATE=unknown
+
 # Metadata immagine
 LABEL maintainer="Gestionale Team <info@gestionale.local>" \
       version="3.0.0" \
-      description="Backend API Gestionale Collaboratori"
+      description="Backend API Gestionale Collaboratori" \
+      org.opencontainers.image.revision="${APP_COMMIT}" \
+      org.opencontainers.image.created="${APP_BUILD_DATE}"
 
 # Variabili d'ambiente per produzione
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app \
+    APP_COMMIT=${APP_COMMIT} \
+    APP_BUILD_DATE=${APP_BUILD_DATE} \
     PATH="/home/appuser/.local/bin:$PATH"
 
 # Installa solo dipendenze runtime (NO build tools)

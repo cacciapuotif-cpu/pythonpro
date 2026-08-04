@@ -17,14 +17,25 @@ COPY . .
 
 # Build argument for API URL (empty = usa URL relativo, nginx fa il proxy)
 ARG REACT_APP_API_URL=
+ARG APP_COMMIT=unknown
+ARG APP_BUILD_DATE=unknown
 
 # Build static files
-RUN REACT_APP_API_URL=$REACT_APP_API_URL npm run build
+RUN REACT_APP_API_URL=$REACT_APP_API_URL \
+    REACT_APP_GIT_COMMIT=$APP_COMMIT \
+    REACT_APP_BUILD_DATE=$APP_BUILD_DATE \
+    npm run build
 
 # ====================
 # PRODUCTION STAGE
 # ====================
 FROM nginx:1.27-alpine
+
+ARG APP_COMMIT=unknown
+ARG APP_BUILD_DATE=unknown
+
+LABEL org.opencontainers.image.revision="${APP_COMMIT}" \
+      org.opencontainers.image.created="${APP_BUILD_DATE}"
 
 # Copy built static files
 COPY --from=build /app/build /usr/share/nginx/html
