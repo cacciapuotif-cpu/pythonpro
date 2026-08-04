@@ -26,6 +26,8 @@ router = APIRouter(prefix="/api/v1/projects", tags=["formazienda-upload"])
 
 UPLOAD_DIR = os.path.join(os.getenv("UPLOADS_DIR", "/app/uploads"), "formazienda", "atti_adesione")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+FORMULARIO_DIR = os.path.join(os.getenv("UPLOADS_DIR", "/app/uploads"), "formazienda", "formulari")
+os.makedirs(FORMULARIO_DIR, exist_ok=True)
 
 
 class ConfirmAttoAdesioneRequest(BaseModel):
@@ -300,4 +302,260 @@ def confirm_atto_adesione_progetto(
         "documento_id": documento.id,
         "documento_versione": documento.versione,
         **esito,
+    }
+
+
+# ── Formulario di candidatura (Allegato A) ────────────────────────────────────
+# Complementare all'Atto di adesione: si carica sempre dentro un progetto
+# gia' esistente (creato dall'Allegato E), non lo crea da solo. Popola cio'
+# che l'Allegato E non contiene: imprese beneficiarie, delega, progetto
+# formativo, macrovoci.
+
+
+class ConfirmFormularioRequest(BaseModel):
+    preview_token: str
+
+
+def _trova_o_crea_azienda(db: Session, impresa: dict) -> tuple[models.AziendaCliente, bool]:
+    azienda = None
+    if impresa.get("partita_iva"):
+        azienda = db.query(models.AziendaCliente).filter(
+            models.AziendaCliente.partita_iva == impresa["partita_iva"]
+        ).first()
+    if azienda is None and impresa.get("codice_fiscale"):
+        azienda = db.query(models.AziendaCliente).filter(
+            models.AziendaCliente.codice_fiscale == impresa["codice_fiscale"]
+        ).first()
+
+    campi = {
+        "ragione_sociale": impresa.get("ragione_sociale"),
+        "partita_iva": impresa.get("partita_iva"),
+        "codice_fiscale": impresa.get("codice_fiscale"),
+        "indirizzo": impresa.get("indirizzo"),
+        "cap": impresa.get("cap"),
+        "citta": impresa.get("citta"),
+        # "provincia" nell'Allegato A e' il nome esteso ("NAPOLI"), non la
+        # sigla di 2 lettere che AziendaCliente.provincia richiede: mapparla
+        # servirebbe una tabella di conversione che non abbiamo, e indovinare
+        # la sigla sarebbe esattamente il tipo di dato inventato da evitare.
+        "telefono": impresa.get("telefono"),
+        "email": impresa.get("email"),
+        "pec": impresa.get("pec"),
+        "matricola_inps": impresa.get("matricola_inps"),
+        "settore_codice": impresa.get("codice_ateco"),
+        "classe_dimensionale": impresa.get("classe_dimensionale"),
+        "regime_aiuto_default": impresa.get("regime_aiuti"),
+        "num_dipendenti": impresa.get("numero_dipendenti_totale"),
+        "legale_rappresentante_nome": impresa.get("legale_rappresentante_nome"),
+        "legale_rappresentante_cognome": impresa.get("legale_rappresentante_cognome"),
+    }
+    if impresa.get("stato_adesione_data"):
+        campi["anno_adesione"] = impresa["stato_adesione_data"][:4]
+
+    if azienda is None:
+        azienda = models.AziendaCliente(
+            **{k: v for k, v in campi.items() if v is not None}, attivo=True,
+        )
+        db.add(azienda)
+        db.flush()
+        return azienda, True
+
+    for campo, valore in campi.items():
+        if valore is not None and not getattr(azienda, campo, None):
+            setattr(azienda, campo, valore)
+    return azienda, False
+
+
+def _confronta_con_allegato_e(project: models.Project, formulario: dict) -> list[str]:
+    """I dati comuni ai due documenti devono coincidere: divergenza = segnalazione, non blocco."""
+    divergenze = []
+    gestore = formulario.get("soggetto_gestore") or {}
+    if (
+        project.ente_attuatore
+        and gestore.get("partita_iva")
+        and project.ente_attuatore.partita_iva
+        and gestore["partita_iva"] != project.ente_attuatore.partita_iva
+    ):
+        divergenze.append(
+            f"Ente attuatore divergente: Allegato E={project.ente_attuatore.partita_iva}, "
+            f"Allegato A={gestore['partita_iva']}"
+        )
+    titolo_formulario = (formulario.get("piano") or {}).get("titolo")
+    if titolo_formulario and project.name and titolo_formulario != project.name:
+        divergenze.append(
+            f"Titolo piano divergente: progetto={project.name}, Allegato A={titolo_formulario}"
+        )
+    riepilogo = formulario.get("riepilogo") or {}
+    costo_formulario = riepilogo.get("costo_complessivo")
+    if (
+        costo_formulario is not None
+        and project.costo_totale is not None
+        and abs(float(project.costo_totale) - float(costo_formulario)) > 0.5
+    ):
+        divergenze.append(
+            f"Importo totale divergente: Allegato E={project.costo_totale}, "
+            f"Allegato A={costo_formulario}"
+        )
+    return divergenze
+
+
+@router.post("/{project_id}/formazienda/upload-formulario")
+async def upload_formulario_formazienda(
+    project_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Progetto non trovato")
+
+    token = str(uuid.uuid4())
+    dest = os.path.join(FORMULARIO_DIR, f"{token}.pdf")
+    with open(dest, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+
+    from services.parsers.formazienda.formulario_parser import parse_formulario
+    result = parse_formulario(dest)
+    result["warnings"] = list(result.get("warnings") or []) + _confronta_con_allegato_e(project, result)
+
+    _preview_store.store(token, {
+        "project_id": project_id, "file_path": dest, "original_filename": file.filename, **result,
+    })
+    return {"preview_token": token, "project_id": project_id, **result}
+
+
+@router.post("/{project_id}/formazienda/confirm-formulario")
+def confirm_formulario_formazienda(
+    project_id: int,
+    body: ConfirmFormularioRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Progetto non trovato")
+
+    preview = _preview_store.pop(body.preview_token)
+    if not preview:
+        raise HTTPException(status_code=404, detail="Preview token non trovato o scaduto")
+    if preview.get("project_id") != project_id:
+        raise HTTPException(status_code=400, detail="Token non appartiene a questo progetto")
+
+    aziende_create = 0
+    aziende_associate = 0
+    for impresa in preview.get("imprese_beneficiarie", []):
+        azienda, creata = _trova_o_crea_azienda(db, impresa)
+        aziende_create += int(creata)
+        aziende_associate += int(not creata)
+        link = db.query(models.AziendaClienteProjectLink).filter(
+            models.AziendaClienteProjectLink.azienda_cliente_id == azienda.id,
+            models.AziendaClienteProjectLink.project_id == project_id,
+        ).first()
+        if not link:
+            link = models.AziendaClienteProjectLink(azienda_cliente_id=azienda.id, project_id=project_id)
+            db.add(link)
+
+    soggetto_delegato_registrato = False
+    delega = preview.get("soggetto_delegato") or {}
+    if delega.get("ragione_sociale"):
+        esistente = db.query(models.ProjectSoggettoDelegato).filter(
+            models.ProjectSoggettoDelegato.project_id == project_id,
+            models.ProjectSoggettoDelegato.partita_iva == delega.get("partita_iva"),
+        ).first()
+        if not esistente:
+            db.add(models.ProjectSoggettoDelegato(
+                project_id=project_id,
+                ragione_sociale=delega["ragione_sociale"],
+                codice_fiscale=delega.get("codice_fiscale"),
+                partita_iva=delega.get("partita_iva"),
+                legale_rappresentante_nome=delega.get("legale_rappresentante_nome"),
+                legale_rappresentante_cognome=delega.get("legale_rappresentante_cognome"),
+                tipologia=delega.get("tipologia"),
+                importo=delega.get("importo"),
+                percentuale=delega.get("percentuale"),
+            ))
+        soggetto_delegato_registrato = True
+
+    moduli_creati = 0
+    for progetto_formativo in preview.get("progetti_formativi", []):
+        obiettivo = (
+            f"Edizioni: {progetto_formativo.get('edizioni')}; "
+            f"Modalita: {progetto_formativo.get('modalita_attuazione')}; "
+            f"Finanziamento/edizione: {progetto_formativo.get('costo_finanziamento_per_edizione')}"
+        )
+        db.add(models.ModuloFormativo(
+            project_id=project_id,
+            titolo_modulo=progetto_formativo.get("titolo") or "Progetto Formazienda",
+            materia=progetto_formativo.get("tematica"),
+            modalita_erogazione="mista_aula_toj",
+            tipo_attivita="formativa",
+            ore_previste=progetto_formativo.get("ore_formazione") or 0,
+            obiettivo=obiettivo,
+        ))
+        moduli_creati += 1
+
+    piano = db.query(models.PianoFinanziario).filter(
+        models.PianoFinanziario.progetto_id == project_id,
+        models.PianoFinanziario.tipo_fondo == "formazienda",
+    ).first()
+    riepilogo = preview.get("riepilogo") or {}
+    if not piano:
+        from datetime import datetime as _dt
+        anno = (project.data_approvazione or _dt.now().date()).year
+        piano = models.PianoFinanziario(
+            progetto_id=project_id,
+            anno=anno,
+            ente_erogatore="Formazienda",
+            tipo_fondo="formazienda",
+            codice_piano=project.id_piano_esterno,
+            nome=f"Piano Finanziario Formazienda - {project.name}",
+            budget_totale=riepilogo.get("totale_preventivo") or project.costo_totale or 0.0,
+            budget_approvato=riepilogo.get("contributo_richiesto") or project.contributo_ente or 0.0,
+            data_inizio=_dt.now(),
+            data_fine=_dt(anno + 1, 12, 31),
+            data_approvazione=project.data_approvazione,
+            stato="bozza",
+        )
+        db.add(piano)
+        db.flush()
+
+    voci_create = 0
+    for macrovoce in riepilogo.get("macrovoci", []):
+        esiste = db.query(models.VocePianoFinanziario).filter(
+            models.VocePianoFinanziario.piano_id == piano.id,
+            models.VocePianoFinanziario.macrovoce == macrovoce["codice"],
+        ).first()
+        if esiste:
+            continue
+        db.add(models.VocePianoFinanziario(
+            piano_id=piano.id,
+            macrovoce=macrovoce["codice"],
+            voce_codice=macrovoce["codice"],
+            categoria="altro",
+            descrizione=(
+                f"Totale Macrovoce {macrovoce['codice']}"
+                + (f" (max {macrovoce['limite_max_pct']}%)" if macrovoce.get("limite_max_pct") else "")
+            ),
+            ore=0, ore_previste=0,
+            importo_preventivo=macrovoce.get("importo") or 0,
+            stato="previsto",
+        ))
+        voci_create += 1
+
+    documento = documento_progetto.archivia_documento_progetto(
+        db, project=project, preview=preview, file_path=preview["file_path"],
+        tipo_documento="formulario", current_user=current_user,
+    )
+    db.commit()
+
+    return {
+        "project_id": project_id,
+        "aziende_create": aziende_create,
+        "aziende_associate": aziende_associate,
+        "soggetto_delegato_registrato": soggetto_delegato_registrato,
+        "moduli_creati": moduli_creati,
+        "voci_piano_create": voci_create,
+        "documento_id": documento.id,
+        "warnings": preview.get("warnings", []),
     }
