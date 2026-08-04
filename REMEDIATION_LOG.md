@@ -2,6 +2,33 @@
 
 Formato: data | finding ID | cosa fatto | file toccati | test/verifiche eseguiti
 
+## 2026-08-04 | PRJ-WIZARD-MANUALE-DATE-MANCANTI | Nuovo progetto manuale falliva sempre con 400
+
+- Trovato dal vivo (non da test): l'utente ha testato "+ Nuovo Progetto"
+  su `192.168.2.41:8001` (container `pythonpro_backend`, build precedente
+  a questa sessione) mentre verificavo il lavoro Formazienda, ricevendo
+  400. Log del container: `Per un nuovo progetto attivo sono obbligatorie:
+  data approvazione, data avvio piano` da `services/date_progetto.py`
+  (file mai toccato oggi) — bug preesistente, scorrelato dal lavoro
+  Formazienda, non una regressione.
+- Root cause: `crud.create_project` richiede sempre queste due date per
+  un progetto `active` nuovo (`richiedi_date_nuovo_attivo=True`), ma il
+  form del wizard manuale (passi base/governance/delivery in
+  `ProjectManager.js`) non le raccoglieva mai: solo i flussi di upload
+  documento (FAPI/Fondimpresa/Formazienda) le popolavano.
+- Fix: aggiunti i due campi data al passo Governance, obbligatori solo
+  in creazione (`update_project` non li richiede), popolati da
+  `startEdit` per i progetti esistenti.
+- File toccati: `frontend/src/components/ProjectManager.js`.
+- Test/verifiche eseguite: suite `ProjectManager.associati.test.js`
+  verde (6/6, nessuna regressione); nessun test dedicato al submit del
+  wizard manuale esisteva in repo da estendere (stessa scelta gia' fatta
+  per l'hint Delivery in FORMAZIENDA-ATTO-CONCESSORIO). Payload verificato
+  per nome/formato campo (`data_approvazione`, `data_avvio_piano`,
+  `Optional[date]` in `schemas.ProjectCreateExtended`) contro lo stesso
+  contratto gia' usato e testato dai flussi FAPI/Formazienda. Non
+  applicato/deployato sul container live `pythonpro_backend`.
+
 ## 2026-08-04 | FORMAZIENDA-ATTO-CONCESSORIO | Atto di adesione e Formulario riconosciuti come atto concessorio
 
 - Root cause: il wizard "Nuovo progetto" presumeva che l'atto concessorio

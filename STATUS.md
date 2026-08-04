@@ -1,8 +1,16 @@
 # PythonPro — Stato corrente
 
-**Aggiornato:** 2026-08-04 (Formazienda: Atto di adesione e Formulario riconosciuti)
+**Aggiornato:** 2026-08-04 (Formazienda: Atto di adesione e Formulario riconosciuti + fix wizard manuale)
 **Branch:** `claude/platform-audit-compliance-XnH86` (locale, **nessun push**)
 **Percorso:** `/DATA/progetti/pythonpro`
+
+## ✅ WIZARD MANUALE: DATA APPROVAZIONE/AVVIO PIANO MANCANTI — 2026-08-04
+
+Trovato dal vivo mentre l'utente testava il lavoro Formazienda su
+`192.168.2.41:8001`: "+ Nuovo Progetto" (percorso manuale, non da upload
+documento) falliva sempre con 400 — bug preesistente, scorrelato.
+Dettagli, causa e fix in `REMEDIATION_LOG.md` (PRJ-WIZARD-MANUALE-DATE-MANCANTI).
+Non deployato sul container live. Commit locale `6ad26ef`.
 
 ## ✅ FORMAZIENDA — ATTO DI ADESIONE E FORMULARIO RICONOSCIUTI COME ATTO CONCESSORIO — 2026-08-04
 
