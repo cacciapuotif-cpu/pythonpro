@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, String, DateTime, Date, ForeignKey, Table, Text, Float, Numeric, Index, Boolean, UniqueConstraint, CheckConstraint, JSON, text, event
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import relationship, validates, foreign
+from sqlalchemy.orm import relationship, validates, foreign, synonym
 from sqlalchemy.sql import func
 from sqlalchemy.ext.hybrid import hybrid_property
 from database import Base
@@ -271,12 +271,18 @@ class Project(Base):
     delibera_numero = Column(String(20), nullable=True)
     delibera_data = Column(Date, nullable=True)
     data_approvazione = Column(Date, nullable=True)
-    data_avvio_piano = Column(Date, nullable=True, index=True)
+    # Attributi canonici DATE-2 su colonne UX-5 semanticamente equivalenti.
+    # I synonym mantengono la compatibilità transitoria del codice legacy;
+    # nuovi servizi/API usano esclusivamente i nomi non ambigui.
+    data_avvio_piano_effettiva = Column("data_avvio_piano", Date, nullable=True, index=True)
+    data_avvio_piano = synonym("data_avvio_piano_effettiva")
     data_termine_piano = Column(Date, nullable=True, index=True)
-    data_avvio_attivita_formative = Column(Date, nullable=True)
+    data_inizio_attivita_formative = Column("data_avvio_attivita_formative", Date, nullable=True)
+    data_avvio_attivita_formative = synonym("data_inizio_attivita_formative")
     data_fine_attivita_formative = Column(Date, nullable=True)
     data_termine_rendicontazione = Column(Date, nullable=True, index=True)
-    data_chiusura_effettiva = Column(Date, nullable=True)
+    data_conclusione_effettiva = Column("data_chiusura_effettiva", Date, nullable=True)
+    data_chiusura_effettiva = synonym("data_conclusione_effettiva")
     costo_totale = Column(Numeric(12, 2), nullable=True)
     contributo_ente = Column(Numeric(12, 2), nullable=True)
     cofinanziamento = Column(Numeric(12, 2), nullable=True)
@@ -311,7 +317,6 @@ class Project(Base):
         cascade="all, delete-orphan",
         order_by="ProjectDocumento.caricato_il.desc()",
     )
-
     # Proprietà calcolate
     @hybrid_property
     def is_current(self):
@@ -453,6 +458,30 @@ class ProjectDocumento(Base):
             "tipo_documento",
         ),
     )
+
+
+class ProjectSoggettoDelegato(Base):
+    """Soggetto terzo in delega su un progetto (Allegato A Formazienda I.5).
+
+    La delega e' soggetta ad autorizzazione preventiva del fondo ed e' un
+    elemento verificato in sede di controllo: va registrata, non solo
+    mostrata nell'anteprima di caricamento.
+    """
+    __tablename__ = "project_soggetti_delegati"
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    ragione_sociale = Column(String(200), nullable=False)
+    codice_fiscale = Column(String(16), nullable=True)
+    partita_iva = Column(String(11), nullable=True)
+    legale_rappresentante_nome = Column(String(100), nullable=True)
+    legale_rappresentante_cognome = Column(String(100), nullable=True)
+    tipologia = Column(String(50), nullable=True)
+    importo = Column(Numeric(12, 2), nullable=True)
+    percentuale = Column(Numeric(5, 2), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    project = relationship("Project", backref="soggetti_delegati", lazy="select")
 
 
 class Avviso(Base):
@@ -1958,6 +1987,8 @@ class AziendaCliente(Base):
     referente_instagram = Column(String(255))
     referente_tiktok = Column(String(255))
     matricola_inps = Column(String(30))
+    classe_dimensionale = Column(String(10), nullable=True)
+    # Valori: "micro", "piccola", "media", "grande" (Allegato A Formazienda II.2)
     anno_adesione = Column(String(4))
     regime_aiuto_default = Column(String(30))
     num_dipendenti = Column(Integer)
