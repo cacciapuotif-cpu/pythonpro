@@ -1031,8 +1031,10 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
                         <div className="form-group full-width">
                           <label>Aziende e allievi coinvolti</label>
                           <small className="field-hint">
-                            La ricerca usa soltanto le aziende comprese nella convenzione del progetto.
-                            Gli allievi vengono caricati quando apri la singola azienda.
+                            {formData.ente_erogatore === 'Formazienda'
+                              ? "L'atto di adesione non elenca beneficiarie: la ricerca usa l'intero catalogo aziende."
+                              : 'La ricerca usa soltanto le aziende comprese nella convenzione del progetto.'}
+                            {' '}Gli allievi vengono caricati quando apri la singola azienda.
                           </small>
                           <ProjectDeliveryCompanyPicker
                             projectId={editingId}
