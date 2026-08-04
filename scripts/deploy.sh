@@ -369,6 +369,7 @@ if ! grep -q "${DEPLOY_SHORT}" "${RELEASE_DIR}/frontend-main.js"; then
 fi
 
 ADMIN_TOKEN="$(docker exec pythonpro_backend python -c '
+import models
 from datetime import timedelta
 from auth import SecurityUtils, User
 from database import SessionLocal
