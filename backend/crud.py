@@ -761,17 +761,22 @@ def _validate_delivery_update(
         )
 
     if "azienda_ids" in update_data:
-        requested_ids = {int(item) for item in (update_data.get("azienda_ids") or [])}
-        perimeter_rows = db.query(models.AziendaClienteProjectLink.azienda_cliente_id).filter(
-            models.AziendaClienteProjectLink.project_id == db_project.id
-        ).all()
-        perimeter_ids = {row[0] for row in perimeter_rows}
-        outside_ids = sorted(requested_ids - perimeter_ids)
-        if outside_ids:
-            raise DeliveryValidationError(
-                "Aziende fuori dal perimetro della convenzione: "
-                + ", ".join(str(item) for item in outside_ids)
-            )
+        from services.atto_concessorio_registry import fornisce_aziende_beneficiarie
+        if fornisce_aziende_beneficiarie(db_project.ente_erogatore):
+            requested_ids = {int(item) for item in (update_data.get("azienda_ids") or [])}
+            perimeter_rows = db.query(models.AziendaClienteProjectLink.azienda_cliente_id).filter(
+                models.AziendaClienteProjectLink.project_id == db_project.id
+            ).all()
+            perimeter_ids = {row[0] for row in perimeter_rows}
+            outside_ids = sorted(requested_ids - perimeter_ids)
+            if outside_ids:
+                raise DeliveryValidationError(
+                    "Aziende fuori dal perimetro della convenzione: "
+                    + ", ".join(str(item) for item in outside_ids)
+                )
+        # Se il fondo non fornisce aziende beneficiarie (es. Formazienda),
+        # l'atto non ha mai popolato un perimetro: la selezione avviene dal
+        # catalogo globale, come un progetto senza convenzione FAPI.
 
 
 def _sync_project_azienda_links(

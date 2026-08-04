@@ -178,6 +178,50 @@ def test_atto_concessione_soddisfa_il_gate_al_pari_della_convenzione(client, db_
     assert response.json()["blocked_reason"] is None
 
 
+def test_formazienda_aziende_selezionabili_dal_catalogo_globale(client, db_session):
+    ente = models.ImplementingEntity(ragione_sociale="Ente Formazienda 2", partita_iva="80000000010")
+    db_session.add(ente)
+    db_session.flush()
+    project = models.Project(
+        name="Piano Formazienda 2",
+        ente_erogatore="Formazienda",
+        ente_attuatore_id=ente.id,
+        status="active",
+        data_approvazione=date(2026, 1, 10),
+        data_avvio_piano=date(2026, 2, 1),
+    )
+    db_session.add(project)
+    db_session.flush()
+    db_session.add(models.ProjectDocumento(
+        project_id=project.id, tipo_documento="atto_concessione", versione=1,
+        file_path="/tmp/x.pdf", file_name="x.pdf", stato="corrente", source_removed=False,
+    ))
+    azienda = models.AziendaCliente(ragione_sociale="Catalogo Globale Srl", partita_iva="10000000099")
+    db_session.add(azienda)
+    db_session.commit()
+
+    # Nessun link di perimetro esiste: la lista deve comunque proporre il
+    # catalogo intero, non un elenco vuoto.
+    listing = client.get(f"/api/v1/projects/{project.id}/delivery-companies")
+    assert listing.status_code == 200, listing.text
+    ids = {item["id"] for item in listing.json()["items"]}
+    assert azienda.id in ids
+
+    update = client.put(
+        f"/api/v1/projects/{project.id}",
+        json={
+            "ente_attuatore_id": ente.id,
+            "azienda_ids": [azienda.id],
+            "allievo_ids": [],
+            "azienda_sedi": [],
+        },
+    )
+    assert update.status_code == 200, update.text
+
+    students = client.get(f"/api/v1/projects/{project.id}/delivery-companies/{azienda.id}/students")
+    assert students.status_code == 200, students.text
+
+
 def test_delivery_context_deriva_ente_dalla_convenzione(client, scenario):
     response = client.get(f"/api/v1/projects/{scenario['project'].id}/delivery-context")
     assert response.status_code == 200, response.text

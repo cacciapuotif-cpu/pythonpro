@@ -134,17 +134,22 @@ def read_project_delivery_companies(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    """Aziende del solo perimetro progetto; mai catalogo globale o allievi."""
-    _delivery_project_or_422(project_id, db)
-    query = db.query(models.AziendaCliente).join(
-        models.AziendaClienteProjectLink,
-        models.AziendaClienteProjectLink.azienda_cliente_id == models.AziendaCliente.id,
-    ).options(
+    """Aziende del perimetro progetto, o del catalogo globale se il fondo non ne dichiara."""
+    project = _delivery_project_or_422(project_id, db)
+    from services.atto_concessorio_registry import fornisce_aziende_beneficiarie
+
+    query = db.query(models.AziendaCliente).options(
         selectinload(models.AziendaCliente.sedi_operative)
-    ).filter(
-        models.AziendaClienteProjectLink.project_id == project_id,
-        models.AziendaCliente.attivo.is_(True),
-    )
+    ).filter(models.AziendaCliente.attivo.is_(True))
+
+    if fornisce_aziende_beneficiarie(project.ente_erogatore):
+        query = query.join(
+            models.AziendaClienteProjectLink,
+            models.AziendaClienteProjectLink.azienda_cliente_id == models.AziendaCliente.id,
+        ).filter(models.AziendaClienteProjectLink.project_id == project_id)
+    # Formazienda (e fondi che non dichiarano aziende): l'atto non porta un
+    # perimetro, quindi la ricerca copre il catalogo intero, come un
+    # progetto FAPI privo di convenzione userebbe se non fosse bloccato.
 
     normalized_q = (q or "").strip()
     if normalized_q:
@@ -181,11 +186,14 @@ def read_project_delivery_company_students(
     db: Session = Depends(get_db),
 ):
     """Allievi caricati soltanto on-demand per un'azienda nel perimetro."""
-    _delivery_project_or_422(project_id, db)
-    in_perimeter = db.query(models.AziendaClienteProjectLink.id).filter(
-        models.AziendaClienteProjectLink.project_id == project_id,
-        models.AziendaClienteProjectLink.azienda_cliente_id == azienda_id,
-    ).first()
+    project = _delivery_project_or_422(project_id, db)
+    from services.atto_concessorio_registry import fornisce_aziende_beneficiarie
+    in_perimeter = True
+    if fornisce_aziende_beneficiarie(project.ente_erogatore):
+        in_perimeter = db.query(models.AziendaClienteProjectLink.id).filter(
+            models.AziendaClienteProjectLink.project_id == project_id,
+            models.AziendaClienteProjectLink.azienda_cliente_id == azienda_id,
+        ).first()
     if in_perimeter is None:
         raise HTTPException(
             status_code=404,
