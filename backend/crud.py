@@ -710,10 +710,15 @@ class DeliveryValidationError(ValueError):
 
 
 def project_has_current_convenzione(db: Session, project_id: int) -> bool:
-    """La convenzione collegata e' il documento corrente, non il vecchio path libero."""
+    """Il gate e' soddisfatto da un atto concessorio corrente, di qualunque fondo.
+
+    FAPI usa ``convenzione``; Formazienda (e la struttura predisposta per
+    Fondimpresa) usano ``atto_concessione``. Sono la stessa cosa vista da qui:
+    l'atto che rende il progetto attuabile.
+    """
     return db.query(models.ProjectDocumento.id).filter(
         models.ProjectDocumento.project_id == project_id,
-        models.ProjectDocumento.tipo_documento == "convenzione",
+        models.ProjectDocumento.tipo_documento.in_(["convenzione", "atto_concessione"]),
         models.ProjectDocumento.stato == "corrente",
         models.ProjectDocumento.source_removed.is_(False),
     ).first() is not None

@@ -147,6 +147,37 @@ def scenario(db_session):
     }
 
 
+def test_atto_concessione_soddisfa_il_gate_al_pari_della_convenzione(client, db_session):
+    ente = models.ImplementingEntity(ragione_sociale="Ente Formazienda", partita_iva="80000000009")
+    db_session.add(ente)
+    db_session.flush()
+    project = models.Project(
+        name="Piano Formazienda",
+        ente_erogatore="Formazienda",
+        ente_attuatore_id=ente.id,
+        status="active",
+        data_approvazione=date(2026, 1, 10),
+        data_avvio_piano=date(2026, 2, 1),
+    )
+    db_session.add(project)
+    db_session.flush()
+    db_session.add(models.ProjectDocumento(
+        project_id=project.id,
+        tipo_documento="atto_concessione",
+        versione=1,
+        file_path="/tmp/atto-concessione.pdf",
+        file_name="atto.pdf",
+        stato="corrente",
+        source_removed=False,
+    ))
+    db_session.commit()
+
+    response = client.get(f"/api/v1/projects/{project.id}/delivery-context")
+    assert response.status_code == 200, response.text
+    assert response.json()["has_convenzione"] is True
+    assert response.json()["blocked_reason"] is None
+
+
 def test_delivery_context_deriva_ente_dalla_convenzione(client, scenario):
     response = client.get(f"/api/v1/projects/{scenario['project'].id}/delivery-context")
     assert response.status_code == 200, response.text
