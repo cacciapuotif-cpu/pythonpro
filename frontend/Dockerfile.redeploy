@@ -1,0 +1,17 @@
+# Fallback offline: gli asset React sono compilati da scripts/deploy.sh nella
+# release Git temporanea, poi inseriti nella precedente immagine nginx pin.
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+ARG APP_COMMIT=unknown
+ARG APP_BUILD_DATE=unknown
+
+USER root
+RUN rm -rf -- /usr/share/nginx/html/*
+COPY build /usr/share/nginx/html
+RUN chown -R nginx:nginx /usr/share/nginx/html
+
+LABEL org.opencontainers.image.revision="${APP_COMMIT}" \
+      org.opencontainers.image.created="${APP_BUILD_DATE}"
+
+USER nginx

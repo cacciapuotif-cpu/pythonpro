@@ -1,0 +1,23 @@
+# Fallback di redeploy per host temporaneamente isolati dal registry.
+# Consentito solo da scripts/deploy.sh dopo aver verificato che requirements e
+# package lock non siano cambiati rispetto al commit dell'immagine base.
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+ARG APP_COMMIT=unknown
+ARG APP_BUILD_DATE=unknown
+
+USER root
+RUN find /app -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+COPY --chown=appuser:appuser . /app
+RUN chmod +x /app/entrypoint.sh /app/scripts/validate_env.sh && \
+    mkdir -p /app/logs /app/uploads /app/backups /app/exports && \
+    chown -R appuser:appuser /app
+
+ENV APP_COMMIT=${APP_COMMIT} \
+    APP_BUILD_DATE=${APP_BUILD_DATE}
+
+LABEL org.opencontainers.image.revision="${APP_COMMIT}" \
+      org.opencontainers.image.created="${APP_BUILD_DATE}"
+
+USER appuser

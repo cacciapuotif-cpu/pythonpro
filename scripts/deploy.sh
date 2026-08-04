@@ -13,6 +13,31 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="${PYTHONPRO_ENV_FILE:-${ROOT_DIR}/.env}"
 DOCKER_CONFIG="${DOCKER_CONFIG:-/tmp/pythonpro-docker-config}"
 export DOCKER_CONFIG
+# Il server puo' essere isolato da Docker Hub. Il builder classico usa le
+# immagini base gia' presenti localmente; --pull=false impedisce refresh
+# remoti non necessari durante un redeploy dello stesso stack.
+DOCKER_BUILDKIT="${DOCKER_BUILDKIT:-0}"
+COMPOSE_BAKE="${COMPOSE_BAKE:-false}"
+export DOCKER_BUILDKIT COMPOSE_BAKE
+
+OFFLINE_BUILD=0
+OFFLINE_BASE_COMMIT="${PYTHONPRO_OFFLINE_BASE_COMMIT:-}"
+while (( $# > 0 )); do
+  case "$1" in
+    --offline)
+      OFFLINE_BUILD=1
+      shift
+      ;;
+    --offline-base-commit)
+      OFFLINE_BASE_COMMIT="${2:-}"
+      shift 2
+      ;;
+    *)
+      echo "ERRORE: argomento non riconosciuto: $1" >&2
+      exit 1
+      ;;
+  esac
+done
 
 if [[ ! -f "${ENV_FILE}" ]]; then
   echo "ERRORE: file ambiente non trovato: ${ENV_FILE}" >&2
@@ -61,9 +86,55 @@ BACKUP_PATH=""
 PRE_DB_REVISION=""
 TARGET_DB_REVISION=""
 OLD_AGENT_FLAGS=""
+OLD_RUNTIME_MODE="image"
 
 log() {
   printf '[deploy] %s\n' "$*"
+}
+
+build_from_pinned_images() {
+  local base_commit="$1"
+  if [[ -z "${base_commit}" ]]; then
+    base_commit="$(docker image inspect "pythonpro-backend:rollback-${DEPLOY_STAMP}" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' 2>/dev/null || true)"
+  fi
+  if [[ -z "${base_commit}" || "${base_commit}" == "unknown" || "${base_commit}" == "<no value>" ]]; then
+    echo "ERRORE: base offline priva di commit; usa --offline-base-commit <sha>" >&2
+    return 1
+  fi
+  git -C "${ROOT_DIR}" cat-file -e "${base_commit}^{commit}"
+  if ! git -C "${ROOT_DIR}" diff --quiet "${base_commit}" "${DEPLOY_COMMIT}" -- \
+    backend/requirements.txt frontend/package.json frontend/package-lock.json;
+  then
+    echo "ERRORE: dipendenze cambiate; il rebuild offline su immagini precedenti non e' sicuro" >&2
+    return 1
+  fi
+
+  log "Build offline su immagini precedenti pin: dipendenze invariate da ${base_commit}"
+  docker build --pull=false \
+    --build-arg "BASE_IMAGE=pythonpro-backend:rollback-${DEPLOY_STAMP}" \
+    --build-arg "APP_COMMIT=${DEPLOY_COMMIT}" \
+    --build-arg "APP_BUILD_DATE=${DEPLOY_BUILD_DATE}" \
+    -f "${RELEASE_DIR}/backend/Dockerfile.redeploy" \
+    -t pythonpro-backend:latest "${RELEASE_DIR}/backend"
+
+  if [[ ! -d "${ROOT_DIR}/frontend/node_modules" ]]; then
+    echo "ERRORE: node_modules locale assente; impossibile compilare frontend offline" >&2
+    return 1
+  fi
+  ln -s "${ROOT_DIR}/frontend/node_modules" "${RELEASE_DIR}/frontend/node_modules"
+  (
+    cd "${RELEASE_DIR}/frontend"
+    REACT_APP_API_URL="$(read_env_value REACT_APP_API_URL '')" \
+    REACT_APP_GIT_COMMIT="${DEPLOY_COMMIT}" \
+    REACT_APP_BUILD_DATE="${DEPLOY_BUILD_DATE}" \
+    npm run build
+  )
+  docker build --pull=false \
+    --build-arg "BASE_IMAGE=pythonpro-frontend:rollback-${DEPLOY_STAMP}" \
+    --build-arg "APP_COMMIT=${DEPLOY_COMMIT}" \
+    --build-arg "APP_BUILD_DATE=${DEPLOY_BUILD_DATE}" \
+    -f "${RELEASE_DIR}/frontend/Dockerfile.redeploy" \
+    -t pythonpro-frontend:latest "${RELEASE_DIR}/frontend"
 }
 
 cleanup() {
@@ -114,29 +185,45 @@ restore_previous_release() {
   trap - ERR
   log "ROLLBACK automatico: ${reason}"
 
-  "${COMPOSE[@]}" stop frontend check_scadenze_scheduler backup_scheduler arq_worker backend >/dev/null 2>&1
+  local rollback_failed=0
+  "${COMPOSE[@]}" stop frontend check_scadenze_scheduler backup_scheduler arq_worker backend >/dev/null 2>&1 || rollback_failed=1
 
   if [[ "${DB_CHANGED}" == "1" && -n "${BACKUP_PATH}" ]]; then
     log "Ripristino DB da ${BACKUP_PATH}"
     "${COMPOSE[@]}" run --rm --no-deps \
       -e "DEPLOY_ROLLBACK_BACKUP=${BACKUP_PATH}" \
       --entrypoint python backup_scheduler -c \
-      'import os; from backup_manager import get_backup_manager; raise SystemExit(0 if get_backup_manager().restore_backup(os.environ["DEPLOY_ROLLBACK_BACKUP"]) else 1)'
+      'import os; from backup_manager import get_backup_manager; raise SystemExit(0 if get_backup_manager().restore_backup(os.environ["DEPLOY_ROLLBACK_BACKUP"]) else 1)' || rollback_failed=1
   fi
 
   for service in "${SERVICES[@]}"; do
     if [[ -n "${OLD_IMAGE_IDS[${service}]:-}" ]]; then
-      docker image tag "${IMAGES[${service}]}:rollback-${DEPLOY_STAMP}" "${IMAGES[${service}]}:latest"
+      docker image tag "${IMAGES[${service}]}:rollback-${DEPLOY_STAMP}" "${IMAGES[${service}]}:latest" || rollback_failed=1
     fi
   done
 
-  "${COMPOSE[@]}" up -d --no-deps --force-recreate backend
-  wait_healthy pythonpro_backend 180
-  "${COMPOSE[@]}" up -d --no-deps --force-recreate arq_worker backup_scheduler check_scadenze_scheduler
-  wait_healthy pythonpro_arq_worker 120
-  "${COMPOSE[@]}" up -d --no-deps --force-recreate frontend
-  wait_healthy pythonpro_frontend 120
-  log "Rollback completato"
+  if [[ "${OLD_RUNTIME_MODE}" == "bind" ]]; then
+    ROLLBACK_COMPOSE=(
+      docker compose
+      --project-name pythonpro
+      --env-file "${ENV_FILE}"
+      -f "${ROOT_DIR}/docker-compose.yml"
+    )
+  else
+    ROLLBACK_COMPOSE=("${COMPOSE[@]}")
+  fi
+
+  "${ROLLBACK_COMPOSE[@]}" up -d --no-deps --force-recreate backend || rollback_failed=1
+  wait_healthy pythonpro_backend 180 || rollback_failed=1
+  "${ROLLBACK_COMPOSE[@]}" up -d --no-deps --force-recreate arq_worker backup_scheduler check_scadenze_scheduler || rollback_failed=1
+  wait_healthy pythonpro_arq_worker 120 || rollback_failed=1
+  "${ROLLBACK_COMPOSE[@]}" up -d --no-deps --force-recreate frontend || rollback_failed=1
+  wait_healthy pythonpro_frontend 120 || rollback_failed=1
+  if [[ "${rollback_failed}" == "0" ]]; then
+    log "Rollback completato e verificato"
+  else
+    echo "ERRORE CRITICO: rollback non completamente riuscito" >&2
+  fi
   set -e
 }
 
@@ -175,6 +262,9 @@ fi
 
 PRE_DB_REVISION="$(docker exec pythonpro_backend alembic current 2>/dev/null | awk '/^[0-9]+/{print $1; exit}')"
 OLD_AGENT_FLAGS="$(docker exec pythonpro_backend sh -c 'printf "%s|%s|%s|%s" "$AGENTS_ENABLED" "$AGENT_EMAIL_INTAKE_ENABLED" "$AGENT_DATA_RETENTION_ENABLED" "$ENABLE_WHATSAPP"')"
+if docker inspect pythonpro_backend --format '{{range .Mounts}}{{.Type}} {{.Destination}}\n{{end}}' | grep -q '^bind /app$'; then
+  OLD_RUNTIME_MODE="bind"
+fi
 
 log "Creazione backup pre-deploy cifrato e verifica integrita'"
 BACKUP_OUTPUT="$(docker exec pythonpro_backup_scheduler python -c '
@@ -203,6 +293,7 @@ done
   printf 'DEPLOY_BUILD_DATE=%s\n' "${DEPLOY_BUILD_DATE}"
   printf 'BACKUP_PATH=%s\n' "${BACKUP_PATH}"
   printf 'PRE_DB_REVISION=%s\n' "${PRE_DB_REVISION}"
+  printf 'OLD_RUNTIME_MODE=%s\n' "${OLD_RUNTIME_MODE}"
   for service in "${SERVICES[@]}"; do
     printf 'OLD_IMAGE_%s=%s\n' "${service^^}" "${OLD_IMAGE_IDS[${service}]}"
   done
@@ -210,7 +301,17 @@ done
 
 DEPLOY_MUTATED=1
 log "Build immagini immutabili da Git HEAD"
-"${COMPOSE[@]}" build backend arq_worker backup_scheduler check_scadenze_scheduler frontend
+if [[ "${OFFLINE_BUILD}" == "1" ]]; then
+  build_from_pinned_images "${OFFLINE_BASE_COMMIT}"
+elif ! "${COMPOSE[@]}" build --pull=false backend frontend; then
+  log "Build standard non disponibile; provo il fallback offline verificato"
+  build_from_pinned_images "${OFFLINE_BASE_COMMIT}"
+fi
+# I quattro processi Python condividono esattamente Dockerfile, contesto e
+# build args: un'unica immagine backend viene taggata per i ruoli runtime.
+docker image tag pythonpro-backend:latest pythonpro-arq_worker:latest
+docker image tag pythonpro-backend:latest pythonpro-backup_scheduler:latest
+docker image tag pythonpro-backend:latest pythonpro-check_scadenze_scheduler:latest
 
 for service in "${SERVICES[@]}"; do
   docker image tag "${IMAGES[${service}]}:latest" "${IMAGES[${service}]}:${DEPLOY_SHORT}"

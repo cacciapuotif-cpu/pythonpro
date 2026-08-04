@@ -21,6 +21,18 @@ Eseguire:
 ./scripts/deploy.sh
 ```
 
+Se Docker Hub e' temporaneamente irraggiungibile ma le dipendenze non sono
+cambiate dal deploy precedente, e' disponibile il fallback verificato:
+
+```bash
+./scripts/deploy.sh --offline --offline-base-commit <commit-base>
+```
+
+Il fallback rifiuta il deploy se `requirements.txt`, `package.json` o
+`package-lock.json` sono cambiati. Riusa le precedenti immagini pin soltanto
+come runtime di dipendenze, sostituisce tutto il codice backend con Git HEAD e
+ricompila React da Git HEAD prima di creare le nuove immagini.
+
 Lo script esegue, in quest'ordine:
 
 1. archivia esattamente `Git HEAD` in una directory temporanea;
@@ -64,7 +76,9 @@ rollback automaticamente:
 - se Alembic era avanzato, ripristina il DB dal backup pre-deploy collegandosi
   al database PostgreSQL di manutenzione;
 - rimette i tag `latest` sugli image ID precedenti;
-- ricrea i servizi e ne verifica la salute.
+- ripristina anche la modalita' precedente (immagine o bind mount), ricrea i
+  servizi e ne verifica la salute. Un rollback con health fallito non viene
+  mai dichiarato riuscito.
 
 Per un rollback manuale consultare prima il manifest piu' recente in
 `artifacts/deployments/`, quindi usare esclusivamente i tag
