@@ -235,6 +235,8 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
     sede_aziendale_numero_civico: '',
     avviso: '',
     avviso_id: '',
+    data_approvazione: '',
+    data_avvio_piano: '',
     azienda_ids: [],
     allievo_ids: [],
     // { [azienda_id]: [{ sede_tipo: 'ente'|'azienda', sede_id }, ...] }
@@ -484,6 +486,8 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
         ente_erogatore: formData.ente_erogatore || null,
         avviso: formData.avviso || null,
         avviso_id: formData.avviso_id ? parseInt(formData.avviso_id, 10) : null,
+        data_approvazione: formData.data_approvazione || null,
+        data_avvio_piano: formData.data_avvio_piano || null,
       };
 
       if (editingId) {
@@ -524,6 +528,8 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
       sede_aziendale_numero_civico: '',
       avviso: '',
       avviso_id: '',
+      data_approvazione: '',
+      data_avvio_piano: '',
       azienda_ids: [],
       allievo_ids: [],
       azienda_sedi: {},
@@ -562,6 +568,8 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
       sede_aziendale_numero_civico: project.sede_aziendale_numero_civico || '',
       avviso: project.avviso || '',
       avviso_id: project.avviso_id ? String(project.avviso_id) : '',
+      data_approvazione: project.data_approvazione ? project.data_approvazione.split('T')[0] : '',
+      data_avvio_piano: project.data_avvio_piano ? project.data_avvio_piano.split('T')[0] : '',
       azienda_ids: Array.isArray(project.azienda_ids) ? project.azienda_ids.map((id) => Number(id)) : [],
       allievo_ids: Array.isArray(project.allievo_ids) ? project.allievo_ids.map((id) => Number(id)) : [],
       azienda_sedi: Array.isArray(project.aziende_delivery)
@@ -1000,6 +1008,36 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
                         placeholder="Es: DD n. 123 del 15/02/2026"
                         required
                       />
+                    </div>
+
+                    <div className="form-group">
+                      <label htmlFor="data_approvazione">Data Approvazione {!editingId && '*'}</label>
+                      <input
+                        type="date"
+                        id="data_approvazione"
+                        name="data_approvazione"
+                        value={formData.data_approvazione}
+                        onChange={handleInputChange}
+                        required={!editingId}
+                      />
+                      <small className="field-hint">
+                        Obbligatoria per creare un nuovo progetto attivo.
+                      </small>
+                    </div>
+
+                    <div className="form-group">
+                      <label htmlFor="data_avvio_piano">Data Avvio Piano {!editingId && '*'}</label>
+                      <input
+                        type="date"
+                        id="data_avvio_piano"
+                        name="data_avvio_piano"
+                        value={formData.data_avvio_piano}
+                        onChange={handleInputChange}
+                        required={!editingId}
+                      />
+                      <small className="field-hint">
+                        Obbligatoria per creare un nuovo progetto attivo.
+                      </small>
                     </div>
                   </div>
                 )}
