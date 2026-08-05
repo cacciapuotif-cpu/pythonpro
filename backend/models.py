@@ -378,6 +378,11 @@ class Project(Base):
         return self.avviso
 
     @property
+    def fund_config(self):
+        from services.atto_concessorio_registry import for_ente_erogatore
+        return for_ente_erogatore(self.ente_erogatore)
+
+    @property
     def azienda_ids(self):
         # UX-7: legge da aziende_coinvolte, non da azienda_links. Sono la stessa
         # tabella (azienda_cliente_projects), ma solo la prima e' in selectinload

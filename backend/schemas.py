@@ -291,6 +291,25 @@ class AllievoCoinvolto(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class FondoConfig(BaseModel):
+    """Etichette per fondo, unica fonte per la vista progetto unificata.
+
+    Mai presenza/assenza di sezioni: solo testo. Un fondo non censito
+    riceve comunque un'istanza valida (fallback in atto_concessorio_registry).
+    """
+
+    fondo: str
+    tipo_documento: str
+    etichetta_atto: str
+    fornisce_ente_attuatore: bool
+    fornisce_aziende_beneficiarie: bool
+    etichetta_formulario: str
+    etichetta_piano_finanziario: str
+    etichetta_codice_progetto: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class Project(ProjectBase):
     id: int
     ente_attuatore_id: Optional[int] = None
@@ -310,6 +329,9 @@ class Project(ProjectBase):
     allievi_coinvolti: List[AllievoCoinvolto] = []
     # Sedi di erogazione per azienda (ente o azienda), N per link.
     aziende_delivery: List[AziendaDeliverySede] = []
+    # Etichette per fondo (vista progetto unificata): mai None, sempre
+    # risolto dalla @property del modello con fallback per fondi ignoti.
+    fund_config: FondoConfig
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True, use_enum_values=True)
 
