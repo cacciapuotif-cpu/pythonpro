@@ -1,8 +1,42 @@
 # PythonPro — Stato corrente
 
-**Aggiornato:** 2026-08-05 (vista progetto unificata per tutti i fondi, deploy reale eseguito e verificato)
+**Aggiornato:** 2026-08-05 (Formulario Formazienda: 14 edizioni materializzate, deploy e riparazione live verificati)
 **Branch:** `claude/platform-audit-compliance-XnH86` (locale, **nessun push**)
 **Percorso:** `/DATA/progetti/pythonpro`
+
+## ✅ FORMAZIENDA — 14 EDIZIONI FORMULARIO MATERIALIZZATE — 2026-08-05
+
+**Problema WHITE FORM #16:** il parser leggeva correttamente il Formulario
+Allegato A (1 progetto formativo, 24 ore, **14 edizioni**, 14 aziende e
+quadratura economica 14 × EUR 3.960 = EUR 55.440), ma la conferma salvava
+un solo `ModuloFormativo` per progetto formativo. Un secondo caricamento
+aveva quindi prodotto due righe identiche da 24 ore; il numero 14 restava
+solo nel testo dell'obiettivo e non veniva rappresentato nei moduli.
+
+**Correzione (`9830588`):** il parser espone ora i finanziamenti per
+impresa; il servizio `formazienda_edizioni.py` associa in modalita'
+fail-closed ciascuna edizione all'azienda tramite identificativo fiscale e
+finanziamento, quindi crea un modulo per edizione (`FA-1-ED01`…
+`FA-1-ED14`). Il reimport e' idempotente: aggiorna le stesse 14 righe e
+non genera duplicati. La rimozione automatica riguarda esclusivamente le
+vecchie righe Formazienda riconosciute dalla firma tecnica completa. Il
+riepilogo moduli usa il collegamento diretto all'azienda, mantenendo il
+fallback storico FAPI. Il frontend mostra il numero di edizioni create o
+aggiornate dopo la conferma.
+
+**Verifiche:** 19 test backend con PDF reali + 1 test puntuale endpoint e
+31 test frontend superati. Deploy atomico completato con backup verificato
+`/app/backups/gestionale_backup_pre_deploy_20260805_143900.sql.zip.gpg`;
+manifest `artifacts/deployments/20260805T143858Z_98305884c215.env`, bundle
+frontend `main.d6d37631.js`, backend/frontend/worker healthy e `/health`
+allineato al commit `98305884c215ecdfba08b71337f9e655b5e6acaf`.
+
+**Riparazione live auditata (`formazienda_edizioni_repaired`):** sul
+progetto WHITE FORM #16 sono state eliminate le sole 2 righe legacy e
+create 14 edizioni, collegate a 14 aziende distinte, 24 ore ciascuna e
+336 ore complessive; nessun warning. Smoke API finale: 14 moduli, 14
+gruppi, primo `Edizione 01/14`, ultimo `Edizione 14/14`. Per verificarlo
+dalla UI: refresh forzato, Progetti → WHITE FORM → Moduli Formativi.
 
 ## ✅ VISTA PROGETTO UNIFICATA PER TUTTI I FONDI — 2026-08-05
 
