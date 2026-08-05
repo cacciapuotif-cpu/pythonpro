@@ -120,16 +120,22 @@ docker compose exec -T backup_scheduler python run_backup.py create --type pre_u
 # 2. Pull nuova versione
 git pull origin main
 
-# 3. Rebuild immagini
-docker compose build --no-cache
-
-# 4. Rolling update (minimizza downtime)
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps --build backend
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps --build frontend
+# 3-4. Rebuild + rolling update per servizio (via WSL2/bash), con verifica
+# che l'immagine stampi davvero il commit distribuito. Il comando raw
+# `docker compose ... up -d --no-deps --build` non esporta APP_COMMIT/
+# APP_BUILD_DATE: l'immagine risultante ha org.opencontainers.image.revision
+# = unknown e il footer mostra "Versione non disponibile" — e' esattamente
+# cosi' che e' successo la volta scorsa. Usa lo script, non il comando raw:
+bash scripts/rebuild-service.sh backend
+bash scripts/rebuild-service.sh frontend
 
 # 5. Verifica
 .\scripts\smoke_test.ps1
 ```
+
+Per un deploy completo (non un rolling update di un solo servizio), usa
+`scripts/deploy.sh` — atomico, con backup pre-deploy e rollback automatico,
+e stampa gia' correttamente il commit su entrambi i servizi.
 
 ### Restart Servizi
 
