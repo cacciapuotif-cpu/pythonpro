@@ -4,6 +4,30 @@
 **Branch:** `claude/platform-audit-compliance-XnH86` (locale, **nessun push**)
 **Percorso:** `/DATA/progetti/pythonpro`
 
+## ✅ WHITE FORM RIPRISTINATO DOPO SOFT-DELETE — 2026-08-05
+
+Caso live segnalato dall'utente: dopo aver premuto `Elimina` su WHITE FORM,
+un nuovo confirm dell'Allegato E rispondeva "progetto gia' esistente", mentre
+il progetto non compariva piu' nell'elenco e non era quindi raggiungibile il
+Formulario. Causa verificata sul DB: `DELETE /projects/{id}` non elimina, ma
+imposta soltanto `is_active=false`; il controllo duplicati Formazienda cerca
+invece anche gli inattivi tramite `id_piano_esterno`.
+
+Il progetto WHITE FORM #16 (`id_piano_esterno=222-S2621`) e' stato riattivato
+in modo auditato. L'Allegato E era integro: documento #7 corrente e file fisico
+presente; 0 aziende, 0 allievi e 0 mansioni collegate, quindi nessun dato
+operativo da ricostruire. Stato post-ripristino: `is_active=true`, 1 documento.
+L'utente deve chiudere il modale duplicato, fare refresh completo e aprire
+WHITE FORM #16; nella sezione Documenti Formazienda e' disponibile `Carica
+Formulario (Allegato A)` grazie al fix `902df06` gia' deployato.
+
+Residuo applicativo da correggere: rendere esplicito in UI che `Elimina` e' una
+disattivazione, offrire ripristino/associazione quando l'Atto trova un progetto
+inattivo e non consumare la preview prima del controllo duplicati. Inventario
+read-only upload Atto: 5 file, 1 referenziato; dei 4 non referenziati, 1 era
+ancora una preview Redis attiva al controllo. Nessun file cancellato senza
+prima risolvere preview attive e provenienza.
+
 ## ✅ FORMAZIENDA — FORMULARIO RAGGIUNGIBILE DALLA SCHEDA PROGETTO — 2026-08-05
 
 Durante la prova live e' emerso che `FormularioFormaziendaModal` e i relativi
