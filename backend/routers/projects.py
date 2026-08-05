@@ -323,7 +323,12 @@ def read_project_moduli_formativi(
     for modulo in moduli:
         codice = modulo.codice_progetto_fapi or "SENZA_CODICE"
         order = _suffix_order(codice)
-        azienda = aziende[order - 1] if order and 0 < order <= len(aziende) else None
+        # Formazienda materializza esplicitamente l'azienda dell'edizione.
+        # Il fallback per suffisso conserva la compatibilita' coi moduli FAPI
+        # storici che non valorizzano la FK diretta.
+        azienda = modulo.azienda_beneficiaria
+        if azienda is None:
+            azienda = aziende[order - 1] if order and 0 < order <= len(aziende) else None
 
         if codice not in grouped:
             partecipanti = None

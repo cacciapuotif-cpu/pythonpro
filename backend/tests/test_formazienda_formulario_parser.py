@@ -98,6 +98,15 @@ def test_macrovoci_e_quadratura():
     assert riepilogo["quadratura_finanziamento_per_impresa_ok"] is True
 
 
+def test_quattordici_finanziamenti_per_impresa_per_associare_le_edizioni():
+    righe = parse_formulario(str(CAMPIONE))["riepilogo"]["finanziamenti_per_impresa"]
+    assert len(righe) == 14
+    assert {riga["finanziamento"] for riga in righe} == {3960.0}
+    pama = next(riga for riga in righe if riga["ragione_sociale"] == "PAMA DI GUARRACINO")
+    assert pama["identificativo_fiscale"] == "GRRMNN01C70C291M"
+    assert pama["cofinanziamento"] == 0.0
+
+
 def test_cronoprogramma_mese_anno_senza_giorno():
     cronoprogramma = parse_formulario(str(CAMPIONE))["riepilogo"]["cronoprogramma"]
     assert cronoprogramma["durata_giorni"] == 180

@@ -403,9 +403,19 @@ def _parse_riepilogo(sezione4: str, warnings: list[str]) -> dict[str, Any]:
             f"Le macrovoci (totale {somma_macrovoci}) non quadrano col preventivo totale ({totale_preventivo})"
         )
 
+    finanziamenti_per_impresa = [
+        {
+            "ragione_sociale": ragione_sociale.strip(),
+            "identificativo_fiscale": identificativo.strip(),
+            "classe_dimensionale": classe_dimensionale.lower(),
+            "finanziamento": _clean_importo(finanziamento),
+            "cofinanziamento": _clean_importo(cofinanziamento),
+        }
+        for ragione_sociale, identificativo, classe_dimensionale, finanziamento, cofinanziamento
+        in _RE_RIEPILOGO_IMPRESA_RIGA.findall(sezione4)
+    ]
     somma_per_impresa = sum(
-        _clean_importo(riga[3]) or 0
-        for riga in _RE_RIEPILOGO_IMPRESA_RIGA.findall(sezione4)
+        riga["finanziamento"] or 0 for riga in finanziamenti_per_impresa
     ) or None
     quadratura_finanziamento_per_impresa_ok = _quadra(somma_per_impresa, costo_complessivo)
     if not quadratura_finanziamento_per_impresa_ok:
@@ -425,6 +435,7 @@ def _parse_riepilogo(sezione4: str, warnings: list[str]) -> dict[str, Any]:
         "totale_preventivo": totale_preventivo,
         "contributo_richiesto": contributo_richiesto,
         "cofinanziamento": cofinanziamento,
+        "finanziamenti_per_impresa": finanziamenti_per_impresa,
         "quadratura_macrovoci_ok": quadratura_macrovoci_ok,
         "quadratura_finanziamento_per_impresa_ok": quadratura_finanziamento_per_impresa_ok,
     }

@@ -126,6 +126,9 @@ def test_confirm_formulario_crea_aziende_link_delega_moduli_e_piano(client, db_s
     body = response.json()
     assert body["aziende_create"] == 14
     assert body["soggetto_delegato_registrato"] is True
+    assert body["moduli_creati"] == 14
+    assert body["moduli_aggiornati"] == 0
+    assert body["edizioni_totali"] == 14
 
     aziende = db_session.query(models.AziendaCliente).filter(
         models.AziendaCliente.partita_iva == "08951911216"
@@ -139,6 +142,24 @@ def test_confirm_formulario_crea_aziende_link_delega_moduli_e_piano(client, db_s
     ).first()
     assert delega is not None
     assert delega.importo == 14000.0
+
+    moduli = db_session.query(models.ModuloFormativo).filter(
+        models.ModuloFormativo.project_id == project_id
+    ).order_by(models.ModuloFormativo.codice_progetto_fapi).all()
+    assert len(moduli) == 14
+    assert len({m.codice_progetto_fapi for m in moduli}) == 14
+    assert {float(m.ore_previste) for m in moduli} == {24.0}
+    assert all(m.azienda_beneficiaria_id is not None for m in moduli)
+    assert len({m.azienda_beneficiaria_id for m in moduli}) == 14
+    assert moduli[0].titolo_modulo.endswith("Edizione 01/14")
+
+    listing = client.get(f"/api/v1/projects/{project_id}/moduli-formativi")
+    assert listing.status_code == 200, listing.text
+    listing_body = listing.json()
+    assert listing_body["moduli_totali"] == 14
+    assert listing_body["ore_totali"] == 336.0
+    assert len(listing_body["progetti_fapi"]) == 14
+    assert all(gruppo["azienda"] is not None for gruppo in listing_body["progetti_fapi"])
 
     piano = db_session.query(models.PianoFinanziario).filter(
         models.PianoFinanziario.progetto_id == project_id,
@@ -155,6 +176,32 @@ def test_confirm_formulario_crea_aziende_link_delega_moduli_e_piano(client, db_s
         models.ProjectDocumento.tipo_documento == "formulario",
     ).first()
     assert documento is not None
+
+
+def test_reimport_formulario_aggiorna_le_14_edizioni_senza_duplicarle(client, db_session):
+    project_id = _crea_progetto_da_allegato_e(client)
+
+    def importa():
+        with open(CAMPIONE_A, "rb") as fh:
+            upload = client.post(
+                f"/api/v1/projects/{project_id}/formazienda/upload-formulario",
+                files={"file": ("ALLEGATO A.pdf", fh, "application/pdf")},
+            ).json()
+        return client.post(
+            f"/api/v1/projects/{project_id}/formazienda/confirm-formulario",
+            json={"preview_token": upload["preview_token"]},
+        )
+
+    first = importa()
+    second = importa()
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+    assert second.json()["moduli_creati"] == 0
+    assert second.json()["moduli_aggiornati"] == 14
+    assert second.json()["edizioni_totali"] == 14
+    assert db_session.query(models.ModuloFormativo).filter(
+        models.ModuloFormativo.project_id == project_id
+    ).count() == 14
 
 
 def test_divergenza_tra_allegato_a_ed_e_viene_segnalata(client, db_session):

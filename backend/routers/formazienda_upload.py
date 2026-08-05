@@ -19,7 +19,7 @@ import models
 import fapi_preview_store as _preview_store
 from database import get_db
 from auth import get_current_user, User
-from services import date_progetto, documento_progetto
+from services import date_progetto, documento_progetto, formazienda_edizioni
 from services.parsers.formazienda.atto_adesione_parser import parse_atto_adesione
 
 router = APIRouter(prefix="/api/v1/projects", tags=["formazienda-upload"])
@@ -477,23 +477,15 @@ def confirm_formulario_formazienda(
             ))
         soggetto_delegato_registrato = True
 
-    moduli_creati = 0
-    for progetto_formativo in preview.get("progetti_formativi", []):
-        obiettivo = (
-            f"Edizioni: {progetto_formativo.get('edizioni')}; "
-            f"Modalita: {progetto_formativo.get('modalita_attuazione')}; "
-            f"Finanziamento/edizione: {progetto_formativo.get('costo_finanziamento_per_edizione')}"
-        )
-        db.add(models.ModuloFormativo(
-            project_id=project_id,
-            titolo_modulo=progetto_formativo.get("titolo") or "Progetto Formazienda",
-            materia=progetto_formativo.get("tematica"),
-            modalita_erogazione="mista_aula_toj",
-            tipo_attivita="formativa",
-            ore_previste=progetto_formativo.get("ore_formazione") or 0,
-            obiettivo=obiettivo,
-        ))
-        moduli_creati += 1
+    # I link azienda appena creati devono essere interrogabili dal servizio di
+    # mapping CF/P.IVA -> edizione; la sessione applicativa ha autoflush=False.
+    db.flush()
+    esito_edizioni = formazienda_edizioni.sincronizza_edizioni_formazienda(
+        db,
+        project_id=project_id,
+        progetti_formativi=preview.get("progetti_formativi", []),
+        riepilogo=preview.get("riepilogo") or {},
+    )
 
     piano = db.query(models.PianoFinanziario).filter(
         models.PianoFinanziario.progetto_id == project_id,
@@ -554,8 +546,11 @@ def confirm_formulario_formazienda(
         "aziende_create": aziende_create,
         "aziende_associate": aziende_associate,
         "soggetto_delegato_registrato": soggetto_delegato_registrato,
-        "moduli_creati": moduli_creati,
+        "moduli_creati": esito_edizioni["moduli_creati"],
+        "moduli_aggiornati": esito_edizioni["moduli_aggiornati"],
+        "moduli_rimossi": esito_edizioni["moduli_rimossi"],
+        "edizioni_totali": esito_edizioni["edizioni_totali"],
         "voci_piano_create": voci_create,
         "documento_id": documento.id,
-        "warnings": preview.get("warnings", []),
+        "warnings": list(preview.get("warnings", [])) + esito_edizioni["warnings"],
     }

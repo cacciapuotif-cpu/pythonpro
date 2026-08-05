@@ -22,6 +22,7 @@ import {
   confirmAttoAdesioneFormazienda,
   uploadAttoAdesioneFormaziendaProgetto,
   uploadFormularioFormazienda,
+  confirmFormularioFormazienda,
   getDocumentiProgetto,
 } from '../services/apiService';
 
@@ -369,6 +370,15 @@ test('carica formulario Formazienda e mostra imprese, delega e macrovoci', async
     riepilogo: { macrovoci: [{ codice: 'A', importo: 11088, percentuale: 20, limite_max_pct: 20 }] },
     warnings: [],
   });
+  confirmFormularioFormazienda.mockResolvedValue({
+    aziende_create: 14,
+    aziende_associate: 0,
+    soggetto_delegato_registrato: true,
+    moduli_creati: 14,
+    moduli_aggiornati: 0,
+    edizioni_totali: 14,
+    voci_piano_create: 4,
+  });
   render(<FapiUploadSection project={{ id: 7, ente_erogatore: 'Formazienda' }} />);
   fireEvent.click(screen.getByRole('button', { name: /Carica Formulario/i }));
   await selezionaFile();
@@ -377,6 +387,10 @@ test('carica formulario Formazienda e mostra imprese, delega e macrovoci', async
   expect(await screen.findByText('PAKI UNITED FOREVER S.R.L.S.')).toBeInTheDocument();
   expect(screen.getByText('A.M.D. S.R.L.')).toBeInTheDocument();
   expect(screen.getByText(/OPERATORE SEGRETARIALE/i)).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('button', { name: /Conferma e Salva/i }));
+  const esito = await screen.findByText(/Formulario salvato/i);
+  expect(esito).toHaveTextContent('Edizioni formative: 14 (create 14, aggiornate 0)');
 });
 
 test('con match globale propone tre azioni e associa e la predefinita', async () => {

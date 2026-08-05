@@ -1442,7 +1442,9 @@ function FormularioFormaziendaModal({ projectId, onClose, onSuccess }) {
             ✅ Formulario salvato — aziende create: <strong>{preview._result.aziende_create}</strong>,
             associate: <strong>{preview._result.aziende_associate}</strong><br />
             Soggetto delegato registrato: {preview._result.soggetto_delegato_registrato ? 'sì' : 'no'}<br />
-            Moduli creati: <strong>{preview._result.moduli_creati}</strong> ·
+            Edizioni formative: <strong>{preview._result.edizioni_totali ?? preview._result.moduli_creati}</strong>
+            {' '}(create {preview._result.moduli_creati}
+            {preview._result.moduli_aggiornati != null && `, aggiornate ${preview._result.moduli_aggiornati}`}) ·
             Voci piano create: <strong>{preview._result.voci_piano_create}</strong>
           </div>
         )}
