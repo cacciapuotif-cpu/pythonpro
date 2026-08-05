@@ -1,8 +1,105 @@
 # PythonPro — Stato corrente
 
-**Aggiornato:** 2026-08-05 (smoke live Formazienda + punto di accesso Formulario mancante nella UI progetto)
+**Aggiornato:** 2026-08-05 (vista progetto unificata per tutti i fondi, deploy reale eseguito e verificato)
 **Branch:** `claude/platform-audit-compliance-XnH86` (locale, **nessun push**)
 **Percorso:** `/DATA/progetti/pythonpro`
+
+## ✅ VISTA PROGETTO UNIFICATA PER TUTTI I FONDI — 2026-08-05
+
+**Compito:** MAXI COMMUNICATION (FAPI, #11) e WHITE FORM (Formazienda, #16)
+mostravano sezioni e campi diversi, non solo etichette diverse: Avviso
+assente su FAPI, Moduli Formativi assente su Formazienda, Nuova
+Assegnazione assente su Formazienda, documenti con struttura diversa,
+attuatore reso in due modi diversi. Censimento: il controllo
+`codice_fapi || ente_erogatore === 'FAPI'` era reimplementato
+indipendentemente in 4 punti frontend (`ProjectManager.js` x3,
+`FapiUpload.js`, `AssignmentModal.js`) e decideva presenza/assenza di
+intere sezioni, non solo etichette. Il backend era gia' quasi ovunque
+fund-agnostico (endpoint moduli-formativi, campo avviso, tabella
+Assignment) — solo il frontend nascondeva dati gia' esistenti.
+
+**Fix (8 commit atomici, `22f07c4`..`60be9d6`, + fixup `ea45370`):**
+1. `backend/services/atto_concessorio_registry.py` esteso con
+   `etichetta_formulario`/`etichetta_piano_finanziario`/
+   `etichetta_codice_progetto` per fondo (fapi/formazienda/fondimpresa +
+   fallback generico) — unica fonte di etichette per fondo.
+2. `Project.fund_config` (nuova `@property` su `models.py`, campo su
+   `schemas.Project`) espone queste etichette su ogni risposta progetto,
+   nessun nuovo endpoint.
+3. `frontend/src/utils/fondoProgetto.js` (nuovo): `fundKey`/
+   `isFapiProject`/`resolveFundConfig` sostituiscono le 4
+   reimplementazioni sparse.
+4. `ProjectManager.js`: `mostraDocumentiFondo()` eliminata,
+   `ModuliFormativiSection`/`FapiUploadSection` montano sempre. Blocco
+   Identificazione riordinato (ente, avviso, attuatore, CUP, codice
+   progetto, atto, date...) con Avviso e Codice progetto sempre presenti
+   — stato vuoto + azione quando mancano, mai riga assente. "Nuova
+   Assegnazione" ora dipende solo da `canWriteProjects`.
+5. `FapiUpload.js`: `FUND_DOCUMENT_MODALS` sostituisce il branch 4-way +
+   3 blocchi JSX paralleli; un fondo non censito raggiunge ora
+   `PlaceholderDocumentModal` (era codice morto, mai raggiungibile).
+6. `riepilogoSediDelivery()`: "sede da definire" ripetuto per azienda
+   sostituito da "Sedi: N definite su M aziende" + dettaglio espandibile.
+7. `backend/scripts/find_duplicate_implementing_entities.py` (one-shot,
+   sola lettura): rilevati "Next Group srl" (id 1, piva placeholder, 2
+   progetti collegati) e "NEXT GROUP S.R.L." (id 3, piva reale, 1
+   progetto) come stessa azienda su due righe — report in
+   `audit/ENTITY_DUPLICATES_REPORT.md`, **nessuna fusione eseguita**,
+   decisione dell'utente.
+8. `scripts/rebuild-service.sh` (nuovo): causa reale del footer
+   "Versione non disponibile" non era un bug Dockerfile/compose (gia'
+   corretti) ma il comando di quick-rebuild documentato in
+   `docs/RUNBOOK_produzione.md`, che non esportava
+   `APP_COMMIT`/`APP_BUILD_DATE`. Il wrapper deriva il commit da git e
+   verifica lo stamp; il runbook ora lo richiama al posto del comando raw.
+
+**Verifica reale post-deploy** (dump del testo dei due `.project-card`
+via Playwright autenticato, non solo test):
+- FAPI #11 e Formazienda #16: stessa sequenza di sezioni (Identificazione
+  → Date → Aziende/Sedi → Allievi → Documenti → Moduli Formativi →
+  Azioni), confermata sui due progetti reali.
+- Avviso: FAPI mostra "Avviso non collegato" + azione "Collega avviso"
+  (l'avviso e' davvero nullo su questo progetto); Formazienda mostra
+  "2/2022". Riga presente su entrambi.
+- "Nuova Assegnazione" presente su entrambi (prima assente su
+  Formazienda).
+- Moduli Formativi presente su entrambi: FAPI 25 moduli/207h (5 gruppi
+  PG01-05), Formazienda 1 modulo/24h (dato reale, non stato vuoto — lo
+  stato vuoto con azione "Importa formulario" e' verificato via test,
+  non dal vivo su questi due progetti specifici perche' entrambi hanno
+  gia' dati).
+- Attuatore: **non ancora identico** — FAPI legge "Next Group srl" (id
+  1), Formazienda legge "NEXT GROUP S.R.L." (id 3): stesso codice di
+  rendering (`ente_attuatore_id` → lookup unico), ma due righe DB
+  distinte per la stessa azienda reale. Segnalato nel report duplicati,
+  fusione da confermare.
+- Fondo non configurato: verificato via test (backend 5 fondi
+  parametrizzati incl. `None`/sconosciuto; frontend `FapiUpload.test.js`
+  "un fondo non censito resta utilizzabile" — pulsante raggiunge
+  `PlaceholderDocumentModal`), non tramite un progetto reale creato in
+  produzione per non sporcare i dati live.
+- Footer versione: `/health` risponde `commit: 60be9d64...`, label OCI
+  immagine frontend corrisponde, bundle live contiene l'hash — verificato
+  sui container dopo il deploy reale.
+- 375px: nessuno scroll orizzontale sulla card `.project-card` desktop
+  (verificato via `frontend/e2e/responsive-layout.js`, eseguito dentro
+  un container Playwright per limiti dell'host). **Nota**: a 375px
+  l'app mostra una card mobile riassuntiva separata e preesistente
+  (`ResponsiveEntityList`, gate MOB-0/MOB-4), non la card desktop
+  completa — comportamento voluto e non toccato, come da istruzione di
+  restare coerenti con "il comportamento mobile gia' definito".
+
+**Suite:** frontend 46 suite / 357 test verdi; backend 1086 passati / 8
+skip (`pytest -q tests --cov-config=pyproject.toml` da `backend/`).
+**Deploy:** `scripts/deploy.sh` eseguito con successo, commit
+`60be9d64114705dbdb61065825e9185453cf15e4`, backup pre-deploy verificato,
+nessun rollback necessario.
+
+**VISTA PROGETTO UNIFICATA PER TUTTI I FONDI: SÌ**, con un residuo
+esplicito e non nascosto: l'attuatore "Next Group srl"/"NEXT GROUP
+S.R.L." e' la stessa azienda su due record — la vista lo rende in modo
+identico per costruzione (stesso lookup), ma il dato sorgente resta
+duplicato finche' non confermi la fusione (`audit/ENTITY_DUPLICATES_REPORT.md`).
 
 ## ✅ WHITE FORM RIPRISTINATO DOPO SOFT-DELETE — 2026-08-05
 

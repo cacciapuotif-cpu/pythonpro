@@ -2,6 +2,69 @@
 
 Formato: data | finding ID | cosa fatto | file toccati | test/verifiche eseguiti
 
+## 2026-08-05 | PRJ-VISTA-UNIFICATA-FONDI | Sezioni/campi diversi per fondo sulla scheda progetto
+
+- Trovato dal vivo dall'utente confrontando MAXI COMMUNICATION (FAPI,
+  #11) e WHITE FORM (Formazienda, #16) affiancati su `/projects`: Avviso
+  presente solo su Formazienda, Moduli Formativi presente solo su FAPI,
+  Nuova Assegnazione presente solo su FAPI, sezione documenti con
+  struttura diversa (non solo etichette), attuatore reso in due modi
+  diversi per la stessa azienda.
+- Root cause: il fund-branch `codice_fapi || ente_erogatore === 'FAPI'`
+  era reimplementato indipendentemente in 4 punti frontend
+  (`ProjectManager.js` x3 call site, `FapiUpload.js`, `AssignmentModal.js`)
+  e decideva PRESENZA di intere sezioni, non solo etichette. Il backend
+  era gia' fund-agnostico quasi ovunque (endpoint moduli-formativi,
+  campo avviso, tabella Assignment) — solo il frontend nascondeva dati
+  gia' disponibili. Pattern corretto gia' esistente ma sotto-usato:
+  `backend/services/atto_concessorio_registry.py`, usato prima solo per
+  lo scope aziende della Delivery.
+- Fix: registry esteso con etichette formulario/piano/codice progetto
+  per fondo, esposto come `Project.fund_config` su ogni risposta;
+  `frontend/src/utils/fondoProgetto.js` come unico punto di rilevamento
+  fondo; `ModuliFormativiSection`/`FapiUploadSection` montano sempre
+  (niente piu' gate FAPI-only); `FapiUpload.js` unificato in una tabella
+  `FUND_DOCUMENT_MODALS` con fallback a `PlaceholderDocumentModal` per
+  fondi non censiti (era codice morto, mai raggiungibile); Identificazione
+  riordinata con Avviso/Codice progetto sempre presenti (stato vuoto +
+  azione se mancano); "Nuova Assegnazione" dipende solo da
+  `canWriteProjects`; sedi di erogazione riassunte in un conteggio
+  invece di "sede da definire" ripetuto; script one-shot sola lettura
+  per segnalare enti attuatori duplicati (nessuna fusione automatica);
+  causa reale del footer versione non era Dockerfile/compose (gia'
+  corretti) ma il comando di quick-rebuild in RUNBOOK senza
+  `APP_COMMIT`/`APP_BUILD_DATE` — sostituito con `scripts/rebuild-service.sh`.
+- File toccati: `backend/services/atto_concessorio_registry.py`,
+  `backend/models.py`, `backend/schemas.py`,
+  `backend/scripts/find_duplicate_implementing_entities.py` (nuovo),
+  `frontend/src/utils/fondoProgetto.js` (nuovo),
+  `frontend/src/components/ProjectManager.js`,
+  `frontend/src/components/ProjectManager.scss`,
+  `frontend/src/components/FapiUpload.js`,
+  `frontend/src/components/AssignmentModal.js`,
+  `scripts/rebuild-service.sh` (nuovo), `docs/RUNBOOK_produzione.md`.
+- Test/verifiche eseguite: backend 1086 passati/8 skip (`pytest -q tests
+  --cov-config=pyproject.toml` da `backend/`, incl. nuovi
+  `test_project_fund_config.py` parametrizzato su 5 fondi e
+  `test_find_duplicate_implementing_entities.py`); frontend 46 suite/357
+  test verdi (incl. nuovi test in `fondoProgetto.test.js`,
+  `FapiUpload.test.js`, `ProjectManager.associati.test.js`); deploy reale
+  via `scripts/deploy.sh`, commit `60be9d64114705dbdb61065825e9185453cf15e4`,
+  nessun rollback; verifica live post-deploy con dump autenticato
+  (Playwright) del testo dei due `.project-card` reali #11/#16 — confermata
+  stessa sequenza di sezioni, Avviso/Codice progetto/Nuova Assegnazione
+  presenti su entrambi; report duplicati eseguito sul DB reale (0
+  scritture, confermato "Next Group srl"/"NEXT GROUP S.R.L." stessa
+  azienda su due righe, fusione non eseguita); footer versione verificato
+  su `/health` e label immagine post-deploy; assenza di scroll
+  orizzontale a 375px verificata su `.project-card` desktop via
+  `frontend/e2e/responsive-layout.js` (dentro un container Playwright per
+  limiti dell'host — Chromium headless crashava nativamente
+  sull'ambiente, risolto con `--single-process`+`SYS_ADMIN`). Residuo
+  esplicito: l'attuatore duplicato non e' stato fuso (decisione
+  dell'utente); il fondo "non configurato" e' verificato via test, non
+  con un progetto reale creato in produzione.
+
 ## 2026-08-04 | PRJ-WIZARD-MANUALE-DATE-MANCANTI | Nuovo progetto manuale falliva sempre con 400
 
 - Trovato dal vivo (non da test): l'utente ha testato "+ Nuovo Progetto"
