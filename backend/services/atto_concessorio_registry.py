@@ -16,25 +16,34 @@ from dataclasses import dataclass
 class FondoAttoConcessorio:
     fondo: str
     tipo_documento: str
-    etichetta: str
+    etichetta_atto: str
     fornisce_ente_attuatore: bool
     fornisce_aziende_beneficiarie: bool
+    etichetta_formulario: str = "Formulario"
+    etichetta_piano_finanziario: str = "Piano finanziario"
+    etichetta_codice_progetto: str = "Codice progetto"
 
 
 REGISTRY: dict[str, FondoAttoConcessorio] = {
     "fapi": FondoAttoConcessorio(
         fondo="fapi",
         tipo_documento="convenzione",
-        etichetta="Convenzione",
+        etichetta_atto="Convenzione",
         fornisce_ente_attuatore=True,
         fornisce_aziende_beneficiarie=True,
+        etichetta_formulario="Formulario",
+        etichetta_piano_finanziario="Piano Finanziario",
+        etichetta_codice_progetto="Codice FAPI",
     ),
     "formazienda": FondoAttoConcessorio(
         fondo="formazienda",
         tipo_documento="atto_concessione",
-        etichetta="Atto di adesione (Allegato E)",
+        etichetta_atto="Atto di adesione (Allegato E)",
         fornisce_ente_attuatore=True,
         fornisce_aziende_beneficiarie=False,
+        etichetta_formulario="Formulario (Allegato A)",
+        etichetta_piano_finanziario="Piano Fin.",
+        etichetta_codice_progetto="Codice pratica Formazienda",
     ),
     # Struttura predisposta su richiesta esplicita, senza campione del
     # documento e senza toccare il router fondimpresa_upload.py esistente
@@ -43,18 +52,24 @@ REGISTRY: dict[str, FondoAttoConcessorio] = {
     "fondimpresa": FondoAttoConcessorio(
         fondo="fondimpresa",
         tipo_documento="atto_concessione",
-        etichetta="Lettera di ammissione",
+        etichetta_atto="Lettera di ammissione",
         fornisce_ente_attuatore=True,
         fornisce_aziende_beneficiarie=False,
+        etichetta_formulario="Excel Riepilogo",
+        etichetta_piano_finanziario="Piano Finanziario",
+        etichetta_codice_progetto="Codice pratica Fondimpresa",
     ),
 }
 
 _DEFAULT = FondoAttoConcessorio(
     fondo="altro",
     tipo_documento="convenzione",
-    etichetta="Convenzione",
+    etichetta_atto="Convenzione",
     fornisce_ente_attuatore=True,
     fornisce_aziende_beneficiarie=True,
+    etichetta_formulario="Formulario",
+    etichetta_piano_finanziario="Piano finanziario",
+    etichetta_codice_progetto="Codice progetto",
 )
 
 
