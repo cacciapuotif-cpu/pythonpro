@@ -23,10 +23,19 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
+import auth  # noqa: F401  # registra il mapper User: models.py referenzia User in relationship() per stringa
 import models
 from database import SessionLocal
 
-REPORT_PATH = Path(__file__).resolve().parent.parent.parent / "audit" / "ENTITY_DUPLICATES_REPORT.md"
+# Il layout differisce tra checkout locale (repo root con audit/ tre livelli
+# sopra questo file) e immagine di produzione (WORKDIR /app contiene solo
+# backend/, l'audit/ del repo non e' nel contesto di build): se il repo
+# root atteso non esiste, scrivi accanto allo script invece di fallire.
+_REPO_ROOT_CANDIDATE = Path(__file__).resolve().parent.parent.parent
+if (_REPO_ROOT_CANDIDATE / "audit").is_dir() or (_REPO_ROOT_CANDIDATE / ".git").exists():
+    REPORT_PATH = _REPO_ROOT_CANDIDATE / "audit" / "ENTITY_DUPLICATES_REPORT.md"
+else:
+    REPORT_PATH = Path(__file__).resolve().parent / "ENTITY_DUPLICATES_REPORT.md"
 
 _FORME_SOCIETARIE = re.compile(
     r"\b(S\.?R\.?L\.?S?|S\.?P\.?A\.?|S\.?C\.?A\.?R\.?L\.?|S\.?N\.?C\.?|S\.?A\.?S\.?|SOCIETA'?\s+COOPERATIVA)\b",
