@@ -15,7 +15,25 @@ import {
 } from '../services/apiService';
 import { formatApiError } from '../lib/errors';
 import useMobileLayout from '../hooks/useMobileLayout';
+import { fundKey, isFapiProject as isFapiProjectFund, resolveFundConfig } from '../utils/fondoProgetto';
 import './FapiUpload.css';
+
+// Per fondo: quale modal apre ciascuno dei 3 slot documento fissi (atto,
+// formulario, piano). Uno slot assente (es. Fondimpresa non ha ancora un
+// formulario dedicato) semplicemente non produce un pulsante — non e' una
+// sezione mancante, e' un dato non ancora disponibile per quel fondo.
+// Un fondo non presente in questa tabella (o nessun fondo) cade su
+// 'altro-ente', che apre il PlaceholderDocumentModal: la vista funziona
+// comunque, non si rompe mai per un fondo non ancora configurato.
+const FUND_DOCUMENT_MODALS = {
+  fapi: { atto: 'convenzione', formulario: 'formulario', piano: 'piano' },
+  fondimpresa: { atto: 'ammissione-fondimpresa', formulario: null, piano: 'riepilogo-fondimpresa' },
+  formazienda: { atto: 'atto-formazienda', formulario: 'formulario-formazienda', piano: 'piano-formazienda' },
+};
+
+export function getFundDocumentModals(project) {
+  return FUND_DOCUMENT_MODALS[fundKey(project)] || { atto: 'altro-ente', formulario: null, piano: null };
+}
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -1508,10 +1526,9 @@ export function FapiUploadSection({ project, currentUser, onRefresh, autoOpenCon
   const [documentRefreshKey, setDocumentRefreshKey] = useState(0);
   const [projectDocuments, setProjectDocuments] = useState([]);
 
-  const isFapi = project?.ente_erogatore === 'FAPI' || project?.codice_fapi;
-  const isFondimpresa = project?.ente_erogatore === 'Fondimpresa';
-  const isFormazienda = project?.ente_erogatore === 'Formazienda';
-  const unsupportedEnte = project && !isFapi && !isFondimpresa && !isFormazienda;
+  const isFapi = isFapiProjectFund(project);
+  const fundLabels = resolveFundConfig(project);
+  const modals = getFundDocumentModals(project);
   const hasVersionedConvention = projectDocuments.some(
     (documento) => documento.tipo_documento === 'convenzione' && documento.stato !== 'annullato',
   );
@@ -1522,17 +1539,13 @@ export function FapiUploadSection({ project, currentUser, onRefresh, autoOpenCon
     ? hasVersionedConvention
     : Boolean(project?.convenzione_file_path);
 
-  const primaryLabel = isFapi
-    ? (hasPrimaryDocument ? '✅ Convenzione' : '📄 Carica Convenzione')
-    : isFondimpresa
-      ? (hasPrimaryDocument ? '✅ Lettera ammissione' : '📄 Carica Lettera Ammissione')
-      : isFormazienda
-        ? (hasPrimaryDocument ? '✅ Atto adesione' : '📄 Carica Atto adesione')
-        : '📄 Documento';
+  const primaryLabel = hasPrimaryDocument
+    ? `✅ ${fundLabels.etichetta_atto}`
+    : `📄 Carica ${fundLabels.etichetta_atto}`;
 
   return (
     <div className="fapi-upload-section">
-      <h4>📁 Documenti {isFondimpresa ? 'Fondimpresa' : isFormazienda ? 'Formazienda' : 'FAPI'}</h4>
+      <h4>📁 Documenti</h4>
       {isMobile && (
         <p className="desktop-only-hint">Upload e parsing documenti disponibili da desktop.</p>
       )}
@@ -1542,53 +1555,27 @@ export function FapiUploadSection({ project, currentUser, onRefresh, autoOpenCon
             📄 Carica Atto / Convenzione
           </button>
         )}
-        {!isMobile && project && isFapi && (
+        {!isMobile && project && (
           <>
-            <button className="fapi-btn primary" onClick={() => setModal('convenzione')}>
+            <button className="fapi-btn primary" onClick={() => setModal(modals.atto)}>
               {primaryLabel}
             </button>
-            <button className="fapi-btn" onClick={() => setModal('formulario')}>
-              📋 Carica Formulario
-            </button>
-            <button className="fapi-btn" onClick={() => setModal('piano')}>
-              💰 Carica Piano Finanziario
-            </button>
+            {/* Slot assente per il fondo (es. Formulario non ancora previsto per
+                Fondimpresa): pulsante omesso, non un placeholder disabilitato —
+                un solo campo mancante, non una sezione. */}
+            {modals.formulario && (
+              <button className="fapi-btn" onClick={() => setModal(modals.formulario)}>
+                📋 Carica {fundLabels.etichetta_formulario}
+              </button>
+            )}
+            {modals.piano && (
+              <button className="fapi-btn" onClick={() => setModal(modals.piano)}>
+                💰 Carica {fundLabels.etichetta_piano_finanziario}
+              </button>
+            )}
           </>
-        )}
-        {!isMobile && project && isFondimpresa && (
-          <>
-            <button className="fapi-btn primary" onClick={() => setModal('ammissione-fondimpresa')}>
-              {primaryLabel}
-            </button>
-            <button className="fapi-btn" onClick={() => setModal('riepilogo-fondimpresa')}>
-              📊 Carica Excel Riepilogo
-            </button>
-          </>
-        )}
-        {!isMobile && project && isFormazienda && (
-          <>
-            <button className="fapi-btn primary" onClick={() => setModal('atto-formazienda')}>
-              {primaryLabel}
-            </button>
-            <button className="fapi-btn" onClick={() => setModal('formulario-formazienda')}>
-              📋 Carica Formulario (Allegato A)
-            </button>
-            <button className="fapi-btn" onClick={() => setModal('piano-formazienda')}>
-              💰 Carica Piano Fin.
-            </button>
-          </>
-        )}
-        {unsupportedEnte && (
-          null
         )}
       </div>
-
-      {project?.codice_fapi && (
-        <div style={{ marginTop: '0.5rem', fontSize: 11, color: 'var(--color-text-secondary)' }}>
-          Codice FAPI: <strong>{project.codice_fapi}</strong>
-          {project.delibera_numero && ` · Delibera n. ${project.delibera_numero} del ${project.delibera_data || '—'}`}
-        </div>
-      )}
       {project && (
         <DocumentiProgetto
           projectId={project.id}

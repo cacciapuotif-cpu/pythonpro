@@ -305,7 +305,7 @@ test('anche Fondimpresa allega al progetto invece di crearne uno nuovo', async (
     warnings: [],
   });
   render(<FapiUploadSection project={{ id: 7, ente_erogatore: 'Fondimpresa' }} />);
-  fireEvent.click(screen.getByRole('button', { name: /Lettera ammissione/i }));
+  fireEvent.click(screen.getByRole('button', { name: /Lettera di ammissione/i }));
   await selezionaFile();
 
   await waitFor(() =>
@@ -348,7 +348,7 @@ test('dentro un progetto Formazienda l atto si allega, non crea un gemello', asy
     warnings: [],
   });
   render(<FapiUploadSection project={{ id: 7, ente_erogatore: 'Formazienda' }} />);
-  fireEvent.click(screen.getByRole('button', { name: /Atto adesione/i }));
+  fireEvent.click(screen.getByRole('button', { name: /Atto di adesione/i }));
   await selezionaFile();
 
   await waitFor(() =>
@@ -504,4 +504,45 @@ test('crea comunque richiede conferma aggiuntiva esplicita', async () => {
     }),
   ));
   confirmSpy.mockRestore();
+});
+
+// ── Vista unificata: la sezione documenti e' un loop configurato per fondo,
+// mai un ramo hardcoded per nome fondo. Un fondo non censito deve restare
+// utilizzabile (placeholder raggiungibile), non sparire (unsupportedEnte
+// rendeva null in precedenza).
+
+describe('sezione documenti: stessa struttura, config per fondo', () => {
+  test('FAPI mostra i 3 pulsanti (atto, formulario, piano)', () => {
+    render(<FapiUploadSection project={{ id: 11, ente_erogatore: 'FAPI' }} />);
+    expect(screen.getByRole('button', { name: /Carica Convenzione/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Carica Formulario/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Carica Piano Finanziario/i })).toBeInTheDocument();
+  });
+
+  test('Formazienda mostra i 3 pulsanti con le proprie etichette', () => {
+    render(<FapiUploadSection project={{ id: 16, ente_erogatore: 'Formazienda' }} />);
+    expect(screen.getByRole('button', { name: /Carica Atto di adesione/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Carica Formulario \(Allegato A\)/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Carica Piano Fin\./i })).toBeInTheDocument();
+  });
+
+  test('Fondimpresa non ha ancora un formulario dedicato: 2 pulsanti, non un placeholder disabilitato', () => {
+    render(<FapiUploadSection project={{ id: 7, ente_erogatore: 'Fondimpresa' }} />);
+    expect(screen.getByRole('button', { name: /Carica Lettera di ammissione/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Carica Excel Riepilogo/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Carica Formulario/i })).not.toBeInTheDocument();
+  });
+
+  test('un fondo non censito resta utilizzabile: pulsante raggiunge il placeholder, non sparisce', () => {
+    render(<FapiUploadSection project={{ id: 99, ente_erogatore: 'Ente Mai Visto' }} />);
+    const bottone = screen.getByRole('button', { name: /Carica Convenzione/i });
+    expect(bottone).toBeInTheDocument();
+    fireEvent.click(bottone);
+    expect(screen.getByText('🏛️ Altro ente')).toBeInTheDocument();
+  });
+
+  test('header Documenti e generico, senza nome fondo hardcoded', () => {
+    render(<FapiUploadSection project={{ id: 16, ente_erogatore: 'Formazienda' }} />);
+    expect(screen.getByRole('heading', { name: '📁 Documenti' })).toBeInTheDocument();
+  });
 });

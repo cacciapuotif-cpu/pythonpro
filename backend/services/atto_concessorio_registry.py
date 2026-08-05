@@ -55,8 +55,13 @@ REGISTRY: dict[str, FondoAttoConcessorio] = {
         etichetta_atto="Lettera di ammissione",
         fornisce_ente_attuatore=True,
         fornisce_aziende_beneficiarie=False,
-        etichetta_formulario="Excel Riepilogo",
-        etichetta_piano_finanziario="Piano Finanziario",
+        # Fondimpresa non ha ancora un formulario dedicato (nessun parser):
+        # lo slot formulario resta senza pulsante, questa etichetta non e'
+        # mostrata. Il secondo pulsante di Fondimpresa e' un riepilogo Excel,
+        # non un piano finanziario in senso stretto: l'etichetta riflette
+        # cosa carica davvero il modale a cui e' collegato.
+        etichetta_formulario="Formulario",
+        etichetta_piano_finanziario="Excel Riepilogo",
         etichetta_codice_progetto="Codice pratica Fondimpresa",
     ),
 }

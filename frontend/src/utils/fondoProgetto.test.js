@@ -2,7 +2,7 @@
  * Test per fondoProgetto utility
  */
 
-import { fundKey, isFapiProject } from './fondoProgetto';
+import { fundKey, isFapiProject, resolveFundConfig } from './fondoProgetto';
 
 describe('fondoProgetto', () => {
   describe('fundKey', () => {
@@ -37,6 +37,25 @@ describe('fondoProgetto', () => {
     it('e falso per progetto assente o senza dati', () => {
       expect(isFapiProject(null)).toBe(false);
       expect(isFapiProject({})).toBe(false);
+    });
+  });
+
+  describe('resolveFundConfig', () => {
+    it('usa project.fund_config quando presente (fonte backend)', () => {
+      const fundConfig = { etichetta_atto: 'Dal backend' };
+      expect(resolveFundConfig({ ente_erogatore: 'FAPI', fund_config: fundConfig })).toBe(fundConfig);
+    });
+
+    it('cade su un fallback per fondo noto quando fund_config manca', () => {
+      expect(resolveFundConfig({ ente_erogatore: 'Formazienda' }).etichetta_atto)
+        .toBe('Atto di adesione (Allegato E)');
+      expect(resolveFundConfig({ ente_erogatore: 'Fondimpresa' }).etichetta_codice_progetto)
+        .toBe('Codice pratica Fondimpresa');
+    });
+
+    it('cade su etichette generiche per fondo sconosciuto o assente', () => {
+      expect(resolveFundConfig({ ente_erogatore: 'Altro' }).etichetta_codice_progetto).toBe('Codice progetto');
+      expect(resolveFundConfig(null).etichetta_atto).toBe('Convenzione');
     });
   });
 });
