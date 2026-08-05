@@ -100,6 +100,15 @@ export function riepilogoAssociati(elenco, etichetta, messaggioVuoto) {
   return `${elenco.length} — ${nomi}${restanti > 0 ? ` e altri ${restanti}` : ''}`;
 }
 
+// "sede da definire" ripetuto una volta per azienda (fino a decine di volte)
+// e' illeggibile. Un conteggio sintetico dice subito quanto lavoro manca;
+// il dettaglio per azienda resta disponibile espandendolo.
+export function riepilogoSediDelivery(aziendeDelivery) {
+  const elenco = Array.isArray(aziendeDelivery) ? aziendeDelivery : [];
+  const definite = elenco.filter((item) => Array.isArray(item.sedi) && item.sedi.length > 0).length;
+  return { definite, totale: elenco.length };
+}
+
 // Moduli Formativi e' fund-agnostico lato backend (GET .../moduli-formativi
 // interroga solo per project_id): la sezione e' sempre montata, per
 // qualunque fondo. E' vuota per i fondi che non hanno ancora un import che
@@ -272,6 +281,7 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
   // UX-8: il pannello di dissociazione sta chiuso finche' non serve, come il
   // riquadro dei regimi: la scheda resta leggibile.
   const [associatiOpenProject, setAssociatiOpenProject] = useState(null);
+  const [sediOpenProject, setSediOpenProject] = useState(null);
   const [plafondByBeneficiario, setPlafondByBeneficiario] = useState({});
   const [regimeByBeneficiario, setRegimeByBeneficiario] = useState({});
   const [assignmentProject, setAssignmentProject] = useState(null);
@@ -1415,16 +1425,47 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
                     </div>
                   )}
 
-                  {Array.isArray(project.aziende_delivery) && project.aziende_delivery.length > 0 && (
-                    <div className="info-row">
-                      <span className="label">🏭 Sedi corso:</span>
-                      <span>
-                        {project.aziende_delivery
-                          .map((item) => `${item.ragione_sociale}: ${(item.sedi || []).map((sede) => sede.sede_label).join(', ') || 'sede da definire'}`)
-                          .join(' · ')}
-                      </span>
-                    </div>
-                  )}
+                  {Array.isArray(project.aziende_delivery) && project.aziende_delivery.length > 0 && (() => {
+                    const { definite, totale } = riepilogoSediDelivery(project.aziende_delivery);
+                    const espanso = sediOpenProject === project.id;
+                    return (
+                      <div className="info-row info-row-multi">
+                        <span className="label">🏭 Sedi corso:</span>
+                        <span>
+                          <span>Sedi: {definite} definite su {totale} aziende</span>
+                          <button
+                            type="button"
+                            className="info-empty-action sedi-toggle"
+                            onClick={() => setSediOpenProject(espanso ? null : project.id)}
+                          >
+                            {espanso ? 'Nascondi dettaglio' : 'Mostra dettaglio'}
+                          </button>
+                          {definite < totale && canWriteProjects && (
+                            <button
+                              type="button"
+                              className="info-empty-action"
+                              onClick={() => { startEdit(project); setActiveStepIndex(2); }}
+                            >
+                              Completa sedi
+                            </button>
+                          )}
+                          {espanso && (
+                            <ul className="sedi-detail-list">
+                              {project.aziende_delivery.map((item) => (
+                                <li key={item.azienda_id}>
+                                  {item.ragione_sociale}: {riepilogoAssociati(
+                                    item.sedi,
+                                    (sede) => sede.sede_label,
+                                    'Sede da definire',
+                                  )}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </span>
+                      </div>
+                    );
+                  })()}
 
                   <div className="info-row info-row-multi">
                     <span className="label">🏢 Aziende coinvolte:</span>

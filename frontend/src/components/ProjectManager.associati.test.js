@@ -8,6 +8,7 @@
 
 import {
   riepilogoAssociati,
+  riepilogoSediDelivery,
   NOMI_ASSOCIATI_MOSTRATI,
 } from './ProjectManager';
 
@@ -51,6 +52,39 @@ test('gli allievi si compongono nome e cognome', () => {
   const elenco = [{ nome: 'Ada', cognome: 'Rossi' }, { nome: 'Bruno', cognome: 'Verdi' }];
   expect(riepilogoAssociati(elenco, (a) => `${a.nome} ${a.cognome}`, 'vuoto'))
     .toBe('2 — Ada Rossi, Bruno Verdi');
+});
+
+describe('riepilogoSediDelivery', () => {
+  test('nessuna azienda: zero su zero', () => {
+    expect(riepilogoSediDelivery([])).toEqual({ definite: 0, totale: 0 });
+    expect(riepilogoSediDelivery(undefined)).toEqual({ definite: 0, totale: 0 });
+    expect(riepilogoSediDelivery(null)).toEqual({ definite: 0, totale: 0 });
+  });
+
+  test('nessuna sede definita su nessuna delle aziende', () => {
+    const aziende = [
+      { azienda_id: 1, sedi: [] },
+      { azienda_id: 2, sedi: [] },
+    ];
+    expect(riepilogoSediDelivery(aziende)).toEqual({ definite: 0, totale: 2 });
+  });
+
+  test('conta solo le aziende con almeno una sede definita', () => {
+    const aziende = [
+      { azienda_id: 1, sedi: [{ sede_label: 'Via Roma 1' }] },
+      { azienda_id: 2, sedi: [] },
+      { azienda_id: 3, sedi: [{ sede_label: 'Via Milano 2' }, { sede_label: 'Via Torino 3' }] },
+    ];
+    expect(riepilogoSediDelivery(aziende)).toEqual({ definite: 2, totale: 3 });
+  });
+
+  test('tutte le sedi definite', () => {
+    const aziende = [
+      { azienda_id: 1, sedi: [{ sede_label: 'Via Roma 1' }] },
+      { azienda_id: 2, sedi: [{ sede_label: 'Via Napoli 4' }] },
+    ];
+    expect(riepilogoSediDelivery(aziende)).toEqual({ definite: 2, totale: 2 });
+  });
 });
 
 // mostraDocumentiFondo e' stata rimossa insieme al gate che rappresentava:
