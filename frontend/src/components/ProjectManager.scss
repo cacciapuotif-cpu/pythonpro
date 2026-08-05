@@ -1036,6 +1036,32 @@
   align-items: flex-start;
 }
 
+/* Stati vuoti dentro l'Identificazione (avviso/codice progetto non
+   collegati): testo attenuato + azione inline, mai una riga assente. */
+.info-empty {
+  color: #999;
+  font-style: italic;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.info-empty-action,
+.moduli-empty-action {
+  font-style: normal;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 0.5px solid var(--color-border-secondary, #ccc);
+  background: var(--color-background-primary, #fff);
+  color: var(--color-accent, #2c3e50);
+  cursor: pointer;
+}
+
+.moduli-empty-action {
+  margin-left: 8px;
+}
+
 /* Statistiche Progetto */
 .project-stats {
   display: flex;

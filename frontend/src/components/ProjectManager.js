@@ -12,13 +12,14 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useProjects, useImplementingEntities, useCollaborators, useNotifications } from '../hooks/useEntity';
 import { getProjectDeliveryContext, getProjectBeneficiari, getProjectModuliFormativi, updateProjectBeneficiarioRegime } from '../services/apiService';
-import { FapiUploadSection } from './FapiUpload';
+import { FapiUploadSection, getFundDocumentModals } from './FapiUpload';
 import { PianoTemplateWizardButton } from './PianoTemplateWizard';
 import AssignmentModal from './AssignmentModal';
 import GestioneAssociati from './GestioneAssociati';
 import ProjectDeliveryCompanyPicker from './ProjectDeliveryCompanyPicker';
 import ProjectDeliverySites from './ProjectDeliverySites';
 import { canPerform, normalizeRole } from '../auth/permissions';
+import { resolveFundConfig } from '../utils/fondoProgetto';
 import ResponsiveEntityList from './responsive/ResponsiveEntityList';
 import ResponsiveFilters from './responsive/ResponsiveFilters';
 import './ProjectManager.scss';
@@ -99,22 +100,17 @@ export function riepilogoAssociati(elenco, etichetta, messaggioVuoto) {
   return `${elenco.length} — ${nomi}${restanti > 0 ? ` e altri ${restanti}` : ''}`;
 }
 
-export function mostraDocumentiFondo(project) {
-  if (!project) return false;
-  return Boolean(
-    project.codice_fapi
-    || ['FAPI', 'Fondimpresa', 'Formazienda'].includes(project.ente_erogatore),
-  );
-}
-
-const ModuliFormativiSection = ({ project }) => {
+// Moduli Formativi e' fund-agnostico lato backend (GET .../moduli-formativi
+// interroga solo per project_id): la sezione e' sempre montata, per
+// qualunque fondo. E' vuota per i fondi che non hanno ancora un import che
+// popola ModuloFormativo — un dato mancante, non una sezione da nascondere.
+const ModuliFormativiSection = ({ project, onRequestFormulario }) => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    const isFapiProject = project?.codice_fapi || project?.ente_erogatore === 'FAPI';
-    if (!project?.id || !isFapiProject) return;
+    if (!project?.id) return undefined;
     let cancelled = false;
 
     const loadModuli = async () => {
@@ -137,18 +133,17 @@ const ModuliFormativiSection = ({ project }) => {
     return () => {
       cancelled = true;
     };
-  }, [project?.id, project?.codice_fapi, project?.ente_erogatore]);
-
-  if (!project?.codice_fapi && project?.ente_erogatore !== 'FAPI') return null;
+  }, [project?.id]);
 
   const progettiFapi = data?.progetti_fapi || [];
+  const formularioModal = getFundDocumentModals(project).formulario;
 
   return (
     <section className="moduli-formativi-section">
       <div className="moduli-formativi-header">
         <div>
           <h4>Moduli Formativi</h4>
-          <span>{project.codice_fapi || 'FAPI'}</span>
+          <span>{project.codice_fapi || resolveFundConfig(project).etichetta_codice_progetto}</span>
         </div>
         {data && (
           <strong>{data.moduli_totali} moduli · {formatOre(data.ore_totali)}</strong>
@@ -158,7 +153,14 @@ const ModuliFormativiSection = ({ project }) => {
       {loading && <div className="moduli-loading">Caricamento moduli...</div>}
       {error && <div className="moduli-error">{error}</div>}
       {!loading && !error && progettiFapi.length === 0 && (
-        <div className="moduli-empty">Nessun modulo formativo collegato.</div>
+        <div className="moduli-empty">
+          Nessun modulo formativo — importa il formulario o aggiungili manualmente
+          {formularioModal && onRequestFormulario && (
+            <button type="button" className="moduli-empty-action" onClick={onRequestFormulario}>
+              Importa formulario
+            </button>
+          )}
+        </div>
       )}
 
       {progettiFapi.map((gruppo, index) => {
@@ -273,6 +275,9 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
   const [plafondByBeneficiario, setPlafondByBeneficiario] = useState({});
   const [regimeByBeneficiario, setRegimeByBeneficiario] = useState({});
   const [assignmentProject, setAssignmentProject] = useState(null);
+  // Stato vuoto dei moduli formativi: l'azione "Importa formulario" apre lo
+  // stesso modal che FapiUploadSection userebbe per il fondo del progetto.
+  const [formularioAutoOpenProjectId, setFormularioAutoOpenProjectId] = useState(null);
 
   // Combina stati di loading
   const loading = loadingProjects || loadingEntities;
@@ -1326,6 +1331,65 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
 
                 {/* Info Progetto */}
                 <div className="project-info">
+                  {/* Identificazione: ente/fondo, avviso, attuatore, CUP, codice
+                      progetto, atto — ordine fisso per ogni fondo, mai una riga
+                      assente. Avviso e codice progetto sono sempre presenti
+                      anche vuoti: uno stato vuoto con azione, non una riga che
+                      scompare, cosi' l'operatore vede che il dato manca. */}
+                  {project.ente_erogatore && (
+                    <div className="info-row">
+                      <span className="label">🏛️ Ente:</span>
+                      <span>{project.ente_erogatore}</span>
+                    </div>
+                  )}
+
+                  <div className="info-row">
+                    <span className="label">📢 Avviso:</span>
+                    {project.avviso ? (
+                      <span>{project.avviso}</span>
+                    ) : (
+                      <span className="info-empty">
+                        Avviso non collegato
+                        {canWriteProjects && (
+                          <button type="button" className="info-empty-action" onClick={() => startEdit(project)}>
+                            Collega avviso
+                          </button>
+                        )}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="info-row">
+                    <span className="label">🤝 Attuatore:</span>
+                    <span>
+                      {implementingEntities.find((entity) => entity.id === project.ente_attuatore_id)?.ragione_sociale || 'Non associato'}
+                    </span>
+                  </div>
+
+                  {project.cup && (
+                    <div className="info-row">
+                      <span className="label">🏷️ CUP:</span>
+                      <span>{project.cup}</span>
+                    </div>
+                  )}
+
+                  <div className="info-row">
+                    <span className="label">🔢 {resolveFundConfig(project).etichetta_codice_progetto}:</span>
+                    {project.codice_fapi ? (
+                      <span>{project.codice_fapi}</span>
+                    ) : (
+                      <span className="info-empty">Nessun codice progetto collegato</span>
+                    )}
+                  </div>
+
+                  <div className="info-row">
+                    <span className="label">📄 Atto:</span>
+                    <span>
+                      {project.atto_approvazione || 'Non impostato'}
+                      {project.delibera_numero && ` · Delibera n. ${project.delibera_numero} del ${project.delibera_data || '—'}`}
+                    </span>
+                  </div>
+
                   {project.start_date && (
                     <div className="info-row">
                       <span className="label">📅 Inizio:</span>
@@ -1339,11 +1403,6 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
                       <span>{new Date(project.end_date).toLocaleDateString('it-IT')}</span>
                     </div>
                   )}
-
-                  <div className="info-row">
-                    <span className="label">📄 Atto:</span>
-                    <span>{project.atto_approvazione || 'Non impostato'}</span>
-                  </div>
 
                   {(project.sede_aziendale_comune || project.sede_aziendale_via || project.sede_aziendale_numero_civico) && (
                     <div className="info-row">
@@ -1366,34 +1425,6 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
                       </span>
                     </div>
                   )}
-
-                  {project.cup && (
-                    <div className="info-row">
-                      <span className="label">🏷️ CUP:</span>
-                      <span>{project.cup}</span>
-                    </div>
-                  )}
-
-                  {project.ente_erogatore && (
-                    <div className="info-row">
-                      <span className="label">🏛️ Ente:</span>
-                      <span>{project.ente_erogatore}</span>
-                    </div>
-                  )}
-
-                  {project.avviso && (
-                    <div className="info-row">
-                      <span className="label">📢 Avviso:</span>
-                      <span>{project.avviso}</span>
-                    </div>
-                  )}
-
-                  <div className="info-row">
-                    <span className="label">🤝 Attuatore:</span>
-                    <span>
-                      {implementingEntities.find((entity) => entity.id === project.ente_attuatore_id)?.ragione_sociale || 'Non associato'}
-                    </span>
-                  </div>
 
                   <div className="info-row info-row-multi">
                     <span className="label">🏢 Aziende coinvolte:</span>
@@ -1423,14 +1454,22 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
                   </div>
                 </div>
 
-                {/* Documenti versionati e parser specifici del fondo */}
-                {mostraDocumentiFondo(project) && (
-                  <FapiUploadSection project={project} currentUser={currentUser} onRefresh={refresh} />
-                )}
+                {/* Documenti versionati e parser specifici del fondo: struttura
+                    fissa per ogni progetto, la config per fondo cambia solo
+                    etichette e modal aperti (vedi FUND_DOCUMENT_MODALS). */}
+                <FapiUploadSection
+                  project={project}
+                  currentUser={currentUser}
+                  onRefresh={refresh}
+                  autoOpenConvenzione={formularioAutoOpenProjectId === project.id}
+                  autoOpenMode={getFundDocumentModals(project).formulario}
+                  onAutoClose={() => setFormularioAutoOpenProjectId(null)}
+                />
 
-                {(project.codice_fapi || project.ente_erogatore === 'FAPI') && (
-                  <ModuliFormativiSection project={project} />
-                )}
+                <ModuliFormativiSection
+                  project={project}
+                  onRequestFormulario={() => setFormularioAutoOpenProjectId(project.id)}
+                />
 
                 {/* Footer con statistiche */}
                 <div className="project-stats">
@@ -1461,7 +1500,7 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
                       Aziende Beneficiarie
                     </button>
                   </div>
-                  {canWriteProjects && (project.codice_fapi || project.ente_erogatore === 'FAPI') && (
+                  {canWriteProjects && (
                     <div className="stat">
                       <button
                         onClick={() => setAssignmentProject(project)}

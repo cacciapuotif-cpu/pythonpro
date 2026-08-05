@@ -7,7 +7,6 @@
  */
 
 import {
-  mostraDocumentiFondo,
   riepilogoAssociati,
   NOMI_ASSOCIATI_MOSTRATI,
 } from './ProjectManager';
@@ -54,17 +53,10 @@ test('gli allievi si compongono nome e cognome', () => {
     .toBe('2 — Ada Rossi, Bruno Verdi');
 });
 
-test('la scheda monta i documenti e il formulario per Formazienda', () => {
-  expect(mostraDocumentiFondo({ id: 16, ente_erogatore: 'Formazienda' })).toBe(true);
-});
-
-test('la scheda mantiene i documenti per FAPI e Fondimpresa', () => {
-  expect(mostraDocumentiFondo({ id: 11, ente_erogatore: 'FAPI' })).toBe(true);
-  expect(mostraDocumentiFondo({ id: 12, ente_erogatore: 'Fondimpresa' })).toBe(true);
-  expect(mostraDocumentiFondo({ id: 13, codice_fapi: '20250611CMIA001' })).toBe(true);
-});
-
-test('la scheda non mostra parser di fondo per un progetto manuale generico', () => {
-  expect(mostraDocumentiFondo({ id: 99, ente_erogatore: 'Altro' })).toBe(false);
-  expect(mostraDocumentiFondo(null)).toBe(false);
-});
+// mostraDocumentiFondo e' stata rimossa insieme al gate che rappresentava:
+// la sezione documenti (FapiUploadSection) e Moduli Formativi ora montano
+// sempre, per qualunque fondo (incluso uno non censito) — non c'e' piu'
+// una funzione di visibilita' da testare qui. La copertura sul
+// comportamento per fondo (quali pulsanti/etichette compaiono, il fallback
+// per un fondo sconosciuto) vive in FapiUpload.test.js, dove risiede la
+// logica (FUND_DOCUMENT_MODALS/resolveFundConfig).
