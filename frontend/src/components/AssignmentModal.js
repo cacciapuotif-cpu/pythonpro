@@ -9,6 +9,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { formatPersonName } from '../utils/personName';
+import { isFapiProject as isFapiProjectFund } from '../utils/fondoProgetto';
 import {
   createAssignment,
   updateAssignment,
@@ -190,7 +191,7 @@ const AssignmentModal = ({
     ? [{ id: `legacy-${formData.role}`, mansione: formData.role, tipo_contratto: formData.contract_type, tariffa_oraria: formData.hourly_rate }, ...planRoles]
     : planRoles;
   const selectedProject = project || availableProjects.find((item) => String(item.id) === String(formData.project_id));
-  const isFapiProject = Boolean(selectedProject?.codice_fapi || selectedProject?.ente_erogatore === 'FAPI');
+  const isFapiProject = isFapiProjectFund(selectedProject);
 
   // Lista dei tipi di contratto
   const contractTypeOptions = [
