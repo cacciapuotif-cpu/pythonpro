@@ -99,6 +99,14 @@ export function riepilogoAssociati(elenco, etichetta, messaggioVuoto) {
   return `${elenco.length} — ${nomi}${restanti > 0 ? ` e altri ${restanti}` : ''}`;
 }
 
+export function mostraDocumentiFondo(project) {
+  if (!project) return false;
+  return Boolean(
+    project.codice_fapi
+    || ['FAPI', 'Fondimpresa', 'Formazienda'].includes(project.ente_erogatore),
+  );
+}
+
 const ModuliFormativiSection = ({ project }) => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -1415,8 +1423,8 @@ const ProjectManager = ({ currentUser, initialFilters = {} }) => {
                   </div>
                 </div>
 
-                {/* Sezione FAPI upload */}
-                {(project.ente_erogatore === 'FAPI' || project.codice_fapi) && (
+                {/* Documenti versionati e parser specifici del fondo */}
+                {mostraDocumentiFondo(project) && (
                   <FapiUploadSection project={project} currentUser={currentUser} onRefresh={refresh} />
                 )}
 

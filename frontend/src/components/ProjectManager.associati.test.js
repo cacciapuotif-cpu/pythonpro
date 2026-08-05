@@ -6,7 +6,11 @@
  * contratto di rendering, incluso il conteggio richiesto da UX-7d.
  */
 
-import { riepilogoAssociati, NOMI_ASSOCIATI_MOSTRATI } from './ProjectManager';
+import {
+  mostraDocumentiFondo,
+  riepilogoAssociati,
+  NOMI_ASSOCIATI_MOSTRATI,
+} from './ProjectManager';
 
 const azienda = (ragione_sociale) => ({ ragione_sociale });
 const nomeAzienda = (a) => a.ragione_sociale;
@@ -48,4 +52,19 @@ test('gli allievi si compongono nome e cognome', () => {
   const elenco = [{ nome: 'Ada', cognome: 'Rossi' }, { nome: 'Bruno', cognome: 'Verdi' }];
   expect(riepilogoAssociati(elenco, (a) => `${a.nome} ${a.cognome}`, 'vuoto'))
     .toBe('2 — Ada Rossi, Bruno Verdi');
+});
+
+test('la scheda monta i documenti e il formulario per Formazienda', () => {
+  expect(mostraDocumentiFondo({ id: 16, ente_erogatore: 'Formazienda' })).toBe(true);
+});
+
+test('la scheda mantiene i documenti per FAPI e Fondimpresa', () => {
+  expect(mostraDocumentiFondo({ id: 11, ente_erogatore: 'FAPI' })).toBe(true);
+  expect(mostraDocumentiFondo({ id: 12, ente_erogatore: 'Fondimpresa' })).toBe(true);
+  expect(mostraDocumentiFondo({ id: 13, codice_fapi: '20250611CMIA001' })).toBe(true);
+});
+
+test('la scheda non mostra parser di fondo per un progetto manuale generico', () => {
+  expect(mostraDocumentiFondo({ id: 99, ente_erogatore: 'Altro' })).toBe(false);
+  expect(mostraDocumentiFondo(null)).toBe(false);
 });

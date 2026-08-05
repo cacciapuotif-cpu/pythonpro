@@ -1,8 +1,34 @@
 # PythonPro — Stato corrente
 
-**Aggiornato:** 2026-08-04 (Formazienda: Atto di adesione e Formulario riconosciuti + fix wizard manuale)
+**Aggiornato:** 2026-08-05 (smoke live Formazienda + punto di accesso Formulario mancante nella UI progetto)
 **Branch:** `claude/platform-audit-compliance-XnH86` (locale, **nessun push**)
 **Percorso:** `/DATA/progetti/pythonpro`
+
+## ✅ FORMAZIENDA — FORMULARIO RAGGIUNGIBILE DALLA SCHEDA PROGETTO — 2026-08-05
+
+Durante la prova live e' emerso che `FormularioFormaziendaModal` e i relativi
+endpoint esistevano, ma `ProjectManager` montava `FapiUploadSection` nelle
+schede solo se il progetto era FAPI. Corretto con la funzione condivisa
+`mostraDocumentiFondo`: la sezione viene ora montata per FAPI, Fondimpresa e
+Formazienda, senza mostrarla sui progetti manuali generici. Percorso desktop:
+Progetti -> scheda progetto Formazienda -> Documenti Formazienda -> Carica
+Formulario (Allegato A).
+
+Verifiche: `ProjectManager.associati.test.js` + `FapiUpload.test.js`, **25/25**;
+build produzione verde; frontend ricostruito e ricreato; health live HTTP 200;
+bundle servito `main.7bf5c35c.js` con il marker `Carica Formulario (Allegato
+A)`. Da telefono l'upload resta intenzionalmente desktop-only come deciso nel
+gate MOB-4.
+
+Smoke live autorizzato sul deploy: lista progetti HTTP 200; moduli progetto
+#11 HTTP 200 (25 moduli, 207 ore, 5 gruppi); creazione manuale progetto con
+`data_approvazione` e `data_avvio_piano` HTTP 200; upload Allegato E HTTP 200;
+confirm HTTP 200, documento versionato creato. Il record temporaneo #17, il
+documento #8, due file di upload e una preview Redis residua sono stati rimossi
+esattamente. Verifica finale: progetto #17 = 0, documento #8 = 0, preview #17 =
+0. Il comando iniziale aveva un ritorno a capo errato prima dell'URL di confirm
+e import ORM incompleti nel cleanup; la prova e la pulizia sono state completate
+con comandi corretti.
 
 ## ✅ WIZARD MANUALE: DATA APPROVAZIONE/AVVIO PIANO MANCANTI — 2026-08-04
 
