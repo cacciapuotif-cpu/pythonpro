@@ -46,8 +46,16 @@ def get_azienda_field_spec(_user: User = Depends(get_current_user)):
 
 
 @router.get("/import-template.xlsx")
-def download_azienda_import_template(_user: User = Depends(_require_write)):
-    workbook = build_workbook(include_example=True)
+def download_azienda_import_template(
+    db: Session = Depends(get_db),
+    _user: User = Depends(_require_write),
+):
+    agenzie = [row.nome for row in db.query(models.Agenzia).order_by(models.Agenzia.nome).all()]
+    consulenti = [
+        f"{row.cognome} {row.nome}".strip()
+        for row in db.query(models.Consulente).order_by(models.Consulente.cognome, models.Consulente.nome).all()
+    ]
+    workbook = build_workbook(include_example=True, agenzie=agenzie, consulenti=consulenti)
     return StreamingResponse(
         workbook,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -110,7 +118,14 @@ def export_aziende_excel(
         selectinload(models.AziendaCliente.conti_correnti),
         selectinload(models.AziendaCliente.fund_memberships),
     ).order_by(models.AziendaCliente.ragione_sociale).all()
-    workbook = build_workbook(companies, include_example=True, reveal_sensitive=True)
+    agenzie = [row.nome for row in db.query(models.Agenzia).order_by(models.Agenzia.nome).all()]
+    consulenti = [
+        f"{row.cognome} {row.nome}".strip()
+        for row in db.query(models.Consulente).order_by(models.Consulente.cognome, models.Consulente.nome).all()
+    ]
+    workbook = build_workbook(
+        companies, include_example=True, reveal_sensitive=True, agenzie=agenzie, consulenti=consulenti,
+    )
     return StreamingResponse(
         workbook,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

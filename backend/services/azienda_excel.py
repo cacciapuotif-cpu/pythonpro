@@ -129,7 +129,7 @@ EXAMPLES = {
 }
 
 
-def _write_sheet(workbook, name, fields, data_rows, *, include_example):
+def _write_sheet(workbook, name, fields, data_rows, *, include_example, dynamic_options=None):
     worksheet = workbook.create_sheet(name)
     worksheet.freeze_panes = "A3"
     worksheet.auto_filter.ref = f"A1:{get_column_letter(len(fields))}1"
@@ -157,30 +157,56 @@ def _write_sheet(workbook, name, fields, data_rows, *, include_example):
 
     worksheet.row_dimensions[1].height = 32
     worksheet.row_dimensions[2].height = 46
+    dynamic_options = dynamic_options or {}
     for index, field in enumerate(fields, start=1):
         width = max(16, min(36, len(field["label"]) + 4))
         worksheet.column_dimensions[get_column_letter(index)].width = width
-        options = field.get("options") or []
-        if not options:
-            continue
-        if tuple(options) == tuple(PROVINCE):
-            formula = "=Valori!$A$2:$A${}".format(len(PROVINCE) + 1)
-        else:
-            key = "_".join(re.sub(r"[^A-Za-z0-9]+", "_", item) for item in options)
-            column = workbook["Valori"].max_column + 1
-            value_sheet = workbook["Valori"]
-            value_sheet.cell(1, column, key)
-            for option_index, option in enumerate(options, start=2):
-                value_sheet.cell(option_index, column, option)
-            formula = "={}!${}${}:${}${}".format(
-                quote_sheetname("Valori"), get_column_letter(column), 2,
-                get_column_letter(column), len(options) + 1,
+        column_letter = get_column_letter(index)
+        cell_range = f"{column_letter}3:{column_letter}1048576"
+
+        options = dynamic_options.get(field["name"])
+        if options is None:
+            options = field.get("options") or []
+        if options:
+            if tuple(options) == tuple(PROVINCE):
+                formula = "=Valori!$A$2:$A${}".format(len(PROVINCE) + 1)
+            else:
+                key = "_".join(re.sub(r"[^A-Za-z0-9]+", "_", item) for item in options) or field["name"]
+                column = workbook["Valori"].max_column + 1
+                value_sheet = workbook["Valori"]
+                value_sheet.cell(1, column, key)
+                for option_index, option in enumerate(options, start=2):
+                    value_sheet.cell(option_index, column, option)
+                formula = "={}!${}${}:${}${}".format(
+                    quote_sheetname("Valori"), get_column_letter(column), 2,
+                    get_column_letter(column), len(options) + 1,
+                )
+            # showErrorMessage di default e' False in openpyxl: senza questo il
+            # menu a discesa compare ma digitare/incollare un valore fuori
+            # lista viene accettato senza avviso ne' blocco.
+            validation = DataValidation(
+                type="list", formula1=formula, allow_blank=not field["required"],
+                showErrorMessage=True, showInputMessage=True, errorStyle="stop",
             )
-        validation = DataValidation(type="list", formula1=formula, allow_blank=not field["required"])
-        validation.error = "Seleziona uno dei valori previsti"
-        validation.errorTitle = "Valore non valido"
-        worksheet.add_data_validation(validation)
-        validation.add(f"{get_column_letter(index)}3:{get_column_letter(index)}1048576")
+            validation.error = "Seleziona uno dei valori previsti dal menu a discesa"
+            validation.errorTitle = "Valore non valido"
+            validation.prompt = "Scegli dal menu a discesa"
+            validation.promptTitle = field["label"]
+            worksheet.add_data_validation(validation)
+            validation.add(cell_range)
+            continue
+
+        max_match = re.search(r"max:(\d+)", field.get("validation") or "")
+        if max_match and field["name"] not in dynamic_options:
+            limit = max_match.group(1)
+            length_validation = DataValidation(
+                type="textLength", operator="lessThanOrEqual", formula1=limit,
+                allow_blank=not field["required"], showErrorMessage=True, errorStyle="stop",
+            )
+            length_validation.error = f"Massimo {limit} caratteri"
+            length_validation.errorTitle = "Testo troppo lungo"
+            worksheet.add_data_validation(length_validation)
+            length_validation.add(cell_range)
     return worksheet
 
 
@@ -200,7 +226,7 @@ def _display_value(company, field, *, reveal_sensitive=False):
     return value if value is not None else ""
 
 
-def build_workbook(companies=None, *, include_example=True, reveal_sensitive=False):
+def build_workbook(companies=None, *, include_example=True, reveal_sensitive=False, agenzie=None, consulenti=None):
     workbook = Workbook()
     workbook.remove(workbook.active)
     values = workbook.create_sheet("Valori")
@@ -246,7 +272,10 @@ def build_workbook(companies=None, *, include_example=True, reveal_sensitive=Fal
                 "note": membership.note or "",
             })
 
-    _write_sheet(workbook, "Aziende", importable_company_fields(), company_rows, include_example=include_example)
+    _write_sheet(
+        workbook, "Aziende", importable_company_fields(), company_rows, include_example=include_example,
+        dynamic_options={"agenzia_id": list(agenzie or []), "consulente_id": list(consulenti or [])},
+    )
     rows_by_sheet = {"Sedi": site_rows, "Conti": account_rows, "Fondi": fund_rows}
     for name, fields in SHEET_SPECS.items():
         _write_sheet(workbook, name, fields, rows_by_sheet[name], include_example=include_example)
@@ -302,6 +331,12 @@ def _validate_value(field, value):
     if value in (None, ""):
         if field["required"]:
             raise ValueError("campo obbligatorio")
+        if field.get("validation") == "boolean" and field["name"] != "attivo":
+            # is_principale/is_predefinito/is_active sono bool non Optional negli
+            # schemi Sedi/Conti: None fa fallire la validazione Pydantic con un
+            # errore che punta al campo sbagliato. "attivo" resta escluso: ha
+            # gia' un default a True gestito subito dopo in parse_workbook.
+            return False
         return None
     validation = field.get("validation") or ""
     text_value = _text(value)
@@ -377,7 +412,7 @@ def _resolve_foreign_key(db, field, value):
     return value
 
 
-def _sheet_rows(worksheet, fields, *, legacy=False):
+def _match_columns(worksheet, fields, *, legacy=False):
     header_map = field_by_label(fields)
     if legacy:
         header_map.update({label.casefold(): {"name": name, "label": label, "required": False, "validation": None, "type": "text", "resolver": None} for label, name in LEGACY_HEADERS.items()})
@@ -386,6 +421,24 @@ def _sheet_rows(worksheet, fields, *, legacy=False):
         field = header_map.get(_text(cell.value).casefold())
         if field:
             columns[cell.column] = field
+    return columns
+
+
+def _is_pristine_example_row(sheet_name, values):
+    """La riga gialla di esempio (riga 3) non va importata SOLO se e' ancora
+    quella: se l'utente ha scritto la propria azienda sopra (invece che dalla
+    riga 4 in poi, errore naturale visto che e' la prima riga apparentemente
+    libera), il confronto per posizione la scartava in silenzio senza dirlo.
+    Confronto per contenuto: scarta solo se combacia ESATTAMENTE l'esempio.
+    """
+    example = EXAMPLES.get(sheet_name)
+    if not example:
+        return False
+    return all(_text(values.get(key)) == _text(example.get(key, "")) for key in example if key in values)
+
+
+def _sheet_rows(worksheet, fields, *, legacy=False):
+    columns = _match_columns(worksheet, fields, legacy=legacy)
     has_format_row = any("obbligatorio" in _text(cell.value).casefold() or "facoltativo" in _text(cell.value).casefold() for cell in worksheet[2])
     start_row = 3 if has_format_row else 2
     for row_number in range(start_row, worksheet.max_row + 1):
@@ -394,7 +447,7 @@ def _sheet_rows(worksheet, fields, *, legacy=False):
             continue
         if _text(values.get("ragione_sociale")) == EXAMPLE_NAME:
             continue
-        if row_number == 3 and has_format_row:
+        if row_number == 3 and has_format_row and _is_pristine_example_row(worksheet.title, values):
             continue
         yield row_number, values, {field["name"]: get_column_letter(column) for column, field in columns.items()}
 
@@ -410,6 +463,29 @@ def parse_workbook(content: bytes, db: Session):
     warnings = []
     if is_legacy:
         warnings.append("Formato legacy rilevato: questo formato è deprecato; scarica il nuovo template multi-foglio con il foglio Sedi.")
+
+    main_fields_preview = importable_company_fields()
+    if not _match_columns(worksheet, main_fields_preview, legacy=is_legacy):
+        intestazioni_trovate = [_text(cell.value) for cell in worksheet[1] if _text(cell.value)]
+        errors.append({
+            "sheet": worksheet.title,
+            "row": 1,
+            "column": "",
+            "message": (
+                "Nessuna colonna riconosciuta nella riga di intestazione "
+                f"({', '.join(intestazioni_trovate) if intestazioni_trovate else 'riga vuota'}). "
+                "Scarica il template aggiornato con 'Scarica template Excel' e compila da quello: "
+                "le intestazioni devono corrispondere esattamente (es. 'Ragione sociale', 'Partita IVA')."
+            ),
+        })
+        return {
+            "format": "legacy" if is_legacy else "multi_sheet",
+            "present_sheets": present_sheets,
+            "warnings": warnings,
+            "errors": errors,
+            "rows": [],
+            "summary": {"create": 0, "update": 0, "reject": 1, "valid": 0},
+        }
 
     companies = []
     by_piva = {}
